@@ -115,17 +115,21 @@ static int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, c
         return NOTOK;
     }
 
+    /* A zero extent is legal and yields a zero-length array: that is how an
+       empty stack is represented, and it matches numpy's np.zeros(0). */
     size_t array_length = 1;
     for (uint32_t i = 0; i < ndim; i++) {
         uint32_t s = shape[i];
-        if (s == 0 || array_length > CSN_MAX_ELEMS / s) {
+        if (s != 0 && array_length > CSN_MAX_ELEMS / s) {
             return NOTOK;
         }
         array_length *= s;
         array->shape[i] = s;
     }
 
-    array->capacity = array_length * 2;
+    /* Always keep room for at least one element, so data is never NULL and
+       the first push into an empty array needs no special case. */
+    array->capacity = array_length > 0 ? array_length * 2 : 1;
     double *array_data = csound->Calloc(csound, sizeof(double) * array->capacity);
     if (array_data == NULL) {
         return NOTOK;
@@ -139,7 +143,6 @@ static int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, c
     array->size = array_length;
     array->ndim = ndim;
     array->array_id = array_id;
-    array->is_empty = true;
 
     return OK;
 }

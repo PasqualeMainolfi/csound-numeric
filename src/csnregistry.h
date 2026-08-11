@@ -40,7 +40,7 @@ typedef struct {
     uint32_t ndim;
     size_t strides[CSN_MAX_DIMS];
     uint32_t shape[CSN_MAX_DIMS];
-    bool is_empty;
+    /* Emptiness is derived: size == 0. No flag to keep in sync. */
 } CSN_ARRAY;
 
 typedef struct {

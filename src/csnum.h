@@ -6,121 +6,6 @@
 #include "csnregistry.h"
 
 
-/*
-1. CREATION:
-    X empty
-    X zeros
-    X ones
-    X full
-    X empty_like
-    X zeros_like
-    X ones_like
-    X full_like
-    X arange
-    X linspace
-    X logspace
-    X geomspace
-    X identity (see matrix)
-
-2. SHAPE
-    X size
-    X dims
-    X shape
-    X reshape
-    X flatten
-    X transpose
-    X flip
-    X roll
-    X rollaxis
-    ? stack
-    ? vstack
-    ? hstack
-    ? split
-    ? repeat
-
-3. INDEXING
-    - get (-> get at index)
-    - push
-    - pop
-    - put
-    - concatenate
-    - pad
-    - remove
-    - slice
-    - select
-    - clip
-    - where
-    - nonzero
-    - unique
-    - is_empty
-
-4. REDUCTION
-    - sum
-    - prod
-    - mean
-    - median
-    - min
-    - max
-    - argmin
-    - argmax
-    - std
-    - var
-    - all
-    - any
-    - count_nonzero
-
-5. VECTIORIAL
-    - dot
-    - inner
-    - outer
-    - norm
-    - normalize
-    - distance
-    - angle
-    - project
-    - reject
-    - reflect
-    - cross (only 3D)
-
-6. ELEMENTS
-    - add
-    - subtract
-    - multiply
-    - divide
-    - power
-    - sqrt
-    - abs
-    - exp
-    - log
-    - log10
-    - sin
-    - cos
-    - tan
-    - floor
-    - ceil
-    - round
-
-7. NUMERIC ANALYSIS
-    - diff
-    - gradient
-    - cumsum
-    - cumprod
-
-8. REALTIME STATS
-    - movmean
-    - movmedian
-    - movstd
-
-8. MATIRX
-    - matmul
-    - transpose
-    - trace
-    - diag
-    - identity
-    - outer
- */
-
-
 typedef struct {
     OPDS h;
     // outputs
@@ -172,22 +57,6 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
-    // inputs
-    MYFLT *handle;
-} CSN_SIZE_DIMS;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    ARRAYDAT *shape;
-    // inputs
-    MYFLT *handle;
-} CSN_SHAPE;
-
-typedef struct {
-    OPDS h;
-    // outputs
     MYFLT *handle;
     // inputs
     MYFLT *start;
@@ -210,6 +79,22 @@ typedef struct {
     CSN_ARRAY *array;
     uint32_t handle_id;
 } CSN_IDENTITY;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    MYFLT *handle;
+} CSN_SIZE_DIMS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    ARRAYDAT *shape;
+    // inputs
+    MYFLT *handle;
+} CSN_SHAPE;
 
 typedef struct {
     OPDS h;
@@ -260,16 +145,88 @@ typedef struct {
 typedef struct {
     OPDS h;
     // ouputs
+    MYFLT *value;
+    // inputs
+    MYFLT *source_handle;
+    ARRAYDAT *indexes; // get -> indexes must be the same as dims
+} CSN_GET;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *source_handle;
+    ARRAYDAT *indexes; // set -> indexes must be the same as dims
+    MYFLT *value;      // set -> indexes must be the same as dims
+} CSN_SET;
+
+typedef struct {
+    OPDS h;
+    // ouputs
     MYFLT *handle;
     // inputs
     MYFLT *source_handle;
-    ARRAYDAT *indexes;
-} CSN_GET;
+    MYFLT *axis;
+    MYFLT *index;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_TAKE;
+
+/* Two-argument take: flat index in, scalar out. No handle, so no deinit. */
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *index;
+} CSN_TAKE_FLAT;
+
+typedef struct {
+    OPDS h;
+    // ouputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *axis;
+    MYFLT *start;
+    MYFLT *stop;
+    MYFLT *step;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_GET_SLICE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *axis;
+    MYFLT *start;
+    MYFLT *stop;
+    MYFLT *step;
+    MYFLT *data_handle;
+} CSN_SET_SLICE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *in_value; // push at the top
+    MYFLT *index;    // only for put (at index)
+} CSN_PUSH;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *out_value;
+    // inputs
+    MYFLT *source_handle; // remove the top element
+    MYFLT *index;         // only for remove (at the index)
+} CSN_POP;
 
 
-
-// CSN-INTERFACE
-
+// CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_ones_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -281,15 +238,17 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p);
 
 int32_t free_csnarray(CSOUND *csound, CSN_FREE *p);
 
-int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p);
-int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p);
-int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p);
-
 int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_identity(CSOUND *csound, CSN_IDENTITY *p);
+
+// SHAPE
+int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p);
+int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p);
+int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p);
+int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p);
 
 int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_reshape_in(CSOUND *csound, CSN_RESHAPE_IN *p);
@@ -303,5 +262,21 @@ int32_t csnarray_roll(CSOUND *csound, CSN_FLIP_ROLL *p);
 int32_t csnarray_roll_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
 int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p);
 int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
+
+// INDEXING
+int32_t csnarray_get(CSOUND *csound, CSN_GET *p);
+int32_t csnarray_set(CSOUND *csound, CSN_SET *p);
+int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p);
+int32_t csnarray_take_flat(CSOUND *csound, CSN_TAKE_FLAT *p);
+int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p);
+int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p);
+int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p);
+int32_t csnarray_pop(CSOUND *csound, CSN_POP *p);
+int32_t csnarray_insert(CSOUND *csound, CSN_PUSH *p);
+int32_t csnarray_remove(CSOUND *csound, CSN_POP *p);
+
+
+
+
 
 #endif
