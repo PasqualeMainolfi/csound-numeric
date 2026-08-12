@@ -110,7 +110,7 @@ void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim
     }
 }
 
-static int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id) {
+int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id) {
     if (ndim == 0 || ndim > CSN_MAX_DIMS || shape == NULL) {
         return NOTOK;
     }
@@ -127,10 +127,16 @@ static int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, c
         array->shape[i] = s;
     }
 
+    /* Every array built so far holds plain reals. ITEM_TYPE doubles as the
+       item's width in doubles (REAL == 1), so the byte math below is already
+       correct once COMPLEX arrays start being allocated. */
+    array->itype = REAL;
+
     /* Always keep room for at least one element, so data is never NULL and
-       the first push into an empty array needs no special case. */
+       the first push into an empty array needs no special case. capacity
+       counts items, not doubles. */
     array->capacity = array_length > 0 ? array_length * 2 : 1;
-    double *array_data = csound->Calloc(csound, sizeof(double) * array->capacity);
+    double *array_data = csound->Calloc(csound, sizeof(double) * array->capacity * array->itype);
     if (array_data == NULL) {
         return NOTOK;
     }
@@ -205,4 +211,15 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
     }
 
     return OK;
+}
+
+/* Copies the payload and the layout, but not ndim: both callers preserve the
+   rank and only reshape one axis. A caller that changes rank must set it. */
+void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
+    memcpy(dest->data, src->data, sizeof(double) * src->size * src->itype);
+    memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
+    memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
+    dest->size = src->size;
+    dest->capacity = src->capacity;
+    dest->itype = src->itype;
 }

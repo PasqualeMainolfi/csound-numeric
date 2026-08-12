@@ -32,6 +32,12 @@ typedef enum {
     ACTIVE_SLOT
 } CSN_SLOT_STATE;
 
+typedef size_t ITEM_TYPE;
+enum {
+    REAL = 1,
+    COMPLEX
+};
+
 typedef struct {
     uint32_t array_id;
     double *data;
@@ -41,6 +47,7 @@ typedef struct {
     size_t strides[CSN_MAX_DIMS];
     uint32_t shape[CSN_MAX_DIMS];
     /* Emptiness is derived: size == 0. No flag to keep in sync. */
+    ITEM_TYPE itype; // needed for complex
 } CSN_ARRAY;
 
 typedef struct {
@@ -66,5 +73,6 @@ int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, ui
 /* Frees the array the slot owns; the caller must not keep its own pointer. */
 int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot);
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim);
-
+int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id);
+void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
 #endif

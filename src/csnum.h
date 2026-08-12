@@ -6,6 +6,22 @@
 #include "csnregistry.h"
 
 
+typedef enum {
+    GREATER_THAN = 0,
+    LESS_THAN,
+    EQUAL,
+    NOT_EQUAL,
+    NONZERO,
+    /* No comparison can select a NaN — ordered ones and EQUAL are false, and
+       NOT_EQUAL is true for everything. This mode is the only way to find them. */
+    IS_NAN
+} CSN_COMPARE_MODE;
+
+typedef struct {
+    double value;
+    uint32_t linear_index;
+} ARRAY_ELEMENT;
+
 typedef struct {
     OPDS h;
     // outputs
@@ -156,7 +172,7 @@ typedef struct {
     // inputs
     MYFLT *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
-    MYFLT *value;      // set -> indexes must be the same as dims
+    MYFLT *value;
 } CSN_SET;
 
 typedef struct {
@@ -201,11 +217,11 @@ typedef struct {
     OPDS h;
     // inputs
     MYFLT *source_handle;
+    MYFLT *data_handle;
     MYFLT *axis;
     MYFLT *start;
     MYFLT *stop;
     MYFLT *step;
-    MYFLT *data_handle;
 } CSN_SET_SLICE;
 
 typedef struct {
@@ -225,6 +241,99 @@ typedef struct {
     MYFLT *index;         // only for remove (at the index)
 } CSN_POP;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *data_handle; // in block
+    MYFLT *axis;
+    MYFLT *index;
+} CSN_INSERT_BLOCK;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *data_handle;
+    MYFLT *axis; // only for .block
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_CONCAT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *before;
+    MYFLT *after;
+    MYFLT *value;
+    MYFLT *axis; // axis -> NULL default all axes
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_PAD;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *before;
+    MYFLT *after;
+    MYFLT *value;
+    MYFLT *axis; // axis -> NULL default all axes
+} CSN_PAD_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *min;
+    MYFLT *max;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_CLIP;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *min;
+    MYFLT *max;
+} CSN_CLIP_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle; // array source
+    MYFLT *data_handle;   // array of values (source array will compared with data_handle)
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_ARGWHERE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle; // array source
+    MYFLT *cmp_value;     // only for gt, lt, ne
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_COMPARE;
+
+
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -232,12 +341,9 @@ int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_ones_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_full_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_csnarray_like(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
-
 int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p);
-
 int32_t free_csnarray(CSOUND *csound, CSN_FREE *p);
-
 int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p);
@@ -249,7 +355,6 @@ int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p);
 int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p);
 int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p);
 int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p);
-
 int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_reshape_in(CSOUND *csound, CSN_RESHAPE_IN *p);
 int32_t csnarray_flatten(CSOUND *csound, CSN_RESHAPE *p);
@@ -274,9 +379,25 @@ int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p);
 int32_t csnarray_pop(CSOUND *csound, CSN_POP *p);
 int32_t csnarray_insert(CSOUND *csound, CSN_PUSH *p);
 int32_t csnarray_remove(CSOUND *csound, CSN_POP *p);
-
-
-
+int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p);
+int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p);
+int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p);
+int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p);
+int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p);
+int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p);
+int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p);
+int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p);
+int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_argnonzero(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
+int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
+int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
+int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
+int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
+int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
+int32_t csnarray_count_equal(CSOUND *csound, CSN_COMPARE *p);   // return count value
+int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COMPARE *p); // return count value
+int32_t csnarray_count_nan(CSOUND *csound, CSN_COMPARE *p);     // return count value
 
 
 #endif

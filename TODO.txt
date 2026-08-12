@@ -23,30 +23,31 @@
     X flip
     X roll
     X rollaxis
-    ? stack
-    ? vstack
-    ? hstack
-    ? split
-    ? repeat
 
 3. INDEXING
-    X get (-> get at index)
-    X set
-    X take
-    X slice
-    X set_slice
-    X push
-    X pop
-    - insert
-    - remove
-    - concatenate
-    - pad
-    - select
-    - clip
-    - where
-    - nonzero
-    - unique
-    - is_empty
+    X get (-> get at index) (1-D)
+    X set (1-D)
+    X take (N-D)
+    X slice (N-D)
+    X set_slice (N-D)
+    X push (1-D)
+    X pop (1-D)
+    X insert (N-D)
+    X remove (N-D)
+    X concat
+    X pad
+    X clip
+    X argwhere -> return index in 2D arr -> [[index, ndim], ...]
+    X argnonzero -> return index in 2D arr
+    X argunique -> return index in 2D arr
+    X argisnan -> return index in 2D arr
+    X greaterthan (gt) -> return value in 1D arr
+    X lessthan (lt) -> return value in 1D arr
+    X notequal (ne) -> return value in 1D arr
+    X unique (uq) -> return value in 1D arr
+    X countequal (eq) -> return value in 1D arr
+    X countnonzero (nz) -> return value in 1D arr
+    X countnan (nn) -> return value in 1D arr
 
 4. REDUCTION
     - sum
@@ -61,7 +62,6 @@
     - var
     - all
     - any
-    - count_nonzero
 
 5. VECTIORIAL
     - dot
