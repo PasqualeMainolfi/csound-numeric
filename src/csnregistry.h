@@ -57,10 +57,16 @@ typedef struct {
 } CSN_SLOT;
 
 typedef struct {
+    uint64_t state;
+    uint64_t inc;
+} PCG32_STATE;
+
+typedef struct {
     CSN_SLOT slots[CSN_MAX_SLTS];
     uint32_t capacity;
     uint32_t active_count;
     void *mutex;
+    PCG32_STATE rng; // random generator
 } CSN_REGISTRY;
 
 
@@ -75,4 +81,7 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot);
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim);
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id);
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
+void pcg32_random_init(PCG32_STATE *rng);
+double pcg32_random(PCG32_STATE *rng);
+
 #endif

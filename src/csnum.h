@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include "csnregistry.h"
 
-
 typedef enum {
     GREATER_THAN = 0,
     LESS_THAN,
@@ -33,6 +32,50 @@ typedef enum {
     RED_ANY
 } CSN_REDUCTION_MODE;
 
+typedef enum {
+    CSN_ADD_HH = 0,
+    CSN_ADD_HS,
+    CSN_ADD_SH,
+    CSN_SUB_HH,
+    CSN_SUB_HS,
+    CSN_SUB_SH,
+    CSN_MUL_HH,
+    CSN_MUL_HS,
+    CSN_MUL_SH,
+    CSN_DIV_HH,
+    CSN_DIV_HS,
+    CSN_DIV_SH,
+    CSN_POW_HH,
+    CSN_POW_HS,
+    CSN_POW_SH,
+    CSN_LOG_HH,
+    CSN_LOG_HS,
+    CSN_LOG_SH,
+} CSN_BINOP_MODE;
+
+typedef enum {
+    CSN_SQRT = 0,
+    CSN_CBRT,
+    CSN_ABS,
+    CSN_SIGN,
+    CSN_EXP,
+    CSN_SIN,
+    CSN_COS,
+    CSN_TAN,
+    CSN_ASIN,
+    CSN_ACOS,
+    CSN_ATAN,
+    CSN_SINH,
+    CSN_COSH,
+    CSN_TANH,
+    CSN_ASINH,
+    CSN_ACOSH,
+    CSN_ATANH,
+    CSN_FLOOR,
+    CSN_CEIL,
+    CSN_ROUND
+} CSN_UNARY_MODE;
+
 typedef struct {
     double value;
     uint32_t linear_index;
@@ -57,8 +100,24 @@ typedef struct {
     // outputs
     MYFLT *handle;
     // inputs
+    ARRAYDAT *shape;
+    MYFLT *min;
+    MYFLT *max;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_ARR_RND_INIT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
     MYFLT *handle_from;
     MYFLT *value;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
 } CSN_ARR_INIT_LIKE;
 
 typedef struct {
@@ -362,14 +421,76 @@ typedef struct {
     uint32_t handle_id;
 } CSN_REDUCTION;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle_a;
+    MYFLT *source_handle_b;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_BINOP_HH;
+
+/* The three binop structs share this prefix and tail, which is what lets one
+   deinit and one helper serve all of them. Only the order of the two input
+   slots differs, so those are always passed explicitly, never read off a cast. */
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *arg_a;
+    MYFLT *arg_b;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_BINOP_COMMON;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle;
+    MYFLT *scalar;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_BINOP_HS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *scalar;
+    MYFLT *source_handle;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_BINOP_SH;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle;
+    // inputs
+    MYFLT *source_handle;
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_UNARYOP;
 
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_ones_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
+int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
 int32_t create_full_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
-int32_t create_csnarray_like(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
+int32_t create_random_csnarray(CSOUND *csound, CSN_ARR_RND_INIT *p);
 int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p);
 int32_t free_csnarray(CSOUND *csound, CSN_FREE *p);
@@ -444,5 +565,41 @@ int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p);
 
 // ELEMENTS
+int32_t csnarray_add_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_add_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_subtract_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_subtract_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_subtract_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_mul_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_mul_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_div_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_div_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_div_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_pow_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_pow_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_pow_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_log_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_log_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_log_hs(CSOUND *csound, CSN_BINOP_HS *p); // use base
+int32_t csnarray_sqrt(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_cbrt(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_abs(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_exp(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sin(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_cos(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_tan(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_asin(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_acos(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_atan(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sinh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_cosh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_tanh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_asinh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_acosh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_atanh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_floor(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_ceil(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_round(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sign(CSOUND *csound, CSN_UNARYOP *p);
 
 #endif

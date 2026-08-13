@@ -2,6 +2,7 @@
 #include <csdl.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 
 static int32_t reset_registry(CSOUND *csound, void *userdata) {
@@ -61,6 +62,8 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
         csound->DestroyGlobalVariable(csound, CSN_REGISTRY_NAME);
         return NULL;
     }
+
+    pcg32_random_init(&reg->rng);
 
     if (csound->RegisterResetCallback(csound, reg, reset_registry) != OK) {
         csound->DestroyMutex(reg->mutex);
@@ -222,4 +225,27 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
     dest->size = src->size;
     dest->capacity = src->capacity;
     dest->itype = src->itype;
+}
+
+void pcg32_random_init(PCG32_STATE *rng) {
+    /* time() only moves once a second and inc was a fixed constant, so two
+       Csound instances launched together produced the identical stream — very
+       audible when the arrays feed noise. The registry's own address separates
+       the sequences. */
+    uintptr_t tag = (uintptr_t) rng;
+    rng->state = (uint64_t) time(NULL) ^ ((uint64_t) tag * 0x9E3779B97F4A7C15ULL);
+    rng->inc = (((uint64_t) tag) << 1u) | 1u;
+
+    /* PCG's seeding step: one advance so the first draw is properly mixed
+       rather than a thin function of the seed. */
+    (void) pcg32_random(rng);
+}
+
+double pcg32_random(PCG32_STATE *rng) {
+    uint64_t oldstate = rng->state;
+    rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
+    uint32_t xorshifted = (uint32_t) (((oldstate >> 18u) ^ oldstate) >> 27u);
+    uint32_t rot = oldstate >> 59u;
+    uint32_t gen = (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+    return (double) gen / 4294967296.0;
 }

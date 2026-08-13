@@ -12,6 +12,8 @@
     X logspace
     X geomspace
     X identity (see matrix)
+    - random
+    - randint
 
 2. SHAPE
     X size
@@ -65,22 +67,22 @@
     X any
 
 5. ELEMENTS
-    - add
-    - subtract
-    - multiply
-    - divide
-    - power
-    - sqrt
-    - abs
-    - exp
-    - log
-    - log10
-    - sin
-    - cos
-    - tan
-    - floor
-    - ceil
-    - round
+    X add
+    X subtract
+    X multiply
+    X divide
+    X power
+    X sqrt
+    X cbrt
+    X abs
+    X exp
+    X log
+    X sin
+    X cos
+    X tan
+    X floor
+    X ceil
+    X round
 
 6. VECTIORIAL
     - dot
