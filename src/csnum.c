@@ -1,5 +1,6 @@
 #include "csnum.h"
 #include "csnregistry.h"
+#include <float.h>
 #include <csdl.h>
 #include <math.h>
 #include <stddef.h>
@@ -102,6 +103,10 @@ static int32_t csnarray_argwhere_deinit(CSOUND *csound, CSN_ARGWHERE *p) {
 }
 
 static int32_t csnarray_compare_deinit(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle_id, &p->array, &p->h);
+}
+
+static int32_t csnarray_reduction_deinit(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_deinit_by_handle(csound, &p->handle_id, &p->array, &p->h);
 }
 
@@ -2734,8 +2739,7 @@ int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p) {
     return csnarray_argselect_helper(csound, p, IS_NAN);
 }
 
-
-static int compare_double(const void *a, const void *b) {
+static int compare_double_from_array_elem(const void *a, const void *b) {
     ARRAY_ELEMENT x = *(const ARRAY_ELEMENT *) a;
     ARRAY_ELEMENT y = *(const ARRAY_ELEMENT *) b;
     double x_value = x.value;
@@ -2743,18 +2747,18 @@ static int compare_double(const void *a, const void *b) {
     if (isnan(x_value) && isnan(y_value)) return 0;
     if (isnan(x_value)) return 1;
     if (isnan(y_value)) return -1;
-    if (x.value < y.value) return -1;
-    if (x.value > y.value) return 1;
+    if (x_value < y_value) return -1;
+    if (x_value > y_value) return 1;
     return 0;
 }
 
 static size_t count_unique(ARRAY_ELEMENT *temp, size_t size) {
-    qsort(temp, size, sizeof(ARRAY_ELEMENT), compare_double);
+    qsort(temp, size, sizeof(ARRAY_ELEMENT), compare_double_from_array_elem);
     size_t count = 0;
     for (size_t i = 0; i < size; ++i) {
         /* Same equality the sort used, so NaNs collapse to one entry instead
            of surviving as duplicates: `NaN != NaN` would always be true. */
-        if (i == 0 || compare_double(&temp[i], &temp[i - 1]) != 0)
+        if (i == 0 || compare_double_from_array_elem(&temp[i], &temp[i - 1]) != 0)
             temp[count++] = temp[i];
     }
     return count;
@@ -2982,6 +2986,601 @@ int32_t csnarray_count_nan(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_count_helper(csound, p, IS_NAN);
 }
 
+static void init_value_for_reduction(double *value, CSN_REDUCTION_MODE mode) {
+    switch (mode) {
+        case RED_SUM:
+        case RED_MEAN:
+        case RED_SUB:
+            *value = 0.0;
+            break;
+        case RED_PROD:
+            *value = 1.0;
+            break;
+        case RED_MIN:
+            *value = DBL_MAX;
+            break;
+        case RED_MAX:
+            *value = -DBL_MAX;
+            break;
+        case RED_ALL:
+            *value = 1.0;
+            break;
+        case RED_ANY:
+            *value = 0.0;
+            break;
+        default:
+            break;
+    }
+}
+
+/* NaN propagates, as in numpy: sum/prod/mean carry it through the arithmetic
+   on their own, min/max need it forced because IEEE comparisons against a NaN
+   are all false and would otherwise skip it, and all/any treat it as truthy
+   because it is nonzero. idx is the position within the reduction, which the
+   subtraction fold uses to seed from the first element. */
+static void dispatch_value_for_reduction(double *value, const double x, CSN_REDUCTION_MODE mode, size_t idx) {
+    switch (mode) {
+        case RED_SUM:
+        case RED_MEAN:
+            *value += x;
+            break;
+        case RED_PROD:
+            *value *= x;
+            break;
+        case RED_SUB:
+            *value = (idx == 0) ? x : *value - x;
+            break;
+        case RED_MIN:
+            if (isnan(x) || isnan(*value)) *value = NAN;
+            else if (x < *value) *value = x;
+            break;
+        case RED_MAX:
+            if (isnan(x) || isnan(*value)) *value = NAN;
+            else if (x > *value) *value = x;
+            break;
+        case RED_ALL:
+            if (x == 0.0) *value = 0.0;
+            break;
+        case RED_ANY:
+            if (x != 0.0) *value = 1.0;
+            break;
+        default:
+            break;
+    };
+}
+
+static void accumulate_reduction_axis_helper(double *value, CSN_ARRAY *out_arr, const CSN_ARRAY *source_arr, uint32_t *src_coords, const uint32_t *dst_coords, CSN_REDUCTION_MODE mode, uint32_t axis) {
+    init_value_for_reduction(value, mode);
+    for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
+            if (i == axis)
+                src_coords[i] = k;
+            else
+                src_coords[i] = dst_coords[j++];
+        }
+        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        dispatch_value_for_reduction(value, source_arr->data[off], mode, k);
+    }
+
+    /* The divisor is how many elements were folded, which lives on the source:
+       out_arr has one axis fewer, so out_arr->shape[axis] is a different
+       extent entirely, and reads past the rank when axis is the last one. */
+    (void) out_arr;
+    if (mode == RED_MEAN) *value /= (double) source_arr->shape[axis];
+}
+
+static void accumulate_reduction_scalar_helper(double *value, const CSN_ARRAY *source_arr, CSN_REDUCTION_MODE mode) {
+    init_value_for_reduction(value, mode);
+    for (size_t i = 0; i < source_arr->size; i++) {
+        dispatch_value_for_reduction(value, source_arr->data[i], mode, i);
+    }
+
+    if (mode == RED_MEAN) *value /= (double) source_arr->size;
+}
+
+static int32_t csnarray_accumulate_reduction(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] NULL registry");
+    }
+
+    uint32_t source_handle = (uint32_t) *p->source_handle;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    int32_t axis = (int32_t) *p->axis;
+    if (axis != -1 && (uint32_t) axis >= source_ndim) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    if (source_ndim <= 1 && axis > 0) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    /* min, max and the subtraction fold have no identity element to fall back
+       on, so an empty reduction has no answer. numpy raises here too. */
+    size_t reduced_extent = (axis == -1) ? source_arr->size : source_shape[axis];
+    if (reduced_extent == 0 && (mode == RED_MIN || mode == RED_MAX || mode == RED_SUB)) {
+        res = csound->InitError(csound, "[csnarray] Reduction of an empty array is undefined for min, max and sub");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    if (axis != -1) {
+        uint32_t new_shape[CSN_MAX_DIMS] = {0};
+        for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
+            if (i != (uint32_t) axis) new_shape[j++] = source_shape[i];
+        }
+
+        const uint32_t protect[1] = { source_handle };
+
+        if (create_csnarray_locked(csound, reg, &p->h, source_ndim - 1, new_shape, &p->array, &p->handle_id, p->handle, protect, 1U, &err) != OK) {
+            res = csound->InitError(csound, "[csnarray] %s", err);
+            goto done;
+        }
+
+        arr = p->array;
+    }
+
+    if (arr != NULL) {
+        for (size_t linear = 0; linear < arr->size; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+            double value = 0.0;
+            accumulate_reduction_axis_helper(&value, arr, source_arr, src_coords, dst_coords, mode, axis);
+            arr->data[linear] = value;
+        }
+    } else {
+        double value = 0;
+        accumulate_reduction_scalar_helper(&value, source_arr, mode);
+        *p->handle = (MYFLT) value;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_SUM);
+}
+
+int32_t csnarray_prod(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_PROD);
+}
+
+int32_t csnarray_sub(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_SUB);
+}
+
+int32_t csnarray_mean(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_MEAN);
+}
+
+int32_t csnarray_min(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_MIN);
+}
+
+int32_t csnarray_max(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_MAX);
+}
+
+int32_t csnarray_all(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_ALL);
+}
+
+int32_t csnarray_any(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, p, RED_ANY);
+}
+
+static int compare_double(const void *a, const void *b) {
+    double x_value = *(const double *) a;
+    double y_value = *(const double *) b;
+    if (isnan(x_value) && isnan(y_value)) return 0;
+    if (isnan(x_value)) return 1;
+    if (isnan(y_value)) return -1;
+    if (x_value < y_value) return -1;
+    if (x_value > y_value) return 1;
+    return 0;
+}
+
+// Welford algo
+static void stdvar_calculation_helper(double *value, uint32_t *src_coords, const uint32_t *dst_coords, const CSN_ARRAY *source_arr, uint32_t size, uint32_t axis, CSN_REDUCTION_MODE mode) {
+    double mean = 0.0;
+    double m_two = 0.0;
+    for (uint32_t k = 0; k < size; ++k) {
+        /* Place this slice's coordinates: k along the reduced axis, and the
+           destination's coordinates across the axes that survive. Without this
+           every output element would reduce the slice at the origin. */
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
+            src_coords[i] = (i == axis) ? k : dst_coords[j++];
+        }
+
+        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        double x = source_arr->data[off];
+        double delta = x - mean;
+        /* Welford divides by the running count, not the total. */
+        mean += delta / (double) (k + 1);
+        double delta_two = x - mean;
+        m_two += delta * delta_two;
+    }
+
+    double var = m_two / (double) size;
+    switch (mode) {
+        case RED_VAR:
+            *value = var;
+            break;
+        case RED_STD:
+            *value = sqrt(var);
+            break;
+        default:
+            break;
+    }
+}
+
+static void stdvar_calculation_scalar_helper(double *value, const CSN_ARRAY *source_arr, uint32_t size, CSN_REDUCTION_MODE mode) {
+    double mean = 0.0;
+    double m_two = 0.0;
+    for (uint32_t k = 0; k < size; ++k) {
+        double x = source_arr->data[k];
+        double delta = x - mean;
+        /* Welford divides by the running count, not the total. */
+        mean += delta / (double) (k + 1);
+        double delta_two = x - mean;
+        m_two += delta * delta_two;
+    }
+
+    double var = m_two / (double) size;
+    switch (mode) {
+        case RED_VAR:
+            *value = var;
+            break;
+        case RED_STD:
+            *value = sqrt(var);
+            break;
+        default:
+            break;
+    }
+}
+
+static int32_t csnarray_stdvar_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] NULL registry");
+    }
+
+    uint32_t source_handle = (uint32_t) *p->source_handle;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    int32_t axis = (int32_t) *p->axis;
+    if (axis != -1 && (uint32_t) axis >= source_ndim) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    if (source_ndim <= 1 && axis > 0) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    if (axis != -1) {
+        uint32_t new_shape[CSN_MAX_DIMS] = {0};
+        for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
+            if (i != (uint32_t) axis) new_shape[j++] = source_shape[i];
+        }
+
+        const uint32_t protect[1] = { source_handle };
+
+        if (create_csnarray_locked(csound, reg, &p->h, source_ndim - 1, new_shape, &p->array, &p->handle_id, p->handle, protect, 1U, &err) != OK) {
+            res = csound->InitError(csound, "[csnarray] %s", err);
+            goto done;
+        }
+
+        arr = p->array;
+    }
+
+    if (arr != NULL) {
+        for (size_t linear = 0; linear < arr->size; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+            uint32_t axis_size = source_arr->shape[axis];
+            double value = 0.0;
+            stdvar_calculation_helper(&value, src_coords, dst_coords, source_arr, axis_size, axis, mode);
+            arr->data[linear] = value;
+        }
+    } else {
+        size_t size = source_arr->size;
+        double value = 0;
+        stdvar_calculation_scalar_helper(&value, source_arr, size, mode);
+        *p->handle = (MYFLT) value;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_stdvar_helper(csound, p, RED_STD);
+}
+
+int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_stdvar_helper(csound, p, RED_VAR);
+}
+
+/* True when x should displace the incumbent. A NaN wins outright and, once
+   seen, nothing displaces it: numpy reports the position of the first NaN. */
+static inline bool argminmax_better(double x, double best, bool best_is_nan, CSN_REDUCTION_MODE mode) {
+    if (best_is_nan) return false;
+    if (isnan(x)) return true;
+    return (mode == RED_ARGMIN) ? (x < best) : (x > best);
+}
+
+static void dispatch_argminmax(const CSN_ARRAY *source_arr, uint32_t axis, uint32_t *src_coords, const uint32_t *dst_coords, CSN_REDUCTION_MODE mode) {
+    for (uint32_t i = 0, j = 0; i < source_arr->ndim; i++) {
+        if (i == axis) continue;
+        src_coords[i] = dst_coords[j++];
+    }
+
+    uint32_t best_index = 0;
+    double best_value = (mode == RED_ARGMIN) ? DBL_MAX : -DBL_MAX;
+    bool best_is_nan = false;
+
+    for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
+        src_coords[axis] = k;
+        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        double x = source_arr->data[off];
+        if (argminmax_better(x, best_value, best_is_nan, mode)) {
+            best_value = x;
+            best_is_nan = isnan(x) != 0;
+            best_index = k;
+        }
+    }
+    src_coords[axis] = best_index;
+}
+
+static void dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, uint32_t *src_coords, CSN_REDUCTION_MODE mode) {
+    uint32_t best_index = 0;
+    double best_value = (mode == RED_ARGMIN) ? DBL_MAX : -DBL_MAX;
+
+    bool best_is_nan = false;
+    for (size_t linear = 0; linear < source_arr->size; ++linear) {
+        double x = source_arr->data[linear];
+        if (argminmax_better(x, best_value, best_is_nan, mode)) {
+            best_value = x;
+            best_is_nan = isnan(x) != 0;
+            best_index = (uint32_t) linear;
+        }
+    }
+
+    from_linear_to_coords(src_coords, source_arr->shape, best_index, source_arr->ndim);
+}
+
+static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] NULL registry");
+    }
+
+    uint32_t source_handle = (uint32_t) *p->source_handle;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    int32_t axis = (int32_t) *p->axis;
+    if (axis != -1 && (uint32_t) axis >= source_ndim) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    if (source_ndim <= 1 && axis > 0) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    /* The shape of the space being reduced over: the source minus the axis.
+       Destination coordinates are decomposed against this, not against the
+       result's own (count, ndim) layout. */
+    size_t count = 1;
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    if (axis != -1) {
+        for (uint32_t i = 0; i < source_ndim; i++) {
+            if (i != (uint32_t) axis) {
+                reduced_shape[reduced_ndim++] = source_shape[i];
+                count *= source_shape[i];
+            }
+        }
+    }
+
+    /* One row of coordinates per reduced position, so the result is always
+       2-D regardless of the source's rank. */
+    uint32_t new_shape[2] = { (uint32_t) count, source_ndim };
+    const uint32_t protect[1] = { source_handle };
+
+    if (create_csnarray_locked(csound, reg, &p->h, 2U, new_shape, &p->array, &p->handle_id, p->handle, protect, 1U, &err) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    if (axis != -1) {
+        for (size_t linear = 0; linear < count; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+            dispatch_argminmax(source_arr, axis, src_coords, dst_coords, mode);
+            for (uint32_t d = 0; d < source_ndim; ++d) {
+                arr->data[linear * source_ndim + d] = (double) src_coords[d];
+            }
+        }
+    } else {
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+        dispatch_argminmax_all_axes(source_arr, src_coords, mode);
+        for (uint32_t d = 0; d < source_ndim; ++d) {
+            arr->data[d] = (double) src_coords[d];
+        }
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+/* Sorts scratch in place and returns the median. A NaN anywhere makes the
+   result NaN, as in numpy, and the early return also spares compare_double
+   from having to order NaNs. */
+static double median_of_scratch(double *scratch, size_t n) {
+    if (n == 0) return NAN;
+
+    for (size_t i = 0; i < n; ++i) {
+        if (isnan(scratch[i])) return NAN;
+    }
+
+    qsort(scratch, n, sizeof(double), compare_double);
+
+    if (n % 2 == 1) return scratch[n / 2];
+    return 0.5 * (scratch[n / 2 - 1] + scratch[n / 2]);
+}
+
+int32_t csnarray_median(CSOUND *csound, CSN_REDUCTION *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] NULL registry");
+    }
+
+    uint32_t source_handle = (uint32_t) *p->source_handle;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    double *scratch = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    int32_t axis = (int32_t) *p->axis;
+    if (axis != -1 && (uint32_t) axis >= source_ndim) {
+        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        goto done;
+    }
+
+    /* Median needs a sorted copy, so it cannot stream like the folds do. */
+    size_t run = (axis == -1) ? source_arr->size : source_shape[axis];
+    scratch = csound->Calloc(csound, sizeof(double) * (run > 0 ? run : 1));
+    if (scratch == NULL) {
+        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        goto done;
+    }
+
+    if (axis == -1) {
+        memcpy(scratch, source_arr->data, sizeof(double) * run);
+        *p->handle = (MYFLT) median_of_scratch(scratch, run);
+        goto done;
+    }
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
+        if (i != (uint32_t) axis) new_shape[j++] = source_shape[i];
+    }
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim - 1, new_shape, &p->array, &p->handle_id, p->handle, protect, 1U, &err) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    for (size_t linear = 0; linear < arr->size; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+
+        for (uint32_t k = 0; k < run; ++k) {
+            for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
+                src_coords[i] = (i == (uint32_t) axis) ? k : dst_coords[j++];
+            }
+            scratch[k] = source_arr->data[from_coords_to_offset(src_coords, source_arr->strides, source_ndim)];
+        }
+
+        arr->data[linear] = median_of_scratch(scratch, run);
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    if (scratch != NULL) {
+        csound->Free(csound, scratch);
+    }
+    return res;
+}
+
+int32_t csnarray_argmin(CSOUND *csound, CSN_REDUCTION *p) {
+    return argminmax_helper(csound, p, RED_ARGMIN);
+}
+
+int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p) {
+    return argminmax_helper(csound, p, RED_ARGMAX);
+}
+
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
@@ -3052,6 +3651,19 @@ static OENTRY localops[] = {
     { "csncnteq",           S(CSN_COMPARE),      0, "i",   "ii",     (SUBR) csnarray_count_equal,    NULL, NULL,                                 NULL, 0 },
     { "csncntnz",           S(CSN_COMPARE),      0, "i",   "i",      (SUBR) csnarray_count_nonzero,  NULL, NULL,                                 NULL, 0 },
     { "csncntnan",          S(CSN_COMPARE),      0, "i",   "i",      (SUBR) csnarray_count_nan,      NULL, NULL,                                 NULL, 0 },
+    { "csnsum",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_sum,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnprod",            S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_prod,           NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnsub",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_sub,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnmean",            S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_mean,           NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnmin",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_min,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnmax",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_max,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnall",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_all,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnany",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_any,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnmedian",          S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_median,         NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnstd",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_std,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnvar",             S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_var,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnargmin",          S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_argmin,         NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
+    { "csnargmax",          S(CSN_REDUCTION),    0, "i",   "ij",     (SUBR) csnarray_argmax,         NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
 };
 
 

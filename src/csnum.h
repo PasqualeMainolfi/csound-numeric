@@ -17,6 +17,22 @@ typedef enum {
     IS_NAN
 } CSN_COMPARE_MODE;
 
+typedef enum {
+    RED_SUM = 0,
+    RED_PROD,
+    RED_SUB,
+    RED_MEAN,
+    RED_MEDIAN,
+    RED_MIN,
+    RED_MAX,
+    RED_ARGMIN,
+    RED_ARGMAX,
+    RED_STD,
+    RED_VAR,
+    RED_ALL,
+    RED_ANY
+} CSN_REDUCTION_MODE;
+
 typedef struct {
     double value;
     uint32_t linear_index;
@@ -333,6 +349,19 @@ typedef struct {
     uint32_t handle_id;
 } CSN_COMPARE;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *handle; // arr handle for operations that returns array (axis >= 0)
+                   // double for operations that returns double (axis == -1)
+    // inputs
+    MYFLT *source_handle; // handle or scalar
+    MYFLT *axis; // handle or scalar
+    // private
+    CSN_ARRAY *array;
+    uint32_t handle_id;
+} CSN_REDUCTION;
+
 
 
 // CREATION
@@ -391,6 +420,8 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p);     // return (count
 int32_t csnarray_argnonzero(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
 int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
 int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_argmin(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
+int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
 int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
 int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
 int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
@@ -399,5 +430,19 @@ int32_t csnarray_count_equal(CSOUND *csound, CSN_COMPARE *p);   // return count 
 int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COMPARE *p); // return count value
 int32_t csnarray_count_nan(CSOUND *csound, CSN_COMPARE *p);     // return count value
 
+// REDUCTION
+int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_prod(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_sub(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_mean(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_min(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_max(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_all(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_any(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_median(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p);
+
+// ELEMENTS
 
 #endif

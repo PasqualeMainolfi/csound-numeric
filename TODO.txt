@@ -41,6 +41,8 @@
     X argnonzero -> return index in 2D arr
     X argunique -> return index in 2D arr
     X argisnan -> return index in 2D arr
+    X argmin
+    X argmax
     X greaterthan (gt) -> return value in 1D arr
     X lessthan (lt) -> return value in 1D arr
     X notequal (ne) -> return value in 1D arr
@@ -50,33 +52,19 @@
     X countnan (nn) -> return value in 1D arr
 
 4. REDUCTION
-    - sum
-    - prod
-    - mean
-    - median
-    - min
-    - max
-    - argmin
-    - argmax
-    - std
-    - var
-    - all
-    - any
+    X sum
+    X prod
+    X sub
+    X mean
+    X median
+    X min
+    X max
+    X std
+    X var
+    X all
+    X any
 
-5. VECTIORIAL
-    - dot
-    - inner
-    - outer
-    - norm
-    - normalize
-    - distance
-    - angle
-    - project
-    - reject
-    - reflect
-    - cross (only 3D)
-
-6. ELEMENTS
+5. ELEMENTS
     - add
     - subtract
     - multiply
@@ -94,6 +82,20 @@
     - ceil
     - round
 
+6. VECTIORIAL
+    - dot
+    - inner
+    - outer
+    - norm
+    - normalize
+    - distance
+    - angle
+    - wrap_angle
+    - project
+    - reject
+    - reflect
+    - cross (only 3D)
+
 7. NUMERIC ANALYSIS
     - diff
     - gradient
@@ -107,9 +109,9 @@
 
 8. MATIRX
     - matmul
-    - transpose
+    X transpose
     - trace
     - diag
-    - identity
+    X identity
     - outer
  */
