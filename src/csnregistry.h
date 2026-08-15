@@ -70,6 +70,13 @@ typedef struct {
 } CSN_REGISTRY;
 
 
+// CSN TYPE SYSTEM
+
+typedef struct {
+    uint32_t id;
+} CSNREF;
+
+
 // REGISTRY INTERFACE
 
 CSN_REGISTRY *get_registry(CSOUND *csound);
@@ -83,5 +90,7 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
 void pcg32_random_init(PCG32_STATE *rng);
 double pcg32_random(PCG32_STATE *rng);
+
+int32_t csn_register_type(CSOUND *csound);
 
 #endif

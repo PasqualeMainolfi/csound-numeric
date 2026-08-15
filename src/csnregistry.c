@@ -2,6 +2,7 @@
 #include <csdl.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
 
 
@@ -248,4 +249,57 @@ double pcg32_random(PCG32_STATE *rng) {
     uint32_t rot = oldstate >> 59u;
     uint32_t gen = (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
     return (double) gen / 4294967296.0;
+}
+
+
+// CSN TYPE SYSTEM
+
+static void csnref_init_memory(CSOUND *csound, CS_VARIABLE *var, MYFLT *memblock) {
+    (void) csound;
+    memset(memblock, 0, var->memBlockSize);
+}
+
+#ifdef CS_TYPE_ARG_4ARG
+static struct csvariable *csnref_create(void *cs, const struct cstype *type, const void *typeArg, struct insds *ctx) {
+    (void) type;
+    (void) typeArg;
+#else
+static struct csvariable *csnref_create(void *cs, void *p, struct insds *ctx) {
+    (void) p;
+#endif
+    CSOUND *csound = (CSOUND *) cs;
+    CS_VARIABLE *var = (CS_VARIABLE *) csound->Calloc(csound, sizeof(CS_VARIABLE));
+    if (var == NULL) return NULL;
+
+    var->memBlockSize = CS_FLOAT_ALIGN(sizeof(CSNREF));
+    var->initializeVariableMemory = &csnref_init_memory;
+    var->ctx = ctx;
+    return var;
+}
+
+static void csnref_copy_value(CSOUND *csound, const struct cstype *cstype, void *dest, const void *src, struct insds *ctx) {
+    (void) csound; (void) cstype; (void) ctx;
+    if (src != NULL && dest != NULL) {
+        memcpy(dest, src, sizeof(CSNREF));
+    }
+}
+
+// ARRAY REAL
+static CS_TYPE CS_VAR_TYPE_CSNARRAY = {
+    "CsnArr",
+    "csn array registry-id",
+    CS_ARG_TYPE_BOTH,
+    csnref_create,
+    csnref_copy_value,
+    NULL,
+    NULL,
+    0
+};
+
+int32_t csn_register_type(CSOUND *csound) {
+    TYPE_POOL *pool = csound->GetTypePool(csound);
+    if (pool == NULL) {
+        return OK;
+    }
+    return csound->AddVariableType(csound, pool, &CS_VAR_TYPE_CSNARRAY) ? OK : NOTOK;
 }

@@ -76,6 +76,19 @@ typedef enum {
     CSN_ROUND
 } CSN_UNARY_MODE;
 
+typedef enum {
+    CSN_DOT = 0,
+    CSN_DOT_SCALAR,
+    CSN_INNER,
+    CSN_INNER_SCALAR,
+    CSN_OUTER,
+    CSN_PAIR_DISTANCE,
+    CSN_DISTANCE,
+    CSN_CROSS,
+    CSN_NORMALIZE,
+    CSN_ANGLE,
+} CSN_VECOP_MODE;
+
 typedef struct {
     double value;
     uint32_t linear_index;
@@ -84,51 +97,45 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
     MYFLT *value; // only for full
     // private
     CSN_ARRAY *array;
-    /* Deinit resolves the slot through this rather than through *array, so an
-       explicit csnfree cannot turn the deinit pass into a use-after-free. */
-    uint32_t handle_id;
 } CSN_ARR_INIT;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
     MYFLT *min;
     MYFLT *max;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_ARR_RND_INIT;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *handle_from;
+    CSNREF *handle_from;
     MYFLT *value;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_ARR_INIT_LIKE;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
     ARRAYDAT *source;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_FROM_ARRAY;
 
 typedef struct {
@@ -136,19 +143,19 @@ typedef struct {
     // outputs
     ARRAYDAT *array;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
 } CSN_TO_ARRAY;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *handle;
+    CSNREF *handle;
 } CSN_FREE;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
     MYFLT *start;
     MYFLT *stop;
@@ -163,12 +170,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
     MYFLT *num;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_IDENTITY;
 
 typedef struct {
@@ -176,7 +182,7 @@ typedef struct {
     // outputs
     MYFLT *value;
     // inputs
-    MYFLT *handle;
+    CSNREF *handle;
 } CSN_SIZE_DIMS;
 
 typedef struct {
@@ -184,26 +190,25 @@ typedef struct {
     // outputs
     ARRAYDAT *shape;
     // inputs
-    MYFLT *handle;
+    CSNREF *handle;
 } CSN_SHAPE;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     ARRAYDAT *new_shape; // shape for reshape
                          // optional axes in transpose
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_RESHAPE;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     ARRAYDAT *new_shape; // shape for reshape
                          // optional axes for transpose
 } CSN_RESHAPE_IN;
@@ -211,22 +216,21 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *param_a; // axis for flip
                     // shift for roll/rollaxis
     MYFLT *param_b; // null for flip
                     // axis for rollaxis
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_FLIP_ROLL;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *param_a; // axis for flip
                     // shift for roll/rollaxis
     MYFLT *param_b; // null for flip
@@ -238,14 +242,14 @@ typedef struct {
     // ouputs
     MYFLT *value;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
 } CSN_GET;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     MYFLT *value;
 } CSN_SET;
@@ -253,14 +257,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // ouputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *axis;
     MYFLT *index;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_TAKE;
 
 /* Two-argument take: flat index in, scalar out. No handle, so no deinit. */
@@ -269,30 +272,29 @@ typedef struct {
     // outputs
     MYFLT *value;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *index;
 } CSN_TAKE_FLAT;
 
 typedef struct {
     OPDS h;
     // ouputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *axis;
     MYFLT *start;
     MYFLT *stop;
     MYFLT *step;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_GET_SLICE;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
-    MYFLT *data_handle;
+    CSNREF *source_handle;
+    CSNREF *data_handle;
     MYFLT *axis;
     MYFLT *start;
     MYFLT *stop;
@@ -302,7 +304,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *in_value; // push at the top
     MYFLT *index;    // only for put (at index)
 } CSN_PUSH;
@@ -312,15 +314,15 @@ typedef struct {
     // outputs
     MYFLT *out_value;
     // inputs
-    MYFLT *source_handle; // remove the top element
+    CSNREF *source_handle; // remove the top element
     MYFLT *index;         // only for remove (at the index)
 } CSN_POP;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
-    MYFLT *data_handle; // in block
+    CSNREF *source_handle;
+    CSNREF *data_handle; // in block
     MYFLT *axis;
     MYFLT *index;
 } CSN_INSERT_BLOCK;
@@ -328,35 +330,33 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
-    MYFLT *data_handle;
+    CSNREF *source_handle;
+    CSNREF *data_handle;
     MYFLT *axis; // only for .block
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_CONCAT;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *before;
     MYFLT *after;
     MYFLT *value;
     MYFLT *axis; // axis -> NULL default all axes
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_PAD;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *before;
     MYFLT *after;
     MYFLT *value;
@@ -366,20 +366,19 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *min;
     MYFLT *max;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_CLIP;
 
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *min;
     MYFLT *max;
 } CSN_CLIP_IN;
@@ -387,51 +386,79 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle; // array source
-    MYFLT *data_handle;   // array of values (source array will compared with data_handle)
+    CSNREF *source_handle; // array source
+    CSNREF *data_handle;   // array of values (source array will compared with data_handle)
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_ARGWHERE;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle; // array source
+    CSNREF *source_handle; // array source
     MYFLT *cmp_value;     // only for gt, lt, ne
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_COMPARE;
 
+/* The count family returns how many elements matched, never an array, so its
+   output is a plain number and it needs no handle or deinit. */
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle; // arr handle for operations that returns array (axis >= 0)
-                   // double for operations that returns double (axis == -1)
+    MYFLT *value;
     // inputs
-    MYFLT *source_handle; // handle or scalar
-    MYFLT *axis; // handle or scalar
+    CSNREF *source_handle;
+    MYFLT *cmp_value;     // only for cnteq
+} CSN_COUNT;
+
+/* Reducing along an axis drops that axis and yields an array. */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *axis;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_REDUCTION;
+
+/* Reducing over every axis collapses to one number. Splitting this out of
+   CSN_REDUCTION is what lets the result type be known at compile time: the
+   same opcode name cannot return an array in one call and a number in the
+   next, now that the two are distinct types. */
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle;
+} CSN_REDUCTION_SCALAR;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle_a;
-    MYFLT *source_handle_b;
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_BINOP_HH;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+} CSN_BINOP_HH_SCALAR;
 
 /* The three binop structs share this prefix and tail, which is what lets one
    deinit and one helper serve all of them. Only the order of the two input
@@ -439,49 +466,106 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
-    // inputs
-    MYFLT *arg_a;
-    MYFLT *arg_b;
+    CSNREF *handle;
+    void *arg_a;
+    void *arg_b;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_BINOP_COMMON;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     MYFLT *scalar;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_BINOP_HS;
+
+/* normalize: v / ||v||, con asse opzionale (-1 = tutto l'array) e ordine
+   della norma opzionale. */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *axis;
+    MYFLT *order;
+    // private
+    CSN_ARRAY *array;
+} CSN_NORMALIZE_OP;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *axis;
+    MYFLT *order;
+} CSN_NORMALIZE_IN;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *scalar;
+} CSN_BINOP_HS_SCALAR;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
     // inputs
     MYFLT *scalar;
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_BINOP_SH;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *handle;
+    CSNREF *handle;
     // inputs
-    MYFLT *source_handle;
+    CSNREF *source_handle;
     // private
     CSN_ARRAY *array;
-    uint32_t handle_id;
 } CSN_UNARYOP;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *arg_a; // in normalize is axis
+} CSN_UNARYOP_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    /* L'ordine segue gli intypes ":CsnArr;ip": l'asse e' obbligatorio e viene
+       prima, l'ordine della norma e' opzionale e chiude. */
+    MYFLT *axis;
+    MYFLT *order;
+    // private
+    CSN_ARRAY *array;
+} CSN_NORM_REDUCTION;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *order;
+} CSN_NORM_REDUCTION_SCALAR;
+
 
 
 // CREATION
@@ -547,22 +631,33 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 
 int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
 int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
 int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
-int32_t csnarray_count_equal(CSOUND *csound, CSN_COMPARE *p);   // return count value
-int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COMPARE *p); // return count value
-int32_t csnarray_count_nan(CSOUND *csound, CSN_COMPARE *p);     // return count value
+int32_t csnarray_count_equal(CSOUND *csound, CSN_COUNT *p);   // return count value
+int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COUNT *p); // return count value
+int32_t csnarray_count_nan(CSOUND *csound, CSN_COUNT *p);     // return count value
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_sum_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_prod(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_prod_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_sub(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_sub_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_mean(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_mean_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_min(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_min_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_max(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_max_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_all(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_all_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_any(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_any_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_median(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_median_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_std_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_var_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 
 // ELEMENTS
 int32_t csnarray_add_hh(CSOUND *csound, CSN_BINOP_HH *p);
@@ -601,5 +696,23 @@ int32_t csnarray_floor(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_ceil(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_round(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_sign(CSOUND *csound, CSN_UNARYOP *p);
+
+// VECTORIAL
+int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
+int32_t csnarray_inner(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_inner_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
+int32_t csnarray_outer(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p);
+int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
+int32_t csnarray_normalize(CSOUND *csound, CSN_NORMALIZE_OP *p); // specify axis -1 -> all
+int32_t csnarray_normalize_in(CSOUND *csound, CSN_NORMALIZE_IN *p); // specify axis -1 -> all
+int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
+int32_t csnarray_pair_distance(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
+int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p); // same as numpy N-D with last dim = 3 [..., 3]
+int32_t csnarray_angle(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p); // same shape
+int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);  // same shape
+int32_t csnarray_reflect(CSOUND *csound, CSN_UNARYOP *p);
 
 #endif
