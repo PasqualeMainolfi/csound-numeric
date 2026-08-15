@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -35,7 +36,7 @@ static int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CS
 
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        csound->ErrorMsg(csound, "[csnarray] Internal registry memory error\n");
+        csound->ErrorMsg(csound, "[csnarray] Internal error: the csnum array registry is not available");
         return NOTOK;
     }
 
@@ -131,10 +132,23 @@ static int32_t csnarray_normalize_deinit(CSOUND *csound, CSN_NORMALIZE_OP *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
-/* CSN_NORM_REDUCTION ha un campo in piu' di CSN_REDUCTION, quindi 'array' sta
-   a un offset diverso: il deinit generico leggerebbe 'order' al suo posto. */
 static int32_t csnarray_norm_deinit(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+static const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_t ndim) {
+    size_t off = 0;
+    int written = snprintf(buf, buf_size, "(");
+    if (written > 0) off = (size_t) written;
+
+    for (uint32_t i = 0; i < ndim && off + 1 < buf_size; ++i) {
+        written = snprintf(buf + off, buf_size - off, "%s%u", i > 0 ? ", " : "", shape[i]);
+        if (written < 0) break;
+        off += (size_t) written;
+    }
+
+    if (off + 1 < buf_size) snprintf(buf + off, buf_size - off, ")");
+    return buf;
 }
 
 static void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim) {
@@ -158,11 +172,11 @@ static int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32
         || p_shape->data == NULL
         || p_shape->sizes == NULL
         || p_shape->sizes[0] <= 0) {
-        return csound->InitError(csound, "[csnarray] Invalid shape array\n");
+        return csound->InitError(csound, "[csnarray] Shape argument must be a non-empty 1-D i-array");
     }
 
     if (p_shape->sizes[0] > CSN_MAX_DIMS) {
-        return csound->InitError(csound, "[csnarray] Shape dimension must be less or equal to %d\n", CSN_MAX_DIMS);
+        return csound->InitError(csound, "[csnarray] Shape argument declares %d dimensions, the maximum is %d", (int32_t) p_shape->sizes[0], CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p_shape->sizes[0];
@@ -170,7 +184,7 @@ static int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32
         MYFLT extent = p_shape->data[i];
         /* 0 is allowed: it produces a zero-length array, the empty stack. */
         if (extent < FL(0.0)) {
-            return csound->InitError(csound, "[csnarray] Shape extent %u must be >= 0\n", i);
+            return csound->InitError(csound, "[csnarray] Shape extent %g at position %u is negative; extents must be >= 0", (double) extent, i);
         }
         out_shape[i] = (uint32_t) extent;
     }
@@ -252,7 +266,7 @@ static int32_t create_csnarray_init(
 ) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal registry memory error\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     const char *err = NULL;
@@ -263,7 +277,7 @@ static int32_t create_csnarray_init(
     csound->UnlockMutex(reg->mutex);
 
     if (res != OK) {
-        return csound->InitError(csound, "[csnarray] %s\n", err);
+        return csound->InitError(csound, "[csnarray] %s", err);
     }
 
     return OK;
@@ -307,7 +321,7 @@ int32_t create_ones_csnarray(CSOUND *csound, CSN_ARR_INIT *p) {
 int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -318,7 +332,7 @@ int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
     uint32_t handle_from = p->handle_from->id;
     CSN_SLOT *slot = get_slot(reg, handle_from);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle_from);
         goto done;
     }
 
@@ -330,7 +344,7 @@ int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
 
     uint32_t protect[1] = { handle_from };
     if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, protect, 1U, &err) != OK) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
 
@@ -346,7 +360,7 @@ done:
 int32_t create_random_csnarray(CSOUND *csound, CSN_ARR_RND_INIT *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t ndim = 0;
@@ -397,7 +411,7 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->sizes == NULL
         || p->source->dimensions <= 0
         || p->source->dimensions > CSN_MAX_DIMS) {
-        return csound->InitError(csound, "[csnarray] Invalid source array\n");
+        return csound->InitError(csound, "[csnarray] Source must be an i-array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
@@ -407,7 +421,7 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
     for (uint32_t i = 0; i < ndim; i++) {
         int32_t size = p->source->sizes[i];
         if (size <= 0) {
-            return csound->InitError(csound, "[csnarray] Source extent %u must be >= 1\n", i);
+            return csound->InitError(csound, "[csnarray] Source extent %u must be >= 1", i);
         }
         shape[i] = (uint32_t) size;
         total_size *= (size_t) size;
@@ -429,7 +443,7 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -437,7 +451,7 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
     if (slot == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Invalid handle\n");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
     }
 
     CSN_ARRAY *src = slot->array;
@@ -449,19 +463,19 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs\n", ndim, declared, ndim);
+        return csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Array too large for an i-array output\n");
+        return csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for an i-array output (limit %d)", total_size, INT32_MAX);
     }
 
     tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
     if (p->array->data == NULL || p->array->sizes == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Output array allocation failed\n");
+        return csound->InitError(csound, "[csnarray] Could not allocate the %u-D output i-array of %zu elements", ndim, total_size);
     }
 
     p->array->dimensions = (int32_t) ndim;
@@ -481,7 +495,7 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
 int32_t free_csnarray(CSOUND *csound, CSN_FREE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -489,7 +503,7 @@ int32_t free_csnarray(CSOUND *csound, CSN_FREE *p) {
     CSN_SLOT *slot = get_slot(reg, p->handle->id);
     if (slot == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Invalid handle\n");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
     release_slot(csound, reg, slot);
@@ -503,7 +517,7 @@ int32_t free_csnarray(CSOUND *csound, CSN_FREE *p) {
 int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -511,7 +525,7 @@ int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p) {
     CSN_SLOT *slot = get_slot(reg, p->handle->id);
     if (slot == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Invalid handle\n");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
     MYFLT dims = (MYFLT) slot->array->ndim;
@@ -527,7 +541,7 @@ int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p) {
 int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -535,7 +549,7 @@ int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p) {
     CSN_SLOT *slot = get_slot(reg, p->handle->id);
     if (slot == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Invalid handle\n");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
     MYFLT total_size = (MYFLT) slot->array->size;
@@ -552,7 +566,7 @@ int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p) {
 int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -560,7 +574,7 @@ int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p) {
     CSN_SLOT *slot = get_slot(reg, p->handle->id);
     if (slot == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Invalid handle\n");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
     MYFLT empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
@@ -576,7 +590,7 @@ int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p) {
 int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry\n");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     csound->LockMutex(reg->mutex);
@@ -584,7 +598,7 @@ int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
     CSN_SLOT *slot = get_slot(reg, p->handle->id);
     if (slot == NULL) {
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Invalid handle\n");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
     uint32_t dims = (MYFLT) slot->array->ndim;
@@ -603,18 +617,18 @@ int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
 int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p) {
     double step = (double) *p->step_num;
     if (step == 0.0) {
-        return csound->InitError(csound, "[csnarray] step param cannot be zero");
+        return csound->InitError(csound, "[csnarray] The step argument must not be zero");
     }
 
     double start = (double) *p->start;
     double stop = (double) *p->stop;
     if ((stop > start && step < 0) || (stop < start && step > 0)) {
-        return csound->InitError(csound, "[csnarray] step has the wrong sign for the requested range");
+        return csound->InitError(csound, "[csnarray] Step %g has the wrong sign to go from start %g to stop %g", step, start, stop);
     }
 
     int32_t size = (int32_t) ceil((stop - start) / step);
     if (size == 0) {
-        return csound->InitError(csound, "[csnarray] Array size zero");
+        return csound->InitError(csound, "[csnarray] Start %g, stop %g and step %g produce an empty array", start, stop, step);
     }
 
     uint32_t usize = (uint32_t) size;
@@ -635,7 +649,7 @@ int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p) {
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
     int32_t num = (int32_t) *p->step_num;
     if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] num param must be greater than zero");
+        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
     }
 
     double start = (double) *p->start;
@@ -665,16 +679,16 @@ int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
     int32_t num = (int32_t) *p->step_num;
     if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] num param must be greater than zero");
+        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
     }
 
     if (p->base == NULL) {
-        return csound->InitError(csound, "[csnarray] Null base param");
+        return csound->InitError(csound, "[csnarray] The base argument is missing");
     }
 
     double base = (double) *p->base;
     if (base <= 0) {
-        return csound->InitError(csound, "[csnarray] base param must greater than zero");
+        return csound->InitError(csound, "[csnarray] The base argument must be > 0, got %g", base);
     }
 
     double start = (double) *p->start;
@@ -705,7 +719,7 @@ int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
 int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
     int32_t num = (int32_t) *p->step_num;
     if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] num param must be greater than zero");
+        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
     }
 
     double start = (double) *p->start;
@@ -737,7 +751,7 @@ int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
 int32_t csnarray_identity(CSOUND *csound, CSN_IDENTITY *p) {
     int32_t num = (int32_t) *p->num;
     if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] num param must be greater than zero");
+        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
     }
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -765,7 +779,7 @@ int32_t csnarray_identity(CSOUND *csound, CSN_IDENTITY *p) {
 int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -790,7 +804,7 @@ int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -799,7 +813,7 @@ int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p) {
     /* Validated before allocating, so a rejected reshape does not publish a
        handle to a destination nobody asked for. */
     if (new_size != arr->size) {
-        res = csound->InitError(csound, "[csnarray] reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
+        res = csound->InitError(csound, "[csnarray] Reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
         goto done;
     }
 
@@ -818,7 +832,7 @@ done:
 int32_t csnarray_reshape_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -843,14 +857,14 @@ int32_t csnarray_reshape_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
     CSN_ARRAY *arr = slot->array;
 
     if (new_size != arr->size) {
-        res = csound->InitError(csound, "[csnarray] reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
+        res = csound->InitError(csound, "[csnarray] Reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
         goto done;
     }
 
@@ -869,7 +883,7 @@ done:
 int32_t csnarray_flatten(CSOUND *csound, CSN_RESHAPE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -881,7 +895,7 @@ int32_t csnarray_flatten(CSOUND *csound, CSN_RESHAPE *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -906,7 +920,7 @@ done:
 int32_t csnarray_flatten_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -917,7 +931,7 @@ int32_t csnarray_flatten_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -938,7 +952,7 @@ done:
 int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -954,7 +968,7 @@ int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -970,7 +984,7 @@ int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
     }
     else {
         if (p->new_shape->dimensions != 1 || p->new_shape->sizes == NULL || p->new_shape->sizes[0] != (int32_t) ndim) {
-            res = csound->InitError(csound, "[csnarray] Invalid axes configuration");
+            res = csound->InitError(csound, "[csnarray] Axes argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
             goto done;
         }
 
@@ -980,7 +994,7 @@ int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
             uint32_t axis = (uint32_t) p->new_shape->data[i];
 
             if (axis >= ndim || used[axis]) {
-                res = csound->InitError(csound, "[csnarray] Invalid axes permutation");
+                res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation: axis %u is out of range or repeated", axis);
                 goto done;
             }
 
@@ -1025,7 +1039,7 @@ done:
 int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1041,7 +1055,7 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1058,7 +1072,7 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     }
     else {
         if (p->new_shape->dimensions != 1 || p->new_shape->sizes == NULL || p->new_shape->sizes[0] != (int32_t) ndim) {
-            res = csound->InitError(csound, "[csnarray] Invalid axes configuration");
+            res = csound->InitError(csound, "[csnarray] Axes argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
             goto done;
         }
 
@@ -1068,7 +1082,7 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
             uint32_t axis = (uint32_t)p->new_shape->data[i];
 
             if (axis >= ndim || used[axis]) {
-                res = csound->InitError(csound, "[csnarray] Invalid axes permutation");
+                res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation: axis %u is out of range or repeated", axis);
                 goto done;
             }
 
@@ -1081,7 +1095,7 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
        above have nothing to release. */
     data = csound->Calloc(csound, sizeof(double) * arr->size);
     if (data == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size));
         goto done;
     }
 
@@ -1127,7 +1141,7 @@ done:
 int32_t csnarray_flip(CSOUND *csound, CSN_FLIP_ROLL *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1139,7 +1153,7 @@ int32_t csnarray_flip(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1149,7 +1163,7 @@ int32_t csnarray_flip(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     int32_t axis_flip = (int32_t) *p->param_a;
     if (axis_flip < -1 || axis_flip > (int32_t) ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid flip axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_flip, ndim, ndim - 1);
         goto done;
     }
 
@@ -1193,7 +1207,7 @@ done:
 int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1205,7 +1219,7 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1215,7 +1229,7 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     int32_t axis_flip = (int32_t) *p->param_a;
     if (axis_flip < -1 || axis_flip > (int32_t) ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid flip axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_flip, ndim, ndim - 1);
         goto done;
     }
 
@@ -1223,7 +1237,7 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
        above have nothing to release. */
     data = csound->Calloc(csound, sizeof(double) * arr->size);
     if (data == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size));
         goto done;
     }
 
@@ -1270,7 +1284,7 @@ static uint32_t wrap_index(int64_t x, uint32_t size) {
 int32_t csnarray_roll(CSOUND *csound, CSN_FLIP_ROLL *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1282,7 +1296,7 @@ int32_t csnarray_roll(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1312,7 +1326,7 @@ done:
 int32_t csnarray_roll_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1324,7 +1338,7 @@ int32_t csnarray_roll_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1334,7 +1348,7 @@ int32_t csnarray_roll_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     data = csound->Calloc(csound, sizeof(double) * arr->size);
     if (data == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size));
         goto done;
     }
 
@@ -1356,7 +1370,7 @@ done:
 int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1368,7 +1382,7 @@ int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1379,7 +1393,7 @@ int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p) {
     /* -1 selects every axis; anything below it would index src_coords[] out
        of bounds in the else branch. */
     if (axis_roll < -1 || axis_roll >= (int32_t) ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid source roll axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_roll, ndim, ndim - 1);
         goto done;
     }
 
@@ -1422,7 +1436,7 @@ done:
 int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1434,7 +1448,7 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1445,7 +1459,7 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     /* -1 selects every axis; anything below it would index src_coords[] out
        of bounds in the else branch. */
     if (axis_roll < -1 || axis_roll >= (int32_t) ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid source roll axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_roll, ndim, ndim - 1);
         goto done;
     }
 
@@ -1453,7 +1467,7 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
        above have nothing to release. */
     data = csound->Calloc(csound, sizeof(double) * arr->size);
     if (data == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size));
         goto done;
     }
 
@@ -1496,11 +1510,11 @@ static int32_t get_index_offset(CSOUND *csound, size_t *offset, uint32_t ndim, c
         MYFLT index = indexes[i];
 
         if (index < 0) {
-            return csound->InitError(csound, "[csnarray] Index must be positive");
+            return csound->InitError(csound, "[csnarray] Index %g at position %u is negative; indexes must be >= 0", (double) indexes[i], i);
         }
 
         if ((uint32_t) index >= arr->shape[i]) {
-            return csound->InitError(csound, "[csnarray] Index out of bounds");
+            return csound->InitError(csound, "[csnarray] Index %u at position %u is out of range for extent %u (valid: 0..%u)", (uint32_t) index, i, arr->shape[i], arr->shape[i] - 1);
         }
 
         temp_offset += arr->strides[i] * (size_t) index;
@@ -1514,18 +1528,18 @@ static int32_t csnarray_get_set_locked(CSOUND *csound, CSN_REGISTRY *reg, uint32
     size_t offset;
     CSN_SLOT *slot = get_slot(reg, handle);
     if (slot == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry slot");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", handle);
     }
 
     if (value == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL value pointer");
+        return csound->InitError(csound, "[csnarray] Internal error: null value pointer passed to the element accessor");
     }
 
     CSN_ARRAY *arr = slot->array;
     uint32_t ndim = arr->ndim;
 
     if (indexes == NULL || indexes->data == NULL || indexes->sizes == NULL || indexes->dimensions != 1 || indexes->sizes[0] != (int32_t) ndim) {
-        return csound->InitError(csound, "[csnarray] Number of indexes must be equal to array dims");
+        return csound->InitError(csound, "[csnarray] Index argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
     }
 
     int32_t res = get_index_offset(csound, &offset, ndim, arr, indexes->data);
@@ -1545,7 +1559,7 @@ static int32_t csnarray_get_set_locked(CSOUND *csound, CSN_REGISTRY *reg, uint32
 int32_t csnarray_get(CSOUND *csound, CSN_GET *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
@@ -1559,7 +1573,7 @@ int32_t csnarray_get(CSOUND *csound, CSN_GET *p) {
 int32_t csnarray_set(CSOUND *csound, CSN_SET *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
@@ -1573,7 +1587,7 @@ int32_t csnarray_set(CSOUND *csound, CSN_SET *p) {
 int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1585,7 +1599,7 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1597,19 +1611,19 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
        cannot represent. That case is the two-argument form, which yields a
        plain scalar. */
     if (ndim < 2) {
-        res = csound->InitError(csound, "[csnarray] take along an axis needs a 2-D or higher array; use the two-argument form for a scalar");
+        res = csound->InitError(csound, "[csnarray] Take along an axis needs a 2-D or higher array; use the two-argument form for a scalar");
         goto done;
     }
 
     uint32_t axis = (uint32_t) *p->axis;
     if (*p->axis < 0 || axis > ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, ndim, ndim - 1);
         goto done;
     }
 
     uint32_t index = (uint32_t) *p->index;
     if (*p->index < 0 || index >= arr->shape[axis]) {
-        res = csound->InitError(csound, "[csnarray] Index negative or out of bounds");
+        res = csound->InitError(csound, "[csnarray] Index %d is out of range for axis %u of extent %u (valid: 0..%u)", (int32_t) *p->index, axis, arr->shape[axis], arr->shape[axis] - 1);
         goto done;
     }
 
@@ -1657,7 +1671,7 @@ done:
 int32_t csnarray_take_flat(CSOUND *csound, CSN_TAKE_FLAT *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     int32_t res = OK;
@@ -1666,14 +1680,14 @@ int32_t csnarray_take_flat(CSOUND *csound, CSN_TAKE_FLAT *p) {
 
     CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
         goto done;
     }
 
     CSN_ARRAY *arr = slot->array;
 
     if (*p->index < 0 || (size_t) *p->index >= arr->size) {
-        res = csound->InitError(csound, "[csnarray] Index negative or out of bounds");
+        res = csound->InitError(csound, "[csnarray] Index %d is out of range for an array of %zu elements (valid: 0..%zu)", (int32_t) *p->index, arr->size, arr->size - 1);
         goto done;
     }
 
@@ -1687,7 +1701,7 @@ done:
 int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1699,7 +1713,7 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -1709,7 +1723,7 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
 
     uint32_t axis = (uint32_t) *p->axis;
     if (*p->axis < 0 || axis > ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, ndim, ndim - 1);
         goto done;
     }
 
@@ -1717,7 +1731,7 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
     uint32_t stop = (uint32_t) *p->stop;
     uint32_t step = (uint32_t) *p->step;
     if (*p->start < 0 || start >= arr->shape[axis] || *p->stop < 0 || stop > arr->shape[axis] || stop <= start || step == 0) {
-        res = csound->InitError(csound, "[csnarray] Index negative or out of bounds");
+        res = csound->InitError(csound, "[csnarray] Invalid slice start=%d stop=%d step=%d on axis %u of extent %u: need 0 <= start < stop <= %u and step > 0", (int32_t) *p->start, (int32_t) *p->stop, (int32_t) *p->step, axis, arr->shape[axis], arr->shape[axis]);
         goto done;
     }
 
@@ -1759,7 +1773,7 @@ done:
 int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -1771,13 +1785,13 @@ int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
     CSN_SLOT *data_slot = get_slot(reg, data_handle);
     if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid data handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
         goto done;
     }
 
@@ -1791,7 +1805,7 @@ int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
 
     uint32_t axis = (uint32_t) *p->axis;
     if (*p->axis < 0 || axis > source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
@@ -1799,7 +1813,7 @@ int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
     uint32_t stop = (uint32_t) *p->stop;
     uint32_t step = (uint32_t) *p->step;
     if (*p->start < 0 || start >= source_arr->shape[axis] || *p->stop < 0 || stop > source_arr->shape[axis] || stop <= start || step == 0) {
-        res = csound->InitError(csound, "[csnarray] Index negative or out of bounds");
+        res = csound->InitError(csound, "[csnarray] Invalid slice start=%d stop=%d step=%d on axis %u of extent %u: need 0 <= start < stop <= %u and step > 0", (int32_t) *p->start, (int32_t) *p->stop, (int32_t) *p->step, axis, source_arr->shape[axis], source_arr->shape[axis]);
         goto done;
     }
 
@@ -1810,13 +1824,14 @@ int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
         slice_shape[i] = size;
         slice_size *= size;
         if (data_arr->shape[i] != slice_shape[i]) {
-            res = csound->InitError(csound, "[csnarray] Slice block shape mismatch");
+            res = csound->InitError(csound, "[csnarray] Data block extent %u on axis %u does not match the slice extent %u", data_arr->shape[i], i, slice_shape[i]);
             goto done;
         }
     }
 
     if (data_arr->size != slice_size) {
-        res = csound->InitError(csound, "[csnarray] Slice size mismatch with data array");
+        char sbuf[CSN_SHAPE_STR_MAX];
+        res = csound->InitError(csound, "[csnarray] Data block holds %zu elements but the slice %s holds %u", data_arr->size, shape_str(sbuf, sizeof(sbuf), slice_shape, source_ndim), slice_size);
         goto done;
     }
 
@@ -1844,7 +1859,7 @@ done:
 int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
@@ -1854,18 +1869,18 @@ int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p) {
 
     CSN_SLOT *slot = get_slot(reg, handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle);
         goto done;
     }
 
     CSN_ARRAY *arr = slot->array;
     if (arr->ndim != 1) {
-        res = csound->InitError(csound, "[csnarray] push operation is only supported for 1-dim array");
+        res = csound->InitError(csound, "[csnarray] Push needs a 1-D array, got %u-D", arr->ndim);
         goto done;
     }
 
     if (arr->size >= CSN_MAX_ELEMS) {
-        res = csound->InitError(csound, "[csnarray] push would exceed the maximum element count");
+        res = csound->InitError(csound, "[csnarray] Push would exceed the maximum element count: array already holds %zu of %zu elements", arr->size, (size_t) CSN_MAX_ELEMS);
         goto done;
     }
 
@@ -1874,7 +1889,7 @@ int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p) {
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
         double *new_data = csound->ReAlloc(csound, arr->data, sizeof(double) * new_capacity);
         if (new_data == NULL) {
-            res = csound->InitError(csound, "[csnarray] realloc memory allocation failed");
+            res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * new_capacity));
             goto done;
         }
 
@@ -1894,7 +1909,7 @@ done:
 int32_t csnarray_pop(CSOUND *csound, CSN_POP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
@@ -1904,18 +1919,18 @@ int32_t csnarray_pop(CSOUND *csound, CSN_POP *p) {
 
     CSN_SLOT *slot = get_slot(reg, handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle);
         goto done;
     }
 
     CSN_ARRAY *arr = slot->array;
     if (arr->ndim != 1) {
-        res = csound->InitError(csound, "[csnarray] pop operation is only supported for 1-dim array");
+        res = csound->InitError(csound, "[csnarray] Pop needs a 1-D array, got %u-D", arr->ndim);
         goto done;
     }
 
     if (arr->size == 0) {
-        res = csound->InitError(csound, "[csnarray] pop on empty array");
+        res = csound->InitError(csound, "[csnarray] Cannot pop from an empty array");
         goto done;
     }
 
@@ -1945,12 +1960,12 @@ done:
 int32_t csnarray_insert(CSOUND *csound, CSN_PUSH *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
     if (*p->index < 0) {
-        return csound->InitError(csound, "[csnarray] Index must be positive");
+        return csound->InitError(csound, "[csnarray] Insert index %d is negative; indexes must be >= 0", (int32_t) *p->index);
     }
 
     size_t index = (size_t) *p->index;
@@ -1960,25 +1975,25 @@ int32_t csnarray_insert(CSOUND *csound, CSN_PUSH *p) {
 
     CSN_SLOT *slot = get_slot(reg, handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle);
         goto done;
     }
 
     CSN_ARRAY *arr = slot->array;
     if (arr->ndim != 1) {
-        res = csound->InitError(csound, "[csnarray] insert operation is only supported for 1-dim array");
+        res = csound->InitError(csound, "[csnarray] Insert needs a 1-D array, got %u-D", arr->ndim);
         goto done;
     }
 
     if (arr->size >= CSN_MAX_ELEMS) {
-        res = csound->InitError(csound, "[csnarray] insert would exceed the maximum element count");
+        res = csound->InitError(csound, "[csnarray] Insert would exceed the maximum element count: array already holds %zu of %zu elements", arr->size, (size_t) CSN_MAX_ELEMS);
         goto done;
     }
 
     /* Inclusive upper bound: index == size appends, which is also the only
        way to insert into an array that is currently empty. */
     if (index > arr->size) {
-        res = csound->InitError(csound, "[csnarray] index out of bounds");
+        res = csound->InitError(csound, "[csnarray] Insert index %zu is out of range for an array of %zu elements (valid: 0..%zu, end included)", index, arr->size, arr->size);
         goto done;
     }
 
@@ -1987,7 +2002,7 @@ int32_t csnarray_insert(CSOUND *csound, CSN_PUSH *p) {
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
         double *new_data = csound->ReAlloc(csound, arr->data, sizeof(double) * new_capacity);
         if (new_data == NULL) {
-            res = csound->InitError(csound, "[csnarray] realloc memory allocation failed");
+            res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * new_capacity));
             goto done;
         }
 
@@ -2009,12 +2024,12 @@ done:
 int32_t csnarray_remove(CSOUND *csound, CSN_POP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
     if (*p->index < 0) {
-        return csound->InitError(csound, "[csnarray] Index must be positive");
+        return csound->InitError(csound, "[csnarray] Remove index %d is negative; indexes must be >= 0", (int32_t) *p->index);
     }
 
     size_t index = (size_t) *p->index;
@@ -2024,23 +2039,23 @@ int32_t csnarray_remove(CSOUND *csound, CSN_POP *p) {
 
     CSN_SLOT *slot = get_slot(reg, handle);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle);
         goto done;
     }
 
     CSN_ARRAY *arr = slot->array;
     if (arr->ndim != 1) {
-        res = csound->InitError(csound, "[csnarray] remove operation is only supported for 1-dim array");
+        res = csound->InitError(csound, "[csnarray] Remove needs a 1-D array, got %u-D", arr->ndim);
         goto done;
     }
 
     if (arr->size == 0) {
-        res = csound->InitError(csound, "[csnarray] remove on empty array");
+        res = csound->InitError(csound, "[csnarray] Cannot remove from an empty array");
         goto done;
     }
 
     if (index >= arr->size) {
-        res = csound->InitError(csound, "[csnarray] index out of bounds");
+        res = csound->InitError(csound, "[csnarray] Remove index %zu is out of range for an array of %zu elements (valid: 0..%zu)", index, arr->size, arr->size - 1);
         goto done;
     }
 
@@ -2062,7 +2077,7 @@ done:
 int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2074,13 +2089,13 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
     CSN_SLOT *data_slot = get_slot(reg, data_handle);
     if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid data handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
         goto done;
     }
 
@@ -2091,26 +2106,26 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     uint32_t data_ndim = data_arr->ndim;
 
     if (data_ndim != source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Dims mismatch: block must have source dim minus 1");
+        res = csound->InitError(csound, "[csnarray] Block is %u-D but inserting into a %u-D array needs a %u-D block", data_ndim, source_ndim, source_ndim - 1);
         goto done;
     }
 
     uint32_t axis = (uint32_t) *p->axis;
     if (*p->axis < 0 || axis > source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
     uint32_t index = (uint32_t) *p->index;
     if (*p->index < 0 || index > source_arr->shape[axis]) {
-        res = csound->InitError(csound, "[csnarray] Invalid index");
+        res = csound->InitError(csound, "[csnarray] Index %d is out of range for axis %u of extent %u (valid: 0..%u, end included)", (int32_t) *p->index, axis, source_arr->shape[axis], source_arr->shape[axis]);
         goto done;
     }
 
     for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
         if (i == axis) continue;
         if (data_arr->shape[j++] != source_arr->shape[i]) {
-            res = csound->InitError(csound, "[csnarray] Shape mismatch between block and source array");
+            res = csound->InitError(csound, "[csnarray] Block extent %u does not match the source extent %u on axis %u", data_arr->shape[j - 1], source_arr->shape[i], i);
             goto done;
         }
     }
@@ -2121,14 +2136,15 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     CSN_ARRAY *temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
         goto done;
     }
 
     int32_t alloc_temp = allocate_array(csound, temp, source_ndim, temp_shape, source_arr->array_id);
     if (alloc_temp != OK) {
+        char tbuf[CSN_SHAPE_STR_MAX];
         csound->Free(csound, temp);
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), temp_shape, source_ndim));
         goto done;
     }
 
@@ -2157,7 +2173,7 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     if (new_data == NULL) {
         csound->Free(csound, temp->data);
         csound->Free(csound, temp);
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * temp->capacity));
         goto done;
     }
 
@@ -2174,7 +2190,7 @@ done:
 int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2185,7 +2201,7 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2194,13 +2210,13 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
 
     uint32_t axis = (uint32_t) *p->axis;
     if (*p->axis < 0 || axis > source_ndim - 1 || source_arr->shape[axis] <= 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is not usable here: it must be in 0..%u and have extent > 1 (current extent %u)", (int32_t) *p->axis, source_ndim - 1, (axis < source_ndim ? source_arr->shape[axis] : 0U));
         goto done;
     }
 
     uint32_t index = (uint32_t) *p->index;
     if (*p->index < 0 || index >= source_arr->shape[axis]) {
-        res = csound->InitError(csound, "[csnarray] Invalid index");
+        res = csound->InitError(csound, "[csnarray] Index %d is out of range for axis %u of extent %u (valid: 0..%u)", (int32_t) *p->index, axis, source_arr->shape[axis], source_arr->shape[axis] - 1);
         goto done;
     }
 
@@ -2209,7 +2225,7 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
     temp_shape[axis]--;
 
     if (create_csnarray_locked(csound, reg, &p->h, source_ndim, temp_shape, &p->array, p->handle, &source_handle, 1U, &err) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s\n", err);
+        res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
 
@@ -2234,7 +2250,7 @@ done:
 int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2247,13 +2263,13 @@ int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
     CSN_SLOT *data_slot = get_slot(reg, data_handle);
     if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid data handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
         goto done;
     }
 
@@ -2264,7 +2280,7 @@ int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
     uint32_t data_ndim = data_arr->ndim;
 
     if (source_ndim != 1U || data_ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Invalid dims");
+        res = csound->InitError(csound, "[csnarray] Both arrays must be 1-D, got %u-D and %u-D", source_ndim, data_ndim);
         goto done;
     }
 
@@ -2298,7 +2314,7 @@ done:
 int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2311,13 +2327,13 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
     CSN_SLOT *data_slot = get_slot(reg, data_handle);
     if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid data handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
         goto done;
     }
 
@@ -2328,7 +2344,7 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     uint32_t data_ndim = data_arr->ndim;
 
     if (data_ndim != source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Dims mismatch");
+        res = csound->InitError(csound, "[csnarray] Arrays must have the same number of dimensions, got %u-D and %u-D", source_ndim, data_ndim);
         goto done;
     }
 
@@ -2337,7 +2353,7 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
 
     uint32_t axis = (uint32_t) *p->axis;
     if (*p->axis < 0 || axis > source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
@@ -2347,7 +2363,8 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
             new_shape[i] = source_shape[i] + data_shape[i];
         } else {
             if (source_shape[i] != data_shape[i]) {
-                res = csound->InitError(csound, "[csnarray] Shape mismatch");
+                char sbuf[CSN_SHAPE_STR_MAX], dbuf[CSN_SHAPE_STR_MAX];
+                res = csound->InitError(csound, "[csnarray] Shapes %s and %s differ on axis %u (%u vs %u); only the concat axis %u may differ", shape_str(sbuf, sizeof(sbuf), source_shape, source_ndim), shape_str(dbuf, sizeof(dbuf), data_shape, data_ndim), i, source_shape[i], data_shape[i], axis);
                 goto done;
             }
             new_shape[i] = source_shape[i];
@@ -2390,7 +2407,7 @@ done:
 int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2402,7 +2419,7 @@ int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2411,7 +2428,7 @@ int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
     uint32_t *source_shape = source_arr->shape;
 
     if (*p->before < 0 || *p->after < 0) {
-        res = csound->InitError(csound, "[csnarray] Param before and after must be positive");
+        res = csound->InitError(csound, "[csnarray] Pad widths must be >= 0, got before=%g and after=%g", (double) *p->before, (double) *p->after);
         goto done;
     }
 
@@ -2422,7 +2439,7 @@ int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
     if (p->INOCOUNT > 4) {
         axis = (int32_t) *p->axis;
         if (*p->axis < 0 || (uint32_t) axis > source_ndim - 1) {
-            res = csound->InitError(csound, "[csnarray] Invalid axis");
+            res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
             goto done;
         }
     }
@@ -2482,7 +2499,7 @@ done:
 int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2493,7 +2510,7 @@ int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2502,7 +2519,7 @@ int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
     uint32_t *source_shape = source_arr->shape;
 
     if (*p->before < 0 || *p->after < 0) {
-        res = csound->InitError(csound, "[csnarray] Param before and after must be positive");
+        res = csound->InitError(csound, "[csnarray] Pad widths must be >= 0, got before=%g and after=%g", (double) *p->before, (double) *p->after);
         goto done;
     }
 
@@ -2513,7 +2530,7 @@ int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
     if (p->INOCOUNT > 4) {
         axis = (int32_t) *p->axis;
         if (*p->axis < 0 || (uint32_t) axis > source_ndim - 1) {
-            res = csound->InitError(csound, "[csnarray] Invalid axis");
+            res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
             goto done;
         }
     }
@@ -2529,14 +2546,15 @@ int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
 
     CSN_ARRAY *temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
         goto done;
     }
 
     int32_t alloc_temp = allocate_array(csound, temp, source_ndim, new_shape, source_arr->array_id);
     if (alloc_temp != OK) {
+        char tbuf[CSN_SHAPE_STR_MAX];
         csound->Free(csound, temp);
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), new_shape, source_ndim));
         goto done;
     }
 
@@ -2574,7 +2592,7 @@ int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
     if (new_data == NULL) {
         csound->Free(csound, temp->data);
         csound->Free(csound, temp);
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * temp->capacity));
         goto done;
     }
 
@@ -2599,7 +2617,7 @@ static void clip_value(double min_value, double max_value, CSN_ARRAY *arr) {
 int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2611,7 +2629,7 @@ int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2635,7 +2653,7 @@ done:
 int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2645,7 +2663,7 @@ int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2699,7 +2717,7 @@ static size_t count_elements_from_value(const CSN_ARRAY *source_arr, double cmp_
 int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2712,13 +2730,13 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
     CSN_SLOT *data_slot = get_slot(reg, data_handle);
     if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid data handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
         goto done;
     }
 
@@ -2729,7 +2747,7 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
     uint32_t data_ndim = data_arr->ndim;
 
     if (data_ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Data array must be 1-D");
+        res = csound->InitError(csound, "[csnarray] Data array must be 1-D, got %u-D", data_ndim);
         goto done;
     }
 
@@ -2782,7 +2800,7 @@ done:
 static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_COMPARE_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2794,7 +2812,7 @@ static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_CO
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2868,7 +2886,7 @@ static size_t count_unique(ARRAY_ELEMENT *temp, size_t size) {
 int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2880,7 +2898,7 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2890,7 +2908,7 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
 
     ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
         goto done;
     }
 
@@ -2935,7 +2953,7 @@ done:
 int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -2947,7 +2965,7 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -2955,7 +2973,7 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
 
     ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
         goto done;
     }
 
@@ -2990,7 +3008,7 @@ done:
 static int32_t csnarray_compare_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPARE_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -3002,7 +3020,7 @@ static int32_t csnarray_compare_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPA
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -3046,7 +3064,7 @@ int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p) {
 int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_COMPARE_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -3056,7 +3074,7 @@ int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_COMPARE_
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -3185,7 +3203,7 @@ static void accumulate_reduction_scalar_helper(double *value, const CSN_ARRAY *s
 static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = src_ref->id;
@@ -3197,7 +3215,7 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -3206,12 +3224,12 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
     uint32_t *source_shape = source_arr->shape;
 
     if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
     if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
         goto done;
     }
 
@@ -3219,7 +3237,7 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
        on, so an empty reduction has no answer. numpy raises here too. */
     size_t reduced_extent = (axis == -1) ? source_arr->size : source_shape[axis];
     if (reduced_extent == 0 && (mode == RED_MIN || mode == RED_MAX || mode == RED_SUB)) {
-        res = csound->InitError(csound, "[csnarray] Reduction of an empty array is undefined for min, max and sub");
+        res = csound->InitError(csound, "[csnarray] Min, max and sub are undefined over an empty extent (axis %d has 0 elements)", axis);
         goto done;
     }
 
@@ -3408,7 +3426,7 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
                                       MYFLT *out_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = src_ref->id;
@@ -3420,7 +3438,7 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -3429,12 +3447,12 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
     uint32_t *source_shape = source_arr->shape;
 
     if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
     if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
         goto done;
     }
 
@@ -3547,7 +3565,7 @@ static void dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, uint32_t *s
 static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -3559,7 +3577,7 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -3571,12 +3589,12 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
        opcode: -1 significa "su tutti gli assi". */
     int32_t axis = (int32_t) *p->axis;
     if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
     if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
         goto done;
     }
 
@@ -3650,7 +3668,7 @@ static double median_of_scratch(double *scratch, size_t n) {
 static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = src_ref->id;
@@ -3663,7 +3681,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -3672,7 +3690,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
     uint32_t *source_shape = source_arr->shape;
 
     if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
@@ -3680,7 +3698,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
     size_t run = (axis == -1) ? source_arr->size : source_shape[axis];
     scratch = csound->Calloc(csound, sizeof(double) * (run > 0 ? run : 1));
     if (scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * (run > 0 ? run : 1)));
         goto done;
     }
 
@@ -3787,7 +3805,7 @@ static size_t broadcast_offset(const CSN_ARRAY *arr, const uint32_t *dst_coords,
 static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BINOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle_a = p->source_handle_a->id;
@@ -3800,13 +3818,13 @@ static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BIN
 
     CSN_SLOT *source_slot_a = get_slot(reg, source_handle_a);
     if (source_slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_a);
         goto done;
     }
 
     CSN_SLOT *source_slot_b = get_slot(reg, source_handle_b);
     if (source_slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_b);
         goto done;
     }
 
@@ -3816,7 +3834,8 @@ static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BIN
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_ndim = 0;
     if (broadcast_shape(source_arr_a, source_arr_b, new_shape, &new_ndim) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shapes cannot be broadcast together: axes must match or be 1, aligned from the last");
+        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
         goto done;
     }
 
@@ -3885,7 +3904,7 @@ done:
 static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSNREF *handle_arg, MYFLT *scalar_arg, CSN_BINOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = handle_arg->id;
@@ -3897,7 +3916,7 @@ static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, 
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -4035,7 +4054,7 @@ int32_t csnarray_log_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 static int32_t csnarray_unaryop_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNARY_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
@@ -4047,7 +4066,7 @@ static int32_t csnarray_unaryop_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNARY
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -4242,7 +4261,6 @@ static void dot_inner(CSN_ARRAY *out_arr, CSN_ARRAY *source_arr_a, CSN_ARRAY *so
     uint32_t source_dim_a = source_arr_a->ndim;
     uint32_t source_dim_b = source_arr_b->ndim;
     uint32_t *source_shape_a = source_arr_a->shape;
-    uint32_t *source_shape_b = source_arr_b->shape;
     uint32_t ka_dim  = source_shape_a[source_dim_a - 1];
     size_t bk = (source_dim_b >= 2) ? source_dim_b - 2 : 0;
     for (size_t linear = 0; linear < out_arr->size; linear++) {
@@ -4282,7 +4300,7 @@ static void dot_inner(CSN_ARRAY *out_arr, CSN_ARRAY *source_arr_a, CSN_ARRAY *so
 static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle_a = (uint32_t) p->source_handle_a->id;
@@ -4295,12 +4313,12 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
 
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
     if (slot_a == NULL) {
-        return csound->InitError(csound, "[csnarray] Invalid handle");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_a);
     }
 
     CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
     if (slot_b == NULL) {
-        return csound->InitError(csound, "[csnarray] Invalid handle");
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_b);
     }
 
     CSN_ARRAY *source_arr_a = slot_a->array;
@@ -4318,12 +4336,13 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
     switch (mode) {
         case CSN_DOT:
             if (source_dim_a == 1 && source_dim_b == 1) {
-                res = csound->InitError(csound, "[csnarray] dot of two 1-D arrays is a scalar. Declare the output as i");
+                res = csound->InitError(csound, "[csnarray] The dot product of two 1-D arrays is a scalar; declare the output as i, not as a handle");
                 goto done;
             }
 
             if (check_dot_shape(source_shape_a, source_shape_b, source_dim_a, source_dim_b) != OK) {
-                res = csound->InitError(csound, "[csnarray] Invalid shape pair in dot product");
+                char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+                res = csound->InitError(csound, "[csnarray] Shapes %s and %s are not valid for a dot product: the last axis of the first must match the second-to-last axis of the second", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
                 goto done;
             }
 
@@ -4339,12 +4358,13 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
             break;
         case CSN_INNER:
             if (source_dim_a == 1 && source_dim_b == 1) {
-                res = csound->InitError(csound, "[csnarray] inner of two 1-D arrays is a scalar. Declare the output as i");
+                res = csound->InitError(csound, "[csnarray] The inner product of two 1-D arrays is a scalar; declare the output as i, not as a handle");
                 goto done;
             }
 
             if (source_shape_a[source_dim_a - 1] != source_shape_b[source_dim_b - 1]) {
-                res = csound->InitError(csound, "[csnarray] Invalid shape pair in inner product");
+                char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+                res = csound->InitError(csound, "[csnarray] Shapes %s and %s are not valid for an inner product: the last axis must match (%u vs %u)", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b), source_shape_a[source_dim_a - 1], source_shape_b[source_dim_b - 1]);
                 goto done;
             }
 
@@ -4359,23 +4379,36 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
             break;
         case CSN_OUTER:
             if (source_dim_a != 1 || source_dim_b != 1) {
-                res = csound->InitError(csound, "[csnarray] Invalid array dimension. Outer require 1-D array");
+                res = csound->InitError(csound, "[csnarray] Outer product needs two 1-D arrays, got %u-D and %u-D", (uint32_t) source_dim_a, (uint32_t) source_dim_b);
                 goto done;
             }
 
             new_shape[0] = source_shape_a[0];
             new_shape[1] = source_shape_b[0];
-            new_ndim = source_dim_a;
+            new_ndim = 2U;
             break;
         case CSN_PAIR_DISTANCE:
-        case CSN_ANGLE:
+        case CSN_PROJECT:
+        case CSN_REJECT:
+        case CSN_REFLECT:
             if (source_dim_a != source_dim_b || memcmp(source_shape_a, source_shape_b, sizeof(uint32_t) * CSN_MAX_DIMS) != 0) {
-                res = csound->InitError(csound, "[csnarray] Pair distance require same dims and shape");
+                char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+                res = csound->InitError(csound, "[csnarray] Both arrays must have the same shape, got %s and %s", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
                 goto done;
             }
 
             memcpy(new_shape, source_shape_a, sizeof(uint32_t) * CSN_MAX_DIMS);
             new_ndim = source_dim_a;
+            break;
+        case CSN_CROSS:
+            if (source_dim_a != 1 || source_dim_b != 1 || source_shape_a[0] != 3 || source_shape_b[0] != 3) {
+                char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+                res = csound->InitError(csound, "[csnarray] Cross product needs two 1-D arrays of size 3, got %s and %s", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
+                goto done;
+            }
+
+            new_shape[0] = 3;
+            new_ndim = 1;
             break;
         default:
             break;
@@ -4391,22 +4424,70 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
 
     size_t size_a = source_arr_a->size;
     size_t size_b = source_arr_b->size;
-    uint32_t ka_dim  = source_shape_a[source_dim_a - 1];
+    double dot_ab = 0.0;
+    double dot_bb = 0.0;
+    double *a = source_arr_a->data;
+    double *b = source_arr_b->data;
     switch(mode) {
+        case CSN_DOT:
+        case CSN_INNER:
+            dot_inner(arr, source_arr_a, source_arr_b, mode);
+            break;
         case CSN_OUTER:
             for (size_t i = 0; i < size_a; ++i) {
                 for (size_t j = 0; j < size_b; ++j) {
-                    arr->data[i * size_b + j] = source_arr_a->data[i] * source_arr_b->data[j];
+                    arr->data[i * size_b + j] = a[i] * b[j];
                 }
             }
             break;
         case CSN_PAIR_DISTANCE:
             for (size_t i = 0; i < size_a; ++i) {
-                arr->data[i] = fabs(source_arr_a->data[i] - source_arr_b->data[i]);
+                arr->data[i] = fabs(a[i] - b[i]);
             }
             break;
+        case CSN_PROJECT:
+        case CSN_REJECT:
+        case CSN_REFLECT:
+            dot_ab = 0.0;
+            dot_bb = 0.0;
+            for (size_t i = 0; i < size_a; ++i) {
+                dot_ab += a[i] * b[i];
+                dot_bb += b[i] * b[i];
+            }
+
+            if (dot_bb != 0.0) {
+                double scale = dot_ab / dot_bb;
+                for (size_t i = 0; i < size_a; ++i) {
+                    double proj = scale * b[i];
+                    double value = 0.0;
+                    switch (mode) {
+                        case CSN_PROJECT:
+                            value = proj;
+                            break;
+                        case CSN_REJECT:
+                            value = a[i] - proj;
+                            break;
+                        case CSN_REFLECT:
+                            value = a[i] - 2.0 * proj;
+                            break;
+                        default:
+                            break;
+                    }
+
+                    arr->data[i] = value;
+                }
+            } else {
+                res = csound->InitError(csound, "[csnarray] The second vector has zero length, so the projection onto it is undefined");
+                goto done;
+            }
+            break;
+        case CSN_CROSS:
+            arr->data[0] = a[1] * b[2] - a[2] * b[1];
+            arr->data[1] = a[2] * b[0] - a[0] * b[2];
+            arr->data[2] = a[0] * b[1] - a[1] * b[0];
+            break;
         default:
-            dot_inner(arr, source_arr_a, source_arr_b, mode);
+            break;
     }
 done:
     csound->UnlockMutex(reg->mutex);
@@ -4417,16 +4498,102 @@ int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p) {
     return csnarray_vec_helper(csound, p, CSN_DOT);
 }
 
-int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+static int32_t csnarray_scalar_helper(CSOUND *csound, CSN_BINOP_HH_SCALAR *p, CSN_VECOP_MODE mode, double dist_order) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle_a = (uint32_t) p->source_handle_a->id;
+    uint32_t source_handle_b = (uint32_t) p->source_handle_b->id;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
+    if (slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_a);
+        goto done;
+    }
+
+    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
+    if (slot_b == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = slot_a->array;
+    CSN_ARRAY *source_arr_b = slot_b->array;
+    uint32_t *source_shape_a = source_arr_a->shape;
+    uint32_t *source_shape_b = source_arr_b->shape;
+    size_t source_dim_a = source_arr_a->ndim;
+    size_t source_dim_b = source_arr_b->ndim;
+
+    if (source_dim_a != 1 || source_dim_b != 1 || source_shape_a[0] != source_shape_b[0]) {
+        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+        res = csound->InitError(csound, "[csnarray] Both arrays must be 1-D with the same size, got %s and %s", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
+        goto done;
+    }
+
+    if (mode == CSN_DISTANCE && dist_order <= 0.0) {
+        res = csound->InitError(csound, "[csnarray] Distance order must be >= 1, got %g", dist_order);
+        goto done;
+    }
+
+    double value = 0.0;
+    for (size_t i = 0; i < source_arr_a->size; i++) {
+        switch (mode) {
+            case CSN_DOT_SCALAR:
+            case CSN_INNER_SCALAR:
+                value += source_arr_a->data[i] * source_arr_b->data[i];
+                break;
+            case CSN_DISTANCE:
+                value += pow(fabs(source_arr_a->data[i] - source_arr_b->data[i]), dist_order);
+                break;
+            default:
+                break;
+        }
+    }
+
+    if (mode == CSN_DISTANCE) value = pow(value, 1.0 / dist_order);
+    *p->value = (MYFLT) value;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
+    return csnarray_scalar_helper(csound, p, CSN_DOT_SCALAR, 0.0);
+}
 
 int32_t csnarray_inner(CSOUND *csound, CSN_BINOP_HH *p) {
     return csnarray_vec_helper(csound, p, CSN_INNER);
 }
 
-int32_t csnarray_inner_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_inner_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
+    return csnarray_scalar_helper(csound, p, CSN_INNER_SCALAR, 0.0);
+}
 
 int32_t csnarray_outer(CSOUND *csound, CSN_BINOP_HH *p) {
     return csnarray_vec_helper(csound, p, CSN_OUTER);
+}
+
+int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_vec_helper(csound, p, CSN_PROJECT);
+}
+
+int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_vec_helper(csound, p, CSN_REJECT);
+}
+
+int32_t csnarray_reflect(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_vec_helper(csound, p, CSN_REFLECT);
+}
+
+int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_vec_helper(csound, p, CSN_CROSS);
 }
 
 static double norm_from_scratch(double *arr, size_t size, double order) {
@@ -4441,7 +4608,7 @@ static double norm_from_scratch(double *arr, size_t size, double order) {
 int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = (uint32_t) p->source_handle->id;
@@ -4449,7 +4616,7 @@ int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     double order = (double) *p->order;
 
     if (order < 1.0) {
-        return csound->InitError(csound, "[csnarray] Norm order must equal or greater than 1");
+        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     int32_t res = OK;
@@ -4460,7 +4627,7 @@ int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -4469,14 +4636,14 @@ int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     uint32_t *source_shape = source_arr->shape;
 
     if (axis <= -1 || (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis. Axis must be in the range [0, dim - 1]");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
     size_t run = source_shape[axis];
     scratch = csound->Calloc(csound, sizeof(double) * (run > 0 ? run : 1));
     if (scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * (run > 0 ? run : 1)));
         goto done;
     }
 
@@ -4526,12 +4693,12 @@ done:
 int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     double order = (double) *p->order;
     if (order < 1.0) {
-        return csound->InitError(csound, "[csnarray] Norm order must be equal or greather than 1");
+        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     uint32_t source_handle_a = (uint32_t) p->source_handle->id;
@@ -4541,7 +4708,7 @@ int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
 
     CSN_SLOT *slot = get_slot(reg, source_handle_a);
     if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_a);
         goto done;
     }
 
@@ -4561,21 +4728,25 @@ static void normalize_slice(double *dst, const double *src, size_t n, size_t str
 
     double nrm = pow(acc, 1.0 / order);
     if (nrm == 0.0) {
-        for (size_t i = 0; i < n; ++i) dst[i * stride] = src[i * stride];
+        for (size_t i = 0; i < n; ++i) {
+            dst[i * stride] = src[i * stride];
+        }
         return;
     }
 
-    for (size_t i = 0; i < n; ++i) dst[i * stride] = src[i * stride] / nrm;
+    for (size_t i = 0; i < n; ++i) {
+        dst[i * stride] = src[i * stride] / nrm;
+    }
 }
 
 static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, double order, CSNREF *out_handle, CSN_ARRAY **out_array) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] NULL registry");
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     if (order < 1.0) {
-        return csound->InitError(csound, "[csnarray] Norm order must be equal or greater than 1");
+        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     int32_t res = OK;
@@ -4585,7 +4756,7 @@ static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, in
 
     CSN_SLOT *source_slot = get_slot(reg, src_ref->id);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Invalid source handle");
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) src_ref->id);
         goto done;
     }
 
@@ -4594,7 +4765,7 @@ static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, in
     uint32_t *source_shape = source_arr->shape;
 
     if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Invalid axis. Axis must be -1 or in the range [0, dim - 1]");
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
         goto done;
     }
 
@@ -4650,18 +4821,84 @@ int32_t csnarray_normalize_in(CSOUND *csound, CSN_NORMALIZE_IN *p) {
     return normalize_impl(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, NULL, NULL);
 }
 
-int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
+    double dist_order = (double) *p->arg_a;
+    return csnarray_scalar_helper(csound, p, CSN_DISTANCE, dist_order);
+}
 
 int32_t csnarray_pair_distance(CSOUND *csound, CSN_BINOP_HH *p) {
     return csnarray_vec_helper(csound, p, CSN_PAIR_DISTANCE);
 }
 
-int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p);
-int32_t csnarray_angle(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
-int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p);
-int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);
-int32_t csnarray_reflect(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_angle(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
 
+    uint32_t source_handle_a = (uint32_t) p->source_handle_a->id;
+    uint32_t source_handle_b = (uint32_t) p->source_handle_b->id;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
+    if (slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_a);
+        goto done;
+    }
+
+    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
+    if (slot_b == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = slot_a->array;
+    CSN_ARRAY *source_arr_b = slot_b->array;
+    uint32_t *source_shape_a = source_arr_a->shape;
+    uint32_t *source_shape_b = source_arr_b->shape;
+    size_t source_dim_a = source_arr_a->ndim;
+    size_t source_dim_b = source_arr_b->ndim;
+
+    if (source_dim_a != source_dim_b || memcmp(source_shape_a, source_shape_b, sizeof(uint32_t) * CSN_MAX_DIMS) != 0) {
+        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+        res = csound->InitError(csound, "[csnarray] Both arrays must have the same shape, got %s and %s", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
+        goto done;
+    }
+
+    double dot = 0.0;
+    double norm_a = 0.0;
+    double norm_b = 0.0;
+    for (size_t i = 0; i < source_arr_a->size; i++) {
+        double a = source_arr_a->data[i];
+        double b = source_arr_b->data[i];
+        dot += a * b;
+        norm_a += a * a;
+        norm_b += b * b;
+    }
+
+    if (norm_a == 0.0 || norm_b == 0.0) {
+        csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors");
+        *p->value = (MYFLT) NAN;
+        goto done;
+    }
+
+    norm_a = sqrt(norm_a);
+    norm_b = sqrt(norm_b);
+
+    double c = dot / (norm_a * norm_b);
+    c = c > 1.0 ? 1.0 : c;
+    c = c < -1.0 ? -1.0 : c;
+    double theta = acos(c);
+
+    *p->value = (MYFLT) theta;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
 
 // --- OENTRY ---
@@ -4729,9 +4966,9 @@ static OENTRY localops[] = {
     { "csngt",                 S(CSN_COMPARE),               0, ":CsnArr;",   ":CsnArr;i",            (SUBR) csnarray_greater_than,   NULL, (SUBR) csnarray_compare_deinit,       NULL, 0 },
     { "csnlt",                 S(CSN_COMPARE),               0, ":CsnArr;",   ":CsnArr;i",            (SUBR) csnarray_less_than,      NULL, (SUBR) csnarray_compare_deinit,       NULL, 0 },
     { "csnne",                 S(CSN_COMPARE),               0, ":CsnArr;",   ":CsnArr;i",            (SUBR) csnarray_not_equal,      NULL, (SUBR) csnarray_compare_deinit,       NULL, 0 },
-    { "csncnteq",              S(CSN_COUNT)   ,              0, "i",          ":CsnArr;i",            (SUBR) csnarray_count_equal,    NULL, NULL,                                 NULL, 0 },
-    { "csncntnz",              S(CSN_COUNT)   ,              0, "i",          ":CsnArr;",             (SUBR) csnarray_count_nonzero,  NULL, NULL,                                 NULL, 0 },
-    { "csncntnan",             S(CSN_COUNT)   ,              0, "i",          ":CsnArr;",             (SUBR) csnarray_count_nan,      NULL, NULL,                                 NULL, 0 },
+    { "csncnteq",              S(CSN_COUNT),                 0, "i",          ":CsnArr;i",            (SUBR) csnarray_count_equal,    NULL, NULL,                                 NULL, 0 },
+    { "csncntnz",              S(CSN_COUNT),                 0, "i",          ":CsnArr;",             (SUBR) csnarray_count_nonzero,  NULL, NULL,                                 NULL, 0 },
+    { "csncntnan",             S(CSN_COUNT),                 0, "i",          ":CsnArr;",             (SUBR) csnarray_count_nan,      NULL, NULL,                                 NULL, 0 },
     { "csnsum",                S(CSN_REDUCTION),             0, ":CsnArr;",   ":CsnArr;i",            (SUBR) csnarray_sum,            NULL, (SUBR) csnarray_reduction_deinit,     NULL, 0 },
     { "csnprod",               S(CSN_REDUCTION_SCALAR),      0, "i",          ":CsnArr;",             (SUBR) csnarray_prod_all,       NULL, NULL,                                 NULL, 0 },
     { "csnsub",                S(CSN_REDUCTION_SCALAR),      0, "i",          ":CsnArr;",             (SUBR) csnarray_sub_all,        NULL, NULL,                                 NULL, 0 },
@@ -4802,9 +5039,12 @@ static OENTRY localops[] = {
     { "csnnormalize",          S(CSN_NORMALIZE_OP),          0, ":CsnArr;",   ":CsnArr;jp",           (SUBR) csnarray_normalize,      NULL, (SUBR) csnarray_normalize_deinit,     NULL, 0 },
     { "csnnormalize.in",       S(CSN_NORMALIZE_IN),          0, "",           ":CsnArr;jp",           (SUBR) csnarray_normalize_in,   NULL, NULL,                                 NULL, 0 },
     { "csnpairdist",           S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_pair_distance,  NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
-    { "csndist",               S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;",     (SUBR) csnarray_distance,       NULL, NULL,                                 NULL, 0 },
-    { "csncross",              S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_cross,          NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
+    { "csndist",               S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;p",    (SUBR) csnarray_distance,       NULL, NULL,                                 NULL, 0 },
     { "csnangle",              S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;",     (SUBR) csnarray_angle,          NULL, NULL,                                 NULL, 0 },
+    { "csnproject",            S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_project,        NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
+    { "csnreject",             S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_reject,         NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
+    { "csnreflect",            S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_reflect,        NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
+    { "csncross",              S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_cross,          NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
 };
 
 

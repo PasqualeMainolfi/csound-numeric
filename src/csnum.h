@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include "csnregistry.h"
 
+#define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
+
 typedef enum {
     GREATER_THAN = 0,
     LESS_THAN,
@@ -87,6 +89,9 @@ typedef enum {
     CSN_CROSS,
     CSN_NORMALIZE,
     CSN_ANGLE,
+    CSN_PROJECT,
+    CSN_REJECT,
+    CSN_REFLECT,
 } CSN_VECOP_MODE;
 
 typedef struct {
@@ -458,6 +463,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
+    MYFLT *arg_a; // only for dist order (order Minkowski)
 } CSN_BINOP_HH_SCALAR;
 
 /* The three binop structs share this prefix and tail, which is what lets one
@@ -703,16 +709,16 @@ int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a
 int32_t csnarray_inner(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_inner_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
 int32_t csnarray_outer(CSOUND *csound, CSN_BINOP_HH *p);
-int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p);
+int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p); // generalized norm order (Minkowski)
 int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
 int32_t csnarray_normalize(CSOUND *csound, CSN_NORMALIZE_OP *p); // specify axis -1 -> all
 int32_t csnarray_normalize_in(CSOUND *csound, CSN_NORMALIZE_IN *p); // specify axis -1 -> all
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
 int32_t csnarray_pair_distance(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
-int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p); // same as numpy N-D with last dim = 3 [..., 3]
 int32_t csnarray_angle(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
-int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p); // same shape
-int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);  // same shape
-int32_t csnarray_reflect(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_reflect(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p); // only 1-D with size = 3
 
 #endif
