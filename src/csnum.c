@@ -128,7 +128,7 @@ static int32_t csnarray_opunary_deinit(CSOUND *csound, CSN_UNARYOP *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
-static int32_t csnarray_normalize_deinit(CSOUND *csound, CSN_NORMALIZE_OP *p) {
+static int32_t csnarray_opunary_ax_deinit(CSOUND *csound, CSN_UNARYOP_AX *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
@@ -4369,11 +4369,13 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
             }
 
             j = 0;
-            for (uint32_t i = 0; i < source_dim_a - 1; ++i)
+            for (uint32_t i = 0; i < source_dim_a - 1; ++i) {
                 new_shape[j++] = source_shape_a[i];
+            }
 
-            for (uint32_t i = 0; i < source_dim_b - 1; ++i)
+            for (uint32_t i = 0; i < source_dim_b - 1; ++i) {
                 new_shape[j++] = source_shape_b[i];
+            }
 
             new_ndim = j;
             break;
@@ -4739,13 +4741,44 @@ static void normalize_slice(double *dst, const double *src, size_t n, size_t str
     }
 }
 
-static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, double order, CSNREF *out_handle, CSN_ARRAY **out_array) {
+static void cumsumprod_slice(double *dst, const double *src, size_t n, size_t stride, bool is_cumsum) {
+    double acc = is_cumsum ? 0.0 : 1.0;
+    for (size_t i = 0; i < n; ++i) {
+        if (is_cumsum) acc += src[i * stride];
+        else acc *= src[i * stride];
+        dst[i * stride] = acc;
+    }
+}
+
+/* diff e' l'unica di queste operazioni che accorcia l'asse, quindi destinazione
+   e sorgente hanno strides diversi e vanno passati separatamente. */
+static void diff_slice(double *dst, const double *src, size_t n, size_t src_stride, size_t dst_stride) {
+    for (size_t i = 0; i + 1 < n; ++i) {
+        dst[i * dst_stride] = src[(i + 1) * src_stride] - src[i * src_stride];
+    }
+}
+
+static void gradient_slice(double *dst, const double *src, size_t n, size_t stride) {
+    if (n == 0)
+        return;
+    if (n == 1) {
+        dst[0] = 0.0;
+        return;
+    }
+    dst[0] = (src[stride] - src[0]);
+    for (size_t i = 1; i < n - 1; ++i) {
+        dst[i * stride] = (src[(i + 1) * stride] -  src[(i - 1) * stride]) * 0.5;
+    }
+    dst[(n - 1) * stride] = src[(n - 1) * stride] - src[(n - 2) * stride];
+}
+
+static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
-    if (order < 1.0) {
+    if (mode == CSN_NORMALIZE && order < 1.0) {
         return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
@@ -4769,10 +4802,36 @@ static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, in
         goto done;
     }
 
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = source_ndim;
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+    if (mode == CSN_DIFF) {
+        if (axis == -1) {
+            if (source_arr->size < 2) {
+                res = csound->InitError(csound, "[csnarray] Diff needs at least 2 elements, got %zu", source_arr->size);
+                goto done;
+            }
+
+            memset(new_shape, 0, sizeof(uint32_t) * CSN_MAX_DIMS);
+            new_shape[0] = (uint32_t) source_arr->size - 1;
+            new_dim = 1U;
+        } else {
+            if (source_shape[axis] < 2) {
+                res = csound->InitError(csound, "[csnarray] Diff needs at least 2 elements along axis %d, got %u", axis, source_shape[axis]);
+                goto done;
+            }
+            new_shape[axis]--;
+        }
+    } else if ((mode == CSN_CUMSUM || mode == CSN_CUMPROD) && axis == -1) {
+        memset(new_shape, 0, sizeof(new_shape));
+        new_shape[0] = (uint32_t) source_arr->size;
+        new_dim = 1U;
+    }
+
     CSN_ARRAY *arr = source_arr;
     if (out_handle != NULL) {
         const uint32_t protect[1] = { src_ref->id };
-        if (create_csnarray_locked(csound, reg, h, source_ndim, source_shape, out_array, out_handle, protect, 1U, &err) != OK) {
+        if (create_csnarray_locked(csound, reg, h, new_dim, new_shape, out_array, out_handle, protect, 1U, &err) != OK) {
             res = csound->InitError(csound, "[csnarray] %s", err);
             goto done;
         }
@@ -4780,7 +4839,23 @@ static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, in
     }
 
     if (axis == -1) {
-        normalize_slice(arr->data, source_arr->data, source_arr->size, 1, order);
+        switch (mode) {
+            case CSN_NORMALIZE:
+                normalize_slice(arr->data, source_arr->data, source_arr->size, 1, order);
+                break;
+            case CSN_DIFF:
+                diff_slice(arr->data, source_arr->data, source_arr->size, 1, 1);
+                break;
+            case CSN_GRADIENT:
+                gradient_slice(arr->data, source_arr->data, source_arr->size, 1);
+                break;
+            case CSN_CUMSUM:
+            case CSN_CUMPROD: {
+                bool is_cumsum = mode == CSN_CUMSUM;
+                cumsumprod_slice(arr->data, source_arr->data, source_arr->size, 1, is_cumsum);
+                break;
+            }
+        }
         goto done;
     }
 
@@ -4794,7 +4869,11 @@ static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, in
         }
     }
 
-    size_t stride = source_arr->strides[axis];
+    /* CSN_DIFF accorcia l'asse, quindi la destinazione ha strides sue: l'offset
+       della slice va calcolato una volta per la sorgente e una per l'output.
+       Per gli altri modi le due geometrie coincidono. */
+    size_t src_stride = source_arr->strides[axis];
+    size_t dst_stride = arr->strides[axis];
     for (size_t linear = 0; linear < slice_count; ++linear) {
         uint32_t dst_coords[CSN_MAX_DIMS] = {0};
         uint32_t src_coords[CSN_MAX_DIMS] = {0};
@@ -4804,8 +4883,25 @@ static int32_t normalize_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, in
             src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
         }
 
-        size_t base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-        normalize_slice(arr->data + base, source_arr->data + base, source_shape[axis], stride, order);
+        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_ndim);
+        switch (mode) {
+            case CSN_NORMALIZE:
+                normalize_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, order);
+                break;
+            case CSN_DIFF:
+                diff_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, dst_stride);
+                break;
+            case CSN_GRADIENT:
+                gradient_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride);
+                break;
+            case CSN_CUMSUM:
+            case CSN_CUMPROD: {
+                bool is_cumsum = mode == CSN_CUMSUM;
+                cumsumprod_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, is_cumsum);
+                break;
+            }
+        }
     }
 
 done:
@@ -4813,12 +4909,12 @@ done:
     return res;
 }
 
-int32_t csnarray_normalize(CSOUND *csound, CSN_NORMALIZE_OP *p) {
-    return normalize_impl(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, p->handle, &p->array);
+int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p) {
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, p->handle, &p->array, CSN_NORMALIZE);
 }
 
-int32_t csnarray_normalize_in(CSOUND *csound, CSN_NORMALIZE_IN *p) {
-    return normalize_impl(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, NULL, NULL);
+int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, NULL, NULL, CSN_NORMALIZE);
 }
 
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
@@ -4900,6 +4996,305 @@ done:
     return res;
 }
 
+int32_t csnarray_diff(CSOUND *csound, CSN_UNARYOP_AX *p) {
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_DIFF);
+}
+
+int32_t csnarray_gradient(CSOUND *csound, CSN_UNARYOP_AX *p) {
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_GRADIENT);
+}
+
+int32_t csnarray_cumsum(CSOUND *csound, CSN_UNARYOP_AX *p) {
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_CUMSUM);
+}
+
+int32_t csnarray_cumprod(CSOUND *csound, CSN_UNARYOP_AX *p) {
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_CUMPROD);
+}
+
+int32_t csnarray_matmul_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
+    return csnarray_scalar_helper(csound, p, CSN_DOT_SCALAR, 0.0);
+}
+
+int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot_a = get_slot(reg, source_handle_a);
+    if (source_slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_a);
+        goto done;
+    }
+
+    CSN_SLOT *source_slot_b = get_slot(reg, source_handle_b);
+    if (source_slot_b == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = source_slot_a->array;
+    CSN_ARRAY *source_arr_b = source_slot_b->array;
+
+    uint32_t source_a_dim = source_arr_a->ndim;
+    uint32_t source_b_dim = source_arr_b->ndim;
+
+    /* Il rango va controllato prima di qualsiasi 'ndim - 2': su un array 1-D
+       quella sottrazione va in underflow e l'indice finisce fuori da shape[]. */
+    if (source_a_dim == 1 && source_b_dim == 1) {
+        res = csound->InitError(csound, "[csnarray] The matrix product of two 1-D arrays is a scalar; declare the output as i, not as a handle");
+        goto done;
+    }
+
+    /* Promozione come numpy: un operando 1-D a sinistra prende un asse davanti,
+       a destra ne prende uno in coda; l'asse aggiunto sparisce dal risultato.
+       Sull'asse promosso lo stride e' 0, tanto l'estensione e' 1. */
+    uint32_t a_shape[CSN_MAX_DIMS] = {0};
+    uint32_t b_shape[CSN_MAX_DIMS] = {0};
+    size_t a_strides[CSN_MAX_DIMS] = {0};
+    size_t b_strides[CSN_MAX_DIMS] = {0};
+    uint32_t a_dim, b_dim;
+    bool a_promoted = source_a_dim == 1;
+    bool b_promoted = source_b_dim == 1;
+
+    if (a_promoted) {
+        a_dim = 2U;
+        a_shape[0] = 1U;
+        a_shape[1] = source_arr_a->shape[0];
+        a_strides[0] = 0;
+        a_strides[1] = source_arr_a->strides[0];
+    } else {
+        a_dim = source_a_dim;
+        memcpy(a_shape, source_arr_a->shape, sizeof(uint32_t) * a_dim);
+        memcpy(a_strides, source_arr_a->strides, sizeof(size_t) * a_dim);
+    }
+
+    if (b_promoted) {
+        b_dim = 2U;
+        b_shape[0] = source_arr_b->shape[0];
+        b_shape[1] = 1U;
+        b_strides[0] = source_arr_b->strides[0];
+        b_strides[1] = 0;
+    } else {
+        b_dim = source_b_dim;
+        memcpy(b_shape, source_arr_b->shape, sizeof(uint32_t) * b_dim);
+        memcpy(b_strides, source_arr_b->strides, sizeof(size_t) * b_dim);
+    }
+
+    uint32_t rows = a_shape[a_dim - 2];
+    uint32_t inner = a_shape[a_dim - 1];
+    uint32_t cols = b_shape[b_dim - 1];
+
+    if (inner != b_shape[b_dim - 2]) {
+        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+        res = csound->InitError(csound, "[csnarray] Shapes %s and %s are not valid for a matrix product: the last axis of the first (%u) must match the second-to-last of the second (%u)", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_a_dim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_b_dim), inner, b_shape[b_dim - 2]);
+        goto done;
+    }
+
+    /* Gli assi che precedono gli ultimi due sono il batch: si allineano da
+       destra e si broadcastano, esattamente come in numpy. */
+    uint32_t a_batch_ndim = a_dim - 2;
+    uint32_t b_batch_ndim = b_dim - 2;
+    uint32_t batch_ndim = a_batch_ndim > b_batch_ndim ? a_batch_ndim : b_batch_ndim;
+    uint32_t batch_shape[CSN_MAX_DIMS] = {0};
+
+    for (uint32_t i = 0; i < batch_ndim; ++i) {
+        uint32_t ea = i < a_batch_ndim ? a_shape[a_batch_ndim - 1 - i] : 1U;
+        uint32_t eb = i < b_batch_ndim ? b_shape[b_batch_ndim - 1 - i] : 1U;
+        if (ea != eb && ea != 1U && eb != 1U) {
+            char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+            res = csound->InitError(csound, "[csnarray] Batch shapes %s and %s cannot be broadcast together: outside the last two axes, aligned from the right, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_a_dim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_b_dim));
+            goto done;
+        }
+        batch_shape[batch_ndim - 1 - i] = ea > eb ? ea : eb;
+    }
+
+    /* Gli assi promossi non compaiono nel risultato. */
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_ndim = 0;
+    for (uint32_t i = 0; i < batch_ndim; ++i) {
+        new_shape[new_ndim++] = batch_shape[i];
+    }
+    if (!a_promoted) new_shape[new_ndim++] = rows;
+    if (!b_promoted) new_shape[new_ndim++] = cols;
+
+    if (new_ndim > CSN_MAX_DIMS) {
+        res = csound->InitError(csound, "[csnarray] The result would have %u dimensions, the maximum is %d", new_ndim, CSN_MAX_DIMS);
+        goto done;
+    }
+
+    const uint32_t protect[2] = { source_handle_a, source_handle_b };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    size_t batch_count = 1;
+    for (uint32_t i = 0; i < batch_ndim; ++i) {
+        batch_count *= batch_shape[i];
+    }
+
+    size_t a_row_stride = a_strides[a_dim - 2];
+    size_t a_col_stride = a_strides[a_dim - 1];
+    size_t b_row_stride = b_strides[b_dim - 2];
+    size_t b_col_stride = b_strides[b_dim - 1];
+
+    for (size_t batch = 0; batch < batch_count; ++batch) {
+        uint32_t batch_coords[CSN_MAX_DIMS] = {0};
+        from_linear_to_coords(batch_coords, batch_shape, batch, batch_ndim);
+
+        /* Offset del blocco 2-D dentro ciascun operando: un asse di batch
+           lungo 1 viene stirato, quindi legge sempre l'indice 0. */
+        size_t a_base = 0;
+        for (uint32_t i = 0; i < a_batch_ndim; ++i) {
+            uint32_t c = a_shape[i] == 1U ? 0U : batch_coords[batch_ndim - a_batch_ndim + i];
+            a_base += (size_t) c * a_strides[i];
+        }
+
+        size_t b_base = 0;
+        for (uint32_t i = 0; i < b_batch_ndim; ++i) {
+            uint32_t c = b_shape[i] == 1U ? 0U : batch_coords[batch_ndim - b_batch_ndim + i];
+            b_base += (size_t) c * b_strides[i];
+        }
+
+        /* L'output e' contiguo: gli assi promossi hanno estensione 1, quindi
+           non spostano nulla nel layout lineare. */
+        for (uint32_t r = 0; r < rows; ++r) {
+            for (uint32_t c = 0; c < cols; ++c) {
+                double acc = 0.0;
+                for (uint32_t k = 0; k < inner; ++k) {
+                    acc += source_arr_a->data[a_base + (size_t) r * a_row_stride + (size_t) k * a_col_stride]
+                         * source_arr_b->data[b_base + (size_t) k * b_row_stride + (size_t) c * b_col_stride];
+                }
+                arr->data[(batch * rows + r) * cols + c] = acc;
+            }
+        }
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_trace(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = (uint32_t) p->source_handle->id;
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot_a = get_slot(reg, source_handle);
+    if (slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot_a->array;
+    uint32_t dim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (dim != 2) {
+        res = csound->InitError(csound, "[csnarray] Trace needs a 2-D matrix, got %u-D", dim);
+        goto done;
+    }
+
+    uint32_t coords[2] = { 0, 0 };
+    uint32_t n = source_shape[0] < source_shape[1] ? source_shape[0] : source_shape[1];
+    double sum = 0.0;
+    for (uint32_t i = 0; i < n; i++) {
+        coords[0] = i;
+        coords[1] = i;
+
+        size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+        sum += source_arr->data[off];
+    }
+
+    *p->value = (MYFLT) sum;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = (uint32_t) p->source_handle->id;
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot_a = get_slot(reg, source_handle);
+    if (slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot_a->array;
+    uint32_t dim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (dim == 0 || dim > 2) {
+        res = csound->InitError(csound, "[csnarray] Diag needs a 1-D or 2-D array, got %u-D", dim);
+        goto done;
+    }
+
+    /* 1-D -> matrice diagonale n x n; 2-D -> vettore con la diagonale, lunga
+       quanto il lato piu' corto (come numpy su matrici non quadrate). */
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = dim == 2U ? 1U : 2U;
+    if (dim == 1) {
+        new_shape[0] = source_shape[0];
+        new_shape[1] = source_shape[0];
+    } else {
+        new_shape[0] = source_shape[0] < source_shape[1] ? source_shape[0] : source_shape[1];
+    }
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 1U, &err) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    uint32_t coords[2] = { 0, 0 };
+
+    for (uint32_t i = 0; i < new_shape[0]; i++) {
+        coords[0] = i;
+        coords[1] = i;
+        if (dim == 2) {
+            size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+            arr->data[i] = source_arr->data[off];
+        } else {
+            size_t off = from_coords_to_offset(coords, arr->strides, 2U);
+            arr->data[off] = source_arr->data[i];
+        }
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
 // --- OENTRY ---
 
@@ -5036,8 +5431,8 @@ static OENTRY localops[] = {
     { "csnouter",              S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_outer,          NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
     { "csnnorm",               S(CSN_NORM_REDUCTION),        0, ":CsnArr;",   ":CsnArr;ip",           (SUBR) csnarray_norm,           NULL, (SUBR) csnarray_norm_deinit,          NULL, 0 },
     { "csnnorm.s",             S(CSN_NORM_REDUCTION_SCALAR), 0, "i",          ":CsnArr;p",            (SUBR) csnarray_norm_scalar,    NULL, NULL,                                 NULL, 0 },
-    { "csnnormalize",          S(CSN_NORMALIZE_OP),          0, ":CsnArr;",   ":CsnArr;jp",           (SUBR) csnarray_normalize,      NULL, (SUBR) csnarray_normalize_deinit,     NULL, 0 },
-    { "csnnormalize.in",       S(CSN_NORMALIZE_IN),          0, "",           ":CsnArr;jp",           (SUBR) csnarray_normalize_in,   NULL, NULL,                                 NULL, 0 },
+    { "csnnormalize",          S(CSN_UNARYOP_AX),            0, ":CsnArr;",   ":CsnArr;jp",           (SUBR) csnarray_normalize,      NULL, (SUBR) csnarray_opunary_ax_deinit,    NULL, 0 },
+    { "csnnormalize.in",       S(CSN_UNARYOP_AX_IN),         0, "",           ":CsnArr;jp",           (SUBR) csnarray_normalize_in,   NULL, NULL,                                 NULL, 0 },
     { "csnpairdist",           S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_pair_distance,  NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
     { "csndist",               S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;p",    (SUBR) csnarray_distance,       NULL, NULL,                                 NULL, 0 },
     { "csnangle",              S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;",     (SUBR) csnarray_angle,          NULL, NULL,                                 NULL, 0 },
@@ -5045,6 +5440,14 @@ static OENTRY localops[] = {
     { "csnreject",             S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_reject,         NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
     { "csnreflect",            S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_reflect,        NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
     { "csncross",              S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_cross,          NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
+    { "csndiff",               S(CSN_UNARYOP_AX),            0, ":CsnArr;",   ":CsnArr;j",            (SUBR) csnarray_diff,           NULL, (SUBR) csnarray_opunary_ax_deinit,    NULL, 0 },
+    { "csncumsum",             S(CSN_UNARYOP_AX),            0, ":CsnArr;",   ":CsnArr;j",            (SUBR) csnarray_cumsum,         NULL, (SUBR) csnarray_opunary_ax_deinit,    NULL, 0 },
+    { "csncumprod",            S(CSN_UNARYOP_AX),            0, ":CsnArr;",   ":CsnArr;j",            (SUBR) csnarray_cumprod,        NULL, (SUBR) csnarray_opunary_ax_deinit,    NULL, 0 },
+    { "csngrad",               S(CSN_UNARYOP_AX),            0, ":CsnArr;",   ":CsnArr;j",            (SUBR) csnarray_gradient,       NULL, (SUBR) csnarray_opunary_ax_deinit,    NULL, 0 },
+    { "csnmatmul",             S(CSN_BINOP_HH),              0, ":CsnArr;",   ":CsnArr;:CsnArr;",     (SUBR) csnarray_matmul,         NULL, (SUBR) csnarray_opbin_deinit,         NULL, 0 },
+    { "csnmatmul.s",           S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;",     (SUBR) csnarray_matmul_scalar,  NULL, NULL,                                 NULL, 0 },
+    { "csntrace",              S(CSN_UNARYOP_SCALAR),        0, "i",          ":CsnArr;",             (SUBR) csnarray_trace,          NULL, NULL,                                 NULL, 0 },
+    { "csndiag",               S(CSN_UNARYOP),               0, ":CsnArr;",   ":CsnArr;",             (SUBR) csnarray_diag,           NULL, (SUBR) csnarray_opunary_deinit,       NULL, 0 },
 };
 
 

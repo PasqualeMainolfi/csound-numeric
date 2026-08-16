@@ -87,12 +87,19 @@ typedef enum {
     CSN_PAIR_DISTANCE,
     CSN_DISTANCE,
     CSN_CROSS,
-    CSN_NORMALIZE,
     CSN_ANGLE,
     CSN_PROJECT,
     CSN_REJECT,
     CSN_REFLECT,
 } CSN_VECOP_MODE;
+
+typedef enum {
+    CSN_DIFF = 0,
+    CSN_GRADIENT,
+    CSN_CUMSUM,
+    CSN_CUMPROD,
+    CSN_NORMALIZE
+} CSN_UNARYOP_AX_MODE;
 
 typedef struct {
     double value;
@@ -502,7 +509,7 @@ typedef struct {
     MYFLT *order;
     // private
     CSN_ARRAY *array;
-} CSN_NORMALIZE_OP;
+} CSN_UNARYOP_AX;
 
 typedef struct {
     OPDS h;
@@ -510,7 +517,7 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *axis;
     MYFLT *order;
-} CSN_NORMALIZE_IN;
+} CSN_UNARYOP_AX_IN;
 
 typedef struct {
     OPDS h;
@@ -544,6 +551,14 @@ typedef struct {
 
 typedef struct {
     OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle;
+} CSN_UNARYOP_SCALAR;
+
+typedef struct {
+    OPDS h;
     // inputs
     CSNREF *source_handle;
     MYFLT *arg_a; // in normalize is axis
@@ -573,7 +588,6 @@ typedef struct {
 } CSN_NORM_REDUCTION_SCALAR;
 
 
-
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -588,7 +602,6 @@ int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p);
-int32_t csnarray_identity(CSOUND *csound, CSN_IDENTITY *p);
 
 // SHAPE
 int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p);
@@ -711,8 +724,8 @@ int32_t csnarray_inner_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return
 int32_t csnarray_outer(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p); // generalized norm order (Minkowski)
 int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
-int32_t csnarray_normalize(CSOUND *csound, CSN_NORMALIZE_OP *p); // specify axis -1 -> all
-int32_t csnarray_normalize_in(CSOUND *csound, CSN_NORMALIZE_IN *p); // specify axis -1 -> all
+int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p); // specify axis -1 -> all
+int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p); // specify axis -1 -> all
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
 int32_t csnarray_pair_distance(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
 int32_t csnarray_angle(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
@@ -720,5 +733,19 @@ int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reflect(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p); // only 1-D with size = 3
+
+// NUMERIC ANALYSIS
+int32_t csnarray_diff(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_gradient(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_cumsum(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_cumprod(CSOUND *csound, CSN_UNARYOP_AX *p);
+
+// MATRIX
+int32_t csnarray_identity(CSOUND *csound, CSN_IDENTITY *p);
+int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p); // as numpy (broadcast last two dims)
+int32_t csnarray_matmul_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_trace(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // only 2D
+int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p); // with 1D -> 2D, with 2D -> 1D
+
 
 #endif

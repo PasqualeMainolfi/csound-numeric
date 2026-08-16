@@ -85,35 +85,39 @@
     X round
 
 6. VECTIORIAL
-    - dot
-    - inner
-    - outer
-    - norm
-    - normalize
-    - distance
-    - angle
-    - wrap_angle
-    - project
-    - reject
-    - reflect
-    - cross (only 3D)
+    X dot
+    X inner
+    X outer
+    X norm
+    X normalize
+    X distance
+    X angle
+    X wrap_angle
+    X project
+    X reject
+    X reflect
+    X cross (only 3D)
 
 7. NUMERIC ANALYSIS
-    - diff
-    - gradient
-    - cumsum
-    - cumprod
+    X diff
+    X gradient
+    X cumsum
+    X cumprod
 
 8. REALTIME STATS
     - movmean
     - movmedian
     - movstd
+    - movvar
+    - movemin
+    - movemax
 
 8. MATIRX
-    - matmul
+    X matmul
     X transpose
-    - trace
-    - diag
+    X trace
+    X diag
     X identity
-    - outer
- */
+
+9. ADD COMPLEX OPERATIONS
+10. ADD K-RATE MODE
