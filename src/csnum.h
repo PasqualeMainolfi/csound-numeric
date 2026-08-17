@@ -111,6 +111,11 @@ typedef enum {
 } CSN_MOVSTATS_MODE;
 
 typedef struct {
+    double re;
+    double im;
+} CSN_COMPLEXDAT;
+
+typedef struct {
     double value;
     uint32_t linear_index;
 } ARRAY_ELEMENT;
@@ -121,10 +126,34 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
-    MYFLT *value; // only for full
+    MYFLT *itype; // itype = REAL (0) or COMPLEX (1)
     // private
     CSN_ARRAY *array;
 } CSN_ARR_INIT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    ARRAYDAT *shape;
+    MYFLT *value;
+    MYFLT *itype;
+    // private
+    CSN_ARRAY *array;
+} CSN_FULL;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    ARRAYDAT *shape;
+    COMPLEXDAT *value;
+    MYFLT *itype;
+    // private
+    CSN_ARRAY *array;
+} CSN_FULLCOMPLEX;
 
 typedef struct {
     OPDS h;
@@ -143,8 +172,8 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    CSNREF *handle_from;
-    MYFLT *value;
+    CSNREF *handle_from; // determines if is real or complex
+    MYFLT *value; // value for fill
     // private
     CSN_ARRAY *array;
 } CSN_ARR_INIT_LIKE;
@@ -194,6 +223,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     MYFLT *num;
+    MYFLT *itype;
     // private
     CSN_ARRAY *array;
 } CSN_IDENTITY;
@@ -269,11 +299,28 @@ typedef struct {
 
 typedef struct {
     OPDS h;
+    // ouputs
+    COMPLEXDAT *value;
+    // inputs
+    CSNREF *source_handle;
+    ARRAYDAT *indexes; // get -> indexes must be the same as dims
+} CSN_GETCOMPLEX;
+
+typedef struct {
+    OPDS h;
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     MYFLT *value;
 } CSN_SET;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    ARRAYDAT *indexes; // set -> indexes must be the same as dims
+    COMPLEXDAT *value;
+} CSN_SETCOMPLEX;
 
 typedef struct {
     OPDS h;
@@ -296,6 +343,15 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *index;
 } CSN_TAKE_FLAT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *index;
+} CSN_TAKECOMPLEX_FLAT;
 
 typedef struct {
     OPDS h;
@@ -332,12 +388,29 @@ typedef struct {
 
 typedef struct {
     OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    COMPLEXDAT *in_value; // push at the top
+    MYFLT *index;    // only for put (at index)
+} CSN_PUSHCOMPLEX;
+
+typedef struct {
+    OPDS h;
     // outputs
     MYFLT *out_value;
     // inputs
     CSNREF *source_handle; // remove the top element
     MYFLT *index;         // only for remove (at the index)
 } CSN_POP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *out_value;
+    // inputs
+    CSNREF *source_handle; // remove the top element
+    MYFLT *index;         // only for remove (at the index)
+} CSN_POPCOMPLEX;
 
 typedef struct {
     OPDS h;
@@ -376,6 +449,20 @@ typedef struct {
 
 typedef struct {
     OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *before;
+    MYFLT *after;
+    COMPLEXDAT *value;
+    MYFLT *axis; // axis -> NULL default all axes
+    // private
+    CSN_ARRAY *array;
+} CSN_PADCOMPLEX;
+
+typedef struct {
+    OPDS h;
     // inputs
     CSNREF *source_handle;
     MYFLT *before;
@@ -383,6 +470,16 @@ typedef struct {
     MYFLT *value;
     MYFLT *axis; // axis -> NULL default all axes
 } CSN_PAD_IN;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *before;
+    MYFLT *after;
+    COMPLEXDAT *value;
+    MYFLT *axis; // axis -> NULL default all axes
+} CSN_PADCOMPLEX_IN;
 
 typedef struct {
     OPDS h;
@@ -460,6 +557,14 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
 } CSN_REDUCTION_SCALAR;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    CSNREF *source_handle;
+} CSN_REDUCTION_COMPLEX_S;
 
 typedef struct {
     OPDS h;
@@ -621,16 +726,18 @@ typedef struct {
 } CSN_MOVSTATS_IN;
 
 
-
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_ones_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
-int32_t create_full_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
+int32_t create_full_csnarray(CSOUND *csound, CSN_FULL *p);
+int32_t create_fullcomp_csnarray(CSOUND *csound, CSN_FULLCOMPLEX *p);
 int32_t create_random_csnarray(CSOUND *csound, CSN_ARR_RND_INIT *p);
 int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
+int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p);
+int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p);
 int32_t free_csnarray(CSOUND *csound, CSN_FREE *p);
 int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p);
@@ -657,21 +764,30 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
 
 // INDEXING
 int32_t csnarray_get(CSOUND *csound, CSN_GET *p);
+int32_t csnarray_get_complex(CSOUND *csound, CSN_GETCOMPLEX *p);
 int32_t csnarray_set(CSOUND *csound, CSN_SET *p);
+int32_t csnarray_set_complex(CSOUND *csound, CSN_SETCOMPLEX *p);
 int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p);
 int32_t csnarray_take_flat(CSOUND *csound, CSN_TAKE_FLAT *p);
+int32_t csnarray_takecomp_flat(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p);
 int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p);
 int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p);
 int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p);
+int32_t csnarray_pushcomp(CSOUND *csound, CSN_PUSHCOMPLEX *p);
 int32_t csnarray_pop(CSOUND *csound, CSN_POP *p);
+int32_t csnarray_popcomp(CSOUND *csound, CSN_POPCOMPLEX *p);
 int32_t csnarray_insert(CSOUND *csound, CSN_PUSH *p);
+int32_t csnarray_insertcomp(CSOUND *csound, CSN_PUSHCOMPLEX *p);
 int32_t csnarray_remove(CSOUND *csound, CSN_POP *p);
+int32_t csnarray_removecomp(CSOUND *csound, CSN_POPCOMPLEX *p);
 int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p);
 int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p);
 int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p);
 int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p);
 int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p);
 int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p);
+int32_t csnarray_padcomp(CSOUND *csound, CSN_PADCOMPLEX *p);
+int32_t csnarray_padcomp_in(CSOUND *csound, CSN_PADCOMPLEX_IN *p);
 int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p);
 int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p);
 int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
@@ -691,12 +807,16 @@ int32_t csnarray_count_nan(CSOUND *csound, CSN_COUNT *p);       // return count 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_sum_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_sumcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
 int32_t csnarray_prod(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_prod_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_prodcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
 int32_t csnarray_sub(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_sub_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_subcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
 int32_t csnarray_mean(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_mean_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_meancomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
 int32_t csnarray_min(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_min_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_max(CSOUND *csound, CSN_REDUCTION *p);

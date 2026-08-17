@@ -114,7 +114,7 @@ void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim
     }
 }
 
-int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id) {
+int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype) {
     if (ndim == 0 || ndim > CSN_MAX_DIMS || shape == NULL) {
         return NOTOK;
     }
@@ -134,7 +134,7 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     /* Every array built so far holds plain reals. ITEM_TYPE doubles as the
        item's width in doubles (REAL == 1), so the byte math below is already
        correct once COMPLEX arrays start being allocated. */
-    array->itype = REAL;
+    array->itype = itype;
 
     /* Always keep room for at least one element, so data is never NULL and
        the first push into an empty array needs no special case. capacity
@@ -166,7 +166,7 @@ static void destroy_array(CSOUND *csound, CSN_ARRAY *array) {
     }
 }
 
-int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, uint32_t ndim, const uint32_t *shape, uint32_t array_id) {
+int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype) {
     if (registry == NULL || slot == NULL) {
         return NOTOK;
     }
@@ -179,7 +179,7 @@ int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, ui
         return NOTOK;
     }
 
-    int32_t res = allocate_array(csound, array, ndim, shape, array_id);
+    int32_t res = allocate_array(csound, array, ndim, shape, array_id, itype);
     if (res != OK) {
         csound->Free(csound, array);
         return NOTOK;

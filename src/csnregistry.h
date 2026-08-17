@@ -22,6 +22,20 @@
 #define SLT_FROM_HANDLE(handle) ((handle) & CSN_SLT_MASK)
 #define GEN_FROM_HANDLE(handle) ((handle) >> CSN_SLT_BITS & CSN_GEN_MASK)
 
+#define CHECK_ITYPE(csound, x)                                                             \
+    do {                                                                                   \
+        if ((x) != 0.0 && (x) != 1.0) {                                                    \
+            return (csound)->InitError(                                                    \
+                (csound),                                                                  \
+                "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", \
+                (double) (x)                                                               \
+            );                                                                             \
+        }                                                                                  \
+    } while (0)
+
+
+#define CSN_ITYPE_FROM_ARG(x) ((ITEM_TYPE) ((x) != 0.0 ? CSN_COMPLEX : CSN_REAL))
+
 typedef enum {
     INVALID_HANDLE = 0,
     VALID_HANDLE
@@ -32,10 +46,10 @@ typedef enum {
     ACTIVE_SLOT
 } CSN_SLOT_STATE;
 
-typedef size_t ITEM_TYPE;
+typedef uint32_t ITEM_TYPE;
 enum {
-    REAL = 1,
-    COMPLEX
+    CSN_REAL = 1,
+    CSN_COMPLEX
 };
 
 typedef struct {
@@ -82,11 +96,11 @@ typedef struct {
 CSN_REGISTRY *get_registry(CSOUND *csound);
 uint32_t find_free_slot(CSN_REGISTRY *registry);
 CSN_SLOT *get_slot(CSN_REGISTRY *registry, uint32_t handle);
-int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, uint32_t ndim, const uint32_t *shape, uint32_t array_id);
+int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype);
 /* Frees the array the slot owns; the caller must not keep its own pointer. */
 int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot);
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim);
-int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id);
+int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype);
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
 void pcg32_random_init(PCG32_STATE *rng);
 double pcg32_random(PCG32_STATE *rng);
