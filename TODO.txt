@@ -105,12 +105,12 @@
     X cumprod
 
 8. REALTIME STATS
-    - movmean
-    - movmedian
-    - movstd
-    - movvar
-    - movemin
-    - movemax
+    X movmean
+    X movmedian
+    X movstd
+    X movvar
+    X movemin
+    X movemax
 
 8. MATIRX
     X matmul
@@ -120,4 +120,36 @@
     X identity
 
 9. ADD COMPLEX OPERATIONS
+    costruzione/conversione:
+        fromRealToComplex
+        fromComplexToReal
+        real(z)
+        imag(z)
+        conj(z)
+
+    misure:
+        abs(z)        -> modulo
+        angle(z)      -> fase
+        wrap_angle(z)
+        norm(z)       -> eventualmente riusa abs per scalare
+
+    aritmetica:
+        add
+        subtract
+        multiply
+        divide
+        power
+
+    funzioni:
+        sqrt
+        exp
+        log
+        sin
+        cos
+        tan
+
+    coordinate:
+        polar(abs, angle) -> complex
+        to_polar(z)       -> modulo + fase
+
 10. ADD K-RATE MODE

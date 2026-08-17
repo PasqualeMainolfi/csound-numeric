@@ -101,6 +101,15 @@ typedef enum {
     CSN_NORMALIZE
 } CSN_UNARYOP_AX_MODE;
 
+typedef enum {
+    CSN_MOVMEAN = 0,
+    CSN_MOVMEDIAN,
+    CSN_MOVSTD,
+    CSN_MOVVAR,
+    CSN_MOVMIN,
+    CSN_MOVMAX
+} CSN_MOVSTATS_MODE;
+
 typedef struct {
     double value;
     uint32_t linear_index;
@@ -587,6 +596,31 @@ typedef struct {
     MYFLT *order;
 } CSN_NORM_REDUCTION_SCALAR;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *winsize;
+    MYFLT *axis;
+    // private
+    CSN_ARRAY *array;
+} CSN_MOVSTATS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *winsize;
+    MYFLT *axis;
+    // private
+    CSN_ARRAY *array;
+} CSN_MOVSTATS_IN;
+
+
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -650,9 +684,9 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 
 int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
 int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
 int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
-int32_t csnarray_count_equal(CSOUND *csound, CSN_COUNT *p);   // return count value
-int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COUNT *p); // return count value
-int32_t csnarray_count_nan(CSOUND *csound, CSN_COUNT *p);     // return count value
+int32_t csnarray_count_equal(CSOUND *csound, CSN_COUNT *p);     // return count value
+int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COUNT *p);   // return count value
+int32_t csnarray_count_nan(CSOUND *csound, CSN_COUNT *p);       // return count value
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
@@ -747,5 +781,20 @@ int32_t csnarray_matmul_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
 int32_t csnarray_trace(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // only 2D
 int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p); // with 1D -> 2D, with 2D -> 1D
 
+// STATS
+int32_t csnarray_movmean(CSOUND *csound, CSN_MOVSTATS *p); // auto edges managment (see movemean_slice() function)
+int32_t csnarray_movmedian(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movstd(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movvar(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movmin(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movmax(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movmean_in(CSOUND *csound, CSN_MOVSTATS_IN *p); // in-place
+int32_t csnarray_movmedian_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movstd_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movvar_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movmin_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movmax_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
+
+// COMPLEX
 
 #endif

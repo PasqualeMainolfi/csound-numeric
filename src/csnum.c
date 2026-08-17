@@ -136,6 +136,10 @@ static int32_t csnarray_norm_deinit(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
+static int32_t csnarray_movstats_deinit(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
 static const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_t ndim) {
     size_t off = 0;
     int written = snprintf(buf, buf_size, "(");
@@ -3421,9 +3425,7 @@ static void stdvar_calculation_scalar_helper(double *value, const CSN_ARRAY *sou
     }
 }
 
-static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref,
-                                      int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array,
-                                      MYFLT *out_value, CSN_REDUCTION_MODE mode) {
+static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -3585,8 +3587,6 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    /* argmin/argmax restituiscono sempre coordinate, quindi restano un solo
-       opcode: -1 significa "su tutti gli assi". */
     int32_t axis = (int32_t) *p->axis;
     if (axis != -1 && (uint32_t) axis >= source_ndim) {
         res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
@@ -4750,8 +4750,6 @@ static void cumsumprod_slice(double *dst, const double *src, size_t n, size_t st
     }
 }
 
-/* diff e' l'unica di queste operazioni che accorcia l'asse, quindi destinazione
-   e sorgente hanno strides diversi e vanno passati separatamente. */
 static void diff_slice(double *dst, const double *src, size_t n, size_t src_stride, size_t dst_stride) {
     for (size_t i = 0; i + 1 < n; ++i) {
         dst[i * dst_stride] = src[(i + 1) * src_stride] - src[i * src_stride];
@@ -4869,9 +4867,6 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *s
         }
     }
 
-    /* CSN_DIFF accorcia l'asse, quindi la destinazione ha strides sue: l'offset
-       della slice va calcolato una volta per la sorgente e una per l'output.
-       Per gli altri modi le due geometrie coincidono. */
     size_t src_stride = source_arr->strides[axis];
     size_t dst_stride = arr->strides[axis];
     for (size_t linear = 0; linear < slice_count; ++linear) {
@@ -5296,6 +5291,414 @@ done:
     return res;
 }
 
+static void movmean_slice(double *dst, const double *src, size_t n, size_t stride, size_t win_size) {
+    size_t left = win_size / 2;
+    size_t right = win_size - left - 1;
+
+    for (size_t i = 0; i < n; ++i) {
+        size_t begin = i >= left ? i - left : 0;
+        size_t end = i + right + 1;
+        end = end > n ? n : end;
+        double acc = 0.0;
+        for (size_t j = begin; j < end; ++j) {
+            acc += src[j * stride];
+        }
+        dst[i * stride] = acc / (double) (end - begin);
+    }
+}
+
+static void movstdvar_slice(double *dst, const double *src, size_t n, size_t stride, size_t win_size, CSN_REDUCTION_MODE mode) {
+    size_t left = win_size / 2;
+    size_t right = win_size - left - 1;
+
+    for (size_t i = 0; i < n; i++) {
+        double mean = 0.0;
+        double m_two = 0.0;
+        size_t begin = i >= left ? i - left : 0;
+        size_t end = i + right + 1;
+        end = end > n ? n : end;
+        for (size_t j = begin; j < end; ++j) {
+            double x = src[j * stride];
+            double delta = x - mean;
+            /* Welford divides by the running count, not the total. */
+            mean += delta / (double) ((j - begin) + 1);
+            double delta_two = x - mean;
+            m_two += delta * delta_two;
+        }
+
+        double var = m_two / (double) (end - begin);
+        switch (mode) {
+            case RED_VAR:
+                dst[i * stride] = var;
+                break;
+            case RED_STD:
+                dst[i * stride] = sqrt(var);
+                break;
+            default:
+                break;
+        }
+
+    }
+}
+
+static void movminmax_slice(double *dst, const double *src, size_t n, size_t stride, size_t win_size, CSN_REDUCTION_MODE mode) {
+    size_t left = win_size / 2;
+    size_t right = win_size - left - 1;
+
+    for (size_t i = 0; i < n; i++) {
+        double min = DBL_MAX;
+        double max = -DBL_MAX;
+        size_t begin = i >= left ? i - left : 0;
+        size_t end = i + right + 1;
+        end = end > n ? n : end;
+        for (size_t j = begin; j < end; ++j) {
+            double x = src[j * stride];
+            switch (mode) {
+                case RED_MIN:
+                    min = x < min ? x : min;
+                    break;
+                case RED_MAX:
+                    max = x > max ? x : max;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        switch (mode) {
+            case RED_MIN:
+                dst[i * stride] = min;
+                break;
+            case RED_MAX:
+                dst[i * stride] = max;
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static void movmedian_slice(double *dst, const double *src, double *scratch, size_t n, size_t stride, size_t win_size) {
+    size_t left = win_size / 2;
+    size_t right = win_size - left - 1;
+
+    for (size_t i = 0; i < n; i++) {
+        size_t begin = i >= left ? i - left : 0;
+        size_t end = i + right + 1;
+        end = end > n ? n : end;
+        for (size_t j = begin; j < end; ++j) {
+            scratch[j - begin] = src[j * stride];
+        }
+
+        size_t buffer_size = end - begin;
+        dst[i * stride] = median_of_scratch(scratch, buffer_size);
+    }
+}
+
+static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    if (*p->winsize <= 0.0) {
+        return csound->InitError(csound, "[csnarray] Invalid window size");
+    }
+
+    int32_t axis = *p->axis;
+    size_t winsize = (size_t) *p->winsize;
+
+    double *median_buffer = NULL;
+    if (mode == CSN_MOVMEDIAN) {
+        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
+        if (median_buffer == NULL) {
+            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+        }
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    uint32_t source_handle = p->source_handle->id;
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (axis != -1 && (uint32_t) axis >= source_ndim) {
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+        goto done;
+    }
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = source_ndim;
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    if (axis == -1) {
+        if (winsize == 0 || winsize > source_arr->size) {
+            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            goto done;
+        }
+
+        memset(new_shape, 0, sizeof(new_shape));
+        new_shape[0] = (uint32_t) source_arr->size;
+        new_dim = 1U;
+    } else {
+        if (winsize > source_shape[axis]) {
+            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            goto done;
+        }
+    }
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 1U, &err) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    if (axis == -1) {
+        switch (mode) {
+            case CSN_MOVMEAN:
+                movmean_slice(arr->data, source_arr->data, source_arr->size, 1, winsize);
+                break;
+            case CSN_MOVMEDIAN:
+                movmedian_slice(arr->data, source_arr->data, median_buffer, source_arr->size, 1, winsize);
+                break;
+            case CSN_MOVSTD:
+                movstdvar_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_STD);
+                break;
+            case CSN_MOVVAR:
+                movstdvar_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_VAR);
+                break;
+            case CSN_MOVMIN:
+                movminmax_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_MIN);
+                break;
+            case CSN_MOVMAX:
+                movminmax_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_MAX);
+                break;
+        }
+        goto done;
+    }
+
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < source_ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = source_shape[i];
+            slice_count *= source_shape[i];
+        }
+    }
+
+    size_t src_stride = source_arr->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_ndim);
+        switch (mode) {
+            case CSN_MOVMEAN:
+                movmean_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize);
+                break;
+            case CSN_MOVMEDIAN:
+                movmedian_slice(arr->data + dst_base, source_arr->data + src_base, median_buffer, source_shape[axis], src_stride, winsize);
+                break;
+            case CSN_MOVSTD:
+                movstdvar_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, RED_STD);
+                break;
+            case CSN_MOVVAR:
+                movstdvar_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, RED_VAR);
+                break;
+            case CSN_MOVMIN:
+                movminmax_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, RED_MIN);
+                break;
+            case CSN_MOVMAX:
+                movminmax_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, RED_MAX);
+                break;
+        }
+    }
+
+done:
+    if (median_buffer != NULL) {
+        csound->Free(csound, median_buffer);
+    }
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_movmean(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_helper(csound, p, CSN_MOVMEAN);
+}
+
+int32_t csnarray_movmedian(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_helper(csound, p, CSN_MOVMEDIAN);
+}
+
+int32_t csnarray_movstd(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_helper(csound, p, CSN_MOVSTD);
+}
+
+int32_t csnarray_movvar(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_helper(csound, p, CSN_MOVVAR);
+}
+
+int32_t csnarray_movmin(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_helper(csound, p, CSN_MOVMIN);
+}
+
+int32_t csnarray_movmax(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_helper(csound, p, CSN_MOVMAX);
+}
+
+static void dispatch_movstats(double *dst, double *src, size_t size, uint32_t stride, size_t winsize, double *median_buffer, CSN_MOVSTATS_MODE mode) {
+    switch (mode) {
+        case CSN_MOVMEAN:
+            movmean_slice(dst, src, size, stride, winsize);
+            break;
+        case CSN_MOVMEDIAN:
+            movmedian_slice(dst, src, median_buffer, size, stride, winsize);
+            break;
+        case CSN_MOVSTD:
+            movstdvar_slice(dst, src, size, stride, winsize, RED_STD);
+            break;
+        case CSN_MOVVAR:
+            movstdvar_slice(dst, src, size, stride, winsize, RED_VAR);
+            break;
+        case CSN_MOVMIN:
+            movminmax_slice(dst, src, size, stride, winsize, RED_MIN);
+            break;
+        case CSN_MOVMAX:
+            movminmax_slice(dst, src, size, stride, winsize, RED_MAX);
+            break;
+    }
+}
+
+
+static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    int32_t res = OK;
+
+    int32_t axis = *p->axis;
+    size_t winsize = (size_t) *p->winsize;
+
+    double *median_buffer = NULL;
+    if (mode == CSN_MOVMEDIAN) {
+        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
+        if (median_buffer == NULL) {
+            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+        }
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    uint32_t source_handle = p->source_handle->id;
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (axis != -1 && (uint32_t) axis >= source_ndim) {
+        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+        goto done;
+    }
+
+    if (axis == -1) {
+        if (winsize == 0 || winsize > source_arr->size) {
+            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            goto done;
+        }
+    } else {
+        if (winsize == 0 || winsize > source_shape[axis]) {
+            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            goto done;
+        }
+    }
+
+    if (axis == -1) {
+        dispatch_movstats(source_arr->data, source_arr->data, source_arr->size, 1, winsize, median_buffer, mode);
+        goto done;
+    }
+
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < source_ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = source_shape[i];
+            slice_count *= source_shape[i];
+        }
+    }
+
+    size_t src_stride = source_arr->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
+        dispatch_movstats(source_arr->data + src_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, median_buffer, mode);
+    }
+
+done:
+    if (median_buffer != NULL) {
+        csound->Free(csound, median_buffer);
+    }
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_movmean_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_helper(csound, p, CSN_MOVMEAN);
+}
+
+int32_t csnarray_movmedian_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_helper(csound, p, CSN_MOVMEDIAN);
+}
+
+int32_t csnarray_movstd_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_helper(csound, p, CSN_MOVSTD);
+}
+
+int32_t csnarray_movvar_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_helper(csound, p, CSN_MOVVAR);
+}
+
+int32_t csnarray_movmin_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_helper(csound, p, CSN_MOVMIN);
+}
+
+int32_t csnarray_movmax_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_helper(csound, p, CSN_MOVMAX);
+}
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
@@ -5448,6 +5851,18 @@ static OENTRY localops[] = {
     { "csnmatmul.s",           S(CSN_BINOP_HH_SCALAR),       0, "i",          ":CsnArr;:CsnArr;",     (SUBR) csnarray_matmul_scalar,  NULL, NULL,                                 NULL, 0 },
     { "csntrace",              S(CSN_UNARYOP_SCALAR),        0, "i",          ":CsnArr;",             (SUBR) csnarray_trace,          NULL, NULL,                                 NULL, 0 },
     { "csndiag",               S(CSN_UNARYOP),               0, ":CsnArr;",   ":CsnArr;",             (SUBR) csnarray_diag,           NULL, (SUBR) csnarray_opunary_deinit,       NULL, 0 },
+    { "csnmovmean",            S(CSN_MOVSTATS),              0, ":CsnArr;",   ":CsnArr;ij",           (SUBR) csnarray_movmean,        NULL, (SUBR) csnarray_movstats_deinit,      NULL, 0 },
+    { "csnmovmean.in",         S(CSN_MOVSTATS_IN),           0, "",           ":CsnArr;ij",           (SUBR) csnarray_movmean_in,     NULL, NULL,                                 NULL, 0 },
+    { "csnmovmedian",          S(CSN_MOVSTATS),              0, ":CsnArr;",   ":CsnArr;ij",           (SUBR) csnarray_movmedian,      NULL, (SUBR) csnarray_movstats_deinit,      NULL, 0 },
+    { "csnmovmedian.in",       S(CSN_MOVSTATS_IN),           0, "",           ":CsnArr;ij",           (SUBR) csnarray_movmedian_in,   NULL, NULL,                                 NULL, 0 },
+    { "csnmovstd",             S(CSN_MOVSTATS),              0, ":CsnArr;",   ":CsnArr;ij",           (SUBR) csnarray_movstd,         NULL, (SUBR) csnarray_movstats_deinit,      NULL, 0 },
+    { "csnmovstd.in",          S(CSN_MOVSTATS_IN),           0, "",           ":CsnArr;ij",           (SUBR) csnarray_movstd_in,      NULL, NULL,                                 NULL, 0 },
+    { "csnmovvar",             S(CSN_MOVSTATS),              0, ":CsnArr;",   ":CsnArr;ij",           (SUBR) csnarray_movvar,         NULL, (SUBR) csnarray_movstats_deinit,      NULL, 0 },
+    { "csnmovvar.in",          S(CSN_MOVSTATS_IN),           0, "",           ":CsnArr;ij",           (SUBR) csnarray_movvar_in,      NULL, NULL,                                 NULL, 0 },
+    { "csnmovmin",             S(CSN_MOVSTATS),              0, ":CsnArr;",   ":CsnArr;ij",           (SUBR) csnarray_movmin,         NULL, (SUBR) csnarray_movstats_deinit,      NULL, 0 },
+    { "csnmovmin.in",          S(CSN_MOVSTATS_IN),           0, "",           ":CsnArr;ij",           (SUBR) csnarray_movmin_in,      NULL, NULL,                                 NULL, 0 },
+    { "csnmovmax",             S(CSN_MOVSTATS),              0, ":CsnArr;",   ":CsnArr;ij",           (SUBR) csnarray_movmax,         NULL, (SUBR) csnarray_movstats_deinit,      NULL, 0 },
+    { "csnmovmax.in",          S(CSN_MOVSTATS_IN),           0, "",           ":CsnArr;ij",           (SUBR) csnarray_movmax_in,      NULL, NULL,                                 NULL, 0 },
 };
 
 
