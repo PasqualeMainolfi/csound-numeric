@@ -87,11 +87,23 @@ typedef enum {
     CSN_PAIR_DISTANCE,
     CSN_DISTANCE,
     CSN_CROSS,
-    CSN_ANGLE,
+    CSN_ANGLE_DISTANCE,
     CSN_PROJECT,
     CSN_REJECT,
     CSN_REFLECT,
 } CSN_VECOP_MODE;
+
+typedef enum {
+    CSN_REAL_PART = 0,
+    CSN_IMAG_PART,
+    CSN_REAL_TO_COMPLEX,
+    CSN_ANGLE_PART,
+    CSN_CONJ_PART,
+    CSN_ABS_PART,
+    CSN_WRAP,
+    CSN_UNWRAP,
+    CSN_COMPLEX_TO_ANGLE
+} CSN_COMPLEXOP_MODE;
 
 typedef enum {
     CSN_DIFF = 0,
@@ -109,6 +121,11 @@ typedef enum {
     CSN_MOVMIN,
     CSN_MOVMAX
 } CSN_MOVSTATS_MODE;
+
+typedef enum {
+    DEGREE = 0,
+    RADIANS
+} CSN_ANGLE_MODE;
 
 typedef struct {
     double re;
@@ -587,6 +604,15 @@ typedef struct {
     MYFLT *arg_a; // only for dist order (order Minkowski)
 } CSN_BINOP_HH_SCALAR;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+} CSN_BINOPCOMPLEX_HH_SCALAR;
+
 /* The three binop structs share this prefix and tail, which is what lets one
    deinit and one helper serve all of them. Only the order of the two input
    slots differs, so those are always passed explicitly, never read off a cast. */
@@ -610,6 +636,17 @@ typedef struct {
     // private
     CSN_ARRAY *array;
 } CSN_BINOP_HS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    COMPLEXDAT *scalar;
+    // private
+    CSN_ARRAY *array;
+} CSN_BINOPCOMPLEX_HS;
 
 /* normalize: v / ||v||, con asse opzionale (-1 = tutto l'array) e ordine
    della norma opzionale. */
@@ -658,6 +695,17 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
+    COMPLEXDAT *scalar;
+    CSNREF *source_handle;
+    // private
+    CSN_ARRAY *array;
+} CSN_BINOPCOMPLEX_SH;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
     CSNREF *source_handle;
     // private
     CSN_ARRAY *array;
@@ -670,6 +718,14 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
 } CSN_UNARYOP_SCALAR;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    CSNREF *source_handle;
+} CSN_UNARYOPCOMPLEX_SCALAR;
 
 typedef struct {
     OPDS h;
@@ -724,6 +780,40 @@ typedef struct {
     // private
     CSN_ARRAY *array;
 } CSN_MOVSTATS_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *period;   // in wrap is period zero-centered
+                     // in unwrap is period (see numpy)
+    MYFLT *discount; // only for unwrap
+    MYFLT *axis;
+    // private
+    CSN_ARRAY *array;
+} CSN_ANGLE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *period;   // in wrap is period zero-centered
+                     // in unwrap is period (see numpy)
+    MYFLT *discount; // only for unwrap
+    MYFLT *axis;
+} CSN_ANGLE_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value_out;
+    // inputs
+    MYFLT *value_in;
+    MYFLT *arg_a;
+    MYFLT *angle_mode;
+} CSN_REAL_VALUE;
 
 
 // CREATION
@@ -835,20 +925,30 @@ int32_t csnarray_var_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 // ELEMENTS
 int32_t csnarray_add_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_add_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_addcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
 int32_t csnarray_subtract_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_subtract_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_subtract_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_subtractcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_subtractcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
 int32_t csnarray_mul_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_mul_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_mulcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
 int32_t csnarray_div_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_div_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_div_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_divcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_divcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
 int32_t csnarray_pow_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_pow_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_pow_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_powcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_powcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
 int32_t csnarray_log_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_log_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_log_hs(CSOUND *csound, CSN_BINOP_HS *p); // use base
+int32_t csnarray_logcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
+int32_t csnarray_logcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p); // use base
 int32_t csnarray_sqrt(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_cbrt(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_abs(CSOUND *csound, CSN_UNARYOP *p);
@@ -865,16 +965,18 @@ int32_t csnarray_tanh(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_asinh(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_acosh(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_atanh(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sign(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_floor(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_ceil(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_round(CSOUND *csound, CSN_UNARYOP *p);
-int32_t csnarray_sign(CSOUND *csound, CSN_UNARYOP *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
 int32_t csnarray_inner(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_inner_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
+int32_t csnarray_dotcomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
+int32_t csnarray_innercomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
 int32_t csnarray_outer(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p); // generalized norm order (Minkowski)
 int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
@@ -882,7 +984,7 @@ int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p); // specify axis -
 int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p); // specify axis -1 -> all
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
 int32_t csnarray_pair_distance(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
-int32_t csnarray_angle(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_angle_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
 int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reflect(CSOUND *csound, CSN_BINOP_HH *p);
@@ -899,6 +1001,7 @@ int32_t csnarray_identity(CSOUND *csound, CSN_IDENTITY *p);
 int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p); // as numpy (broadcast last two dims)
 int32_t csnarray_matmul_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
 int32_t csnarray_trace(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // only 2D
+int32_t csnarray_tracecomp(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p);
 int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p); // with 1D -> 2D, with 2D -> 1D
 
 // STATS
@@ -916,5 +1019,16 @@ int32_t csnarray_movmin_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
 int32_t csnarray_movmax_in(CSOUND *csound, CSN_MOVSTATS_IN *p);
 
 // COMPLEX
+int32_t csnarray_real(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_imag(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_complex_to_real(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_real_to_complex(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_angle(CSOUND *csound, CSN_ANGLE *p);
+int32_t csnarray_wrap_angle(CSOUND *csound, CSN_ANGLE *p);
+int32_t csnarray_unwrap_angle(CSOUND *csound, CSN_ANGLE *p);
+int32_t csnarray_wrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p);
+int32_t csnarray_unwrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p);
+int32_t csnarray_conj(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
 
 #endif
