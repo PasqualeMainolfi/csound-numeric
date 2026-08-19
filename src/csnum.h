@@ -12,6 +12,8 @@ typedef enum {
     LESS_THAN,
     EQUAL,
     NOT_EQUAL,
+    GREATER_EQUAL,
+    LESS_EQUAL,
     NONZERO,
     /* No comparison can select a NaN — ordered ones and EQUAL are false, and
        NOT_EQUAL is true for everything. This mode is the only way to find them. */
@@ -53,6 +55,12 @@ typedef enum {
     CSN_LOG_HH,
     CSN_LOG_HS,
     CSN_LOG_SH,
+    CSN_LOGICAL_AND_HH,
+    CSN_LOGICAL_OR_HH,
+    CSN_LOGICAL_AND_HS,
+    CSN_LOGICAL_OR_HS,
+    CSN_LOGICAL_AND_SH,
+    CSN_LOGICAL_OR_SH
 } CSN_BINOP_MODE;
 
 typedef enum {
@@ -75,7 +83,8 @@ typedef enum {
     CSN_ATANH,
     CSN_FLOOR,
     CSN_CEIL,
-    CSN_ROUND
+    CSN_ROUND,
+    CSN_LOGICAL_NOT
 } CSN_UNARY_MODE;
 
 typedef enum {
@@ -110,7 +119,9 @@ typedef enum {
     CSN_GRADIENT,
     CSN_CUMSUM,
     CSN_CUMPROD,
-    CSN_NORMALIZE
+    CSN_NORMALIZE,
+    CSN_SORT,
+    CSN_ARGSORT
 } CSN_UNARYOP_AX_MODE;
 
 typedef enum {
@@ -771,14 +782,10 @@ typedef struct {
 
 typedef struct {
     OPDS h;
-    // outputs
-    CSNREF *handle;
     // inputs
     CSNREF *source_handle;
     MYFLT *winsize;
     MYFLT *axis;
-    // private
-    CSN_ARRAY *array;
 } CSN_MOVSTATS_IN;
 
 typedef struct {
@@ -808,12 +815,23 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value_out;
+    CSNREF *handle;
     // inputs
-    MYFLT *value_in;
-    MYFLT *arg_a;
-    MYFLT *angle_mode;
-} CSN_REAL_VALUE;
+    CSNREF *source_handle;
+    MYFLT *quantity;
+    MYFLT *axis;
+    // private
+    CSN_ARRAY *array;
+} CSN_PERCQUANT_AX;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *quantity;
+} CSN_PERCQUANT;
 
 
 // CREATION
@@ -889,10 +907,19 @@ int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p);      // return (1, nd
 int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
 int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
 int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
-int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
+int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_greater_equal(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_less_equal(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_equal(CSOUND *csound, CSN_COMPARE *p);// return array 1D
 int32_t csnarray_count_equal(CSOUND *csound, CSN_COUNT *p);     // return count value
 int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COUNT *p);   // return count value
 int32_t csnarray_count_nan(CSOUND *csound, CSN_COUNT *p);       // return count value
+int32_t csnarray_copy(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_reverse(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_reverse_in(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_sort(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_sort_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
+int32_t csnarray_argsort(CSOUND *csound, CSN_UNARYOP_AX *p);
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
@@ -921,6 +948,10 @@ int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_std_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p);
 int32_t csnarray_var_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_percentile(CSOUND *csound, CSN_PERCQUANT_AX *p);
+int32_t csnarray_quantile(CSOUND *csound, CSN_PERCQUANT_AX *p);
+int32_t csnarray_percentile_scalar(CSOUND *csound, CSN_PERCQUANT *p);
+int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p);
 
 // ELEMENTS
 int32_t csnarray_add_hh(CSOUND *csound, CSN_BINOP_HH *p);
@@ -969,6 +1000,14 @@ int32_t csnarray_sign(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_floor(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_ceil(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_round(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_logical_and_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_logical_or_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_logical_and_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_logical_or_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_logical_and_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_logical_or_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_logical_not(CSOUND *csound, CSN_UNARYOP *p);
+
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1031,4 +1070,7 @@ int32_t csnarray_unwrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_conj(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
 
+
+
+// TODO
 #endif

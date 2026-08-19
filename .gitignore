@@ -29,3 +29,5 @@ compile_commands.json
 # Operating systems
 .DS_Store
 Thumbs.db
+
+TODO.txt

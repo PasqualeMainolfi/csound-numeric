@@ -6,6 +6,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(csound_numeric C)
 
+include(CTest)
+
 # csnum is Csound API 7 only.
 set(APIVERSION "7.0" CACHE STRING "Csound API version (numeric requires 7.0)")
 
@@ -99,6 +101,26 @@ endfunction()
 
 # --- the plugin itself (former in-tree fragment) ---------------------------
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/csnum.cmake)
+
+if(BUILD_TESTING)
+    add_test(
+        NAME csnum_itime_signature_coverage
+        COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/src/csnum.c
+            -DCSD_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/itime_regressions.csd
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_itime_signatures.cmake)
+
+    find_program(CSOUND_EXECUTABLE NAMES csound)
+    if(CSOUND_EXECUTABLE)
+        add_test(
+            NAME csnum_itime_regressions
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/itime_regressions.csd")
+    endif()
+endif()
 endif()
 
 # --- dependency-free binary archive for GitHub Releases / Risset -----------

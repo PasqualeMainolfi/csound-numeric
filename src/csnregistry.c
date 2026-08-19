@@ -301,5 +301,13 @@ int32_t csn_register_type(CSOUND *csound) {
     if (pool == NULL) {
         return OK;
     }
+
+    /* Csound may initialise a command-line plugin once while parsing options
+       and again when compiling the orchestra. Treat the second registration
+       as success: it is the same process-wide type, not a conflicting one. */
+    if (csound->GetType(csound, "CsnArr") != NULL) {
+        return OK;
+    }
+
     return csound->AddVariableType(csound, pool, &CS_VAR_TYPE_CSNARRAY) ? OK : NOTOK;
 }
