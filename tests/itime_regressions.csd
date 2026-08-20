@@ -416,6 +416,7 @@ instr 3
 
     ; Creation, type selection, conversion and metadata.
     iEmpty:CsnArr = csnempty(iShape2)
+    iEmpty2D:CsnArr = csnempty(iShape22)
     iZeros:CsnArr = csnzeros(iShape22)
     iOnes:CsnArr = csnones(iShape22)
     iFull:CsnArr = csnfull(iShape22, 7)
@@ -449,7 +450,14 @@ instr 3
     iToComplex1Real = real(iToComplex[1])
     iToComplex1Imag = imag(iToComplex[1])
 
-    assert(csnisempty(iEmpty) == 0 && csnsize(iEmpty) == 2)
+    iCreatedEmptyShape[] = csnshape(iEmpty)
+    iCreatedEmpty2DShape[] = csnshape(iEmpty2D)
+    assert(csnisempty(iEmpty) == 1 && csnsize(iEmpty) == 0)
+    assert(iCreatedEmptyShape[0] == 2)
+    assert(csndims(iEmpty2D) == 2 && csnsize(iEmpty2D) == 0)
+    assert(iCreatedEmpty2DShape[0] == 2 && iCreatedEmpty2DShape[1] == 2)
+    csnpush(iEmpty, 9)
+    assert(csnsize(iEmpty) == 1 && csnget(iEmpty, iIndex0) == 9)
     assert(csndims(iFull) == 2 && csnsize(iFull) == 4)
     iFullShape[] = csnshape(iFull)
     assert(iFullShape[0] == 2 && iFullShape[1] == 2)

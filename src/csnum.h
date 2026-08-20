@@ -138,6 +138,12 @@ typedef enum {
     RADIANS
 } CSN_ANGLE_MODE;
 
+typedef enum {
+    CSN_K_EMPTY,
+    CSN_K_ZEROS,
+    CSN_K_ONES
+} CSN_K_SHAPE_INIT_MODE;
+
 typedef struct {
     double re;
     double im;
@@ -157,6 +163,11 @@ typedef struct {
     MYFLT *itype; // itype = REAL (0) or COMPLEX (1)
     // private
     CSN_ARRAY *array;
+    uint32_t prev_shape[CSN_MAX_DIMS];
+    uint32_t prev_ndim;
+    ITEM_TYPE prev_itype;
+    uint32_t owned_handle;
+    CSN_REGISTRY *registry;
 } CSN_ARR_INIT;
 
 typedef struct {
@@ -204,6 +215,11 @@ typedef struct {
     MYFLT *value; // value for fill
     // private
     CSN_ARRAY *array;
+    uint32_t prev_shape[CSN_MAX_DIMS];
+    uint32_t prev_ndim;
+    ITEM_TYPE prev_itype;
+    uint32_t owned_handle;
+    CSN_REGISTRY *registry;
 } CSN_ARR_INIT_LIKE;
 
 typedef struct {
@@ -833,7 +849,7 @@ typedef struct {
     MYFLT *quantity;
 } CSN_PERCQUANT;
 
-
+// i-rate
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -1008,7 +1024,6 @@ int32_t csnarray_logical_and_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_or_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_not(CSOUND *csound, CSN_UNARYOP *p);
 
-
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
@@ -1072,5 +1087,242 @@ int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for re
 
 
 
-// TODO
+// k-rate
+// CREATION
+int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
+int32_t create_zeros_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
+int32_t create_ones_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
+
+int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
+int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p);
+int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p);
+int32_t create_random_csnarray_k(CSOUND *csound, CSN_ARR_RND_INIT *p);
+int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p);
+int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p);
+int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p);
+int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p);
+int32_t free_csnarray_k(CSOUND *csound, CSN_FREE *p);
+int32_t csnarray_arange_k(CSOUND *csound, CSN_SPACED_SPACE *p);
+int32_t csnarray_linspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
+int32_t csnarray_logspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
+int32_t csnarray_geomspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
+
+// SHAPE
+int32_t csnarray_dims_k(CSOUND *csound, CSN_SIZE_DIMS *p);
+int32_t csnarray_size_k(CSOUND *csound, CSN_SIZE_DIMS *p);
+int32_t csnarray_is_empty_k(CSOUND *csound, CSN_SIZE_DIMS *p);
+int32_t csnarray_shape_k(CSOUND *csound, CSN_SHAPE *p);
+int32_t csnarray_reshape_k(CSOUND *csound, CSN_RESHAPE *p);
+int32_t csnarray_reshape_in_k(CSOUND *csound, CSN_RESHAPE_IN *p);
+int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p);
+int32_t csnarray_flatten_in_k(CSOUND *csound, CSN_RESHAPE_IN *p);
+int32_t csnarray_transpose_k(CSOUND *csound, CSN_RESHAPE *p);
+int32_t csnarray_transpose_in_k(CSOUND *csound, CSN_RESHAPE_IN *p);
+int32_t csnarray_flip_k(CSOUND *csound, CSN_FLIP_ROLL *p);
+int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
+int32_t csnarray_roll_k(CSOUND *csound, CSN_FLIP_ROLL *p);
+int32_t csnarray_roll_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
+int32_t csnarray_rollaxis_k(CSOUND *csound, CSN_FLIP_ROLL *p);
+int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
+
+// INDEXING
+int32_t csnarray_get_k(CSOUND *csound, CSN_GET *p);
+int32_t csnarray_get_complex_k(CSOUND *csound, CSN_GETCOMPLEX *p);
+int32_t csnarray_set_k(CSOUND *csound, CSN_SET *p);
+int32_t csnarray_set_complex_k(CSOUND *csound, CSN_SETCOMPLEX *p);
+int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p);
+int32_t csnarray_take_flat_k(CSOUND *csound, CSN_TAKE_FLAT *p);
+int32_t csnarray_takecomp_flat_k(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p);
+int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p);
+int32_t csnarray_set_slice_k(CSOUND *csound, CSN_SET_SLICE *p);
+int32_t csnarray_push_k(CSOUND *csound, CSN_PUSH *p);
+int32_t csnarray_pushcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX *p);
+int32_t csnarray_pop_k(CSOUND *csound, CSN_POP *p);
+int32_t csnarray_popcomp_k(CSOUND *csound, CSN_POPCOMPLEX *p);
+int32_t csnarray_insert_k(CSOUND *csound, CSN_PUSH *p);
+int32_t csnarray_insertcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX *p);
+int32_t csnarray_remove_k(CSOUND *csound, CSN_POP *p);
+int32_t csnarray_removecomp_k(CSOUND *csound, CSN_POPCOMPLEX *p);
+int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p);
+int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p);
+int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p);
+int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p);
+int32_t csnarray_pad_k(CSOUND *csound, CSN_PAD *p);
+int32_t csnarray_pad_in_k(CSOUND *csound, CSN_PAD_IN *p);
+int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p);
+int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p);
+int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p);
+int32_t csnarray_clip_in_k(CSOUND *csound, CSN_CLIP_IN *p);
+int32_t csnarray_argwhere_k(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_argnonzero_k(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
+int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
+int32_t csnarray_argisnan_k(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_argmin_k(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
+int32_t csnarray_argmax_k(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
+int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
+int32_t csnarray_greater_than_k(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
+int32_t csnarray_less_than_k(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
+int32_t csnarray_not_equal_k(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_greater_equal_k(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_less_equal_k(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_equal_k(CSOUND *csound, CSN_COMPARE *p);// return array 1D
+int32_t csnarray_count_equal_k(CSOUND *csound, CSN_COUNT *p);     // return count value
+int32_t csnarray_count_nonzero_k(CSOUND *csound, CSN_COUNT *p);   // return count value
+int32_t csnarray_count_nan_k(CSOUND *csound, CSN_COUNT *p);       // return count value
+int32_t csnarray_copy_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_reverse_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_reverse_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_sort_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_sort_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
+int32_t csnarray_argsort_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+
+// REDUCTION
+int32_t csnarray_sum_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_sum_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_sumcomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
+int32_t csnarray_prod_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_prod_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_prodcomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
+int32_t csnarray_sub_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_sub_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_subcomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
+int32_t csnarray_mean_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_mean_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_meancomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p);
+int32_t csnarray_min_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_min_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_max_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_max_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_all_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_all_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_any_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_any_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_median_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_median_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_std_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_std_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_var_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_var_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
+int32_t csnarray_percentile_k(CSOUND *csound, CSN_PERCQUANT_AX *p);
+int32_t csnarray_quantile_k(CSOUND *csound, CSN_PERCQUANT_AX *p);
+int32_t csnarray_percentile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p);
+int32_t csnarray_quantile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p);
+
+// ELEMENTS
+int32_t csnarray_add_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_add_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_addcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_subtract_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_subtract_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_subtract_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_subtractcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_subtractcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
+int32_t csnarray_mul_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_mul_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_mulcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_div_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_div_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_div_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_divcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_divcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
+int32_t csnarray_pow_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_pow_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_pow_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_powcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p);
+int32_t csnarray_powcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
+int32_t csnarray_log_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_log_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_log_hs_k(CSOUND *csound, CSN_BINOP_HS *p); // use base
+int32_t csnarray_logcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p);
+int32_t csnarray_logcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p); // use base
+int32_t csnarray_sqrt_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_cbrt_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_abs_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_exp_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sin_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_cos_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_tan_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_asin_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_acos_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_atan_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sinh_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_cosh_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_tanh_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_asinh_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_acosh_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_atanh_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_sign_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_floor_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_ceil_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_round_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_logical_and_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_logical_or_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_logical_and_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_logical_or_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_logical_and_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_logical_or_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_logical_not_k(CSOUND *csound, CSN_UNARYOP *p);
+
+
+// VECTORIAL
+int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_dot_scalar_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
+int32_t csnarray_inner_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_inner_scalar_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // return a scalar
+int32_t csnarray_dotcomp_scalar_k(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
+int32_t csnarray_innercomp_scalar_k(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
+int32_t csnarray_outer_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_norm_k(CSOUND *csound, CSN_NORM_REDUCTION *p); // generalized norm order (Minkowski)
+int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
+int32_t csnarray_normalize_k(CSOUND *csound, CSN_UNARYOP_AX *p); // specify axis -1 -> all
+int32_t csnarray_normalize_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p); // specify axis -1 -> all
+int32_t csnarray_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
+int32_t csnarray_pair_distance_k(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
+int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_project_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_reject_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_reflect_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_cross_k(CSOUND *csound, CSN_BINOP_HH *p); // only 1-D with size = 3
+
+// NUMERIC ANALYSIS
+int32_t csnarray_diff_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_gradient_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_cumsum_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_cumprod_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+
+// MATRIX
+int32_t csnarray_identity_k(CSOUND *csound, CSN_IDENTITY *p);
+int32_t csnarray_matmul_k(CSOUND *csound, CSN_BINOP_HH *p); // as numpy (broadcast last two dims)
+int32_t csnarray_matmul_scalar_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
+int32_t csnarray_trace_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // only 2D
+int32_t csnarray_tracecomp_k(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p);
+int32_t csnarray_diag_k(CSOUND *csound, CSN_UNARYOP *p); // with 1D -> 2D, with 2D -> 1D
+
+// STATS
+int32_t csnarray_movmean_k(CSOUND *csound, CSN_MOVSTATS *p); // auto edges managment (see movemean_slice() function)
+int32_t csnarray_movmedian_k(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movstd_k(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movvar_k(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movmin_k(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movmax_k(CSOUND *csound, CSN_MOVSTATS *p);
+int32_t csnarray_movmean_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p); // in-place
+int32_t csnarray_movmedian_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movstd_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movvar_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movmin_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p);
+int32_t csnarray_movmax_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p);
+
+// COMPLEX
+int32_t csnarray_real_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_imag_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_complex_to_real_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_real_to_complex_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_angle_k(CSOUND *csound, CSN_ANGLE *p);
+int32_t csnarray_wrap_angle_k(CSOUND *csound, CSN_ANGLE *p);
+int32_t csnarray_unwrap_angle_k(CSOUND *csound, CSN_ANGLE *p);
+int32_t csnarray_wrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p);
+int32_t csnarray_unwrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p);
+int32_t csnarray_conj_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
+
 #endif

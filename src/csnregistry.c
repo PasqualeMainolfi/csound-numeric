@@ -114,6 +114,116 @@ void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim
     }
 }
 
+int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *shape) {
+    if (size == NULL || shape == NULL || ndim == 0 || ndim > CSN_MAX_DIMS) {
+        return NOTOK;
+    }
+
+    size_t array_length = 1;
+    for (uint32_t i = 0; i < ndim; i++) {
+        uint32_t s = shape[i];
+        if (s != 0 && array_length > CSN_MAX_ELEMS / s) {
+            return NOTOK;
+        }
+        array_length *= s;
+    }
+
+    *size = array_length;
+    return OK;
+}
+
+/* Changes the array owned by an active slot without changing the slot,
+   generation, handle or CSN_ARRAY object. The caller holds the registry lock,
+   so a layout update can be followed by an opcode-specific fill atomically. */
+int32_t update_slot_array_locked(
+    CSOUND *csound,
+    CSN_REGISTRY *registry,
+    uint32_t handle,
+    uint32_t ndim,
+    const uint32_t *shape,
+    ITEM_TYPE itype,
+    CSN_ARRAY **out_array,
+    const char **err
+) {
+    if (registry == NULL || out_array == NULL || err == NULL) {
+        return NOTOK;
+    }
+    if (itype != CSN_REAL && itype != CSN_COMPLEX) {
+        *err = "Invalid array type";
+        return NOTOK;
+    }
+
+    size_t size = 0;
+    if (get_array_size_from_shape(&size, ndim, shape) != OK) {
+        *err = "Invalid shape or element count exceeds the configured limit";
+        return NOTOK;
+    }
+
+    size_t capacity = size > 0 ? size * 2 : 1;
+    if (capacity > SIZE_MAX / (sizeof(double) * (size_t) itype)) {
+        *err = "Array allocation size overflow";
+        return NOTOK;
+    }
+
+    size_t strides[CSN_MAX_DIMS] = {0};
+    compute_strides(shape, strides, ndim);
+
+    size_t bytes = sizeof(double) * capacity * (size_t) itype;
+    double *new_data = csound->Calloc(csound, bytes);
+    if (new_data == NULL) {
+        *err = "Memory allocation failed";
+        return NOTOK;
+    }
+
+    CSN_SLOT *slot = get_slot(registry, handle);
+    if (slot == NULL) {
+        csound->Free(csound, new_data);
+        *err = "Output slot is no longer active";
+        return NOTOK;
+    }
+
+    CSN_ARRAY *array = slot->array;
+    double *old_data = array->data;
+
+    array->data = new_data;
+    array->size = size;
+    array->capacity = capacity;
+    array->ndim = ndim;
+    array->itype = itype;
+    memset(array->shape, 0, sizeof(array->shape));
+    memset(array->strides, 0, sizeof(array->strides));
+    memcpy(array->shape, shape, sizeof(uint32_t) * ndim);
+    memcpy(array->strides, strides, sizeof(size_t) * ndim);
+    *out_array = array;
+
+    csound->Free(csound, old_data);
+    return OK;
+}
+
+int32_t update_slot_array(
+    CSOUND *csound,
+    CSN_REGISTRY *registry,
+    uint32_t handle,
+    uint32_t ndim,
+    const uint32_t *shape,
+    ITEM_TYPE itype,
+    CSN_ARRAY **out_array,
+    const char **err
+) {
+    if (registry == NULL) {
+        if (err != NULL) {
+            *err = "Array registry is not available";
+        }
+        return NOTOK;
+    }
+
+    csound->LockMutex(registry->mutex);
+    int32_t res = update_slot_array_locked(
+        csound, registry, handle, ndim, shape, itype, out_array, err);
+    csound->UnlockMutex(registry->mutex);
+    return res;
+}
+
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype) {
     if (ndim == 0 || ndim > CSN_MAX_DIMS || shape == NULL) {
         return NOTOK;

@@ -106,5 +106,25 @@ void pcg32_random_init(PCG32_STATE *rng);
 double pcg32_random(PCG32_STATE *rng);
 
 int32_t csn_register_type(CSOUND *csound);
+int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *shape);
+/* Caller must hold registry->mutex. */
+int32_t update_slot_array_locked(
+    CSOUND *csound,
+    CSN_REGISTRY *registry,
+    uint32_t handle,
+    uint32_t ndim,
+    const uint32_t *shape,
+    ITEM_TYPE itype,
+    CSN_ARRAY **out_array,
+    const char **err);
+int32_t update_slot_array(
+    CSOUND *csound,
+    CSN_REGISTRY *registry,
+    uint32_t handle,
+    uint32_t ndim,
+    const uint32_t *shape,
+    ITEM_TYPE itype,
+    CSN_ARRAY **out_array,
+    const char **err);
 
 #endif
