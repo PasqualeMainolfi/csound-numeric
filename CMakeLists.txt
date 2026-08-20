@@ -133,6 +133,13 @@ if(BUILD_TESTING)
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_creation_regression.csd")
+        add_test(
+            NAME csnum_krate_reshape_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_reshape_regression.csd")
     endif()
 endif()
 endif()

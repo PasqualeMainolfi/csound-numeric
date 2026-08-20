@@ -33,6 +33,18 @@
         }                                                                                  \
     } while (0)
 
+#define CHECK_KTYPE(csound, h, x)                                                          \
+    do {                                                                                   \
+        if ((x) != 0.0 && (x) != 1.0) {                                                    \
+            return (csound)->PerfError(                                                    \
+                (csound),                                                                  \
+                (h),                                                                       \
+                "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", \
+                (double) (x)                                                               \
+            );                                                                             \
+        }                                                                                  \
+    } while (0)
+
 
 #define CSN_ITYPE_FROM_ARG(x) ((ITEM_TYPE) ((x) != 0.0 ? CSN_COMPLEX : CSN_REAL))
 

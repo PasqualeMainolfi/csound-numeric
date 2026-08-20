@@ -6,6 +6,27 @@
 #include "csnregistry.h"
 
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
+#define IS_REQUEST_CHANGED(p, ndim, itype, shape) (p)->k_data.prev_ndim != (ndim) || (p)->k_data.prev_itype != (itype) || memcmp((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
+#define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
+
+#define SET_KDATA_BEGIN(p, reg)                                                              \
+    do {                                                                                     \
+        memcpy((p)->k_data.prev_shape, (p)->array->shape, sizeof(uint32_t) * CSN_MAX_DIMS);  \
+        (p)->k_data.prev_ndim = (p)->array->ndim;                                            \
+        (p)->k_data.prev_itype = (p)->array->itype;                                          \
+        (p)->k_data.owned_handle = (p)->handle->id;                                          \
+        (p)->k_data.registry = (reg);                                                        \
+    } while (0)
+
+#define SET_KDATA_END(p, shape, ndim, itype)                                       \
+    do {                                                                           \
+        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * CSN_MAX_DIMS);  \
+        (p)->k_data.prev_ndim = (ndim);                                            \
+        (p)->k_data.prev_itype = (itype);                                          \
+        (p)->handle->id = (p)->k_data.owned_handle;                                \
+    } while (0)
+
 
 typedef enum {
     GREATER_THAN = 0,
@@ -155,6 +176,14 @@ typedef struct {
 } ARRAY_ELEMENT;
 
 typedef struct {
+    uint32_t prev_shape[CSN_MAX_DIMS];
+    uint32_t prev_ndim;
+    ITEM_TYPE prev_itype;
+    uint32_t owned_handle;
+    CSN_REGISTRY *registry;
+} K_DATA;
+
+typedef struct {
     OPDS h;
     // outputs
     CSNREF *handle;
@@ -163,11 +192,7 @@ typedef struct {
     MYFLT *itype; // itype = REAL (0) or COMPLEX (1)
     // private
     CSN_ARRAY *array;
-    uint32_t prev_shape[CSN_MAX_DIMS];
-    uint32_t prev_ndim;
-    ITEM_TYPE prev_itype;
-    uint32_t owned_handle;
-    CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_ARR_INIT;
 
 typedef struct {
@@ -180,6 +205,7 @@ typedef struct {
     MYFLT *itype;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_FULL;
 
 typedef struct {
@@ -192,6 +218,7 @@ typedef struct {
     MYFLT *itype;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_FULLCOMPLEX;
 
 typedef struct {
@@ -215,11 +242,7 @@ typedef struct {
     MYFLT *value; // value for fill
     // private
     CSN_ARRAY *array;
-    uint32_t prev_shape[CSN_MAX_DIMS];
-    uint32_t prev_ndim;
-    ITEM_TYPE prev_itype;
-    uint32_t owned_handle;
-    CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_ARR_INIT_LIKE;
 
 typedef struct {
@@ -230,6 +253,7 @@ typedef struct {
     ARRAYDAT *source;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_FROM_ARRAY;
 
 typedef struct {
@@ -270,6 +294,7 @@ typedef struct {
     MYFLT *itype;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_IDENTITY;
 
 typedef struct {
@@ -298,6 +323,7 @@ typedef struct {
                          // optional axes in transpose
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_RESHAPE;
 
 typedef struct {
@@ -306,6 +332,8 @@ typedef struct {
     CSNREF *source_handle;
     ARRAYDAT *new_shape; // shape for reshape
                          // optional axes for transpose
+    // private
+    K_DATA k_data;
 } CSN_RESHAPE_IN;
 
 typedef struct {
@@ -1092,7 +1120,6 @@ int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for re
 int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_ones_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
-
 int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
 int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p);
 int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p);
@@ -1101,7 +1128,6 @@ int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p);
 int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p);
-int32_t free_csnarray_k(CSOUND *csound, CSN_FREE *p);
 int32_t csnarray_arange_k(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_logspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
