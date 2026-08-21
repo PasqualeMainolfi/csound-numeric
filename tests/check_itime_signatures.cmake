@@ -2,17 +2,24 @@ if(NOT DEFINED SOURCE_FILE OR NOT DEFINED CSD_FILE)
     message(FATAL_ERROR "SOURCE_FILE and CSD_FILE are required")
 endif()
 
-file(READ "${SOURCE_FILE}" source_text)
 file(READ "${CSD_FILE}" csd_text)
 
-string(REGEX MATCHALL "\\{[ \t]*\"csn[a-z0-9_.]+\"" registered_raw "${source_text}")
+file(STRINGS "${SOURCE_FILE}" source_lines)
 set(registered "")
-foreach(entry IN LISTS registered_raw)
-    string(REGEX REPLACE ".*\"(csn[a-z0-9_.]+)\"" "\\1" name "${entry}")
-    if(name MATCHES "(^|\\.)k($|\\.)")
-        continue()
+foreach(line IN LISTS source_lines)
+    if(line MATCHES "^[ \t]*\\{[ \t]*\"(csn[a-z0-9_.]+)\"[ \t]*,[ \t]*S\\([^)]*\\)[ \t]*,[ \t]*[0-9]+[ \t]*,[ \t]*\"([^\"]*)\"[ \t]*,[ \t]*\"([^\"]*)\"")
+        set(name "${CMAKE_MATCH_1}")
+        set(output_signature "${CMAKE_MATCH_2}")
+        set(input_signature "${CMAKE_MATCH_3}")
+
+        # OENTRY suffixes are only human-readable reminders. Determine the
+        # rate from the actual type signatures: k is a required k argument and
+        # J is Csound's optional k argument (j is its i-rate counterpart).
+        if(output_signature MATCHES "[kJ]" OR input_signature MATCHES "[kJ]")
+            continue()
+        endif()
+        list(APPEND registered "${name}")
     endif()
-    list(APPEND registered "${name}")
 endforeach()
 list(SORT registered)
 

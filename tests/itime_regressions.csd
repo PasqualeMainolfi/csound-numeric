@@ -409,6 +409,7 @@ instr 3
     iIndex2[] = fillarray(2)
     iIndex00[] = fillarray(0, 0)
     iIndex01[] = fillarray(0, 1)
+    iShape1[] = fillarray(1)
     iShape2[] = fillarray(2)
     iShape22[] = fillarray(2, 2)
     iShape4[] = fillarray(4)
@@ -557,6 +558,42 @@ instr 3
     assert(csnget(iSliceTarget, iIndex00) == 8)
     iIndex10[] = fillarray(1, 0)
     assert(csnget(iSliceTarget, iIndex10) == 9)
+
+    ; A non-unit step must map destination coordinates back to the selected
+    ; source positions, in both the get and set directions.
+    iStepValues[] = fillarray(0, 1, 2, 3, 4, 5)
+    iStepSource:CsnArr = csnfromarray(iStepValues)
+    iStepSlice:CsnArr = csngetslice(iStepSource, 0, 1, 6, 2)
+    iStepSliceValues[] = csntoarray(iStepSlice)
+    assert(csnsize(iStepSlice) == 3)
+    assert(iStepSliceValues[0] == 1 && iStepSliceValues[1] == 3 && iStepSliceValues[2] == 5)
+
+    iStepDataValues[] = fillarray(10, 30, 50)
+    iStepData:CsnArr = csnfromarray(iStepDataValues)
+    iStepTarget:CsnArr = csncopy(iStepSource)
+    csnsetslice(iStepTarget, iStepData, 0, 1, 6, 2)
+    iStepTargetValues[] = csntoarray(iStepTarget)
+    assert(iStepTargetValues[0] == 0 && iStepTargetValues[1] == 10)
+    assert(iStepTargetValues[2] == 2 && iStepTargetValues[3] == 30)
+    assert(iStepTargetValues[4] == 4 && iStepTargetValues[5] == 50)
+
+    ; The same helpers must copy both components of complex elements.
+    iComplexSlice:CsnArr = csngetslice(iFromComplex, 0, 0, 2, 1)
+    ComplexSliceValue:Complex = csnget(iComplexSlice, iIndex1)
+    iComplexSliceReal = real(ComplexSliceValue)
+    iComplexSliceImag = imag(ComplexSliceValue)
+    assert(iComplexSliceReal == 3 && iComplexSliceImag == 0)
+
+    iComplexSliceData:CsnArr = csnfull(iShape1, iC, 1)
+    iComplexSliceTarget:CsnArr = csncopy(iFromComplex)
+    csnsetslice(iComplexSliceTarget, iComplexSliceData, 0, 1, 2, 1)
+    ComplexSetSliceValue:Complex = csnget(iComplexSliceTarget, iIndex1)
+    iComplexSetSliceReal = real(ComplexSetSliceValue)
+    iComplexSetSliceImag = imag(ComplexSetSliceValue)
+    iExpectedComplexSetSliceReal = real(iC)
+    iExpectedComplexSetSliceImag = imag(iC)
+    assert(iComplexSetSliceReal == iExpectedComplexSetSliceReal)
+    assert(iComplexSetSliceImag == iExpectedComplexSetSliceImag)
 
     iMutReal:CsnArr = csncopy(iReshaped)
     csnpush(iMutReal, 5)

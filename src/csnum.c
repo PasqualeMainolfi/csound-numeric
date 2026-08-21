@@ -12,24 +12,28 @@
 #include "arrays.h"
 
 
-static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY **destination, K_DATA *k_data, uint32_t ndim, const char *err) {
+static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err) {
     int32_t res = OK;
     size_t requested_size = 0;
-    res = get_array_size_from_shape(&requested_size, ndim, arr->shape);
+    res = get_array_size_from_shape(&requested_size, ndim, shape);
     if (res != OK) {
         return csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
-    ITEM_TYPE itype = arr->itype;
-    bool request_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, arr->shape);
+
+    if (logical_size > requested_size) {
+          return csound->PerfError(csound, h, "[csnarray] Logical size %zu exceeds physical size %zu", logical_size, requested_size);
+    }
+
+    bool request_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, shape);
     if (SHOULD_SLOT_BE_UPDATED(request_changed, *destination, itype, requested_size)) {
-        int32_t res = update_slot_array_locked(csound, k_data->registry, k_data->owned_handle, ndim, arr->shape, itype, destination, &err);
+        int32_t res = update_slot_array_locked(csound, k_data->registry, k_data->owned_handle, ndim, shape, itype, destination, &err);
         if (res != OK) {
             return csound->PerfError(csound, h, "[csnarray] Could not update k-rate output slot: %s", err != NULL ? err : "unknown error");
         }
     }
     /* Capacity follows the physical shape, while size follows the source's
        logical element count (notably zero for csnempty). */
-    (*destination)->size = arr->size;
+    (*destination)->size = logical_size;
     return OK;
 }
 
@@ -2864,7 +2868,7 @@ int32_t csnarray_flip_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     ITEM_TYPE itype = arr->itype;
     CSN_ARRAY *dst = p->array;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, arr, &dst, &p->k_data, ndim, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, ndim, arr->shape, arr->size, arr->itype, err);
     if (res != OK) goto done;
 
     flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip);
@@ -3169,7 +3173,7 @@ int32_t csnarray_roll_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     ITEM_TYPE itype = arr->itype;
     CSN_ARRAY *dst = p->array;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, arr, &dst, &p->k_data, ndim, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, ndim, arr->shape, arr->size, itype, err);
     if (res != OK) goto done;
 
     roll_assign_value(arr, dst, NULL, shift);
@@ -3404,7 +3408,7 @@ int32_t csnarray_rollaxis_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     int32_t axis_roll = (int32_t) axis_value;
 
     CSN_ARRAY *dst = p->array;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, arr, &dst, &p->k_data, ndim, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, ndim, arr->shape, arr->size, arr->itype, err);
     if (res != OK) goto done;
 
     rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll);
@@ -3572,9 +3576,6 @@ done:
     csound->UnlockMutex(reg->mutex);
     return res;
 }
-
-#define CSN_ACCESSOR_ERROR(csound, perf_h, ...) \
-    ((perf_h) != NULL ? (csound)->PerfError((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
 
 static int32_t get_index_offset(CSOUND *csound, OPDS *perf_h, size_t *offset, uint32_t ndim, const CSN_ARRAY *arr, const MYFLT *indexes) {
     size_t temp_offset = 0;
@@ -3800,6 +3801,98 @@ int32_t csnarray_set_complex_k(CSOUND *csound, CSN_SETCOMPLEX *p) {
     return res;
 }
 
+static int32_t check_take_flat_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_SLOT **slot, CSN_ARRAY **arr, uint32_t handle, double index, bool is_complex) {
+    *slot = get_slot(reg, handle);
+    if ((*slot) == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", handle);
+    }
+
+    *arr = (*slot)->array;
+    if (!is_complex) {
+        if ((*arr)->itype == CSN_COMPLEX) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Handle holds a complex array; declare the taken value as :Complex;");
+        }
+    } else {
+        if ((*arr)->itype != CSN_COMPLEX) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Handle holds a real array; declare the taken value as i or k");
+        }
+    }
+    if (!IS_VALID_INDEX(index)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Index %g is invalid; indexes must be finite non-negative integers", index);
+    }
+
+    uint32_t valid_index = (uint32_t) index;
+
+    if (valid_index >= (*arr)->size) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Index %u is out of range", valid_index);
+    }
+
+    return OK;
+}
+
+static int32_t check_take_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_SLOT **slot, CSN_ARRAY **arr, uint32_t *shape, uint32_t *out_ndim, uint32_t *out_axis, uint32_t *out_index, uint32_t handle, double index, double in_axis) {
+    *slot = get_slot(reg, handle);
+    if ((*slot) == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", handle);
+    }
+
+    *arr = (*slot)->array;
+    uint32_t ndim = (*arr)->ndim;
+
+    /* Dropping the only axis would leave a rank-0 array, which the registry
+       cannot represent. That case is the two-argument form, which yields a
+       plain scalar. */
+    if (ndim < 2) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Take along an axis needs a 2-D or higher array; use the two-argument form for a scalar");
+    }
+
+    if (!IS_VALID_AXIS(in_axis, ndim)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", in_axis, ndim, ndim - 1);
+    }
+    *out_axis = (uint32_t) in_axis;
+    uint32_t axis = *out_axis;
+
+    if (!IS_VALID_INDEX(index)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Index %g is invalid; indexes must be finite non-negative integers", index);
+    }
+    uint32_t valid_index = (uint32_t) index;
+
+    if (valid_index >= (*arr)->shape[axis]) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Index %u is out of range", valid_index);
+    }
+    *out_index = valid_index;
+
+    // remove axis passed for new shape
+    *out_ndim = ndim - 1;
+    for (uint32_t i = 0, j = 0; i < ndim; i++) {
+        if (i == axis) continue;
+        shape[j++] = (*arr)->shape[i];
+    }
+    return OK;
+}
+
+static void take_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t in_ndim, uint32_t out_ndim, uint32_t axis, uint32_t index) {
+    for (size_t linear = 0; linear < destination->size; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, destination->shape, linear, out_ndim);
+
+        uint32_t k = 0;
+        for (uint32_t i = 0; i < in_ndim; ++i) {
+            src_coords[i] = (i == axis) ? index : dst_coords[k++];
+        }
+
+        size_t src_index = from_coords_to_offset(src_coords, source->strides, in_ndim);
+        if (source->itype == CSN_COMPLEX) {
+            destination->data[linear * 2] = source->data[src_index * 2];
+            destination->data[linear * 2 + 1] = source->data[src_index * 2 + 1];
+        } else {
+            destination->data[linear] = source->data[src_index];
+        }
+    }
+}
+
 int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
@@ -3807,49 +3900,19 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
     }
 
     uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
     const char *err = NULL;
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *arr = slot->array;
-    uint32_t ndim = arr->ndim;
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *arr = NULL;
+    uint32_t out_ndim = 0;
+    uint32_t axis = 0;
+    uint32_t index = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
-
-    /* Dropping the only axis would leave a rank-0 array, which the registry
-       cannot represent. That case is the two-argument form, which yields a
-       plain scalar. */
-    if (ndim < 2) {
-        res = csound->InitError(csound, "[csnarray] Take along an axis needs a 2-D or higher array; use the two-argument form for a scalar");
-        goto done;
-    }
-
-    double axis_value = (double) *p->axis;
-    if (!IS_VALID_AXIS(axis_value, ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, ndim, ndim - 1);
-        goto done;
-    }
-    uint32_t axis = (uint32_t) axis_value;
-
-    uint32_t index = (uint32_t) *p->index;
-    if (*p->index < 0 || index >= arr->shape[axis]) {
-        res = csound->InitError(csound, "[csnarray] Index %d is out of range for axis %u of extent %u (valid: 0..%u)", (int32_t) *p->index, axis, arr->shape[axis], arr->shape[axis] - 1);
-        goto done;
-    }
-
-    // remove axis passed for new shape
-    uint32_t out_ndim = ndim - 1;
-    for (uint32_t i = 0, j = 0; i < ndim; i++) {
-        if (i == axis) continue;
-        shape[j++] = arr->shape[i];
-    }
+    res = check_take_body(csound, NULL, reg, &slot, &arr, shape, &out_ndim, &axis, &index, source_handle, (double) *p->index, (double) *p->axis);
+    if (res != OK) goto done;
 
     /* _locked: the registry mutex is already held and is not recursive. */
     if (create_csnarray_locked(csound, reg, &p->h, out_ndim, shape, &p->array, p->handle, &source_handle, 1U, &err, arr->itype) != OK) {
@@ -3858,29 +3921,57 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
     }
 
     CSN_ARRAY *dst = p->array;
+    dst->size = arr->size == 0 ? 0 : dst->size;
 
     /* Walk the destination, which is smaller than the source by exactly the
        extent of the dropped axis. */
-    for (size_t linear = 0; linear < dst->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+    take_assign_value(arr, dst, arr->ndim, out_ndim, axis, index);
+    SET_KDATA_BEGIN(p, reg);
+    p->k_data.prev_axis = axis;
+    p->k_data.prev_index = index;
 
-        from_linear_to_coords(dst_coords, dst->shape, linear, out_ndim);
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
-        uint32_t k = 0;
-        for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[i] = (i == axis) ? index : dst_coords[k++];
-        }
+int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, h, reg, p->k_data.owned_handle);
 
-        size_t src_index = from_coords_to_offset(src_coords, arr->strides, ndim);
-        if (arr->itype == CSN_COMPLEX) {
-            dst->data[linear * 2] = arr->data[src_index * 2];
-            dst->data[linear * 2 + 1] = arr->data[src_index * 2 + 1];
-        } else {
-            dst->data[linear] = arr->data[src_index];
-        }
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *arr = NULL;
+    uint32_t out_ndim = 0;
+    uint32_t axis = 0;
+    uint32_t index = 0;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    res = check_take_body(csound, &p->h, reg, &slot, &arr, shape, &out_ndim, &axis, &index, source_handle, (double) *p->index, (double) *p->axis);
+    if (res != OK) goto done;
+
+    uint32_t ndim = arr->ndim;
+    ITEM_TYPE itype = arr->itype;
+
+    CSN_ARRAY *dst = p->array;
+    size_t output_size = 0;
+    if (get_array_size_from_shape(&output_size, out_ndim, shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
     }
+    size_t logical_size = arr->size == 0 ? 0 : output_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, out_ndim, shape, logical_size, itype, err);
+    if (res != OK) goto done;
 
+    take_assign_value(arr, dst, ndim, out_ndim, axis, index);
+    SET_KDATA_END(p, shape, out_ndim, itype);
+    p->k_data.prev_axis = axis;
+    p->k_data.prev_index = index;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3896,28 +3987,42 @@ int32_t csnarray_take_flat(CSOUND *csound, CSN_TAKE_FLAT *p) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
+    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
-        goto done;
-    }
-
-    CSN_ARRAY *arr = slot->array;
-    if (arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the taken value as :Complex;");
-        goto done;
-    }
-
-    if (*p->index < 0 || (size_t) *p->index >= arr->size) {
-        res = csound->InitError(csound, "[csnarray] Index %d is out of range for an array of %zu elements (valid: 0..%zu)", (int32_t) *p->index, arr->size, arr->size - 1);
-        goto done;
-    }
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *arr = NULL;
+    res = check_take_flat_body(csound, NULL, reg, &slot, &arr, source_handle, (double) *p->index, false);
+    if (res != OK) goto done;
 
     *p->value = (MYFLT) arr->data[(size_t) *p->index];
+    p->k_data.registry = reg;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_take_flat_k(CSOUND *csound, CSN_TAKE_FLAT *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *arr = NULL;
+    res = check_take_flat_body(csound, &p->h, reg, &slot, &arr, source_handle, (double) *p->index, false);
+    if (res != OK) goto done;
+
+    *p->value = (MYFLT) arr->data[(size_t) *p->index];
+    p->k_data.registry = reg;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3930,26 +4035,42 @@ int32_t csnarray_takecomp_flat(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
+    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
-        goto done;
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *arr = NULL;
+    res = check_take_flat_body(csound, NULL, reg, &slot, &arr, source_handle, (double) *p->index, true);
+    if (res != OK) goto done;
+
+    size_t index = (size_t) *p->index;
+    p->value->real = (MYFLT) arr->data[index * 2];
+    p->value->imag = (MYFLT) arr->data[index * 2 + 1];
+    p->value->isPolar = 0;
+    p->k_data.registry = reg;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_takecomp_flat_k(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
-    CSN_ARRAY *arr = slot->array;
-    if (arr->itype != CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Handle holds a real array; declare the taken value as i");
-        goto done;
-    }
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
 
-    if (*p->index < 0 || (size_t) *p->index >= arr->size) {
-        res = csound->InitError(csound, "[csnarray] Index %d is out of range for an array of %zu elements (valid: 0..%zu)", (int32_t) *p->index, arr->size, arr->size - 1);
-        goto done;
-    }
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *arr = NULL;
+    res = check_take_flat_body(csound, &p->h, reg, &slot, &arr, source_handle, (double) *p->index, true);
+    if (res != OK) goto done;
 
     size_t index = (size_t) *p->index;
     p->value->real = (MYFLT) arr->data[index * 2];
@@ -3959,6 +4080,85 @@ int32_t csnarray_takecomp_flat(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p) {
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+static int32_t validate_slice_spec(
+    CSOUND *csound,
+    OPDS *perf_h,
+    const CSN_ARRAY *array,
+    double axis_value,
+    double start_value,
+    double stop_value,
+    double step_value,
+    uint32_t *out_axis,
+    uint32_t *out_start,
+    uint32_t *out_step,
+    uint32_t *out_shape,
+    size_t *out_size
+) {
+    uint32_t ndim = array->ndim;
+    if (!IS_VALID_AXIS(axis_value, ndim)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, ndim, ndim - 1);
+    }
+
+    if (!IS_VALID_INDEX(start_value) || !IS_VALID_INDEX(stop_value) || !IS_VALID_INDEX(step_value) || step_value == 0.0) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid slice start=%g stop=%g step=%g: values must be finite integers, start and stop must be non-negative, and step must be > 0", start_value, stop_value, step_value);
+    }
+
+    uint32_t axis = (uint32_t) axis_value;
+    uint32_t start = (uint32_t) start_value;
+    uint32_t stop = (uint32_t) stop_value;
+    uint32_t step = (uint32_t) step_value;
+    uint32_t extent = array->shape[axis];
+    if (start >= extent || stop > extent || stop <= start) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid slice start=%u stop=%u step=%u on axis %u of extent %u: need 0 <= start < stop <= %u and step > 0", start, stop, step, axis, extent, extent);
+    }
+
+    uint32_t sliced_extent = 1U + (stop - start - 1U) / step;
+    for (uint32_t i = 0; i < ndim; i++) {
+        out_shape[i] = i == axis ? sliced_extent : array->shape[i];
+    }
+
+    if (get_array_size_from_shape(out_size, ndim, out_shape) != OK) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Slice shape is invalid or its element count exceeds the configured limit");
+    }
+
+    *out_axis = axis;
+    *out_start = start;
+    *out_step = step;
+    return OK;
+}
+
+static void slice_get_assign_value(const CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t ndim, uint32_t axis, uint32_t start, uint32_t step) {
+    for (size_t linear = 0; linear < destination->size; ++linear) {
+        uint32_t coords[CSN_MAX_DIMS] = {0};
+        from_linear_to_coords(coords, destination->shape, linear, ndim);
+        coords[axis] = start + coords[axis] * step;
+
+        size_t source_index = from_coords_to_offset(coords, source->strides, ndim);
+        if (source->itype == CSN_COMPLEX) {
+            destination->data[linear * 2] = source->data[source_index * 2];
+            destination->data[linear * 2 + 1] = source->data[source_index * 2 + 1];
+        } else {
+            destination->data[linear] = source->data[source_index];
+        }
+    }
+}
+
+static void slice_set_assign_value(const CSN_ARRAY *data, CSN_ARRAY *destination, uint32_t ndim, const uint32_t *slice_shape, uint32_t axis, uint32_t start, uint32_t step) {
+    for (size_t linear = 0; linear < data->size; ++linear) {
+        uint32_t coords[CSN_MAX_DIMS] = {0};
+        from_linear_to_coords(coords, slice_shape, linear, ndim);
+        coords[axis] = start + coords[axis] * step;
+
+        size_t destination_index = from_coords_to_offset(coords, destination->strides, ndim);
+        if (data->itype == CSN_COMPLEX) {
+            destination->data[destination_index * 2] = data->data[linear * 2];
+            destination->data[destination_index * 2 + 1] = data->data[linear * 2 + 1];
+        } else {
+            destination->data[destination_index] = data->data[linear];
+        }
+    }
 }
 
 int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
@@ -3984,25 +4184,12 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
     uint32_t ndim = arr->ndim;
     uint32_t shape[CSN_MAX_DIMS] = {0};
 
-    double axis_value = (double) *p->axis;
-    if (!IS_VALID_AXIS(axis_value, ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, ndim, ndim - 1);
-        goto done;
-    }
-    uint32_t axis = (uint32_t) axis_value;
-
-    uint32_t start = (uint32_t) *p->start;
-    uint32_t stop = (uint32_t) *p->stop;
-    uint32_t step = (uint32_t) *p->step;
-    if (*p->start < 0 || start >= arr->shape[axis] || *p->stop < 0 || stop > arr->shape[axis] || stop <= start || step == 0) {
-        res = csound->InitError(csound, "[csnarray] Invalid slice start=%d stop=%d step=%d on axis %u of extent %u: need 0 <= start < stop <= %u and step > 0", (int32_t) *p->start, (int32_t) *p->stop, (int32_t) *p->step, axis, arr->shape[axis], arr->shape[axis]);
-        goto done;
-    }
-
-    uint32_t new_size = (stop - start + step - 1) / step;
-    for (uint32_t i = 0; i < ndim; i++) {
-        shape[i] = i == axis ? new_size : arr->shape[i];
-    }
+    uint32_t axis = 0;
+    uint32_t start = 0;
+    uint32_t step = 0;
+    size_t output_size = 0;
+    res = validate_slice_spec(csound, NULL, arr, (double) *p->axis, (double) *p->start, (double) *p->stop, (double) *p->step, &axis, &start, &step, shape, &output_size);
+    if (res != OK) goto done;
 
     /* _locked: the registry mutex is already held and is not recursive. */
     if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, &source_handle, 1U, &err, arr->itype) != OK) {
@@ -4011,32 +4198,110 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
     }
 
     CSN_ARRAY *dst = p->array;
-
-    for (size_t linear = 0; linear < arr->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, dst->shape, linear, ndim);
-
-        for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[i] = dst_coords[i];
-        }
-
-        src_coords[axis] = start + dst_coords[axis] * step;
-
-        size_t src_index = from_coords_to_offset(src_coords, arr->strides, ndim);
-        if (arr->itype == CSN_COMPLEX) {
-            dst->data[linear * 2] = arr->data[src_index * 2];
-            dst->data[linear * 2 + 1] = arr->data[src_index * 2 + 1];
-        } else {
-            dst->data[linear] = arr->data[src_index];
-        }
-    }
-
+    dst->size = arr->size == 0 ? 0 : output_size;
+    slice_get_assign_value(arr, dst, ndim, axis, start, step);
+    SET_KDATA_BEGIN(p, reg);
+    p->k_data.prev_size = dst->size;
 
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = slot->array;
+    uint32_t ndim = arr->ndim;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+
+    uint32_t axis = 0;
+    uint32_t start = 0;
+    uint32_t step = 0;
+    size_t output_size = 0;
+    res = validate_slice_spec(csound, &p->h, arr, (double) *p->axis, (double) *p->start, (double) *p->stop, (double) *p->step, &axis, &start, &step, shape, &output_size);
+    if (res != OK) goto done;
+    size_t logical_size = arr->size == 0 ? 0 : output_size;
+
+    CSN_ARRAY *dst = p->array;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, ndim, shape, logical_size, arr->itype, err);
+    if (res != OK) goto done;
+
+    slice_get_assign_value(arr, dst, ndim, axis, start, step);
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_set_slice_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_SET_SLICE *p) {
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t data_handle = p->data_handle->id;
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    }
+
+    CSN_SLOT *data_slot = get_slot(reg, data_handle);
+    if (data_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", data_handle);
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    CSN_ARRAY *data_arr = data_slot->array;
+
+    if (source_arr->itype != data_arr->itype) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Element type mismatch: one array is real and the other complex");
+    }
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t data_ndim = data_arr->ndim;
+    if (data_ndim != source_ndim) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Data block has %u dimensions but the source array has %u", data_ndim, source_ndim);
+    }
+    if (source_arr->size == 0) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Cannot assign a slice of an empty array");
+    }
+
+    uint32_t slice_shape[CSN_MAX_DIMS] = {0};
+    uint32_t axis = 0;
+    uint32_t start = 0;
+    uint32_t step = 0;
+    size_t slice_size = 0;
+    int32_t res = validate_slice_spec(csound, perf_h, source_arr, (double) *p->axis, (double) *p->start, (double) *p->stop, (double) *p->step, &axis, &start, &step, slice_shape, &slice_size);
+    if (res != OK) return res;
+
+    for (uint32_t i = 0; i < source_ndim; i++) {
+        if (data_arr->shape[i] != slice_shape[i]) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Data block extent %u on axis %u does not match the slice extent %u", data_arr->shape[i], i, slice_shape[i]);
+        }
+    }
+
+    if (data_arr->size != slice_size) {
+        char sbuf[CSN_SHAPE_STR_MAX];
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Data block holds %zu elements but the slice %s holds %zu", data_arr->size, shape_str(sbuf, sizeof(sbuf), slice_shape, source_ndim), slice_size);
+    }
+
+    slice_set_assign_value(data_arr, source_arr, source_ndim, slice_shape, axis, start, step);
+    SET_KDATA_WITH_ID_BEGIN(p, reg, slice_shape, data_ndim, source_arr->itype, source_handle);
+    p->k_data.owned_data_handle = data_handle;
+    return OK;
 }
 
 int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
@@ -4045,93 +4310,18 @@ int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
-    uint32_t source_handle = p->source_handle->id;
-    uint32_t data_handle = p->data_handle->id;
+    csound->LockMutex(reg->mutex);
+    int32_t res = csnarray_set_slice_locked(csound, NULL, reg, p);
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
-    int32_t res = OK;
+int32_t csnarray_set_slice_k(CSOUND *csound, CSN_SET_SLICE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, h, reg, p->k_data.owned_handle);
 
     csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
-
-    CSN_SLOT *data_slot = get_slot(reg, data_handle);
-    if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = source_slot->array;
-    CSN_ARRAY *data_arr = data_slot->array;
-
-    if (source_arr->itype != data_arr->itype) {
-        res = csound->InitError(csound, "[csnarray] Element type mismatch: one array is real and the other complex");
-        goto done;
-    }
-
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t data_ndim = data_arr->ndim;
-
-    uint32_t slice_shape[CSN_MAX_DIMS] = {0};
-
-    double axis_value = (double) *p->axis;
-    if (!IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    uint32_t axis = (uint32_t) axis_value;
-
-    uint32_t start = (uint32_t) *p->start;
-    uint32_t stop = (uint32_t) *p->stop;
-    uint32_t step = (uint32_t) *p->step;
-    if (*p->start < 0 || start >= source_arr->shape[axis] || *p->stop < 0 || stop > source_arr->shape[axis] || stop <= start || step == 0) {
-        res = csound->InitError(csound, "[csnarray] Invalid slice start=%d stop=%d step=%d on axis %u of extent %u: need 0 <= start < stop <= %u and step > 0", (int32_t) *p->start, (int32_t) *p->stop, (int32_t) *p->step, axis, source_arr->shape[axis], source_arr->shape[axis]);
-        goto done;
-    }
-
-    uint32_t new_size = (stop - start + step - 1) / step;
-    uint32_t slice_size = 1;
-    for (uint32_t i = 0; i < source_ndim; i++) {
-        uint32_t size = i == axis ? new_size : source_arr->shape[i];
-        slice_shape[i] = size;
-        slice_size *= size;
-        if (data_arr->shape[i] != slice_shape[i]) {
-            res = csound->InitError(csound, "[csnarray] Data block extent %u on axis %u does not match the slice extent %u", data_arr->shape[i], i, slice_shape[i]);
-            goto done;
-        }
-    }
-
-    if (data_arr->size != slice_size) {
-        char sbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Data block holds %zu elements but the slice %s holds %u", data_arr->size, shape_str(sbuf, sizeof(sbuf), slice_shape, source_ndim), slice_size);
-        goto done;
-    }
-
-    for (size_t linear = 0; linear < data_arr->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, slice_shape, linear, data_ndim);
-
-        for (uint32_t i = 0; i < source_ndim; ++i) {
-            src_coords[i] = dst_coords[i];
-        }
-
-        src_coords[axis] = start + dst_coords[axis] * step;
-
-        size_t src_index = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-        if (source_arr->itype == CSN_COMPLEX) {
-            source_arr->data[src_index * 2] = data_arr->data[linear * 2];
-            source_arr->data[src_index * 2 + 1] = data_arr->data[linear * 2 + 1];
-        } else {
-            source_arr->data[src_index] = data_arr->data[linear];
-        }
-    }
-
-done:
+    int32_t res = csnarray_set_slice_locked(csound, &p->h, reg, p);
     csound->UnlockMutex(reg->mutex);
     return res;
 }
@@ -4224,8 +4414,6 @@ int32_t csnarray_pushcomp(CSOUND *csound, CSN_PUSHCOMPLEX *p) {
         goto done;
     }
 
-    /* size, capacity e shape contano item, non double: un item complex ne
-       occupa due, quindi solo l'indice dentro data va scalato. */
     size_t new_size = arr->size + 1;
     if (new_size > arr->capacity) {
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
@@ -10316,10 +10504,17 @@ static OENTRY localops[] = {
     { "csnset.ik",             S(CSN_SET),                    0, "",            ":CsnArr;i[]k",         (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
     { "csnset.ki",             S(CSN_SET),                    0, "",            ":CsnArr;k[]i",         (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
     { "csntake",               S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ii",           (SUBR) csnarray_take,                        NULL,                                   (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.kk",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;kk",           (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.ik",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ik",           (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.ki",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ki",           (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
     { "csntake.flat",          S(CSN_TAKE_FLAT),              0, "i",           ":CsnArr;i",            (SUBR) csnarray_take_flat,                   NULL,                                   NULL,                                   NULL, 0 },
     { "csntake.flat.c",        S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;i",            (SUBR) csnarray_takecomp_flat,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csntake.flat.k",        S(CSN_TAKE_FLAT),              0, "k",           ":CsnArr;k",            (SUBR) csnarray_take_flat,                   (SUBR) csnarray_take_flat_k,            NULL,                                   NULL, 0 },
+    { "csntake.flat.c.k",      S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;k",            (SUBR) csnarray_takecomp_flat,               (SUBR) csnarray_takecomp_flat_k,        NULL,                                   NULL, 0 },
     { "csngetslice",           S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;iiii",         (SUBR) csnarray_get_slice,                   NULL,                                   (SUBR) csnarray_slice_deinit,           NULL, 0 },
+    { "csngetslice.k",         S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;kkkk",         (SUBR) csnarray_get_slice,                   (SUBR) csnarray_get_slice_k,            (SUBR) csnarray_slice_deinit,           NULL, 0 },
     { "csnsetslice",           S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;iiii", (SUBR) csnarray_set_slice,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsetslice.k",         S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;kkkk", (SUBR) csnarray_set_slice,                   (SUBR) csnarray_set_slice_k,            NULL,                                   NULL, 0 },
     { "csnpush",               S(CSN_PUSH),                   0, "",            ":CsnArr;i",            (SUBR) csnarray_push,                        NULL,                                   NULL,                                   NULL, 0 },
     { "csnpush.c",             S(CSN_PUSHCOMPLEX),            0, "",            ":CsnArr;:Complex;",    (SUBR) csnarray_pushcomp,                    NULL,                                   NULL,                                   NULL, 0 },
     { "csnpop",                S(CSN_POP),                    0, "i",           ":CsnArr;",             (SUBR) csnarray_pop,                         NULL,                                   NULL,                                   NULL, 0 },

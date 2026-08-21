@@ -10,6 +10,9 @@
 #define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
 #define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
 
+#define CSN_ACCESSOR_ERROR(csound, perf_h, ...) \
+    ((perf_h) != NULL ? (csound)->PerfError((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
+
 #define CHECK_REG_HANDLE(csound, h, reg, handle)                     \
 do {                                                                 \
     if (reg == NULL || handle == 0) {                                \
@@ -211,11 +214,13 @@ typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
     uint32_t prev_axes[CSN_MAX_DIMS];
     uint32_t prev_axis;
+    uint32_t prev_index;
     int32_t prev_roll_shift;
     size_t prev_size;
     uint32_t prev_ndim;
     ITEM_TYPE prev_itype;
     uint32_t owned_handle;
+    uint32_t owned_data_handle;
     CSN_REGISTRY *registry;
 } K_DATA;
 
@@ -454,6 +459,7 @@ typedef struct {
     MYFLT *index;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_TAKE;
 
 /* Two-argument take: flat index in, scalar out. No handle, so no deinit. */
@@ -464,6 +470,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *index;
+    // private
+    K_DATA k_data;
 } CSN_TAKE_FLAT;
 
 typedef struct {
@@ -473,6 +481,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *index;
+    // private
+    K_DATA k_data;
 } CSN_TAKECOMPLEX_FLAT;
 
 typedef struct {
@@ -487,6 +497,7 @@ typedef struct {
     MYFLT *step;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_GET_SLICE;
 
 typedef struct {
@@ -498,6 +509,8 @@ typedef struct {
     MYFLT *start;
     MYFLT *stop;
     MYFLT *step;
+    // private
+    K_DATA k_data;
 } CSN_SET_SLICE;
 
 typedef struct {
