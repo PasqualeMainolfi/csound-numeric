@@ -497,6 +497,10 @@ instr 3
     assert(csnget(iTransposeIn, iIndex01) == 3)
     assert(csnget(iTransposeAxesIn, iIndex01) == 3)
 
+    iTransposeEmpty:CsnArr = csntranspose(iEmpty2D)
+    iFlipEmpty:CsnArr = csnflip(iEmpty2D, 1)
+    assert(csnsize(iTransposeEmpty) == 0 && csnsize(iFlipEmpty) == 0)
+
     iFlip:CsnArr = csnflip(iFromReal, 1)
     iFlipIn:CsnArr = csncopy(iFromReal)
     csnflip(iFlipIn, 1)
@@ -513,6 +517,13 @@ instr 3
     assert(iRollValues[0][0] == 4 && iRollValues[0][1] == 1)
     assert(iRollAxisValues[0][0] == 2 && iRollAxisValues[0][1] == 1)
     assert(csnget(iRollIn, iIndex01) == 1 && csnget(iRollAxisIn, iIndex01) == 1)
+
+    iRollEmpty:CsnArr = csnroll(iEmpty2D, 1)
+    iRollAxisEmpty:CsnArr = csnroll(iEmpty2D, 1, 1)
+    csnroll(iEmpty2D, 1)
+    csnroll(iEmpty2D, 1, 1)
+    assert(csnsize(iEmpty2D) == 0)
+    assert(csnsize(iRollEmpty) == 0 && csnsize(iRollAxisEmpty) == 0)
 
     ; Scalar/complex get and set, take, slices and one-dimensional mutation.
     iSetReal:CsnArr = csncopy(iFromReal)

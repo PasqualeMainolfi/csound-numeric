@@ -7,26 +7,57 @@
 #include "csnregistry.h"
 
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
-#define IS_REQUEST_CHANGED(p, ndim, itype, shape) (p)->k_data.prev_ndim != (ndim) || (p)->k_data.prev_itype != (itype) || memcmp((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
+#define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
 #define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
+
+#define CHECK_REG_HANDLE(csound, h, reg, handle)                     \
+do {                                                                 \
+    if (reg == NULL || handle == 0) {                                \
+        return csound->PerfError(                                    \
+            csound,                                                  \
+            &p->h,                                                   \
+            "[csnarray] k-rate output slot was not initialized"      \
+        );                                                           \
+    }                                                                \
+} while (0)
 
 #define SET_KDATA_BEGIN(p, reg)                                                              \
     do {                                                                                     \
-        memcpy((p)->k_data.prev_shape, (p)->array->shape, sizeof(uint32_t) * CSN_MAX_DIMS);  \
+        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));                   \
+        memcpy((p)->k_data.prev_shape, (p)->array->shape, sizeof((p)->k_data.prev_shape));   \
         (p)->k_data.prev_ndim = (p)->array->ndim;                                            \
         (p)->k_data.prev_itype = (p)->array->itype;                                          \
         (p)->k_data.owned_handle = (p)->handle->id;                                          \
         (p)->k_data.registry = (reg);                                                        \
     } while (0)
 
+#define SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, itype, handle)                                                              \
+    do {                                                                           \
+        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
+        (p)->k_data.prev_ndim = (ndim);                                            \
+        (p)->k_data.prev_itype = (itype);                                          \
+        (p)->k_data.owned_handle = (handle);                                       \
+        (p)->k_data.registry = (reg);                                              \
+    } while (0)
+
 #define SET_KDATA_END(p, shape, ndim, itype)                                       \
     do {                                                                           \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * CSN_MAX_DIMS);  \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
         (p)->k_data.prev_ndim = (ndim);                                            \
         (p)->k_data.prev_itype = (itype);                                          \
         (p)->handle->id = (p)->k_data.owned_handle;                                \
     } while (0)
+
+#define SET_KDATA_NO_ID_END(p, shape, ndim, itype)                                 \
+    do {                                                                           \
+        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
+        (p)->k_data.prev_ndim = (ndim);                                            \
+        (p)->k_data.prev_itype = (itype);                                          \
+    } while (0)
+
 
 
 typedef enum {
@@ -179,6 +210,9 @@ typedef struct {
 typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
     uint32_t prev_axes[CSN_MAX_DIMS];
+    uint32_t prev_axis;
+    int32_t prev_roll_shift;
+    size_t prev_size;
     uint32_t prev_ndim;
     ITEM_TYPE prev_itype;
     uint32_t owned_handle;
@@ -352,6 +386,7 @@ typedef struct {
                     // axis for rollaxis
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_FLIP_ROLL;
 
 typedef struct {
@@ -362,6 +397,9 @@ typedef struct {
                     // shift for roll/rollaxis
     MYFLT *param_b; // null for flip
                     // axis for rollaxis
+    K_DATA k_data;
+    double *scratch;
+    size_t scratch_capacity;
 } CSN_FLIP_ROLL_IN;
 
 typedef struct {
@@ -371,6 +409,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
+    // private
+    K_DATA k_data;
 } CSN_GET;
 
 typedef struct {
@@ -380,6 +420,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
+    // private
+    K_DATA k_data;
 } CSN_GETCOMPLEX;
 
 typedef struct {
@@ -388,6 +430,8 @@ typedef struct {
     CSNREF *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     MYFLT *value;
+    // private
+    K_DATA k_data;
 } CSN_SET;
 
 typedef struct {
@@ -396,6 +440,8 @@ typedef struct {
     CSNREF *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     COMPLEXDAT *value;
+    // private
+    K_DATA k_data;
 } CSN_SETCOMPLEX;
 
 typedef struct {
