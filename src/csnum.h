@@ -2,6 +2,7 @@
 #define __CSNUM_H
 
 #include <csdl.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "csnregistry.h"
 
@@ -177,6 +178,7 @@ typedef struct {
 
 typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
+    uint32_t prev_axes[CSN_MAX_DIMS];
     uint32_t prev_ndim;
     ITEM_TYPE prev_itype;
     uint32_t owned_handle;
@@ -334,6 +336,8 @@ typedef struct {
                          // optional axes for transpose
     // private
     K_DATA k_data;
+    double *scratch;
+    size_t scratch_capacity;
 } CSN_RESHAPE_IN;
 
 typedef struct {

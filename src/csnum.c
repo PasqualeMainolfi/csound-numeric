@@ -12,6 +12,13 @@
 #include "arrays.h"
 
 
+static bool IS_VALID_AXIS(double axis, uint32_t ndim) {
+    if (!isfinite(axis) || trunc(axis) != axis || axis < 0.0 || axis >= (double) ndim) {
+        return false;
+    }
+    return true;
+}
+
 static inline void fill_csnarray(CSN_ARRAY *array, double value) {
     if (array->itype == CSN_COMPLEX) {
         for (size_t i = 0; i < array->size; i++) {
@@ -2195,7 +2202,6 @@ int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] k-rate output slot was not initialized");
     }
 
-
     int32_t res = OK;
     csound->LockMutex(p->k_data.registry->mutex);
 
@@ -2318,6 +2324,46 @@ done:
     return res;
 }
 
+static void transpose_data_assign(const double *source, double *destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, ITEM_TYPE itype) {
+    for (size_t linear = 0; linear < size; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, shape, linear, ndim);
+
+        for (uint32_t i = 0; i < ndim; ++i) {
+            src_coords[axes[i]] = dst_coords[i];
+        }
+
+        size_t src_index = from_coords_to_offset(src_coords, strides, ndim);
+        if (itype == CSN_REAL) {
+            destination[linear] = source[src_index];
+        } else {
+            destination[linear * 2] = source[src_index * 2];
+            destination[linear * 2 + 1] = source[src_index * 2 + 1];
+        }
+    }
+}
+
+static int32_t transpose_axes_assign(const ARRAYDAT *shape, uint32_t *axes, uint32_t ndim) {
+    bool used[CSN_MAX_DIMS] = {false};
+    for (uint32_t i = 0; i < ndim; ++i) {
+        double axis_value = (double) shape->data[i];
+        if (!IS_VALID_AXIS(axis_value, ndim)) {
+            return NOTOK;
+        }
+
+        uint32_t axis = (uint32_t) axis_value;
+        if (used[axis]) {
+            return NOTOK;
+        }
+
+        used[axis] = true;
+        axes[i] = axis;
+    }
+    return OK;
+}
+
 int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
@@ -2357,19 +2403,11 @@ int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
             goto done;
         }
 
-        bool used[CSN_MAX_DIMS] = {false};
-
-        for (uint32_t i = 0; i < ndim; ++i) {
-            uint32_t axis = (uint32_t) p->new_shape->data[i];
-
-            if (axis >= ndim || used[axis]) {
-                res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation: axis %u is out of range or repeated", axis);
-                goto done;
-            }
-
-            used[axis] = true;
-            axes[i] = axis;
+        if (transpose_axes_assign(p->new_shape, axes, ndim) != OK) {
+            res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation");
+            goto done;
         }
+
     }
 
     for (uint32_t i = 0; i < ndim; ++i) {
@@ -2383,30 +2421,91 @@ int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
     }
 
     CSN_ARRAY *dst = p->array;
-
-    for (size_t linear = 0; linear < arr->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, dst->shape, linear, ndim);
-
-        // dst axis i comes from source axis axes[i]
-        for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[axes[i]] = dst_coords[i];
-        }
-
-        size_t src_index = from_coords_to_offset(src_coords, arr->strides, ndim);
-        if (arr->itype == CSN_REAL) {
-            dst->data[linear] = arr->data[src_index];
-        } else {
-            dst->data[linear * 2] = arr->data[src_index * 2];
-            dst->data[linear * 2 + 1] = arr->data[src_index * 2 + 1];
-        }
-    }
-
+    transpose_data_assign(arr->data, dst->data, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    SET_KDATA_BEGIN(p, reg);
 
 done:
     csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_transpose_k(CSOUND *csound, CSN_RESHAPE *p) {
+    if (p->k_data.registry == NULL || p->k_data.owned_handle == 0) {
+        return csound->PerfError(csound, &p->h, "[csnarray] k-rate output slot was not initialized");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    bool is_default = p->INOCOUNT < 2;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(p->k_data.registry->mutex);
+
+    CSN_SLOT *source_slot = get_slot(p->k_data.registry, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_SLOT *output_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (output_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->k_data.owned_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    CSN_ARRAY *output_arr = output_slot->array;
+
+    uint32_t ndim = source_arr->ndim;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    uint32_t axes[CSN_MAX_DIMS] = {0};
+
+    if (is_default) {
+        for (uint32_t i = 0; i < ndim; ++i)
+            axes[i] = ndim - 1 - i;
+    }
+    else {
+        if (p->new_shape->dimensions != 1 || p->new_shape->sizes == NULL || p->new_shape->sizes[0] != (int32_t) ndim) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Axes argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
+            goto done;
+        }
+
+        if (transpose_axes_assign(p->new_shape, axes, ndim) != OK) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Axes argument is not a valid permutation");
+            goto done;
+        }
+    }
+
+    for (uint32_t i = 0; i < ndim; ++i) {
+        shape[i] = source_arr->shape[axes[i]];
+    }
+
+    size_t requested_size = 0;
+    res = get_array_size_from_shape(&requested_size, ndim, shape);
+    if (res != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    bool request_changed = IS_REQUEST_CHANGED(p, ndim, itype, shape);
+    if (SHOULD_SLOT_BE_UPDATED(request_changed, output_arr, itype, requested_size)) {
+        res = update_slot_array_locked(csound, p->k_data.registry, p->k_data.owned_handle, ndim, shape, itype, &p->array, &err);
+        if (res != OK) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Could not update k-rate output slot: %s", err != NULL ? err : "unknown error");
+            goto done;
+        }
+    }
+
+    CSN_ARRAY *dst = p->array;
+    transpose_data_assign(source_arr->data, dst->data, source_arr->size, ndim, shape, source_arr->strides, axes, source_arr->itype);
+
+    SET_KDATA_END(p, shape, ndim, itype);
+
+done:
+    csound->UnlockMutex(p->k_data.registry->mutex);
     return res;
 }
 
@@ -2450,18 +2549,9 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
             goto done;
         }
 
-        bool used[CSN_MAX_DIMS] = {false};
-
-        for (uint32_t i = 0; i < ndim; ++i) {
-            uint32_t axis = (uint32_t)p->new_shape->data[i];
-
-            if (axis >= ndim || used[axis]) {
-                res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation: axis %u is out of range or repeated", axis);
-                goto done;
-            }
-
-            used[axis] = true;
-            axes[i] = axis;
+        if (transpose_axes_assign(p->new_shape, axes, ndim) != OK) {
+            res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation");
+            goto done;
         }
     }
 
@@ -2478,29 +2568,9 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     }
 
     compute_strides(shape, strides, ndim);
-
-    for (size_t linear = 0; linear < arr->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, shape, linear, ndim);
-
-        // dst axis i comes from source axis axes[i]
-        for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[axes[i]] = dst_coords[i];
-        }
-
-        size_t src_index = from_coords_to_offset(src_coords, arr->strides, ndim);
-        if (arr->itype == CSN_REAL) {
-            data[linear] = arr->data[src_index];
-        } else {
-            data[linear * 2] = arr->data[src_index * 2];
-            data[linear * 2 + 1] = arr->data[src_index * 2 + 1];
-        }
-    }
+    transpose_data_assign(arr->data, data, arr->size, ndim, shape, arr->strides, axes, arr->itype);
 
     memcpy(arr->data, data, sizeof(double) * arr->size * arr->itype);
-
     memset(arr->shape, 0, sizeof(arr->shape));
     memset(arr->strides, 0, sizeof(arr->strides));
 
@@ -2514,6 +2584,195 @@ done:
     if (data != NULL) {
         csound->Free(csound, data);
     }
+    return res;
+}
+
+static int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    bool is_default = p->INOCOUNT < 2;
+
+    int32_t res = OK;
+    double *data = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = slot->array;
+
+    uint32_t ndim = arr->ndim;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    size_t strides[CSN_MAX_DIMS] = {0};
+    uint32_t axes[CSN_MAX_DIMS] = {0};
+
+    if (is_default) {
+        for (uint32_t i = 0; i < ndim; ++i)
+            axes[i] = ndim - 1 - i;
+    }
+    else {
+        if (p->new_shape->dimensions != 1 || p->new_shape->sizes == NULL || p->new_shape->sizes[0] != (int32_t) ndim) {
+            res = csound->InitError(csound, "[csnarray] Axes argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
+            goto done;
+        }
+
+        if (transpose_axes_assign(p->new_shape, axes, ndim) != OK) {
+            res = csound->InitError(csound, "[csnarray] Axes argument is not a valid permutation");
+            goto done;
+        }
+    }
+
+    size_t scratch_capacity = arr->size * 2 * arr->itype;
+    data = csound->Calloc(csound, sizeof(double) * scratch_capacity);
+    if (data == NULL) {
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size * arr->itype));
+        goto done;
+    }
+    p->scratch_capacity = scratch_capacity;
+
+    for (uint32_t i = 0; i < ndim; ++i) {
+        shape[i] = arr->shape[axes[i]];
+    }
+    transpose_data_assign(arr->data, data, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    memcpy(arr->data, data, sizeof(double) * arr->size * arr->itype);
+
+    compute_strides(shape, strides, ndim);
+
+    memset(arr->shape, 0, sizeof(arr->shape));
+    memset(arr->strides, 0, sizeof(arr->strides));
+
+    for (uint32_t i = 0; i < ndim; ++i) {
+        arr->shape[i] = shape[i];
+        arr->strides[i] = strides[i];
+    }
+
+    memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
+    memcpy(p->k_data.prev_shape, arr->shape, sizeof(uint32_t) * arr->ndim);
+    memset(p->k_data.prev_axes, 0, sizeof(p->k_data.prev_axes));
+    memcpy(p->k_data.prev_axes, axes, sizeof(uint32_t) * arr->ndim);
+    p->k_data.prev_ndim = arr->ndim;
+    p->k_data.prev_itype = arr->itype;
+    p->k_data.owned_handle = source_handle;
+    p->k_data.registry = reg;
+    p->scratch = data;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_transpose_in_k_deinit(CSOUND *csound, CSN_RESHAPE_IN *p) {
+    if (p->scratch != NULL) {
+        csound->Free(csound, p->scratch);
+    }
+
+    return OK;
+}
+
+int32_t csnarray_transpose_in_k(CSOUND *csound, CSN_RESHAPE_IN *p) {
+    if (p->k_data.registry == NULL || p->k_data.owned_handle == 0) {
+        return csound->PerfError(csound, &p->h, "[csnarray] k-rate output slot was not initialized");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    bool is_default = p->INOCOUNT < 2;
+    int32_t res = OK;
+
+    csound->LockMutex(p->k_data.registry->mutex);
+
+    CSN_SLOT *slot = get_slot(p->k_data.registry, source_handle);
+    if (slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = slot->array;
+
+    ITEM_TYPE itype = arr->itype;
+    uint32_t ndim = arr->ndim;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    size_t strides[CSN_MAX_DIMS] = {0};
+    uint32_t axes[CSN_MAX_DIMS] = {0};
+
+    if (is_default) {
+        for (uint32_t i = 0; i < ndim; ++i)
+            axes[i] = ndim - 1 - i;
+    }
+    else {
+        if (p->new_shape->dimensions != 1 || p->new_shape->sizes == NULL || p->new_shape->sizes[0] != (int32_t) ndim) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Axes argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
+            goto done;
+        }
+
+        if (transpose_axes_assign(p->new_shape, axes, ndim) != OK) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Axes argument is not a valid permutation");
+            goto done;
+        }
+    }
+
+    for (uint32_t i = 0; i < ndim; ++i) {
+        shape[i] = arr->shape[axes[i]];
+    }
+
+    compute_strides(shape, strides, ndim);
+
+    bool layout_changed = IS_REQUEST_CHANGED(p, ndim, itype, arr->shape);
+    bool data_changed = false;
+    if (!layout_changed) {
+        data_changed = memcmp(arr->data, p->scratch, sizeof(double) * arr->size * itype) != 0;
+    }
+    bool axes_changed = memcmp(axes, p->k_data.prev_axes, sizeof(axes)) != 0;
+    if (!layout_changed && !data_changed && !axes_changed)  goto done;
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    size_t required = requested_size * itype;
+    if (p->scratch_capacity < required) {
+        size_t new_capacity = required > 0 ? required * 2 : 1;
+        double *data = csound->ReAlloc(csound, p->scratch, sizeof(double) * new_capacity);
+        if (data == NULL) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Memory allocation failed");
+            goto done;
+        }
+
+        p->scratch = data;
+        p->scratch_capacity = new_capacity;
+    }
+
+    transpose_data_assign(arr->data, p->scratch, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    memcpy(arr->data, p->scratch, sizeof(double) * arr->size * arr->itype);
+
+    memset(arr->shape, 0, sizeof(arr->shape));
+    memset(arr->strides, 0, sizeof(arr->strides));
+
+    for (uint32_t i = 0; i < ndim; ++i) {
+        arr->shape[i] = shape[i];
+        arr->strides[i] = strides[i];
+    }
+
+    memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
+    memcpy(p->k_data.prev_shape, arr->shape, sizeof(arr->shape));
+    memset(p->k_data.prev_axes, 0, sizeof(p->k_data.prev_axes));
+    memcpy(p->k_data.prev_axes, axes, sizeof(axes));
+    p->k_data.prev_ndim = ndim;
+    p->k_data.prev_itype = arr->itype;
+
+done:
+    csound->UnlockMutex(p->k_data.registry->mutex);
     return res;
 }
 
@@ -2540,11 +2799,12 @@ int32_t csnarray_flip(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     uint32_t ndim = arr->ndim;
 
-    int32_t axis_flip = (int32_t) *p->param_a;
-    if (axis_flip < -1 || axis_flip > (int32_t) ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_flip, ndim, ndim - 1);
+    double axis_value = (double) *p->param_a;
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, ndim, ndim - 1);
         goto done;
     }
+    int32_t axis_flip = (int32_t) axis_value;
 
     /* _locked: the registry mutex is already held and is not recursive. */
     if (create_csnarray_locked(csound, reg, &p->h, ndim, arr->shape, &p->array, p->handle, &source_handle, 1U, &err, arr->itype) != OK) {
@@ -2611,11 +2871,12 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     uint32_t ndim = arr->ndim;
 
-    int32_t axis_flip = (int32_t) *p->param_a;
-    if (axis_flip < -1 || axis_flip > (int32_t) ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_flip, ndim, ndim - 1);
+    double axis_value = (double) *p->param_a;
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, ndim, ndim - 1);
         goto done;
     }
+    int32_t axis_flip = (int32_t) axis_value;
 
     /* Allocated only once the axes are known good, so the rejection paths
        above have nothing to release. */
@@ -2788,13 +3049,12 @@ int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p) {
     CSN_ARRAY *arr = slot->array;
     uint32_t ndim = arr->ndim;
     int32_t shift = (int32_t) *p->param_a;
-    int32_t axis_roll = (int32_t) *p->param_b;
-    /* -1 selects every axis; anything below it would index src_coords[] out
-       of bounds in the else branch. */
-    if (axis_roll < -1 || axis_roll >= (int32_t) ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_roll, ndim, ndim - 1);
+    double axis_value = (double) *p->param_b;
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, ndim, ndim - 1);
         goto done;
     }
+    int32_t axis_roll = (int32_t) axis_value;
 
     /* _locked: the registry mutex is already held and is not recursive. */
     if (create_csnarray_locked(csound, reg, &p->h, ndim, arr->shape, &p->array, p->handle, &source_handle, 1U, &err, arr->itype) != OK) {
@@ -2859,13 +3119,12 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     CSN_ARRAY *arr = slot->array;
     uint32_t ndim = arr->ndim;
     int32_t shift = (int32_t) *p->param_a;
-    int32_t axis_roll = (int32_t) *p->param_b;
-    /* -1 selects every axis; anything below it would index src_coords[] out
-       of bounds in the else branch. */
-    if (axis_roll < -1 || axis_roll >= (int32_t) ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis_roll, ndim, ndim - 1);
+    double axis_value = (double) *p->param_b;
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, ndim, ndim - 1);
         goto done;
     }
+    int32_t axis_roll = (int32_t) axis_value;
 
     /* Allocated only once the axes are known good, so the rejection paths
        above have nothing to release. */
@@ -3110,11 +3369,12 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
         goto done;
     }
 
-    uint32_t axis = (uint32_t) *p->axis;
-    if (*p->axis < 0 || axis > ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, ndim, ndim - 1);
+    double axis_value = (double) *p->axis;
+    if (!IS_VALID_AXIS(axis_value, ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, ndim, ndim - 1);
         goto done;
     }
+    uint32_t axis = (uint32_t) axis_value;
 
     uint32_t index = (uint32_t) *p->index;
     if (*p->index < 0 || index >= arr->shape[axis]) {
@@ -3262,11 +3522,12 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
     uint32_t ndim = arr->ndim;
     uint32_t shape[CSN_MAX_DIMS] = {0};
 
-    uint32_t axis = (uint32_t) *p->axis;
-    if (*p->axis < 0 || axis > ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, ndim, ndim - 1);
+    double axis_value = (double) *p->axis;
+    if (!IS_VALID_AXIS(axis_value, ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, ndim, ndim - 1);
         goto done;
     }
+    uint32_t axis = (uint32_t) axis_value;
 
     uint32_t start = (uint32_t) *p->start;
     uint32_t stop = (uint32_t) *p->stop;
@@ -3354,11 +3615,12 @@ int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
 
     uint32_t slice_shape[CSN_MAX_DIMS] = {0};
 
-    uint32_t axis = (uint32_t) *p->axis;
-    if (*p->axis < 0 || axis > source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
+    double axis_value = (double) *p->axis;
+    if (!IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    uint32_t axis = (uint32_t) axis_value;
 
     uint32_t start = (uint32_t) *p->start;
     uint32_t stop = (uint32_t) *p->stop;
@@ -3935,11 +4197,12 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
         goto done;
     }
 
-    uint32_t axis = (uint32_t) *p->axis;
-    if (*p->axis < 0 || axis > source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
+    double axis_value = (double) *p->axis;
+    if (!IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    uint32_t axis = (uint32_t) axis_value;
 
     uint32_t index = (uint32_t) *p->index;
     if (*p->index < 0 || index > source_arr->shape[axis]) {
@@ -4044,9 +4307,14 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
     CSN_ARRAY *source_arr = source_slot->array;
     uint32_t source_ndim = source_arr->ndim;
 
-    uint32_t axis = (uint32_t) *p->axis;
-    if (*p->axis < 0 || axis > source_ndim - 1 || source_arr->shape[axis] <= 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is not usable here: it must be in 0..%u and have extent > 1 (current extent %u)", (int32_t) *p->axis, source_ndim - 1, (axis < source_ndim ? source_arr->shape[axis] : 0U));
+    double axis_value = (double) *p->axis;
+    if (!IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+        goto done;
+    }
+    uint32_t axis = (uint32_t) axis_value;
+    if (source_arr->shape[axis] <= 1) {
+        res = csound->InitError(csound, "[csnarray] Axis %u is not usable here: its extent must be > 1 (current extent %u)", axis, source_arr->shape[axis]);
         goto done;
     }
 
@@ -4210,11 +4478,12 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     uint32_t *source_shape = source_arr->shape;
     uint32_t *data_shape = data_arr->shape;
 
-    uint32_t axis = (uint32_t) *p->axis;
-    if (*p->axis < 0 || axis > source_ndim - 1) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) *p->axis, source_ndim, source_ndim - 1);
+    double axis_value = (double) *p->axis;
+    if (!IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    uint32_t axis = (uint32_t) axis_value;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     for (uint32_t i = 0; i < source_ndim; i++) {
@@ -4315,11 +4584,11 @@ int32_t csnarray_pad_helper(CSOUND *csound, const OPDS *h, uint32_t inocount, CS
 
     int32_t axis = -1;
     if (inocount > 4) {
-        axis = (int32_t) inaxis;
-        if (inaxis < 0 || (uint32_t) axis > source_ndim - 1) {
-            res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) inaxis, source_ndim, source_ndim - 1);
+        if (!IS_VALID_AXIS(inaxis, source_ndim)) {
+            res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", inaxis, source_ndim, source_ndim - 1);
             goto done;
         }
+        axis = (int32_t) inaxis;
     }
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -4466,11 +4735,11 @@ int32_t csnarray_pad_in_helper(CSOUND *csound, const OPDS *h, uint32_t inocount,
 
     int32_t axis = -1;
     if (inocount > 4) {
-        axis = (int32_t) inaxis;
-        if (inaxis < 0 || (uint32_t) axis > source_ndim - 1) {
-            res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", (int32_t) inaxis, source_ndim, source_ndim - 1);
+        if (!IS_VALID_AXIS(inaxis, source_ndim)) {
+            res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", inaxis, source_ndim, source_ndim - 1);
             goto done;
         }
+        axis = (int32_t) inaxis;
     }
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -5539,7 +5808,7 @@ static void accumulate_reductioncomp_scalar_helper(CSN_COMPLEXDAT *value, const 
 /* axis == -1 collapses to out_value; any other axis builds an array through
    out_handle/out_array. Exactly one pair is non-NULL, which is what keeps the
    two opcode families distinct at the type level. */
-static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
+static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -5562,15 +5831,14 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    /* The public axis overload returns an array and therefore needs one real
+       source axis.  -1 is only the internal marker used by the scalar
+       overload, which has no axis argument. */
+    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
-
-    if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
-        goto done;
-    }
+    int32_t axis = (int32_t) axis_value;
 
     if (mode == RED_MIN || mode == RED_MAX || mode == RED_MEDIAN || mode == RED_ARGMIN || mode == RED_ARGMAX) {
         if (source_arr->itype == CSN_COMPLEX) {
@@ -5652,7 +5920,7 @@ done:
 }
 
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUM);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUM);
 }
 
 int32_t csnarray_sum_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5664,7 +5932,7 @@ int32_t csnarray_sumcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
 }
 
 int32_t csnarray_prod(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_PROD);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_PROD);
 }
 
 int32_t csnarray_prod_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5676,7 +5944,7 @@ int32_t csnarray_prodcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
 }
 
 int32_t csnarray_sub(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUB);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUB);
 }
 
 int32_t csnarray_sub_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5688,7 +5956,7 @@ int32_t csnarray_subcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
 }
 
 int32_t csnarray_mean(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_MEAN);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MEAN);
 }
 
 int32_t csnarray_mean_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5700,7 +5968,7 @@ int32_t csnarray_meancomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
 }
 
 int32_t csnarray_min(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_MIN);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MIN);
 }
 
 int32_t csnarray_min_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5709,7 +5977,7 @@ int32_t csnarray_min_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
 
 
 int32_t csnarray_max(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_MAX);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MAX);
 }
 
 int32_t csnarray_max_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5718,7 +5986,7 @@ int32_t csnarray_max_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
 
 
 int32_t csnarray_all(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_ALL);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ALL);
 }
 
 int32_t csnarray_all_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5726,7 +5994,7 @@ int32_t csnarray_all_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
 }
 
 int32_t csnarray_any(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, NULL, RED_ANY);
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ANY);
 }
 
 int32_t csnarray_any_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5838,7 +6106,7 @@ static int32_t stdvar_calculation_scalar_helper(double *value, const CSN_ARRAY *
     return OK;
 }
 
-static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode) {
+static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -5861,15 +6129,11 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
-
-    if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
-        goto done;
-    }
+    int32_t axis = (int32_t) axis_value;
 
     CSN_ARRAY *arr = NULL;
     if (axis != -1) {
@@ -5923,7 +6187,7 @@ done:
 }
 
 int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_stdvar_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, RED_STD);
+    return csnarray_stdvar_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_STD);
 }
 
 int32_t csnarray_std_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -5932,7 +6196,7 @@ int32_t csnarray_std_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
 
 
 int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_stdvar_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, RED_VAR);
+    return csnarray_stdvar_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_VAR);
 }
 
 int32_t csnarray_var_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -6016,16 +6280,12 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
         goto done;
     }
 
-    int32_t axis = (int32_t) *p->axis;
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    double axis_value = (double) *p->axis;
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
-
-    if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
-        goto done;
-    }
+    int32_t axis = (int32_t) axis_value;
 
     /* The shape of the space being reduced over: the source minus the axis.
        Destination coordinates are decomposed against this, not against the
@@ -6094,7 +6354,7 @@ static double median_of_scratch(double *scratch, size_t n) {
     return 0.5 * (scratch[n / 2 - 1] + scratch[n / 2]);
 }
 
-static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value) {
+static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -6123,10 +6383,11 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
         goto done;
     }
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    int32_t axis = (int32_t) axis_value;
 
     /* Median needs a sorted copy, so it cannot stream like the folds do. */
     size_t run = (axis == -1) ? source_arr->size : source_shape[axis];
@@ -6181,7 +6442,7 @@ done:
 }
 
 int32_t csnarray_median(CSOUND *csound, CSN_REDUCTION *p) {
-    return csnarray_median_impl(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL);
+    return csnarray_median_impl(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL);
 }
 
 int32_t csnarray_median_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
@@ -7541,7 +7802,7 @@ int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     }
 
     uint32_t source_handle = (uint32_t) p->source_handle->id;
-    int32_t axis = (int32_t) *p->axis;
+    double axis_value = (double) *p->axis;
     double order = (double) *p->order;
 
     if (order < 1.0) {
@@ -7564,10 +7825,11 @@ int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis <= -1 || (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (!IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    uint32_t axis = (uint32_t) axis_value;
 
     ITEM_TYPE itype = source_arr->itype;
     size_t run = source_shape[axis];
@@ -7756,7 +8018,7 @@ static void argsort_slice(ARRAY_ELEMENT *buffer, double *dst, const double *src,
     }
 }
 
-static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode) {
+static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -7788,10 +8050,11 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *s
         goto done;
     }
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    int32_t axis = (int32_t) axis_value;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_dim = source_ndim;
@@ -7940,15 +8203,15 @@ done:
 }
 
 int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, p->handle, &p->array, CSN_NORMALIZE);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, (double) *p->order, p->handle, &p->array, CSN_NORMALIZE);
 }
 
 int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, (double) *p->order, NULL, NULL, CSN_NORMALIZE);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, (double) *p->order, NULL, NULL, CSN_NORMALIZE);
 }
 
 int32_t csnarray_sort_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, NULL, NULL, CSN_SORT);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, NULL, NULL, CSN_SORT);
 }
 
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
@@ -8040,27 +8303,27 @@ done:
 }
 
 int32_t csnarray_diff(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_DIFF);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, p->handle, &p->array, CSN_DIFF);
 }
 
 int32_t csnarray_gradient(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_GRADIENT);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, p->handle, &p->array, CSN_GRADIENT);
 }
 
 int32_t csnarray_cumsum(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_CUMSUM);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, p->handle, &p->array, CSN_CUMSUM);
 }
 
 int32_t csnarray_cumprod(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_CUMPROD);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, p->handle, &p->array, CSN_CUMPROD);
 }
 
 int32_t csnarray_sort(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_SORT);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, p->handle, &p->array, CSN_SORT);
 }
 
 int32_t csnarray_argsort(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (int32_t) *p->axis, 0.0, p->handle, &p->array, CSN_ARGSORT);
+    return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, (double) *p->axis, 0.0, p->handle, &p->array, CSN_ARGSORT);
 }
 
 int32_t csnarray_matmul_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
@@ -8492,7 +8755,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
         return csound->InitError(csound, "[csnarray] Invalid window size");
     }
 
-    int32_t axis = *p->axis;
+    double axis_value = (double) *p->axis;
     size_t winsize = (size_t) *p->winsize;
 
     double *median_buffer = NULL;
@@ -8522,10 +8785,11 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    int32_t axis = (int32_t) axis_value;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_dim = source_ndim;
@@ -8705,7 +8969,7 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
 
     int32_t res = OK;
 
-    int32_t axis = *p->axis;
+    double axis_value = (double) *p->axis;
     size_t winsize = (size_t) *p->winsize;
 
     double *median_buffer = NULL;
@@ -8740,10 +9004,11 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    int32_t axis = (int32_t) axis_value;
 
     if (axis == -1) {
         if (winsize == 0 || winsize > source_arr->size) {
@@ -8970,7 +9235,7 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
 
     double period = 0.0;
     double discont = 0.0;
-    int32_t axis = 0;
+    double axis_value = 0.0;
     switch (mode) {
         case CSN_WRAP:
             period = (double) *p->period;
@@ -8979,7 +9244,7 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
             period = (double) *p->period;
             discont = (double) *p->discount;
             if (discont <= 0.0) discont = period * 0.5;
-            axis = (int32_t) *p->axis;
+            axis_value = (double) *p->axis;
             break;
         default:
             break;
@@ -8988,10 +9253,11 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis < -1 || axis >= (int32_t) source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    int32_t axis = (int32_t) axis_value;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_dim = source_ndim;
@@ -9085,7 +9351,7 @@ static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COM
 
     double period = 0.0;
     double discont = 0.0;
-    int32_t axis = 0;
+    double axis_value = 0.0;
     switch (mode) {
         case CSN_WRAP:
             period = (double) *p->period;
@@ -9094,7 +9360,7 @@ static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COM
             period = (double) *p->period;
             discont = (double) *p->discount;
             if (discont <= 0.0) discont = period * 0.5;
-            axis = (int32_t) *p->axis;
+            axis_value = (double) *p->axis;
             break;
         default:
             break;
@@ -9103,10 +9369,11 @@ static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COM
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis < -1 || axis >= (int32_t) source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
+    int32_t axis = (int32_t) axis_value;
 
     if (mode == CSN_WRAP) {
         for (size_t i = 0; i < source_arr->size; i ++) {
@@ -9336,7 +9603,7 @@ static void accumulate_perquant_reduction_scalar_helper(double *value, double q,
     dispatch_value_for_perquant_reduction(value, buffer, source_arr->size, is_percentile, q);
 }
 
-static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, int32_t axis, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, bool is_percentile, double q) {
+static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, bool is_percentile, double q) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -9375,15 +9642,11 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF
         goto done;
     }
 
-    if (axis != -1 && (uint32_t) axis >= source_ndim) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is out of range for a %u-D array (valid axes: -1 for all axes, or 0..%u)", axis, source_ndim, source_ndim - 1);
+    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
         goto done;
     }
-
-    if (source_ndim <= 1 && axis > 0) {
-        res = csound->InitError(csound, "[csnarray] Axis %d is not valid for a 1-D array (use -1 for all axes, or 0)", axis);
-        goto done;
-    }
+    int32_t axis = (int32_t) axis_value;
 
     if (source_arr->itype == CSN_COMPLEX) {
         res = csound->InitError(csound, "[csnarray] Percentile and quantile reductions require real arrays");
@@ -9447,7 +9710,7 @@ done:
 }
 
 int32_t csnarray_percentile(CSOUND *csound, CSN_PERCQUANT_AX *p) {
-    return csnarray_perquant_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, true, (double) *p->quantity);
+    return csnarray_perquant_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, true, (double) *p->quantity);
 }
 
 int32_t csnarray_percentile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
@@ -9455,7 +9718,7 @@ int32_t csnarray_percentile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
 }
 
 int32_t csnarray_quantile(CSOUND *csound, CSN_PERCQUANT_AX *p) {
-    return csnarray_perquant_reduction(csound, &p->h, p->source_handle, (int32_t) *p->axis, p->handle, &p->array, NULL, false, (double) *p->quantity);
+    return csnarray_perquant_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, false, (double) *p->quantity);
 }
 
 int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
@@ -9562,10 +9825,12 @@ static OENTRY localops[] = {
     { "csnreshape.in.k",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;k[]",          (SUBR) csnarray_reshape_in_k_init,           (SUBR) csnarray_reshape_in_k,           NULL,                                   NULL, 0 },
     { "csnflatten",            S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_flatten,                     (SUBR) csnarray_flatten_k,              (SUBR) csnarray_shape_deinit,           NULL, 0 },
     { "csnflatten.in",         S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",             (SUBR) csnarray_flatten_in,                  (SUBR) csnarray_flatten_in_k,           NULL,                                   NULL, 0 },
-    { "csntranspose",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_transpose,                   NULL,                                   (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csntranspose.ax",       S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",          (SUBR) csnarray_transpose,                   NULL,                                   (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csntranspose.in",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",             (SUBR) csnarray_transpose_in,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csntranspose",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csntranspose.ax",       S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",          (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csntranspose.ax.k",     S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;k[]",          (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csntranspose.in",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",             (SUBR) csnarray_transpose_in_k_init,         (SUBR) csnarray_transpose_in_k,         (SUBR) csnarray_transpose_in_k_deinit,  NULL, 0 },
     { "csntranspose.ax.in",    S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;i[]",          (SUBR) csnarray_transpose_in,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csntranspose.ax.in.k",  S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;k[]",          (SUBR) csnarray_transpose_in_k_init,         (SUBR) csnarray_transpose_in_k,         (SUBR) csnarray_transpose_in_k_deinit,  NULL, 0 },
     { "csnflip",               S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;j",            (SUBR) csnarray_flip,                        NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
     { "csnflip.in",            S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;j",            (SUBR) csnarray_flip_in,                     NULL,                                   NULL,                                   NULL, 0 },
     { "csnroll",               S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_roll,                        NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
