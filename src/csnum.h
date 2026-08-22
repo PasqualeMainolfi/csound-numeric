@@ -15,10 +15,10 @@
 
 #define CHECK_REG_HANDLE(csound, h, reg, handle)                     \
 do {                                                                 \
-    if (reg == NULL || handle == 0) {                                \
-        return csound->PerfError(                                    \
-            csound,                                                  \
-            &p->h,                                                   \
+    if ((reg) == NULL || (handle) == 0) {                            \
+        return (csound)->PerfError(                                  \
+            (csound),                                                \
+            (h),                                                    \
             "[csnarray] k-rate output slot was not initialized"      \
         );                                                           \
     }                                                                \
@@ -457,6 +457,7 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *axis;
     MYFLT *index;
+    MYFLT *trig;  // usend only remove_block.k as trigger
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -470,6 +471,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *index;
+    MYFLT *trig;  // usend only remove_block.k as trigger
     // private
     K_DATA k_data;
 } CSN_TAKE_FLAT;
@@ -531,6 +533,30 @@ typedef struct {
 
 typedef struct {
     OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *in_value; // push at the top
+    MYFLT *arg_a;    // trig in push_k
+                     // index in insert_k
+    MYFLT *arg_b;    // trig in insert_k
+    // private
+    CSN_REGISTRY *registry;
+} CSN_PUSH_K;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    COMPLEXDAT *in_value; // push at the top
+    MYFLT *arg_a;    // trig in push_k
+                     // index in insert_k
+    MYFLT *arg_b;    // trig in insert_k
+    // private
+    CSN_REGISTRY *registry;
+} CSN_PUSHCOMPLEX_K;
+
+typedef struct {
+    OPDS h;
     // outputs
     MYFLT *out_value;
     // inputs
@@ -541,11 +567,37 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
+    MYFLT *out_value;
+    // inputs
+    CSNREF *source_handle; // remove the top element
+    MYFLT *arg_a;    // trig in pop_k
+                     // index in remove_k
+    MYFLT *arg_b;    // trig in remove_k
+    // private
+    CSN_REGISTRY *registry;
+} CSN_POP_K;
+
+typedef struct {
+    OPDS h;
+    // outputs
     COMPLEXDAT *out_value;
     // inputs
     CSNREF *source_handle; // remove the top element
-    MYFLT *index;         // only for remove (at the index)
+    MYFLT *index;          // only for remove (at the index)
 } CSN_POPCOMPLEX;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *out_value;
+    // inputs
+    CSNREF *source_handle; // remove the top element
+    MYFLT *arg_a;    // trig in pop_k
+                     // index in remove_k
+    MYFLT *arg_b;    // trig in remove_k
+    // private
+    CSN_REGISTRY *registry;
+} CSN_POPCOMPLEX_K;
 
 typedef struct {
     OPDS h;
@@ -554,6 +606,10 @@ typedef struct {
     CSNREF *data_handle; // in block
     MYFLT *axis;
     MYFLT *index;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    CSN_ARRAY *scratch;
 } CSN_INSERT_BLOCK;
 
 typedef struct {
@@ -563,9 +619,12 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *data_handle;
-    MYFLT *axis; // only for .block
+    MYFLT *arg_a; // trig for .flat
+                  // axis for .block
+    MYFLT *arg_b; // trig for .block
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_CONCAT;
 
 typedef struct {
@@ -1224,14 +1283,14 @@ int32_t csnarray_take_flat_k(CSOUND *csound, CSN_TAKE_FLAT *p);
 int32_t csnarray_takecomp_flat_k(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p);
 int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p);
 int32_t csnarray_set_slice_k(CSOUND *csound, CSN_SET_SLICE *p);
-int32_t csnarray_push_k(CSOUND *csound, CSN_PUSH *p);
-int32_t csnarray_pushcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX *p);
-int32_t csnarray_pop_k(CSOUND *csound, CSN_POP *p);
-int32_t csnarray_popcomp_k(CSOUND *csound, CSN_POPCOMPLEX *p);
-int32_t csnarray_insert_k(CSOUND *csound, CSN_PUSH *p);
-int32_t csnarray_insertcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX *p);
-int32_t csnarray_remove_k(CSOUND *csound, CSN_POP *p);
-int32_t csnarray_removecomp_k(CSOUND *csound, CSN_POPCOMPLEX *p);
+int32_t csnarray_push_k(CSOUND *csound, CSN_PUSH_K *p);
+int32_t csnarray_pushcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX_K *p);
+int32_t csnarray_pop_k(CSOUND *csound, CSN_POP_K *p);
+int32_t csnarray_popcomp_k(CSOUND *csound, CSN_POPCOMPLEX_K *p);
+int32_t csnarray_insert_k(CSOUND *csound, CSN_PUSH_K *p);
+int32_t csnarray_insertcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX_K *p);
+int32_t csnarray_remove_k(CSOUND *csound, CSN_POP_K *p);
+int32_t csnarray_removecomp_k(CSOUND *csound, CSN_POPCOMPLEX_K *p);
 int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p);
 int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p);
 int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p);
