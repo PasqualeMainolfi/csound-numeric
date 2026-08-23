@@ -636,9 +636,14 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     MYFLT *value;
-    MYFLT *axis; // axis -> NULL default all axes
+    MYFLT *arg_a; // axis in pad.ax (INOCOUNT > 4)
+                  // trig in pad.k
+                  // axis in pad.ax.k (INOCOUNT > 5)
+    MYFLT *arg_b; // unused in pad and pad.k
+                  // trig in pad.ax.k
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_PAD;
 
 typedef struct {
@@ -650,9 +655,14 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     COMPLEXDAT *value;
-    MYFLT *axis; // axis -> NULL default all axes
+    MYFLT *arg_a; // axis in pad.ax.c (INOCOUNT > 4)
+                  // trig in pad.c.k
+                  // axis in pad.ax.c.k (INOCOUNT > 5)
+    MYFLT *arg_b; // unused in pad.c and pad.c.k
+                  // trig in pad.ax.c.k
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_PADCOMPLEX;
 
 typedef struct {
@@ -662,7 +672,14 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     MYFLT *value;
-    MYFLT *axis; // axis -> NULL default all axes
+    MYFLT *arg_a; // axis in pad.ax.in (INOCOUNT > 4), -1 default all axes
+                  // trig in pad.in.k
+                  // axis in pad.ax.in.k (INOCOUNT > 5)
+    MYFLT *arg_b; // unused in pad.in and pad.in.k
+                  // trig in pad.ax.in.k
+    // private
+    CSN_REGISTRY *registry;
+    CSN_ARRAY *scratch;
 } CSN_PAD_IN;
 
 typedef struct {
@@ -672,7 +689,14 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     COMPLEXDAT *value;
-    MYFLT *axis; // axis -> NULL default all axes
+    MYFLT *arg_a; // axis in pad.ax.in.c (INOCOUNT > 4), -1 default all axes
+                  // trig in pad.in.c.k
+                  // axis in pad.ax.in.c.k (INOCOUNT > 5)
+    MYFLT *arg_b; // unused in pad.in.c and pad.in.c.k
+                  // trig in pad.ax.in.c.k
+    // private
+    CSN_REGISTRY *registry;
+    CSN_ARRAY *scratch;
 } CSN_PADCOMPLEX_IN;
 
 typedef struct {
@@ -736,8 +760,12 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *axis;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    double *scratch;
+    size_t scratch_capacity;
 } CSN_REDUCTION;
 
 /* Reducing over every axis collapses to one number. Splitting this out of
@@ -750,14 +778,25 @@ typedef struct {
     MYFLT *value;
     // inputs
     CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    double *scratch;
+    size_t scratch_capacity;
 } CSN_REDUCTION_SCALAR;
 
+/* The .c and .c.k overloads share the output and input types, so rate alone
+   cannot tell them apart: the k form carries a trigger, which both separates
+   the signatures and keeps an O(n) reduction off every control period. */
 typedef struct {
     OPDS h;
     // outputs
     COMPLEXDAT *value;
     // inputs
     CSNREF *source_handle;
+    MYFLT *trig; // .c.k only
+    // private
+    K_DATA k_data;
 } CSN_REDUCTION_COMPLEX_S;
 
 typedef struct {

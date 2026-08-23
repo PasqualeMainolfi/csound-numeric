@@ -76,6 +76,10 @@ static bool IS_VALID_INDEX(double index) {
     return isfinite(index) && trunc(index) == index && index >= 0.0 && index <= (double) UINT32_MAX;
 }
 
+static bool IS_VALID_VALUE(double value) {
+    return isfinite(value) && !isnan(value);
+}
+
 static inline void fill_csnarray(CSN_ARRAY *array, double value) {
     if (array->itype == CSN_COMPLEX) {
         for (size_t i = 0; i < array->size; i++) {
@@ -236,6 +240,9 @@ static int32_t csnarray_compare_deinit(CSOUND *csound, CSN_COMPARE *p) {
 }
 
 static int32_t csnarray_reduction_deinit(CSOUND *csound, CSN_REDUCTION *p) {
+    if (p->scratch != NULL) {
+        csound->Free(csound, p->scratch);
+    }
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
@@ -1840,6 +1847,10 @@ static int32_t csnarray_identity_k_init(CSOUND *csound, CSN_IDENTITY *p) {
 int32_t csnarray_identity_k(CSOUND *csound, CSN_IDENTITY *p) {
     CHECK_KTYPE(csound, &p->h, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
+    if (!IS_VALID_VALUE((double) *p->num)) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid matrix size");
+    }
+
     int32_t num = (int32_t) *p->num;
     if (num <= 0) {
         return csound->PerfError(csound, &p->h, "[csnarray] The num argument must be > 0, got %d", num);
@@ -3704,7 +3715,7 @@ int32_t csnarray_get(CSOUND *csound, CSN_GET *p) {
 int32_t csnarray_get_k(CSOUND *csound, CSN_GET *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     if (reg == NULL) {
-        return csound->PerfError(csound, &p->h, "[csnarray] [csnarray] Internal error: the csnum array registry is not available");
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t handle = p->source_handle->id;
@@ -4242,7 +4253,8 @@ int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p) {
     if (res != OK) goto done;
 
     slice_get_assign_value(arr, dst, ndim, axis, start, step);
-    SET_KDATA_BEGIN(p, reg);
+    SET_KDATA_END(p, shape, ndim, arr->itype);
+    p->k_data.prev_size = arr->size;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5626,13 +5638,175 @@ done:
     return res;
 }
 
-int32_t csnarray_pad_helper(CSOUND *csound, const OPDS *h, uint32_t inocount, CSNREF *ohandle, CSNREF *shandle, double inbefore, double inafter, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, double inaxis, CSN_ARRAY **array) {
+static int32_t pad_body(
+    CSOUND *csound,
+    OPDS *perf_h,
+    CSN_REGISTRY *reg,
+    CSN_ARRAY **source_array,
+    uint32_t source_handle,
+    double in_axis,
+    const MYFLT *in_before,
+    const MYFLT *in_after,
+    int32_t *out_axis,
+    uint32_t *out_before,
+    uint32_t *out_after,
+    uint32_t *out_shape,
+    ITEM_TYPE expected_type
+) {
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (source_arr->itype != expected_type) {
+        if (expected_type == CSN_COMPLEX) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Handle holds a real array; pad it with a real value");
+        }
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
+    }
+
+    /* The widths are k-rate in the .k overloads, so they have to be screened
+       for NaN, infinities and fractions before the cast to uint32_t. */
+    double before_value = (double) *in_before;
+    double after_value = (double) *in_after;
+    if (!IS_VALID_INDEX(before_value) || !IS_VALID_INDEX(after_value)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Pad widths must be finite non-negative integers, got before=%g and after=%g", before_value, after_value);
+    }
+
+    *out_before = (uint32_t) before_value;
+    *out_after = (uint32_t) after_value;
+
+    if (*out_before > UINT32_MAX - *out_after) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Combined pad width %g exceeds %u", before_value + after_value, UINT32_MAX);
+    }
+    uint32_t pad_extent = *out_before + *out_after;
+
+    /* axis == -1 pads every axis; the .ax overloads may still ask for it. */
+    int32_t axis = -1;
+    if (in_axis != -1.0) {
+        if (!IS_VALID_AXIS(in_axis, source_ndim)) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", in_axis, source_ndim, source_ndim - 1);
+        }
+        axis = (int32_t) in_axis;
+    }
+    *out_axis = axis;
+
+    /* A logically empty operand carries no elements to copy, so it contributes
+       zero extent on every axis and the result is padding only. */
+    bool source_is_empty = source_arr->size == 0;
+
+    for (uint32_t i = 0; i < source_ndim; i++) {
+        uint32_t source_extent = source_is_empty ? 0U : source_shape[i];
+        if (axis == -1 || (uint32_t) axis == i) {
+            if (source_extent > UINT32_MAX - pad_extent) {
+                return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Padded extent on axis %u exceeds %u", i, UINT32_MAX);
+            }
+            out_shape[i] = source_extent + pad_extent;
+        } else {
+            out_shape[i] = source_extent;
+        }
+    }
+    return OK;
+}
+
+static void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before) {
+    bool is_complex = destination->itype == CSN_COMPLEX;
+    /* Mirrors the extents pad_body derived: an empty source has nothing to
+       copy, so every destination cell is padding. */
+    bool source_is_empty = source_arr->size == 0;
+    double re = 0.0, im = 0.0;
+
+    if (is_complex && complex_value != NULL) {
+        complexdat_to_rect(complex_value, &re, &im);
+    }
+
+    for (size_t linear = 0; linear < destination->size; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
+
+        bool is_inside = !source_is_empty;
+        for (uint32_t i = 0; is_inside && i < source_arr->ndim; i++) {
+            bool is_padded_axis = axis == -1 || (uint32_t) axis == i;
+            if (is_padded_axis) {
+                if (dst_coords[i] < before || dst_coords[i] >= before + source_arr->shape[i]) {
+                    is_inside = false;
+                    break;
+                }
+                src_coords[i] = dst_coords[i] - before;
+            } else {
+                src_coords[i] = dst_coords[i];
+            }
+        }
+
+        if (!is_inside) {
+            if (is_complex) {
+                destination->data[linear * 2] = re;
+                destination->data[linear * 2 + 1] = im;
+            } else {
+                destination->data[linear] = real_value;
+            }
+            continue;
+        }
+
+        size_t source_off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        if (is_complex) {
+            destination->data[linear * 2] = source_arr->data[source_off * 2];
+            destination->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
+        } else {
+            destination->data[linear] = source_arr->data[source_off];
+        }
+    }
+}
+
+static int32_t csnarray_pad_helper(CSOUND *csound, const OPDS *h, CSNREF *ohandle, CSNREF *shandle, const MYFLT *in_before, const MYFLT *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, double inaxis, CSN_ARRAY **array) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = shandle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    res = pad_body(csound, NULL, reg, &source_arr, source_handle, inaxis, in_before, in_after, &axis, &before, &after, new_shape, expected_itype);
+    if (res != OK) goto done;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, h, source_arr->ndim, new_shape, array, ohandle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = *array;
+    pad_assign_value(source_arr, arr, value, valuecomp, axis, before);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_pad_k_init(CSOUND *csound, CSN_PAD *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -5646,98 +5820,165 @@ int32_t csnarray_pad_helper(CSOUND *csound, const OPDS *h, uint32_t inocount, CS
     }
 
     CSN_ARRAY *source_arr = source_slot->array;
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
 
-    if (source_arr->itype != expected_itype) {
-        if (expected_itype == CSN_COMPLEX) {
-            res = csound->InitError(csound, "[csnarray] Handle holds a real array; pad it with a real value");
-            goto done;
-        }
+    if (source_arr->itype != CSN_REAL) {
         res = csound->InitError(csound, "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
         goto done;
     }
 
-    if (inbefore < 0 || inafter < 0) {
-        res = csound->InitError(csound, "[csnarray] Pad widths must be >= 0, got before=%g and after=%g", inbefore, inafter);
-        goto done;
-    }
-
-    uint32_t before = (uint32_t) inbefore;
-    uint32_t after = (uint32_t) inafter;
-
-    int32_t axis = -1;
-    if (inocount > 4) {
-        if (!IS_VALID_AXIS(inaxis, source_ndim)) {
-            res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", inaxis, source_ndim, source_ndim - 1);
-            goto done;
-        }
-        axis = (int32_t) inaxis;
-    }
-
-    uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    for (uint32_t i = 0; i < source_ndim; i++) {
-        if (i == (uint32_t) axis || axis == -1) {
-            new_shape[i] = source_shape[i] + after + before;
-        } else {
-            new_shape[i] = source_shape[i];
-        }
-    }
-
     const uint32_t protect[1] = { source_handle };
 
-    if (create_csnarray_locked(csound, reg, h, source_ndim, new_shape, array, ohandle, protect, 1U, &err, source_arr->itype) != OK) {
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
 
-    CSN_ARRAY *arr = *array;
+    p->array->size = source_arr->size;
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+    }
+    SET_KDATA_BEGIN(p, reg);
+    p->k_data.prev_size = source_arr->size;
 
-    COMPLEXDAT *c = NULL;
-    double re, im;
-    if (valuecomp != NULL) {
-        c = valuecomp;
-        complexdat_to_rect(c, &re, &im);
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_padcomp_k_init(CSOUND *csound, CSN_PADCOMPLEX *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
-    for (size_t linear = 0; linear < arr->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+    uint32_t source_handle = p->source_handle->id;
 
-        from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+    int32_t res = OK;
+    const char *err = NULL;
 
-        bool is_inside = true;
-        for (uint32_t i = 0; i < source_ndim; i++) {
-            bool is_padded_axis = axis == -1 || (uint32_t) axis == i;
-            if (is_padded_axis) {
-                if (dst_coords[i] < before || dst_coords[i] >= before + source_shape[i]) {
-                    is_inside = false;
-                    break;
-                }
-                src_coords[i] = dst_coords[i] - before;
-            } else {
-                src_coords[i] = dst_coords[i];
-            }
-        }
+    csound->LockMutex(reg->mutex);
 
-        if (!is_inside) {
-            if (expected_itype == CSN_COMPLEX) {
-                arr->data[linear * 2] = re;
-                arr->data[linear * 2 + 1] = im;
-            } else {
-                arr->data[linear] = value;
-            }
-            continue;
-        }
-
-        size_t source_off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        if (expected_itype == CSN_COMPLEX) {
-            arr->data[linear * 2] = source_arr->data[source_off * 2];
-            arr->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
-        } else {
-            arr->data[linear] = source_arr->data[source_off];
-        }
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
     }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] Handle holds a real array; pad it with a real value");
+        goto done;
+    }
+
+    const uint32_t protect[1] = { source_handle };
+
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    p->array->size = source_arr->size;
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+    }
+    SET_KDATA_BEGIN(p, reg);
+    p->k_data.prev_size = source_arr->size;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_pad_k(CSOUND *csound, CSN_PAD *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    if (p->array == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: output array is not available");
+    }
+
+    double in_axis = p->INOCOUNT > 5 ? (double) *p->arg_a : -1.0;
+    double trig = p->INOCOUNT > 5 ? (double) *p->arg_b : (double) *p->arg_a;
+
+    if (trig == 0.0) return OK;
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    res = pad_body(csound, &p->h, reg, &source_arr, source_handle, in_axis, p->before, p->after, &axis, &before, &after, new_shape, CSN_REAL);
+    if (res != OK) goto done;
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, source_arr->ndim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    /* Every cell of the padded shape is written below, so the logical size is
+       the physical one even when the source is logically empty. */
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, new_shape, requested_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    pad_assign_value(source_arr, arr, (double) *p->value, NULL, axis, before);
+    SET_KDATA_END(p, new_shape, arr->ndim, arr->itype);
+    p->k_data.prev_size = arr->size;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    if (p->array == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: output array is not available");
+    }
+
+    double in_axis = p->INOCOUNT > 5 ? (double) *p->arg_a : -1.0;
+    double trig = p->INOCOUNT > 5 ? (double) *p->arg_b : (double) *p->arg_a;
+
+    if (trig == 0.0) return OK;
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    res = pad_body(csound, &p->h, reg, &source_arr, source_handle, in_axis, p->before, p->after, &axis, &before, &after, new_shape, CSN_COMPLEX);
+    if (res != OK) goto done;
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, source_arr->ndim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, new_shape, requested_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    pad_assign_value(source_arr, arr, 0.0, p->value, axis, before);
+    SET_KDATA_END(p, new_shape, arr->ndim, arr->itype);
+    p->k_data.prev_size = arr->size;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5745,15 +5986,14 @@ done:
 }
 
 int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
-    double axis = p->INOCOUNT > 4 ? (double) *p->axis : -1.0;
+    double axis = p->INOCOUNT > 4 ? (double) *p->arg_a : -1.0;
     return csnarray_pad_helper(
         csound,
         &p->h,
-        p->INOCOUNT,
         p->handle,
         p->source_handle,
-        (double) *p->before,
-        (double) *p->after,
+        p->before,
+        p->after,
         (double) *p->value,
         NULL,
         CSN_REAL,
@@ -5762,15 +6002,14 @@ int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
 }
 
 int32_t csnarray_padcomp(CSOUND *csound, CSN_PADCOMPLEX *p) {
-    double axis = p->INOCOUNT > 4 ? (double) *p->axis : -1.0;
+    double axis = p->INOCOUNT > 4 ? (double) *p->arg_a : -1.0;
     return csnarray_pad_helper(
         csound,
         &p->h,
-        p->INOCOUNT,
         p->handle,
         p->source_handle,
-        (double) *p->before,
-        (double) *p->after,
+        p->before,
+        p->after,
         0.0,
         p->value,
         CSN_COMPLEX,
@@ -5778,7 +6017,7 @@ int32_t csnarray_padcomp(CSOUND *csound, CSN_PADCOMPLEX *p) {
         &p->array);
 }
 
-int32_t csnarray_pad_in_helper(CSOUND *csound, const OPDS *h, uint32_t inocount, CSNREF *shandle, double inbefore, double inafter, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, double inaxis) {
+static int32_t csnarray_pad_in_helper(CSOUND *csound, CSNREF *shandle, const MYFLT *in_before, const MYFLT *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, double inaxis) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -5790,50 +6029,15 @@ int32_t csnarray_pad_in_helper(CSOUND *csound, const OPDS *h, uint32_t inocount,
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = source_slot->array;
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    if (source_arr->itype != expected_itype) {
-        if (expected_itype == CSN_COMPLEX) {
-            res = csound->InitError(csound, "[csnarray] Handle holds a real array; pad it with a real value");
-            goto done;
-        }
-        res = csound->InitError(csound, "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
-        goto done;
-    }
-
-    if (inbefore < 0 || inafter < 0) {
-        res = csound->InitError(csound, "[csnarray] Pad widths must be >= 0, got before=%g and after=%g", inbefore, inafter);
-        goto done;
-    }
-
-    uint32_t before = (uint32_t) inbefore;
-    uint32_t after = (uint32_t) inafter;
-
-    int32_t axis = -1;
-    if (inocount > 4) {
-        if (!IS_VALID_AXIS(inaxis, source_ndim)) {
-            res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", inaxis, source_ndim, source_ndim - 1);
-            goto done;
-        }
-        axis = (int32_t) inaxis;
-    }
-
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    for (uint32_t i = 0; i < source_ndim; i++) {
-        if (i == (uint32_t) axis || axis == -1) {
-            new_shape[i] = source_shape[i] + after + before;
-        } else {
-            new_shape[i] = source_shape[i];
-        }
-    }
+    res = pad_body(csound, NULL, reg, &source_arr, source_handle, inaxis, in_before, in_after, &axis, &before, &after, new_shape, expected_itype);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
 
     CSN_ARRAY *temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
@@ -5849,51 +6053,7 @@ int32_t csnarray_pad_in_helper(CSOUND *csound, const OPDS *h, uint32_t inocount,
         goto done;
     }
 
-    COMPLEXDAT *c = NULL;
-    double re, im;
-    if (valuecomp != NULL) {
-        c = valuecomp;
-        complexdat_to_rect(c, &re, &im);
-    }
-
-    for (size_t linear = 0; linear < temp->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, temp->shape, linear, temp->ndim);
-
-        bool is_inside = true;
-        for (uint32_t i = 0; i < source_ndim; i++) {
-            bool is_padded_axis = axis == -1 || (uint32_t) axis == i;
-            if (is_padded_axis) {
-                if (dst_coords[i] < before || dst_coords[i] >= before + source_shape[i]) {
-                    is_inside = false;
-                    break;
-                }
-                src_coords[i] = dst_coords[i] - before;
-            } else {
-                src_coords[i] = dst_coords[i];
-            }
-        }
-
-        if (!is_inside) {
-            if (expected_itype == CSN_COMPLEX) {
-                temp->data[linear * 2] = re;
-                temp->data[linear * 2 + 1] = im;
-            } else {
-                temp->data[linear] = value;
-            }
-            continue;
-        }
-
-        size_t source_off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        if (expected_itype == CSN_COMPLEX) {
-            temp->data[linear * 2] = source_arr->data[source_off * 2];
-            temp->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
-        } else {
-            temp->data[linear] = source_arr->data[source_off];
-        }
-    }
+    pad_assign_value(source_arr, temp, value, valuecomp, axis, before);
 
     size_t bytes = sizeof(double) * temp->capacity * temp->itype;
     double *new_data = csound->ReAlloc(csound, source_arr->data, bytes);
@@ -5915,14 +6075,12 @@ done:
 }
 
 int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
-    double axis = p->INOCOUNT > 4 ? (double) *p->axis : -1.0;
+    double axis = p->INOCOUNT > 4 ? (double) *p->arg_a : -1.0;
     return csnarray_pad_in_helper(
         csound,
-        &p->h,
-        p->INOCOUNT,
         p->source_handle,
-        (double) *p->before,
-        (double) *p->after,
+        p->before,
+        p->after,
         (double) *p->value,
         NULL,
         CSN_REAL,
@@ -5930,18 +6088,215 @@ int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
 }
 
 int32_t csnarray_padcomp_in(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
-    double axis = p->INOCOUNT > 4 ? (double) *p->axis : -1.0;
+    double axis = p->INOCOUNT > 4 ? (double) *p->arg_a : -1.0;
     return csnarray_pad_in_helper(
         csound,
-        &p->h,
-        p->INOCOUNT,
         p->source_handle,
-        (double) *p->before,
-        (double) *p->after,
+        p->before,
+        p->after,
         0.0,
         p->value,
         CSN_COMPLEX,
         axis);
+}
+
+/* The in-place k-rate pads build the padded image in a per-instance scratch
+   array and then overwrite the source, so the registry slot never changes
+   identity and no handle is created. */
+static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, CSNREF *shandle, ITEM_TYPE expected_itype, CSN_REGISTRY **out_registry, CSN_ARRAY **out_scratch) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = shandle->id;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != expected_itype) {
+        if (expected_itype == CSN_COMPLEX) {
+            res = csound->InitError(csound, "[csnarray] Handle holds a real array; pad it with a real value");
+            goto done;
+        }
+        res = csound->InitError(csound, "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
+        goto done;
+    }
+
+    CSN_ARRAY *temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
+    if (temp == NULL) {
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
+        goto done;
+    }
+
+    /* The widths are k-rate, so the scratch starts at the source shape and is
+       grown by the perf pass whenever the requested padding needs more room. */
+    if (allocate_array(csound, temp, source_arr->ndim, source_arr->shape, source_arr->array_id, source_arr->itype) != OK) {
+        char tbuf[CSN_SHAPE_STR_MAX];
+        csound->Free(csound, temp);
+        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_arr->ndim, shape_str(tbuf, sizeof(tbuf), source_arr->shape, source_arr->ndim));
+        goto done;
+    }
+
+    *out_scratch = temp;
+    *out_registry = reg;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_pad_in_k_init(CSOUND *csound, CSN_PAD_IN *p) {
+    return csnarray_pad_in_k_scratch_init(csound, p->source_handle, CSN_REAL, &p->registry, &p->scratch);
+}
+
+static int32_t csnarray_padcomp_in_k_init(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
+    return csnarray_pad_in_k_scratch_init(csound, p->source_handle, CSN_COMPLEX, &p->registry, &p->scratch);
+}
+
+static int32_t csnarray_pad_in_k_deinit(CSOUND *csound, CSN_PAD_IN *p) {
+    if (p->scratch != NULL) {
+        if (p->scratch->data != NULL) {
+            csound->Free(csound, p->scratch->data);
+        }
+        csound->Free(csound, p->scratch);
+        p->scratch = NULL;
+    }
+    return OK;
+}
+
+static int32_t csnarray_padcomp_in_k_deinit(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
+    if (p->scratch != NULL) {
+        if (p->scratch->data != NULL) {
+            csound->Free(csound, p->scratch->data);
+        }
+        csound->Free(csound, p->scratch);
+        p->scratch = NULL;
+    }
+    return OK;
+}
+
+/* Fits the scratch to the padded shape, fills it and copies it back over the
+   source array. The caller holds the registry lock. */
+static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY **scratch, CSN_ARRAY *source_arr, const uint32_t *new_shape, double value, COMPLEXDAT *valuecomp, int32_t axis, uint32_t before) {
+    uint32_t source_ndim = source_arr->ndim;
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, source_ndim, new_shape) != OK) {
+        return csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *temp = *scratch;
+    bool have_same_shape = memcmp(temp->shape, new_shape, sizeof(uint32_t) * CSN_MAX_DIMS) == 0;
+    bool request_changed = !have_same_shape || source_ndim != temp->ndim || temp->capacity < requested_size || source_arr->itype != temp->itype;
+
+    if (request_changed) {
+        bool needs_realloc = temp->capacity < requested_size || source_arr->itype != temp->itype;
+        if (needs_realloc) {
+            size_t new_capacity = requested_size > 0 ? requested_size * 2 : 1;
+            double *new_realloc = csound->ReAlloc(csound, temp->data, sizeof(double) * new_capacity * source_arr->itype);
+            if (new_realloc == NULL) {
+                csound->Free(csound, temp->data);
+                csound->Free(csound, temp);
+                *scratch = NULL;
+                return csound->PerfError(csound, h, "[csnarray] Out of memory: allocation failed");
+            }
+            temp->data = new_realloc;
+            temp->capacity = new_capacity;
+        }
+        set_csnarray_layout(temp, source_ndim, new_shape, requested_size, source_arr->itype);
+    }
+
+    pad_assign_value(source_arr, temp, value, valuecomp, axis, before);
+
+    size_t bytes = sizeof(double) * temp->capacity * temp->itype;
+    double *new_data = csound->ReAlloc(csound, source_arr->data, bytes);
+    if (new_data == NULL) {
+        csound->Free(csound, temp->data);
+        csound->Free(csound, temp);
+        *scratch = NULL;
+        return csound->PerfError(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", bytes);
+    }
+
+    source_arr->data = new_data;
+    travase_csnarray(source_arr, temp);
+    return OK;
+}
+
+int32_t csnarray_pad_in_k(CSOUND *csound, CSN_PAD_IN *p) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    if (p->scratch == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: temporary buffer not available");
+    }
+
+    double in_axis = p->INOCOUNT > 5 ? (double) *p->arg_a : -1.0;
+    double trig = p->INOCOUNT > 5 ? (double) *p->arg_b : (double) *p->arg_a;
+
+    if (trig == 0.0) return OK;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    res = pad_body(csound, &p->h, reg, &source_arr, p->source_handle->id, in_axis, p->before, p->after, &axis, &before, &after, new_shape, CSN_REAL);
+    if (res != OK) goto done;
+
+    res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, (double) *p->value, NULL, axis, before);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    if (p->scratch == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: temporary buffer not available");
+    }
+
+    double in_axis = p->INOCOUNT > 5 ? (double) *p->arg_a : -1.0;
+    double trig = p->INOCOUNT > 5 ? (double) *p->arg_b : (double) *p->arg_a;
+
+    if (trig == 0.0) return OK;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    res = pad_body(csound, &p->h, reg, &source_arr, p->source_handle->id, in_axis, p->before, p->after, &axis, &before, &after, new_shape, CSN_COMPLEX);
+    if (res != OK) goto done;
+
+    res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, 0.0, p->value, axis, before);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
 }
 
 static void clip_value(double min_value, double max_value, CSN_ARRAY *arr) {
@@ -6889,6 +7244,81 @@ static void accumulate_reductioncomp_scalar_helper(CSN_COMPLEXDAT *value, const 
     }
 }
 
+
+/* Validation only: the destination array is the caller's business, which is
+   why no `out` parameter is handed back here. */
+static int32_t accumulate_reduction_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSNREF *out_handle, CSN_ARRAY **source_array, double in_axis, int32_t *out_axis, CSN_REDUCTION_MODE mode, MYFLT *out_value, COMPLEXDAT *out_complex_value) {
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (out_handle != NULL && !IS_VALID_AXIS(in_axis, source_ndim)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", in_axis, source_ndim, source_ndim - 1);
+    }
+    *out_axis = (int32_t) in_axis;
+
+    if (mode == RED_MIN || mode == RED_MAX || mode == RED_MEDIAN || mode == RED_ARGMIN || mode == RED_ARGMAX) {
+        if (source_arr->itype == CSN_COMPLEX) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Ordering is undefined for complex arrays, so this reduction is not available");
+        }
+    }
+
+    if (*out_axis == -1) {
+        if (source_arr->itype == CSN_COMPLEX && out_complex_value == NULL) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
+        }
+        if (source_arr->itype == CSN_REAL && out_value == NULL) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Handle holds a real array; declare the result as i");
+        }
+    }
+
+    size_t reduced_extent = (*out_axis == -1) ? source_arr->size : source_shape[*out_axis];
+    if (reduced_extent == 0 && (mode == RED_MIN || mode == RED_MAX || mode == RED_SUB)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Min, max and sub are undefined over an empty extent (axis %d has 0 elements)", *out_axis);
+    }
+
+    return OK;
+}
+
+static void accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
+    if (destination != NULL) {
+        for (size_t linear = 0; linear < destination->size; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
+            if (source_arr->itype == CSN_REAL) {
+                double value = 0.0;
+                accumulate_reduction_axis_helper(&value, destination, source_arr, src_coords, dst_coords, mode, axis);
+                destination->data[linear] = value;
+            } else {
+                CSN_COMPLEXDAT c = { 0.0, 0.0 };
+                accumulate_reductioncomp_axis_helper(&c, destination, source_arr, src_coords, dst_coords, mode, axis);
+                destination->data[linear * 2] = c.re;
+                destination->data[linear * 2 + 1] = c.im;
+            }
+        }
+    } else {
+        if (source_arr->itype == CSN_REAL) {
+            double value = 0;
+            accumulate_reduction_scalar_helper(&value, source_arr, mode);
+            *out_value = (MYFLT) value;
+        } else {
+            CSN_COMPLEXDAT c = { 0.0, 0.0 };
+            accumulate_reductioncomp_scalar_helper(&c, source_arr, mode);
+            out_complex_value->real = c.re;
+            out_complex_value->imag = c.im;
+            out_complex_value->isPolar = 0;
+        }
+    }
+}
+
 /* axis == -1 collapses to out_value; any other axis builds an array through
    out_handle/out_array. Exactly one pair is non-NULL, which is what keeps the
    two opcode families distinct at the type level. */
@@ -6905,52 +7335,15 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *arr = NULL;
+    int32_t axis = -1;
+    res = accumulate_reduction_body(csound, NULL, reg, source_handle, out_handle, &source_arr, axis_value, &axis, mode, out_value, out_complex_value);
+    if (res != OK) goto done;
 
-    CSN_ARRAY *source_arr = source_slot->array;
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    /* The public axis overload returns an array and therefore needs one real
-       source axis.  -1 is only the internal marker used by the scalar
-       overload, which has no axis argument. */
-    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    int32_t axis = (int32_t) axis_value;
-
-    if (mode == RED_MIN || mode == RED_MAX || mode == RED_MEDIAN || mode == RED_ARGMIN || mode == RED_ARGMAX) {
-        if (source_arr->itype == CSN_COMPLEX) {
-            res = csound->InitError(csound, "[csnarray] Ordering is undefined for complex arrays, so this reduction is not available");
-            goto done;
-        }
-    }
-
-    if (axis == -1) {
-        if (source_arr->itype == CSN_COMPLEX && out_complex_value == NULL) {
-            res = csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
-            goto done;
-        }
-        if (source_arr->itype == CSN_REAL && out_value == NULL) {
-            res = csound->InitError(csound, "[csnarray] Handle holds a real array; declare the result as i");
-            goto done;
-        }
-    }
-
-    /* min, max and the subtraction fold have no identity element to fall back
-       on, so an empty reduction has no answer. numpy raises here too. */
-    size_t reduced_extent = (axis == -1) ? source_arr->size : source_shape[axis];
-    if (reduced_extent == 0 && (mode == RED_MIN || mode == RED_MAX || mode == RED_SUB)) {
-        res = csound->InitError(csound, "[csnarray] Min, max and sub are undefined over an empty extent (axis %d has 0 elements)", axis);
-        goto done;
-    }
-
-    CSN_ARRAY *arr = NULL;
     if (axis != -1) {
         uint32_t new_shape[CSN_MAX_DIMS] = {0};
         for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
@@ -6958,7 +7351,6 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
         }
 
         const uint32_t protect[1] = { source_handle };
-
         if (create_csnarray_locked(csound, reg, h, source_ndim - 1, new_shape, out_array, out_handle, protect, 1U, &err, source_arr->itype) != OK) {
             res = csound->InitError(csound, "[csnarray] %s", err);
             goto done;
@@ -6967,36 +7359,122 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
         arr = *out_array;
     }
 
-    if (arr != NULL) {
-        for (size_t linear = 0; linear < arr->size; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+    accumulation_reduction_assign_value(source_arr, arr, axis, out_value, out_complex_value, mode);
 
-            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
-            if (source_arr->itype == CSN_REAL) {
-                double value = 0.0;
-                accumulate_reduction_axis_helper(&value, arr, source_arr, src_coords, dst_coords, mode, axis);
-                arr->data[linear] = value;
-            } else {
-                CSN_COMPLEXDAT c = { 0.0, 0.0 };
-                accumulate_reductioncomp_axis_helper(&c, arr, source_arr, src_coords, dst_coords, mode, axis);
-                arr->data[linear * 2] = c.re;
-                arr->data[linear * 2 + 1] = c.im;
-            }
-        }
-    } else {
-        if (source_arr->itype == CSN_REAL) {
-            double value = 0;
-            accumulate_reduction_scalar_helper(&value, source_arr, mode);
-            *out_value = (MYFLT) value;
-        } else {
-            CSN_COMPLEXDAT c = { 0.0, 0.0 };
-            accumulate_reductioncomp_scalar_helper(&c, source_arr, mode);
-            out_complex_value->real = c.re;
-            out_complex_value->imag = c.im;
-            out_complex_value->isPolar = 0;
-        }
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_accumulate_reduction_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
+
+    uint32_t source_handle = src_ref->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *arr = NULL;
+    int32_t axis = -1;
+    res = accumulate_reduction_body(csound, NULL, reg, source_handle, out_handle, &source_arr, axis_value, &axis, mode, out_value, out_complex_value);
+    if (res != OK) goto done;
+
+    if (axis != -1) {
+        const uint32_t protect[1] = { source_handle };
+        if (create_csnarray_locked(csound, reg, h, source_arr->ndim, source_arr->shape, out_array, out_handle, protect, 1U, &err, source_arr->itype) != OK) {
+            res = csound->InitError(csound, "[csnarray] %s", err);
+            goto done;
+        }
+
+        arr = *out_array;
+    }
+
+    if (arr != NULL) {
+        if (source_arr->size > 0 ) {
+            memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+            arr->size = source_arr->size;
+        }
+        memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+        memcpy(k_data->prev_shape, arr->shape, sizeof(k_data->prev_shape));
+        k_data->prev_ndim = arr->ndim;
+        k_data->owned_handle = out_handle->id;
+    } else {
+        /* Scalar forms publish a usable value already at i-time, so a gated
+           .c.k overload is not left holding an unwritten output. */
+        accumulation_reduction_assign_value(source_arr, NULL, axis, out_value, out_complex_value, mode);
+    }
+
+    /* The scalar forms own no slot, so owned_handle stays 0 and the itype has
+       to come from the source: arr is NULL for them. */
+    k_data->prev_itype = source_arr->itype;
+    k_data->registry = reg;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data, const MYFLT *trig) {
+    CSN_REGISTRY *reg = k_data->registry;
+    /* Only the axis forms own an output slot; the scalar ones write a number
+       and leave owned_handle at 0. */
+    if (reg == NULL || (out_handle != NULL && k_data->owned_handle == 0)) {
+        return csound->PerfError(csound, h, "[csnarray] k-rate output slot was not initialized");
+    }
+
+    if ((double) *trig == 0.0) return OK;
+
+    uint32_t source_handle = src_ref->id;
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *arr = NULL;
+    int32_t axis = -1;
+    res = accumulate_reduction_body(csound, h, reg, source_handle, out_handle, &source_arr, axis_value, &axis, mode, out_value, out_complex_value);
+    if (res != OK) goto done;
+
+    uint32_t new_dim = source_arr->ndim - 1;
+    if (axis != -1) {
+        uint32_t new_shape[CSN_MAX_DIMS] = {0};
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; i++) {
+            if (i != (uint32_t) axis) new_shape[j++] = source_arr->shape[i];
+        }
+
+        size_t requested_size = 0;
+        if (get_array_size_from_shape(&requested_size, new_dim, new_shape) != OK) {
+            res = csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+            goto done;
+        }
+
+        /* Seeded before the call: once the shape settles, NEED_TO_UPDATE_SLOT
+           stops short-circuiting and reads the destination's own data. */
+        arr = *out_array;
+        size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+        res = NEED_TO_UPDATE_SLOT(csound, h, &arr, k_data, new_dim, new_shape, logical_size, source_arr->itype, err);
+        if (res != OK) goto done;
+
+        *out_array = arr;
+    }
+
+    accumulation_reduction_assign_value(source_arr, arr, axis, out_value, out_complex_value, mode);
+
+    if (arr != NULL) {
+        memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+        memcpy(k_data->prev_shape, arr->shape, sizeof(k_data->prev_shape));
+        k_data->prev_ndim = arr->ndim;
+        out_handle->id = k_data->owned_handle;
+    }
+
+    k_data->prev_itype = source_arr->itype;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7007,84 +7485,245 @@ int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUM);
 }
 
+static int32_t csnarray_sum_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUM, &p->k_data);
+}
+
+int32_t csnarray_sum_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUM, &p->k_data, p->trig);
+}
+
 int32_t csnarray_sum_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_SUM);
+}
+
+static int32_t csnarray_sum_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_SUM, &p->k_data);
+}
+
+int32_t csnarray_sum_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_SUM, &p->k_data, p->trig);
 }
 
 int32_t csnarray_sumcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_SUM);
 }
 
+static int32_t csnarray_sumcomp_all_k_init(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_SUM, &p->k_data);
+}
+
+int32_t csnarray_sumcomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    if ((double) *p->trig == 0.0) return OK;
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_SUM, &p->k_data, p->trig);
+}
+
 int32_t csnarray_prod(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_PROD);
+}
+
+static int32_t csnarray_prod_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_PROD, &p->k_data);
+}
+
+int32_t csnarray_prod_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_PROD, &p->k_data, p->trig);
 }
 
 int32_t csnarray_prod_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_PROD);
 }
 
+static int32_t csnarray_prod_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_PROD, &p->k_data);
+}
+
+int32_t csnarray_prod_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_PROD, &p->k_data, p->trig);
+}
+
 int32_t csnarray_prodcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_PROD);
+}
+
+static int32_t csnarray_prodcomp_all_k_init(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_PROD, &p->k_data);
+}
+
+int32_t csnarray_prodcomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    if ((double) *p->trig == 0.0) return OK;
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_PROD, &p->k_data, p->trig);
 }
 
 int32_t csnarray_sub(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUB);
 }
 
+static int32_t csnarray_sub_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUB, &p->k_data);
+}
+
+int32_t csnarray_sub_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_SUB, &p->k_data, p->trig);
+}
+
 int32_t csnarray_sub_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_SUB);
+}
+
+int32_t csnarray_sub_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_SUB, &p->k_data, p->trig);
+}
+
+int32_t csnarray_sub_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_SUB, &p->k_data);
 }
 
 int32_t csnarray_subcomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_SUB);
 }
 
+int32_t csnarray_subcomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    if ((double) *p->trig == 0.0) return OK;
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_SUB, &p->k_data, p->trig);
+}
+
+static int32_t csnarray_subcomp_all_k_init(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_SUB, &p->k_data);
+}
+
 int32_t csnarray_mean(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MEAN);
+}
+
+int32_t csnarray_mean_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MEAN, &p->k_data, p->trig);
+}
+
+static int32_t csnarray_mean_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MEAN, &p->k_data);
 }
 
 int32_t csnarray_mean_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MEAN);
 }
 
+int32_t csnarray_mean_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MEAN, &p->k_data, p->trig);
+}
+
+static int32_t csnarray_mean_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MEAN, &p->k_data);
+}
+
 int32_t csnarray_meancomp_all(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_MEAN);
+}
+
+static int32_t csnarray_meancomp_all_k_init(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_MEAN, &p->k_data);
+}
+
+int32_t csnarray_meancomp_all_k(CSOUND *csound, CSN_REDUCTION_COMPLEX_S *p) {
+    if ((double) *p->trig == 0.0) return OK;
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, NULL, p->value, RED_MEAN, &p->k_data, p->trig);
 }
 
 int32_t csnarray_min(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MIN);
 }
 
+static int32_t csnarray_min_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MIN, &p->k_data);
+}
+
+int32_t csnarray_min_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MIN, &p->k_data, p->trig);
+}
+
 int32_t csnarray_min_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MIN);
 }
 
+static int32_t csnarray_min_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MIN, &p->k_data);
+}
+
+int32_t csnarray_min_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MIN, &p->k_data, p->trig);
+}
 
 int32_t csnarray_max(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MAX);
+}
+
+static int32_t csnarray_max_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MAX, &p->k_data);
+}
+
+int32_t csnarray_max_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_MAX, &p->k_data, p->trig);
 }
 
 int32_t csnarray_max_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MAX);
 }
 
+static int32_t csnarray_max_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MAX, &p->k_data);
+}
+
+int32_t csnarray_max_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_MAX, &p->k_data, p->trig);
+}
 
 int32_t csnarray_all(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ALL);
+}
+
+static int32_t csnarray_all_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ALL, &p->k_data);
+}
+
+int32_t csnarray_all_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ALL, &p->k_data, p->trig);
 }
 
 int32_t csnarray_all_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ALL);
 }
 
+static int32_t csnarray_all_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ALL, &p->k_data);
+}
+
+int32_t csnarray_all_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ALL, &p->k_data, p->trig);
+}
+
 int32_t csnarray_any(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ANY);
+}
+
+int32_t csnarray_any_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ANY, &p->k_data, p->trig);
+}
+
+static int32_t csnarray_any_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_ANY, &p->k_data);
 }
 
 int32_t csnarray_any_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ANY);
 }
 
+static int32_t csnarray_any_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ANY, &p->k_data);
+}
+
+int32_t csnarray_any_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ANY, &p->k_data, p->trig);
+}
 
 static int compare_double(const void *a, const void *b) {
     double x_value = *(const double *) a;
@@ -7190,6 +7829,50 @@ static int32_t stdvar_calculation_scalar_helper(double *value, const CSN_ARRAY *
     return OK;
 }
 
+static int32_t stdvar_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSNREF *out_handle, const MYFLT *in_axis, int32_t *out_axis) {
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
+    uint32_t source_ndim = source_arr->ndim;
+
+    double axis_value = (double) *in_axis;
+    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+    }
+    *out_axis = (int32_t) *in_axis;
+    return OK;
+}
+
+static int32_t stdvar_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *destination, MYFLT *out_value, int32_t axis, CSN_REDUCTION_MODE mode) {
+    if (destination != NULL) {
+        for (size_t linear = 0; linear < destination->size; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
+            uint32_t axis_size = source_arr->shape[axis];
+            double value = 0.0;
+            /* NOTOK -> empty extension */
+            if (stdvar_calculation_helper(&value, src_coords, dst_coords, source_arr, axis_size, axis, mode) != OK) {
+                return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Variance is undefined over an empty extent (axis %d has 0 elements)", axis);
+            }
+            destination->data[linear] = value;
+        }
+    } else {
+        size_t size = source_arr->size;
+        double value = 0;
+        if (stdvar_calculation_scalar_helper(&value, source_arr, (uint32_t) size, mode) != OK) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Variance is undefined over an empty array (0 elements)");
+        }
+        *out_value = (MYFLT) value;
+    }
+    return OK;
+}
+
 static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
@@ -7203,35 +7886,124 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = source_slot->array;
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    int32_t axis = (int32_t) axis_value;
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = stdvar_body(csound, NULL, reg, &source_arr, source_handle, out_handle, &axis_value, &axis);
+    if (res != OK) goto done;
 
     CSN_ARRAY *arr = NULL;
     if (axis != -1) {
         uint32_t new_shape[CSN_MAX_DIMS] = {0};
-        for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
-            if (i != (uint32_t) axis) new_shape[j++] = source_shape[i];
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; i++) {
+            if (i != (uint32_t) axis) new_shape[j++] = source_arr->shape[i];
         }
 
         const uint32_t protect[1] = { source_handle };
 
-        /* La varianza di dati complessi e' E[|z - media|^2], quindi reale anche
-           quando l'ingresso non lo e': l'uscita va creata REAL, altrimenti si
-           dichiara complessa e i valori restano scritti a passo reale. */
-        if (create_csnarray_locked(csound, reg, h, source_ndim - 1, new_shape, out_array, out_handle, protect, 1U, &err, CSN_REAL) != OK) {
+        /* E[|z - media|^2] */
+        if (create_csnarray_locked(csound, reg, h, source_arr->ndim - 1, new_shape, out_array, out_handle, protect, 1U, &err, CSN_REAL) != OK) {
+            res = csound->InitError(csound, "[csnarray] %s", err);
+            goto done;
+        }
+
+        arr = *out_array;
+    }
+
+    res = stdvar_assign_value(csound, NULL, source_arr, arr, out_value, axis, mode);
+    if (res != OK) goto done;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_stdvar_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data, const MYFLT *trig) {
+    CSN_REGISTRY *reg = k_data->registry;
+    if (reg == NULL || (out_handle != NULL && k_data->owned_handle == 0)) {
+        return csound->PerfError(csound, h, "[csnarray] k-rate output slot was not initialized");
+    }
+
+    if ((double) *trig == 0.0) return OK;
+
+    uint32_t source_handle = src_ref->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = stdvar_body(csound, h, reg, &source_arr, source_handle, out_handle, &axis_value, &axis);
+    if (res != OK) goto done;
+
+    CSN_ARRAY *arr = NULL;
+    if (axis != -1) {
+        uint32_t new_dim = source_arr->ndim - 1;
+        uint32_t new_shape[CSN_MAX_DIMS] = {0};
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; i++) {
+            if (i != (uint32_t) axis) new_shape[j++] = source_arr->shape[i];
+        }
+
+        size_t requested_size = 0;
+        if (get_array_size_from_shape(&requested_size, new_dim, new_shape) != OK) {
+            res = csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+            goto done;
+        }
+
+        /* Same reason as the accumulate path: the destination has to be the
+           live slot array, not NULL, before the update check runs. */
+        arr = *out_array;
+        size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+        res = NEED_TO_UPDATE_SLOT(csound, h, &arr, k_data, new_dim, new_shape, logical_size, source_arr->itype, err);
+        if (res != OK) goto done;
+
+        *out_array = arr;
+    }
+
+    res = stdvar_assign_value(csound, h, source_arr, arr, out_value, axis, mode);
+    if (res != OK) goto done;
+
+    if (arr != NULL) {
+        memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+        memcpy(k_data->prev_shape, arr->shape, sizeof(k_data->prev_shape));
+        k_data->prev_ndim = arr->ndim;
+        out_handle->id = k_data->owned_handle;
+    }
+
+    k_data->prev_itype = source_arr->itype;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+/* std and var cannot borrow the accumulate init: the streaming fold has no
+   RED_STD/RED_VAR case, so it would leave the gated scalar output at zero
+   until the first trigger. */
+static int32_t csnarray_stdvar_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = src_ref->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *arr = NULL;
+    int32_t axis = -1;
+    MYFLT in_axis = (MYFLT) axis_value;
+    res = stdvar_body(csound, NULL, reg, &source_arr, source_handle, out_handle, &in_axis, &axis);
+    if (res != OK) goto done;
+
+    if (axis != -1) {
+        const uint32_t protect[1] = { source_handle };
+        if (create_csnarray_locked(csound, reg, h, source_arr->ndim, source_arr->shape, out_array, out_handle, protect, 1U, &err, source_arr->itype) != OK) {
             res = csound->InitError(csound, "[csnarray] %s", err);
             goto done;
         }
@@ -7240,30 +8012,21 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
     }
 
     if (arr != NULL) {
-        for (size_t linear = 0; linear < arr->size; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
-            uint32_t axis_size = source_arr->shape[axis];
-            double value = 0.0;
-            /* NOTOK vuol dire estensione vuota: senza propagarlo il valore
-               resterebbe 0, cioe' una risposta finta a una varianza indefinita. */
-            if (stdvar_calculation_helper(&value, src_coords, dst_coords, source_arr, axis_size, axis, mode) != OK) {
-                res = csound->InitError(csound, "[csnarray] Variance is undefined over an empty extent (axis %d has 0 elements)", axis);
-                goto done;
-            }
-            arr->data[linear] = value;
+        if (source_arr->size > 0) {
+            memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+            arr->size = source_arr->size;
         }
+        memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+        memcpy(k_data->prev_shape, arr->shape, sizeof(k_data->prev_shape));
+        k_data->prev_ndim = arr->ndim;
+        k_data->owned_handle = out_handle->id;
     } else {
-        size_t size = source_arr->size;
-        double value = 0;
-        if (stdvar_calculation_scalar_helper(&value, source_arr, (uint32_t) size, mode) != OK) {
-            res = csound->InitError(csound, "[csnarray] Variance is undefined over an empty array (0 elements)");
-            goto done;
-        }
-        *out_value = (MYFLT) value;
+        res = stdvar_assign_value(csound, NULL, source_arr, NULL, out_value, axis, mode);
+        if (res != OK) goto done;
     }
+
+    k_data->prev_itype = source_arr->itype;
+    k_data->registry = reg;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7274,19 +8037,49 @@ int32_t csnarray_std(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_stdvar_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_STD);
 }
 
+static int32_t csnarray_std_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_stdvar_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_STD, &p->k_data);
+}
+
+int32_t csnarray_std_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_stdvar_k_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_STD, &p->k_data, p->trig);
+}
+
 int32_t csnarray_std_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_stdvar_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, RED_STD);
 }
 
+static int32_t csnarray_std_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_stdvar_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, RED_STD, &p->k_data);
+}
+
+int32_t csnarray_std_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_stdvar_k_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, RED_STD, &p->k_data, p->trig);
+}
 
 int32_t csnarray_var(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_stdvar_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_VAR);
+}
+
+static int32_t csnarray_var_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_stdvar_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_VAR, &p->k_data);
+}
+
+int32_t csnarray_var_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_stdvar_k_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, RED_VAR, &p->k_data, p->trig);
 }
 
 int32_t csnarray_var_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_stdvar_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, RED_VAR);
 }
 
+static int32_t csnarray_var_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_stdvar_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, RED_VAR, &p->k_data);
+}
+
+int32_t csnarray_var_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_stdvar_k_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, RED_VAR, &p->k_data, p->trig);
+}
 
 /* True when x should displace the incumbent. A NaN wins outright and, once
    seen, nothing displaces it: numpy reports the position of the first NaN. */
@@ -7336,6 +8129,49 @@ static void dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, uint32_t *s
     from_linear_to_coords(src_coords, source_arr->shape, best_index, source_arr->ndim);
 }
 
+static int32_t argminmax_body(CSOUND *csound, OPDS *perf_h, uint32_t source_handle, CSN_REGISTRY *reg, CSN_ARRAY **source_array, double in_axis, int32_t *out_axis) {
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (source_arr->itype == CSN_COMPLEX) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] argmin/argmax not allowed for complex array");
+    }
+
+    if (in_axis != -1.0 && !IS_VALID_AXIS(in_axis, source_ndim)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", in_axis, source_ndim, source_ndim - 1);
+    }
+    *out_axis = (int32_t) in_axis;
+    return OK;
+}
+
+static void argminmax_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, size_t count, uint32_t ndim, uint32_t *shape, CSN_REDUCTION_MODE mode) {
+    if (axis != -1) {
+        for (size_t linear = 0; linear < count; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, shape, linear, ndim);
+            dispatch_argminmax(source_arr, axis, src_coords, dst_coords, mode);
+            for (uint32_t d = 0; d < source_arr->ndim; ++d) {
+                destination->data[linear * source_arr->ndim + d] = (double) src_coords[d];
+            }
+        }
+    } else {
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+        dispatch_argminmax_all_axes(source_arr, src_coords, mode);
+        for (uint32_t d = 0; d < source_arr->ndim; ++d) {
+            destination->data[d] = (double) src_coords[d];
+        }
+    }
+}
+
 static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
@@ -7349,27 +8185,13 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = argminmax_body(csound, NULL, source_handle, reg, &source_arr, (double) *p->axis, &axis);
+    if (res != OK) goto done;
 
-    CSN_ARRAY *source_arr = source_slot->array;
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
-
-    if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] argmin/argmax not allowed for complex array");
-        goto done;
-    }
-
-    double axis_value = (double) *p->axis;
-    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    int32_t axis = (int32_t) axis_value;
 
     /* The shape of the space being reduced over: the source minus the axis.
        Destination coordinates are decomposed against this, not against the
@@ -7397,29 +8219,155 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
     }
 
     CSN_ARRAY *arr = p->array;
-
-    if (axis != -1) {
-        for (size_t linear = 0; linear < count; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-            dispatch_argminmax(source_arr, axis, src_coords, dst_coords, mode);
-            for (uint32_t d = 0; d < source_ndim; ++d) {
-                arr->data[linear * source_ndim + d] = (double) src_coords[d];
-            }
-        }
-    } else {
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        dispatch_argminmax_all_axes(source_arr, src_coords, mode);
-        for (uint32_t d = 0; d < source_ndim; ++d) {
-            arr->data[d] = (double) src_coords[d];
-        }
-    }
+    argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode);
 
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+static int32_t argminmax_k_init_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = argminmax_body(csound, NULL, source_handle, reg, &source_arr, (double) *p->axis, &axis);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    /* The shape of the space being reduced over: the source minus the axis.
+       Destination coordinates are decomposed against this, not against the
+       result's own (count, ndim) layout. */
+    size_t count = 1;
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    if (axis != -1) {
+        for (uint32_t i = 0; i < source_ndim; i++) {
+            if (i != (uint32_t) axis) {
+                reduced_shape[reduced_ndim++] = source_shape[i];
+                count *= source_shape[i];
+            }
+        }
+    }
+
+    /* One row of coordinates per reduced position, so the result is always
+       2-D regardless of the source's rank. */
+    uint32_t new_shape[2] = { (uint32_t) count, source_ndim };
+    const uint32_t protect[1] = { source_handle };
+
+    if (create_csnarray_locked(csound, reg, &p->h, 2U, new_shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    if (arr->size > 0) {
+        memset(arr->data, 0, sizeof(double) * p->array->size);
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+    p->k_data.prev_size = arr->size;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t argminmax_k_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    if ((double) *p->trig == 0.0) return OK;
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = argminmax_body(csound, &p->h, source_handle, reg, &source_arr, (double) *p->axis, &axis);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    size_t count = 1;
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    if (axis != -1) {
+        for (uint32_t i = 0; i < source_ndim; i++) {
+            if (i != (uint32_t) axis) {
+                reduced_shape[reduced_ndim++] = source_shape[i];
+                count *= source_shape[i];
+            }
+        }
+    }
+
+    /* One row of coordinates per reduced position, exactly like the i-rate
+       form: reduced_shape only decomposes the destination coordinates, it is
+       not the result's own layout. Sizing the slot from it would leave
+       argminmax_assign_value writing count * source_ndim doubles into count. */
+    /* Full width: SET_KDATA_END below copies CSN_MAX_DIMS entries out of it. */
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) count;
+    new_shape[1] = source_ndim;
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, 2U, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, 2U, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode);
+    SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
+    p->k_data.prev_size = arr->size;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+static int32_t median_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSNREF *out_handle, double in_axis, int32_t *out_axis) {
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
+    uint32_t source_ndim = source_arr->ndim;
+
+    if (source_arr->itype == CSN_COMPLEX) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Median not allowed for complex array");
+    }
+
+    if (out_handle != NULL && !IS_VALID_AXIS(in_axis, source_ndim)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", in_axis, source_ndim, source_ndim - 1);
+    }
+    *out_axis = (int32_t) in_axis;
+
+    return OK;
 }
 
 /* Sorts scratch in place and returns the median. A NaN anywhere makes the
@@ -7438,6 +8386,25 @@ static double median_of_scratch(double *scratch, size_t n) {
     return 0.5 * (scratch[n / 2 - 1] + scratch[n / 2]);
 }
 
+static void median_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double *scratch, size_t run_size, int32_t axis) {
+    for (size_t linear = 0; linear < destination->size; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
+
+        for (uint32_t k = 0; k < run_size; ++k) {
+            for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
+                src_coords[i] = (i == (uint32_t) axis) ? k : dst_coords[j++];
+            }
+            uint32_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+            scratch[k] = source_arr->data[off];
+        }
+
+        destination->data[linear] = median_of_scratch(scratch, run_size);
+    }
+}
+
 static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
@@ -7452,26 +8419,13 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = median_body(csound, NULL, reg, &source_arr, source_handle, out_handle, axis_value, &axis);
+    if (res != OK) goto done;
 
-    CSN_ARRAY *source_arr = source_slot->array;
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
-
-    if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Median not allowed for complex array");
-        goto done;
-    }
-
-    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    int32_t axis = (int32_t) axis_value;
 
     /* Median needs a sorted copy, so it cannot stream like the folds do. */
     size_t run = (axis == -1) ? source_arr->size : source_shape[axis];
@@ -7499,23 +8453,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
     }
 
     CSN_ARRAY *arr = *out_array;
-
-    for (size_t linear = 0; linear < arr->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
-
-        for (uint32_t k = 0; k < run; ++k) {
-            for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
-                src_coords[i] = (i == (uint32_t) axis) ? k : dst_coords[j++];
-            }
-            uint32_t off = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-            scratch[k] = source_arr->data[off];
-        }
-
-        arr->data[linear] = median_of_scratch(scratch, run);
-    }
+    median_assign_value(source_arr, arr, scratch, run, axis);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7525,20 +8463,197 @@ done:
     return res;
 }
 
+static int32_t csnarray_median_scalar_k_deinit(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    if (p->scratch != NULL) {
+        csound->Free(csound, p->scratch);
+    }
+    return OK;
+}
+
+static int32_t csnarray_median_impl_k_init(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, double **scratch, size_t *scratch_capacity, K_DATA *k_data) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = src_ref->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = median_body(csound, NULL, reg, &source_arr, source_handle, out_handle, axis_value, &axis);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    /* Median needs a sorted copy, so it cannot stream like the folds do. */
+    size_t run = (axis == -1) ? source_arr->size : source_shape[axis];
+    size_t scratch_capacity_temp = (run > 0 ? run : 1) * 2;
+    double *scratch_temp = csound->Calloc(csound, sizeof(double) * scratch_capacity_temp);
+    if (scratch_temp == NULL) {
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * (run > 0 ? run : 1)));
+        goto done;
+    }
+
+    if (axis != -1) {
+        const uint32_t protect[1] = { source_handle };
+        if (create_csnarray_locked(csound, reg, h, source_ndim, source_arr->shape, out_array, out_handle, protect, 1U, &err, source_arr->itype) != OK) {
+            csound->Free(csound, scratch_temp);
+            res = csound->InitError(csound, "[csnarray] %s", err);
+            goto done;
+        }
+        if (source_arr->size > 0) {
+            memcpy((*out_array)->data, source_arr->data, sizeof(double) * source_arr->size);
+            (*out_array)->size = source_arr->size;
+        }
+
+        memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+        memcpy(k_data->prev_shape, source_shape, sizeof(k_data->prev_shape));
+        k_data->prev_ndim = source_ndim;
+        k_data->prev_itype = source_arr->itype;
+        k_data->owned_handle = out_handle->id;
+    } else {
+        /* The trigger gates the perf pass, so the scalar form has to publish a
+           real value at i-time rather than leaving the output at zero. */
+        memcpy(scratch_temp, source_arr->data, sizeof(double) * run);
+        *out_value = (MYFLT) median_of_scratch(scratch_temp, run);
+    }
+
+    k_data->prev_size = source_arr->size;
+    k_data->registry = reg;
+    *scratch = scratch_temp;
+    *scratch_capacity = scratch_capacity_temp;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, K_DATA *k_data, double **scratch, size_t *scratch_capacity, const MYFLT *trig) {
+    CSN_REGISTRY *reg = k_data->registry;
+    if (reg == NULL || (out_handle != NULL && k_data->owned_handle == 0)) {
+        return csound->PerfError(csound, h, "[csnarray] k-rate output slot was not initialized");
+    }
+
+    if ((double) *trig == 0.0) return OK;
+
+    uint32_t source_handle = src_ref->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = 0;
+    res = median_body(csound, h, reg, &source_arr, source_handle, out_handle, axis_value, &axis);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    /* Median needs a sorted copy, so it cannot stream like the folds do. */
+    memset(*scratch, 0, sizeof(double) * (*scratch_capacity));
+    size_t runs_size = (axis == -1) ? source_arr->size : source_shape[axis];
+    if (runs_size > *scratch_capacity) {
+        size_t new_capacity = runs_size * 2;
+        double *new_data = csound->ReAlloc(csound, *scratch, sizeof(double) * new_capacity);
+        if (new_data == NULL) {
+            res = csound->PerfError(csound, h,"[csnarray] Internal buffer memory allocation failed");
+            goto done;
+        }
+        *scratch = new_data;
+        *scratch_capacity = new_capacity;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    if (axis == -1) {
+        memcpy(*scratch, source_arr->data, sizeof(double) * runs_size);
+        *out_value = (MYFLT) median_of_scratch(*scratch, runs_size);
+        goto done;
+    }
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
+        if (i != (uint32_t) axis) new_shape[j++] = source_shape[i];
+    }
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, source_ndim - 1, new_shape) != OK) {
+        res = csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    arr = *out_array;
+    size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    res = NEED_TO_UPDATE_SLOT(csound, h, &arr, k_data, source_ndim - 1, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    median_assign_value(source_arr, arr, *scratch, runs_size, axis);
+    *out_array = arr;
+
+    memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+    memcpy(k_data->prev_shape, new_shape, sizeof(k_data->prev_shape));
+    k_data->prev_ndim = source_ndim - 1;
+    k_data->prev_itype = source_arr->itype;
+    out_handle->id = k_data->owned_handle;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 int32_t csnarray_median(CSOUND *csound, CSN_REDUCTION *p) {
     return csnarray_median_impl(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL);
+}
+
+static int32_t csnarray_median_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_median_impl_k_init(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, &p->scratch, &p->scratch_capacity, &p->k_data);
+}
+
+int32_t csnarray_median_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_median_impl_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, &p->k_data, &p->scratch, &p->scratch_capacity, p->trig);
 }
 
 int32_t csnarray_median_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_median_impl(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value);
 }
 
+static int32_t csnarray_median_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_median_impl_k_init(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, &p->scratch, &p->scratch_capacity, &p->k_data);
+}
+
+int32_t csnarray_median_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_median_impl_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, &p->k_data, &p->scratch, &p->scratch_capacity, p->trig);
+}
+
 int32_t csnarray_argmin(CSOUND *csound, CSN_REDUCTION *p) {
     return argminmax_helper(csound, p, RED_ARGMIN);
 }
 
+static int32_t csnarray_argmin_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return argminmax_k_init_helper(csound, p, RED_ARGMIN);
+}
+
+int32_t csnarray_argmin_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return argminmax_k_helper(csound, p, RED_ARGMIN);
+}
+
 int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p) {
     return argminmax_helper(csound, p, RED_ARGMAX);
+}
+
+static int32_t csnarray_argmax_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return argminmax_k_init_helper(csound, p, RED_ARGMAX);
+}
+
+int32_t csnarray_argmax_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return argminmax_k_helper(csound, p, RED_ARGMAX);
 }
 
 /* numpy's broadcasting rule: line the shapes up from the trailing axis, and
@@ -10816,277 +11931,315 @@ int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
 
 static OENTRY localops[] = {
     // REAL-ONLY
-    { "csnrand",               S(CSN_ARR_RND_INIT),           0, ":CsnArr;",    "i[]ii",                (SUBR) create_random_csnarray,               NULL,                                   (SUBR) create_csnarray_random_deinit,   NULL, 0 },
-    { "csnarange",             S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                  (SUBR) csnarray_arange,                      NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
-    { "csnlinspace",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                  (SUBR) csnarray_linspace,                    NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
-    { "csnlogspace",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iiii",                 (SUBR) csnarray_logspace,                    NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
-    { "csngeomspace",          S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                  (SUBR) csnarray_geomspace,                   NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
-    { "csnclip",               S(CSN_CLIP),                   0, ":CsnArr;",    ":CsnArr;ii",           (SUBR) csnarray_clip,                        NULL,                                   (SUBR) csnarray_clip_deinit,            NULL, 0 },
-    { "csnclip.in",            S(CSN_CLIP_IN),                0, "",            ":CsnArr;ii",           (SUBR) csnarray_clip_in,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnargwhere",           S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",     (SUBR) csnarray_argwhere,                    NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
-    { "csnargnonzero",         S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_argnonzero,                  NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
-    { "csnargisnan",           S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_argisnan,                    NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
-    { "csnargunique",          S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_argunique,                   NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
-    { "csnunique",             S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_unique,                      NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csngt",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_greater_than,                NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csnlt",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_less_than,                   NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csnne",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_not_equal,                   NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csnge",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_greater_equal,               NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csnle",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_less_equal,                  NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csneq",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_equal,                       NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
-    { "csncnteq",              S(CSN_COUNT),                  0, "i",           ":CsnArr;i",            (SUBR) csnarray_count_equal,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csncntnz",              S(CSN_COUNT),                  0, "i",           ":CsnArr;",             (SUBR) csnarray_count_nonzero,               NULL,                                   NULL,                                   NULL, 0 },
-    { "csncntnan",             S(CSN_COUNT),                  0, "i",           ":CsnArr;",             (SUBR) csnarray_count_nan,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmin",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_min_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmax",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_max_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmedian",             S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_median_all,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmin.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_min,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnmax.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_max,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnmedian.ax",          S(CSN_REDUCTION),              0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_median,                      NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnargmin",             S(CSN_REDUCTION),              0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_argmin,                      NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnargmax",             S(CSN_REDUCTION),              0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_argmax,                      NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnfloor",              S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_floor,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnceil",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_ceil,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnround",              S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_round,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnproject",            S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_project,                     NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnreject",             S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_reject,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csncross",              S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_cross,                       NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csngrad",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_gradient,                    NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csnmovmedian",          S(CSN_MOVSTATS),               0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_movmedian,                   NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
-    { "csnmovmedian.in",       S(CSN_MOVSTATS_IN),            0, "",           ":CsnArr;ij",            (SUBR) csnarray_movmedian_in,                NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmovmin",             S(CSN_MOVSTATS),               0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_movmin,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
-    { "csnmovmin.in",          S(CSN_MOVSTATS_IN),            0, "",           ":CsnArr;ij",            (SUBR) csnarray_movmin_in,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmovmax",             S(CSN_MOVSTATS),               0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_movmax,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
-    { "csnmovmax.in",          S(CSN_MOVSTATS_IN),            0, "",           ":CsnArr;ij",            (SUBR) csnarray_movmax_in,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsort",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_sort,                        NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csnsort.in",            S(CSN_UNARYOP_AX_IN),          0, "",           ":CsnArr;j",             (SUBR) csnarray_sort_in,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnargsort",            S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_argsort,                     NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csnpercentile",         S(CSN_PERCQUANT),              0, "i",          ":CsnArr;i",             (SUBR) csnarray_percentile_scalar,           NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpercentile.ax",      S(CSN_PERCQUANT_AX),           0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_percentile,                  NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
-    { "csnquantile",           S(CSN_PERCQUANT),              0, "i",          ":CsnArr;i",             (SUBR) csnarray_quantile_scalar,             NULL,                                   NULL,                                   NULL, 0 },
-    { "csnquantile.ax",        S(CSN_PERCQUANT_AX),           0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_quantile,                    NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
-    { "csnlogicand.hh",        S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_logical_and_hh,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlogicor.hh",         S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_logical_or_hh,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlogicand.hs",        S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_logical_and_hs,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlogicor.hs",         S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_logical_or_hs,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlogicand.sh",        S(CSN_BINOP_SH),               0, ":CsnArr;",   "i:CsnArr;",             (SUBR) csnarray_logical_and_sh,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlogicor.sh",         S(CSN_BINOP_SH),               0, ":CsnArr;",   "i:CsnArr;",             (SUBR) csnarray_logical_or_sh,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlogicnot",           S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_logical_not,                 NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnrand",               S(CSN_ARR_RND_INIT),           0, ":CsnArr;",    "i[]ii",                  (SUBR) create_random_csnarray,               NULL,                                   (SUBR) create_csnarray_random_deinit,   NULL, 0 },
+    { "csnarange",             S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                    (SUBR) csnarray_arange,                      NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csnlinspace",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                    (SUBR) csnarray_linspace,                    NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csnlogspace",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iiii",                   (SUBR) csnarray_logspace,                    NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csngeomspace",          S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                    (SUBR) csnarray_geomspace,                   NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csnclip",               S(CSN_CLIP),                   0, ":CsnArr;",    ":CsnArr;ii",             (SUBR) csnarray_clip,                        NULL,                                   (SUBR) csnarray_clip_deinit,            NULL, 0 },
+    { "csnclip.in",            S(CSN_CLIP_IN),                0, "",            ":CsnArr;ii",             (SUBR) csnarray_clip_in,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnargwhere",           S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_argwhere,                    NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargnonzero",         S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_argnonzero,                  NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargisnan",           S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_argisnan,                    NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargunique",          S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_argunique,                   NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnunique",             S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_unique,                      NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csngt",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_greater_than,                NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnlt",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_less_than,                   NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnne",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_not_equal,                   NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnge",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_greater_equal,               NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnle",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_less_equal,                  NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csneq",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_equal,                       NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csncnteq",              S(CSN_COUNT),                  0, "i",           ":CsnArr;i",              (SUBR) csnarray_count_equal,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csncntnz",              S(CSN_COUNT),                  0, "i",           ":CsnArr;",               (SUBR) csnarray_count_nonzero,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csncntnan",             S(CSN_COUNT),                  0, "i",           ":CsnArr;",               (SUBR) csnarray_count_nan,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmin",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_min_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmin.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_min_all_k_init,              (SUBR) csnarray_min_all_k,              NULL,                                   NULL, 0 },
+    { "csnmax",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_max_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmax.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_max_all_k_init,              (SUBR) csnarray_max_all_k,              NULL,                                   NULL, 0 },
+    { "csnmedian",             S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_median_all,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmedian.k",           S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_median_all_k_init,           (SUBR) csnarray_median_all_k,           (SUBR) csnarray_median_scalar_k_deinit, NULL, 0 },
+    { "csnmin.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_min,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmin.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_min_k_init,                  (SUBR) csnarray_min_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmax.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_max,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmax.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_max_k_init,                  (SUBR) csnarray_max_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmedian.ax",          S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_median,                      NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmedian.ax.k",        S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_median_k_init,               (SUBR) csnarray_median_k,               (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnargmin",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_argmin,                      NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnargmin.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_argmin_k_init,               (SUBR) csnarray_argmin_k,               (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnargmax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_argmax,                      NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnargmax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_argmax_k_init,               (SUBR) csnarray_argmax_k,               (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnfloor",              S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_floor,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnceil",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_ceil,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnround",              S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_round,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnproject",            S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_project,                     NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnreject",             S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_reject,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csncross",              S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_cross,                       NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csngrad",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_gradient,                    NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csnmovmedian",          S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmedian,                   NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmedian.in",       S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmedian_in,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovmin",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmin,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmin.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmin_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovmax",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmax,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmax.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmax_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsort",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_sort,                        NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csnsort.in",            S(CSN_UNARYOP_AX_IN),          0, "",            ":CsnArr;j",              (SUBR) csnarray_sort_in,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnargsort",            S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_argsort,                     NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csnpercentile",         S(CSN_PERCQUANT),              0, "i",           ":CsnArr;i",              (SUBR) csnarray_percentile_scalar,           NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpercentile.ax",      S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_percentile,                  NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
+    { "csnquantile",           S(CSN_PERCQUANT),              0, "i",           ":CsnArr;i",              (SUBR) csnarray_quantile_scalar,             NULL,                                   NULL,                                   NULL, 0 },
+    { "csnquantile.ax",        S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_quantile,                    NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
+    { "csnlogicand.hh",        S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_logical_and_hh,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlogicor.hh",         S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_logical_or_hh,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlogicand.hs",        S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_logical_and_hs,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlogicor.hs",         S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_logical_or_hs,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlogicand.sh",        S(CSN_BINOP_SH),               0, ":CsnArr;",    "i:CsnArr;",              (SUBR) csnarray_logical_and_sh,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlogicor.sh",         S(CSN_BINOP_SH),               0, ":CsnArr;",    "i:CsnArr;",              (SUBR) csnarray_logical_or_sh,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlogicnot",           S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_logical_not,                 NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     // ---
     // REAL AND COMPLEX
-    { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                 (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnempty.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                 (SUBR) create_empty_csnarray_k_init,         (SUBR) create_empty_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnzeros",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                 (SUBR) create_zeros_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnzeros.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                 (SUBR) create_zeros_csnarray_k_init,         (SUBR) create_zeros_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnones",               S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                 (SUBR) create_ones_csnarray,                 NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnones.k",             S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                 (SUBR) create_ones_csnarray_k_init,          (SUBR) create_ones_csnarray_k,          (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnfull",               S(CSN_FULL),                   0, ":CsnArr;",    "i[]io",                (SUBR) create_full_csnarray,                 NULL,                                   (SUBR) create_csnarray_full_deinit,     NULL, 0 },
-    { "csnfull.c",             S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "i[]:Complex;p",        (SUBR) create_fullcomp_csnarray,             NULL,                                   (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
-    { "csnfull.k",             S(CSN_FULL),                   0, ":CsnArr;",    "k[]kO",                (SUBR) create_full_csnarray_k_init,          (SUBR) create_full_csnarray_k,          (SUBR) create_csnarray_full_deinit,     NULL, 0 },
-    { "csnfull.c.k",           S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "k[]:Complex;P",        (SUBR) create_fullcomp_csnarray_k_init,      (SUBR) create_fullcomp_csnarray_k,      (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
-    { "csnlike",               S(CSN_ARR_INIT_LIKE),          0, ":CsnArr;",    ":CsnArr;i",            (SUBR) create_like_csnarray,                 NULL,                                   (SUBR) create_csnarray_like_deinit,     NULL, 0 },
-    { "csnlike.k",             S(CSN_ARR_INIT_LIKE),          0, ":CsnArr;",    ":CsnArr;k",            (SUBR) create_like_csnarray_k_init,          (SUBR) create_like_csnarray_k,          (SUBR) create_csnarray_like_deinit,     NULL, 0 },
-    { "csnfromarray",          S(CSN_FROM_ARRAY),             0, ":CsnArr;",    "i[]",                  (SUBR) from_array_to_csnarray,               NULL,                                   (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
-    { "csnfromarray.c",        S(CSN_FROM_ARRAY),             0, ":CsnArr;",    ":Complex;[]",          (SUBR) from_complexarray_to_csnarray_k_init, (SUBR) from_complexarray_to_csnarray_k, (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
-    { "csnfromarray.k",        S(CSN_FROM_ARRAY),             0, ":CsnArr;",    "k[]",                  (SUBR) from_array_to_csnarray_k_init,        (SUBR) from_array_to_csnarray_k,        (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
-    { "csntoarray",            S(CSN_TO_ARRAY),               0, "i[]",         ":CsnArr;",             (SUBR) from_csnarray_to_array,               NULL,                                   NULL,                                   NULL, 0 },
-    { "csntoarray.k",          S(CSN_TO_ARRAY),               0, "k[]",         ":CsnArr;",             (SUBR) from_csnarray_to_array,               (SUBR) from_csnarray_to_array_k,        NULL,                                   NULL, 0 },
-    { "csntoarray.c",          S(CSN_TO_ARRAY),               0, ":Complex;[]", ":CsnArr;",             (SUBR) from_csnarray_to_complexarray,        (SUBR) from_csnarray_to_complexarray_k, NULL,                                   NULL, 0 },
-    { "csnfree",               S(CSN_FREE),                   0, "",            ":CsnArr;",             (SUBR) free_csnarray,                        NULL,                                   NULL,                                   NULL, 0 },
-    { "csndims",               S(CSN_SIZE_DIMS),              0, "i",           ":CsnArr;",             (SUBR) csnarray_dims,                        NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsize",               S(CSN_SIZE_DIMS),              0, "i",           ":CsnArr;",             (SUBR) csnarray_size,                        NULL,                                   NULL,                                   NULL, 0 },
-    { "csnisempty",            S(CSN_SIZE_DIMS),              0, "i",           ":CsnArr;",             (SUBR) csnarray_is_empty,                    NULL,                                   NULL,                                   NULL, 0 },
-    { "csnshape",              S(CSN_SHAPE),                  0, "i[]",         ":CsnArr;",             (SUBR) csnarray_shape,                       NULL,                                   NULL,                                   NULL, 0 },
-    { "csndims.k",             S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",             NULL,                                        (SUBR) csnarray_dims_k,                 NULL,                                   NULL, 0 },
-    { "csnsize.k",             S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",             NULL,                                        (SUBR) csnarray_size_k,                 NULL,                                   NULL, 0 },
-    { "csnisempty.k",          S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",             NULL,                                        (SUBR) csnarray_is_empty_k,             NULL,                                   NULL, 0 },
-    { "csnshape.k",            S(CSN_SHAPE),                  0, "k[]",         ":CsnArr;",             (SUBR) csnarray_shape,                       (SUBR) csnarray_shape_k,                NULL,                                   NULL, 0 },
-    { "csnidentity",           S(CSN_IDENTITY),               0, ":CsnArr;",    "io",                   (SUBR) csnarray_identity,                    NULL,                                   (SUBR) csnarray_identity_deinit,        NULL, 0 },
-    { "csnidentity.k",         S(CSN_IDENTITY),               0, ":CsnArr;",    "kO",                   (SUBR) csnarray_identity_k_init,             (SUBR) csnarray_identity_k,             (SUBR) csnarray_identity_deinit,        NULL, 0 },
-    { "csnreshape",            S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",          (SUBR) csnarray_reshape,                     NULL,                                   (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csnreshape.in",         S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;i[]",          (SUBR) csnarray_reshape_in,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csnreshape.k",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;k[]",          (SUBR) csnarray_reshape_k_init,              (SUBR) csnarray_reshape_k,              (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csnreshape.in.k",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;k[]",          (SUBR) csnarray_reshape_in_k_init,           (SUBR) csnarray_reshape_in_k,           NULL,                                   NULL, 0 },
-    { "csnflatten",            S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_flatten,                     (SUBR) csnarray_flatten_k,              (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csnflatten.in",         S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",             (SUBR) csnarray_flatten_in,                  (SUBR) csnarray_flatten_in_k,           NULL,                                   NULL, 0 },
-    { "csntranspose",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",             (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csntranspose.ax",       S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",          (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csntranspose.ax.k",     S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;k[]",          (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
-    { "csntranspose.in",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",             (SUBR) csnarray_transpose_in_k_init,         (SUBR) csnarray_transpose_in_k,         (SUBR) csnarray_transpose_in_k_deinit,  NULL, 0 },
-    { "csntranspose.ax.in",    S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;i[]",          (SUBR) csnarray_transpose_in,                NULL,                                   NULL,                                   NULL, 0 },
-    { "csntranspose.ax.in.k",  S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;k[]",          (SUBR) csnarray_transpose_in_k_init,         (SUBR) csnarray_transpose_in_k,         (SUBR) csnarray_transpose_in_k_deinit,  NULL, 0 },
-    { "csnflip",               S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;j",            (SUBR) csnarray_flip,                        NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
-    { "csnflip.in",            S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;j",            (SUBR) csnarray_flip_in,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnflip.k",             S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;J",            (SUBR) csnarray_flip,                        (SUBR) csnarray_flip_k,                 (SUBR) csnarray_flip_deinit,            NULL, 0 },
-    { "csnflip.in.k",          S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;J",            (SUBR) csnarray_flip_in_k_init,              (SUBR) csnarray_flip_in_k,              (SUBR) csnarray_flip_in_k_deinit,       NULL, 0 },
-    { "csnroll",               S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_roll,                        NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
-    { "csnroll.in",            S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;i",            (SUBR) csnarray_roll_in,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnroll.ax",            S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;ij",           (SUBR) csnarray_rollaxis,                    NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
-    { "csnroll.ax.in",         S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;ij",           (SUBR) csnarray_rollaxis_in,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnroll.k",             S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;k",            (SUBR) csnarray_roll,                        (SUBR) csnarray_roll_k,                 (SUBR) csnarray_flip_deinit,            NULL, 0 },
-    { "csnroll.in.k",          S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;k",            (SUBR) csnarray_roll_in_k_init,              (SUBR) csnarray_roll_in_k,              (SUBR) csnarray_flip_in_k_deinit,       NULL, 0 },
-    { "csnroll.ax.k",          S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;kJ",           (SUBR) csnarray_rollaxis,                    (SUBR) csnarray_rollaxis_k,             (SUBR) csnarray_flip_deinit,            NULL, 0 },
-    { "csnroll.ax.in.k",       S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;kJ",           (SUBR) csnarray_rollaxis_in_k_init,          (SUBR) csnarray_rollaxis_in_k,          (SUBR) csnarray_flip_in_k_deinit,       NULL, 0 },
-    { "csnget",                S(CSN_GET),                    0, "i",           ":CsnArr;i[]",          (SUBR) csnarray_get,                         NULL,                                   NULL,                                   NULL, 0 },
-    { "csnget.c",              S(CSN_GETCOMPLEX),             0, ":Complex;",   ":CsnArr;i[]",          (SUBR) csnarray_get_complex,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnget.k",              S(CSN_GET),                    0, "k",           ":CsnArr;k[]",          (SUBR) csnarray_get,                         (SUBR) csnarray_get_k,                  NULL,                                   NULL, 0 },
-    { "csnget.c.k",            S(CSN_GETCOMPLEX),             0, ":Complex;",   ":CsnArr;k[]",          (SUBR) csnarray_get_complex,                 (SUBR) csnarray_get_complex_k,          NULL,                                   NULL, 0 },
-    { "csnset",                S(CSN_SET),                    0, "",            ":CsnArr;i[]i",         (SUBR) csnarray_set,                         NULL,                                   NULL,                                   NULL, 0 },
-    { "csnset.c",              S(CSN_SETCOMPLEX),             0, "",            ":CsnArr;i[]:Complex;", (SUBR) csnarray_set_complex,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnset.kk",             S(CSN_SET),                    0, "",            ":CsnArr;k[]k",         (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
-    { "csnset.c.k",            S(CSN_SETCOMPLEX),             0, "",            ":CsnArr;k[]:Complex;", (SUBR) csnarray_set_complex,                 (SUBR) csnarray_set_complex_k,          NULL,                                   NULL, 0 },
-    { "csnset.ik",             S(CSN_SET),                    0, "",            ":CsnArr;i[]k",         (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
-    { "csnset.ki",             S(CSN_SET),                    0, "",            ":CsnArr;k[]i",         (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
-    { "csntake",               S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ii",           (SUBR) csnarray_take,                        NULL,                                   (SUBR) csnarray_take_deinit,            NULL, 0 },
-    { "csntake.kk",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;kk",           (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
-    { "csntake.ik",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ik",           (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
-    { "csntake.ki",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ki",           (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
-    { "csntake.flat",          S(CSN_TAKE_FLAT),              0, "i",           ":CsnArr;i",            (SUBR) csnarray_take_flat,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csntake.flat.c",        S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;i",            (SUBR) csnarray_takecomp_flat,               NULL,                                   NULL,                                   NULL, 0 },
-    { "csntake.flat.k",        S(CSN_TAKE_FLAT),              0, "k",           ":CsnArr;k",            (SUBR) csnarray_take_flat,                   (SUBR) csnarray_take_flat_k,            NULL,                                   NULL, 0 },
-    { "csntake.flat.c.k",      S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;k",            (SUBR) csnarray_takecomp_flat,               (SUBR) csnarray_takecomp_flat_k,        NULL,                                   NULL, 0 },
-    { "csngetslice",           S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;iiii",         (SUBR) csnarray_get_slice,                   NULL,                                   (SUBR) csnarray_slice_deinit,           NULL, 0 },
-    { "csngetslice.k",         S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;kkkk",         (SUBR) csnarray_get_slice,                   (SUBR) csnarray_get_slice_k,            (SUBR) csnarray_slice_deinit,           NULL, 0 },
-    { "csnsetslice",           S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;iiii", (SUBR) csnarray_set_slice,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsetslice.k",         S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;kkkk", (SUBR) csnarray_set_slice,                   (SUBR) csnarray_set_slice_k,            NULL,                                   NULL, 0 },
-    { "csnpush",               S(CSN_PUSH),                   0, "",            ":CsnArr;i",            (SUBR) csnarray_push,                        NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpush.c",             S(CSN_PUSHCOMPLEX),            0, "",            ":CsnArr;:Complex;",    (SUBR) csnarray_pushcomp,                    NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpush.k",             S(CSN_PUSH_K),                 0, "",            ":CsnArr;kk",           (SUBR) csnarray_push_k_init,                 (SUBR) csnarray_push_k,                 NULL,                                   NULL, 0 },
-    { "csnpush.c.k",           S(CSN_PUSHCOMPLEX_K),          0, "",            ":CsnArr;:Complex;k",   (SUBR) csnarray_pushcomp_k_init,             (SUBR) csnarray_pushcomp_k,             NULL,                                   NULL, 0 },
-    { "csnpop",                S(CSN_POP),                    0, "i",           ":CsnArr;",             (SUBR) csnarray_pop,                         NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpop.c",              S(CSN_POPCOMPLEX),             0, ":Complex;",   ":CsnArr;",             (SUBR) csnarray_popcomp,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpop.k",              S(CSN_POP_K),                  0, "k",           ":CsnArr;k",            (SUBR) csnarray_pop_k_init,                  (SUBR) csnarray_pop_k,                  NULL,                                   NULL, 0 },
-    { "csnpop.c.k",            S(CSN_POPCOMPLEX_K),           0, ":Complex;",   ":CsnArr;k",            (SUBR) csnarray_popcomp_k_init,              (SUBR) csnarray_popcomp_k,              NULL,                                   NULL, 0 },
-    { "csninsert.flat",        S(CSN_PUSH),                   0, "",            ":CsnArr;ii",           (SUBR) csnarray_insert,                      NULL,                                   NULL,                                   NULL, 0 },
-    { "csninsert.flat.c",      S(CSN_PUSHCOMPLEX),            0, "",            ":CsnArr;:Complex;i",   (SUBR) csnarray_insertcomp,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csninsert.flat.k",      S(CSN_PUSH_K),                 0, "",            ":CsnArr;kkk",          (SUBR) csnarray_push_k_init,                 (SUBR) csnarray_insert_k,               NULL,                                   NULL, 0 },
-    { "csninsert.flat.c.k",    S(CSN_PUSHCOMPLEX_K),          0, "",            ":CsnArr;:Complex;kk",  (SUBR) csnarray_pushcomp_k_init,             (SUBR) csnarray_insertcomp_k,           NULL,                                   NULL, 0 },
-    { "csnremove.flat",        S(CSN_POP),                    0, "i",           ":CsnArr;i",            (SUBR) csnarray_remove,                      NULL,                                   NULL,                                   NULL, 0 },
-    { "csnremove.flat.c",      S(CSN_POPCOMPLEX),             0, ":Complex;",   ":CsnArr;i",            (SUBR) csnarray_removecomp,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csnremove.flat.k",      S(CSN_POP_K),                  0, "k",           ":CsnArr;kk",           (SUBR) csnarray_pop_k_init,                  (SUBR) csnarray_remove_k,               NULL,                                   NULL, 0 },
-    { "csnremove.flat.c.k",    S(CSN_POPCOMPLEX_K),           0, ":Complex;",   ":CsnArr;kk",           (SUBR) csnarray_popcomp_k_init,              (SUBR) csnarray_removecomp_k,           NULL,                                   NULL, 0 },
-    { "csninsert.block",       S(CSN_INSERT_BLOCK),           0, "",            ":CsnArr;:CsnArr;ii",   (SUBR) csnarray_insert_block,                NULL,                                   (SUBR) csnarray_insert_block_deinit,    NULL, 0 },
-    { "csninsert.block.k",     S(CSN_INSERT_BLOCK),           0, "",            ":CsnArr;:CsnArr;kkk",  (SUBR) csnarray_insert_block_k_init,         (SUBR) csnarray_insert_block_k,         (SUBR) csnarray_insert_block_deinit,    NULL, 0 },
-    { "csnremove.block",       S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ii",           (SUBR) csnarray_remove_block,                NULL,                                   (SUBR) csnarray_take_deinit,            NULL, 0 },
-    { "csnremove.block.k",     S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;kkk",          (SUBR) csnarray_remove_block_k_init,         (SUBR) csnarray_remove_block_k,         (SUBR) csnarray_take_deinit,            NULL, 0 },
-    { "csnconcat.block",       S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;i",    (SUBR) csnarray_concat_block,                NULL,                                   (SUBR) csnarray_concat_deinit,          NULL, 0 },
-    { "csnconcat.block.k",     S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;kk",   (SUBR) csnarray_concat_block_k_init,         (SUBR) csnarray_concat_block_k,         (SUBR) csnarray_concat_deinit,          NULL, 0 },
-    { "csnconcat.flat",        S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;",     (SUBR) csnarray_concat_flat,                 NULL,                                   (SUBR) csnarray_concat_deinit,          NULL, 0 },
-    { "csnconcat.flat.k",      S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;k",    (SUBR) csnarray_concat_flat,                 (SUBR) csnarray_concat_flat_k,          (SUBR) csnarray_concat_deinit,          NULL, 0 },
-    { "csnpad",                S(CSN_PAD),                    0, ":CsnArr;",    ":CsnArr;iio",          (SUBR) csnarray_pad,                         NULL,                                   (SUBR) csnarray_pad_deinit,             NULL, 0 },
-    { "csnpad.ax",             S(CSN_PAD),                    0, ":CsnArr;",    ":CsnArr;iiii",         (SUBR) csnarray_pad,                         NULL,                                   (SUBR) csnarray_pad_deinit,             NULL, 0 },
-    { "csnpad.in",             S(CSN_PAD_IN),                 0, "",            ":CsnArr;iio",          (SUBR) csnarray_pad_in,                      NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpad.ax.in",          S(CSN_PAD_IN),                 0, "",            ":CsnArr;iiii",         (SUBR) csnarray_pad_in,                      NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpad.c",              S(CSN_PADCOMPLEX),             0, ":CsnArr;",    ":CsnArr;ii:Complex;",  (SUBR) csnarray_padcomp,                     NULL,                                   (SUBR) csnarray_padcomp_deinit,         NULL, 0 },
-    { "csnpad.ax.c",           S(CSN_PADCOMPLEX),             0, ":CsnArr;",    ":CsnArr;ii:Complex;i", (SUBR) csnarray_padcomp,                     NULL,                                   (SUBR) csnarray_padcomp_deinit,         NULL, 0 },
-    { "csnpad.in.c",           S(CSN_PADCOMPLEX_IN),          0, "",            ":CsnArr;ii:Complex;",  (SUBR) csnarray_padcomp_in,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpad.ax.in.c",        S(CSN_PADCOMPLEX_IN),          0, "",            ":CsnArr;ii:Complex;i", (SUBR) csnarray_padcomp_in,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsum",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_sum_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnprod",               S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_prod_all,                    NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsub",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_sub_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmean",               S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_mean_all,                    NULL,                                   NULL,                                   NULL, 0 },
-    { "csnall",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_all_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnany",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_any_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnstd",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_std_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnvar",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",             (SUBR) csnarray_var_all,                     NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsum.c",              S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",             (SUBR) csnarray_sumcomp_all,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnprod.c",             S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",             (SUBR) csnarray_prodcomp_all,                NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsub.c",              S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",             (SUBR) csnarray_subcomp_all,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmean.c",             S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",             (SUBR) csnarray_meancomp_all,                NULL,                                   NULL,                                   NULL, 0 },
-    { "csnsum.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_sum,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnprod.ax",            S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_prod,                        NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnsub.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_sub,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnmean.ax",            S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_mean,                        NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnany.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_any,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnall.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_all,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnstd.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_std,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnvar.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",            (SUBR) csnarray_var,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
-    { "csnadd",                S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_add_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnadd.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_add_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnadd.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",   ":CsnArr;:Complex;",     (SUBR) csnarray_addcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnsubtract.hh",        S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_subtract_hh,                 NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnsubtract.hs",        S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_subtract_hs,                 NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnsubtract.hs.c",      S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",   ":CsnArr;:Complex;",     (SUBR) csnarray_subtractcomp_hs,             NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnsubtract.sh",        S(CSN_BINOP_SH),               0, ":CsnArr;",   "i:CsnArr;",             (SUBR) csnarray_subtract_sh,                 NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnsubtract.sh.c",      S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",   ":Complex;:CsnArr;",     (SUBR) csnarray_subtractcomp_sh,             NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnmul.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_mul_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnmul.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_mul_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnmul.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",   ":CsnArr;:Complex;",     (SUBR) csnarray_mulcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csndiv.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_div_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csndiv.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_div_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csndiv.sh",             S(CSN_BINOP_SH),               0, ":CsnArr;",   "i:CsnArr;",             (SUBR) csnarray_div_sh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csndiv.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",   ":CsnArr;:Complex;",     (SUBR) csnarray_divcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csndiv.sh.c",           S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",   ":Complex;:CsnArr;",     (SUBR) csnarray_divcomp_sh,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnpow.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_pow_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnpow.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_pow_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnpow.sh",             S(CSN_BINOP_SH),               0, ":CsnArr;",   "i:CsnArr;",             (SUBR) csnarray_pow_sh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnpow.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",   ":CsnArr;:Complex;",     (SUBR) csnarray_powcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnpow.sh.c",           S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",   ":Complex;:CsnArr;",     (SUBR) csnarray_powcomp_sh,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnlog.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_log_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlog.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_log_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlog.sh",             S(CSN_BINOP_SH),               0, ":CsnArr;",   "i:CsnArr;",             (SUBR) csnarray_log_sh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnlog.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",   ":CsnArr;:Complex;",     (SUBR) csnarray_logcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnlog.sh.c",           S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",   ":Complex;:CsnArr;",     (SUBR) csnarray_logcomp_sh,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
-    { "csnabs",                S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_abs,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnexp",                S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_exp,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnsqrt",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_sqrt,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csncbrt",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_cbrt,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnsin",                S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_sin,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csncos",                S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_cos,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csntan",                S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_tan,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnasin",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_asin,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnacos",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_acos,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnatan",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_atan,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnsinh",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_sinh,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csncosh",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_cosh,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csntanh",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_tanh,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnasinh",              S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_asinh,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnacosh",              S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_acosh,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnatanh",              S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_atanh,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnsign",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_sign,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csndot",                S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_dot,                         NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csndot.s",              S(CSN_BINOP_HH_SCALAR),        0, "i",          ":CsnArr;:CsnArr;",      (SUBR) csnarray_dot_scalar,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csndot.s.c",            S(CSN_BINOPCOMPLEX_HH_SCALAR), 0, ":Complex;",  ":CsnArr;:CsnArr;",      (SUBR) csnarray_dotcomp_scalar,              NULL,                                   NULL,                                   NULL, 0 },
-    { "csninner",              S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_inner,                       NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csninner.s",            S(CSN_BINOP_HH_SCALAR),        0, "i",          ":CsnArr;:CsnArr;",      (SUBR) csnarray_inner_scalar,                NULL,                                   NULL,                                   NULL, 0 },
-    { "csninner.s.c",          S(CSN_BINOPCOMPLEX_HH_SCALAR), 0, ":Complex;",  ":CsnArr;:CsnArr;",      (SUBR) csnarray_innercomp_scalar,            NULL,                                   NULL,                                   NULL, 0 },
-    { "csnouter",              S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_outer,                       NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnnorm",               S(CSN_NORM_REDUCTION),         0, ":CsnArr;",   ":CsnArr;ip",            (SUBR) csnarray_norm,                        NULL,                                   (SUBR) csnarray_norm_deinit,            NULL, 0 },
-    { "csnnorm.s",             S(CSN_NORM_REDUCTION_SCALAR),  0, "i",          ":CsnArr;p",             (SUBR) csnarray_norm_scalar,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnnormalize",          S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;jp",            (SUBR) csnarray_normalize,                   NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csnnormalize.in",       S(CSN_UNARYOP_AX_IN),          0, "",           ":CsnArr;jp",            (SUBR) csnarray_normalize_in,                NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpairdist",           S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_pair_distance,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csndist",               S(CSN_BINOP_HH_SCALAR),        0, "i",          ":CsnArr;:CsnArr;p",     (SUBR) csnarray_distance,                    NULL,                                   NULL,                                   NULL, 0 },
-    { "csnangledist",          S(CSN_BINOP_HH_SCALAR),        0, "i",          ":CsnArr;:CsnArr;",      (SUBR) csnarray_angle_distance,              NULL,                                   NULL,                                   NULL, 0 },
-    { "csnreflect",            S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_reflect,                     NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csndiff",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_diff,                        NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csncumsum",             S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_cumsum,                      NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csncumprod",            S(CSN_UNARYOP_AX),             0, ":CsnArr;",   ":CsnArr;j",             (SUBR) csnarray_cumprod,                     NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
-    { "csnmatmul",             S(CSN_BINOP_HH),               0, ":CsnArr;",   ":CsnArr;:CsnArr;",      (SUBR) csnarray_matmul,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
-    { "csnmatmul.s",           S(CSN_BINOP_HH_SCALAR),        0, "i",          ":CsnArr;:CsnArr;",      (SUBR) csnarray_matmul_scalar,               NULL,                                   NULL,                                   NULL, 0 },
-    { "csntrace",              S(CSN_UNARYOP_SCALAR),         0, "i",          ":CsnArr;",              (SUBR) csnarray_trace,                       NULL,                                   NULL,                                   NULL, 0 },
-    { "csntrace.c",            S(CSN_UNARYOPCOMPLEX_SCALAR),  0, ":Complex;",  ":CsnArr;",              (SUBR) csnarray_tracecomp,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csndiag",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_diag,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnmovmean",            S(CSN_MOVSTATS),               0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_movmean,                     NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
-    { "csnmovmean.in",         S(CSN_MOVSTATS_IN),            0, "",           ":CsnArr;ij",            (SUBR) csnarray_movmean_in,                  NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmovstd",             S(CSN_MOVSTATS),               0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_movstd,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
-    { "csnmovstd.in",          S(CSN_MOVSTATS_IN),            0, "",           ":CsnArr;ij",            (SUBR) csnarray_movstd_in,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csnmovvar",             S(CSN_MOVSTATS),               0, ":CsnArr;",   ":CsnArr;ij",            (SUBR) csnarray_movvar,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
-    { "csnmovvar.in",          S(CSN_MOVSTATS_IN),            0, "",           ":CsnArr;ij",            (SUBR) csnarray_movvar_in,                   NULL,                                   NULL,                                   NULL, 0 },
-    { "csnreal",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_real,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnimag",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_imag,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csntoreal",             S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_complex_to_real,             NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csntocomplex",          S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_real_to_complex,             NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnconj",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_conj,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnangle",              S(CSN_ANGLE),                  0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_angle,                       NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
-    { "csnwrap",               S(CSN_ANGLE),                  0, ":CsnArr;",   ":CsnArr;i",             (SUBR) csnarray_wrap_angle,                  NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
-    { "csnwrap.in",            S(CSN_ANGLE),                  0, "",           ":CsnArr;i",             (SUBR) csnarray_wrap_angle_in,               NULL,                                   NULL,                                   NULL, 0 },
-    { "csnunwrap",             S(CSN_ANGLE),                  0, ":CsnArr;",   ":CsnArr;iij",           (SUBR) csnarray_unwrap_angle,                NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
-    { "csnunwrap.in",          S(CSN_ANGLE),                  0, "",           ":CsnArr;iij",           (SUBR) csnarray_unwrap_angle_in,             NULL,                                   NULL,                                   NULL, 0 },
-    { "csntype",               S(CSN_UNARYOP_SCALAR),         0, "i",          ":CsnArr;",              (SUBR) csnarray_type,                        NULL,                                   NULL,                                   NULL, 0 },
-    { "csncopy",               S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_copy,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnreverse",            S(CSN_UNARYOP),                0, ":CsnArr;",   ":CsnArr;",              (SUBR) csnarray_reverse,                     NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnreverse_in",         S(CSN_UNARYOP_IN),             0, "",           ":CsnArr;",              (SUBR) csnarray_reverse_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                   (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnempty.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                   (SUBR) create_empty_csnarray_k_init,         (SUBR) create_empty_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnzeros",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                   (SUBR) create_zeros_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnzeros.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                   (SUBR) create_zeros_csnarray_k_init,         (SUBR) create_zeros_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnones",               S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                   (SUBR) create_ones_csnarray,                 NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnones.k",             S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                   (SUBR) create_ones_csnarray_k_init,          (SUBR) create_ones_csnarray_k,          (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnfull",               S(CSN_FULL),                   0, ":CsnArr;",    "i[]io",                  (SUBR) create_full_csnarray,                 NULL,                                   (SUBR) create_csnarray_full_deinit,     NULL, 0 },
+    { "csnfull.c",             S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "i[]:Complex;p",          (SUBR) create_fullcomp_csnarray,             NULL,                                   (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
+    { "csnfull.k",             S(CSN_FULL),                   0, ":CsnArr;",    "k[]kO",                  (SUBR) create_full_csnarray_k_init,          (SUBR) create_full_csnarray_k,          (SUBR) create_csnarray_full_deinit,     NULL, 0 },
+    { "csnfull.c.k",           S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "k[]:Complex;P",          (SUBR) create_fullcomp_csnarray_k_init,      (SUBR) create_fullcomp_csnarray_k,      (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
+    { "csnlike",               S(CSN_ARR_INIT_LIKE),          0, ":CsnArr;",    ":CsnArr;i",              (SUBR) create_like_csnarray,                 NULL,                                   (SUBR) create_csnarray_like_deinit,     NULL, 0 },
+    { "csnlike.k",             S(CSN_ARR_INIT_LIKE),          0, ":CsnArr;",    ":CsnArr;k",              (SUBR) create_like_csnarray_k_init,          (SUBR) create_like_csnarray_k,          (SUBR) create_csnarray_like_deinit,     NULL, 0 },
+    { "csnfromarray",          S(CSN_FROM_ARRAY),             0, ":CsnArr;",    "i[]",                    (SUBR) from_array_to_csnarray,               NULL,                                   (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
+    { "csnfromarray.c",        S(CSN_FROM_ARRAY),             0, ":CsnArr;",    ":Complex;[]",            (SUBR) from_complexarray_to_csnarray_k_init, (SUBR) from_complexarray_to_csnarray_k, (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
+    { "csnfromarray.k",        S(CSN_FROM_ARRAY),             0, ":CsnArr;",    "k[]",                    (SUBR) from_array_to_csnarray_k_init,        (SUBR) from_array_to_csnarray_k,        (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
+    { "csntoarray",            S(CSN_TO_ARRAY),               0, "i[]",         ":CsnArr;",               (SUBR) from_csnarray_to_array,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csntoarray.k",          S(CSN_TO_ARRAY),               0, "k[]",         ":CsnArr;",               (SUBR) from_csnarray_to_array,               (SUBR) from_csnarray_to_array_k,        NULL,                                   NULL, 0 },
+    { "csntoarray.c",          S(CSN_TO_ARRAY),               0, ":Complex;[]", ":CsnArr;",               (SUBR) from_csnarray_to_complexarray,        (SUBR) from_csnarray_to_complexarray_k, NULL,                                   NULL, 0 },
+    { "csnfree",               S(CSN_FREE),                   0, "",            ":CsnArr;",               (SUBR) free_csnarray,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csndims",               S(CSN_SIZE_DIMS),              0, "i",           ":CsnArr;",               (SUBR) csnarray_dims,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsize",               S(CSN_SIZE_DIMS),              0, "i",           ":CsnArr;",               (SUBR) csnarray_size,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csnisempty",            S(CSN_SIZE_DIMS),              0, "i",           ":CsnArr;",               (SUBR) csnarray_is_empty,                    NULL,                                   NULL,                                   NULL, 0 },
+    { "csnshape",              S(CSN_SHAPE),                  0, "i[]",         ":CsnArr;",               (SUBR) csnarray_shape,                       NULL,                                   NULL,                                   NULL, 0 },
+    { "csndims.k",             S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",               NULL,                                        (SUBR) csnarray_dims_k,                 NULL,                                   NULL, 0 },
+    { "csnsize.k",             S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",               NULL,                                        (SUBR) csnarray_size_k,                 NULL,                                   NULL, 0 },
+    { "csnisempty.k",          S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",               NULL,                                        (SUBR) csnarray_is_empty_k,             NULL,                                   NULL, 0 },
+    { "csnshape.k",            S(CSN_SHAPE),                  0, "k[]",         ":CsnArr;",               (SUBR) csnarray_shape,                       (SUBR) csnarray_shape_k,                NULL,                                   NULL, 0 },
+    { "csnidentity",           S(CSN_IDENTITY),               0, ":CsnArr;",    "io",                     (SUBR) csnarray_identity,                    NULL,                                   (SUBR) csnarray_identity_deinit,        NULL, 0 },
+    { "csnidentity.k",         S(CSN_IDENTITY),               0, ":CsnArr;",    "kO",                     (SUBR) csnarray_identity_k_init,             (SUBR) csnarray_identity_k,             (SUBR) csnarray_identity_deinit,        NULL, 0 },
+    { "csnreshape",            S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",            (SUBR) csnarray_reshape,                     NULL,                                   (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csnreshape.in",         S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;i[]",            (SUBR) csnarray_reshape_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnreshape.k",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;k[]",            (SUBR) csnarray_reshape_k_init,              (SUBR) csnarray_reshape_k,              (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csnreshape.in.k",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;k[]",            (SUBR) csnarray_reshape_in_k_init,           (SUBR) csnarray_reshape_in_k,           NULL,                                   NULL, 0 },
+    { "csnflatten",            S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_flatten,                     (SUBR) csnarray_flatten_k,              (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csnflatten.in",         S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",               (SUBR) csnarray_flatten_in,                  (SUBR) csnarray_flatten_in_k,           NULL,                                   NULL, 0 },
+    { "csntranspose",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csntranspose.ax",       S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",            (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csntranspose.ax.k",     S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;k[]",            (SUBR) csnarray_transpose,                   (SUBR) csnarray_transpose_k,            (SUBR) csnarray_shape_deinit,           NULL, 0 },
+    { "csntranspose.in",       S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;",               (SUBR) csnarray_transpose_in_k_init,         (SUBR) csnarray_transpose_in_k,         (SUBR) csnarray_transpose_in_k_deinit,  NULL, 0 },
+    { "csntranspose.ax.in",    S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;i[]",            (SUBR) csnarray_transpose_in,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csntranspose.ax.in.k",  S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;k[]",            (SUBR) csnarray_transpose_in_k_init,         (SUBR) csnarray_transpose_in_k,         (SUBR) csnarray_transpose_in_k_deinit,  NULL, 0 },
+    { "csnflip",               S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_flip,                        NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
+    { "csnflip.in",            S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;j",              (SUBR) csnarray_flip_in,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnflip.k",             S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;J",              (SUBR) csnarray_flip,                        (SUBR) csnarray_flip_k,                 (SUBR) csnarray_flip_deinit,            NULL, 0 },
+    { "csnflip.in.k",          S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;J",              (SUBR) csnarray_flip_in_k_init,              (SUBR) csnarray_flip_in_k,              (SUBR) csnarray_flip_in_k_deinit,       NULL, 0 },
+    { "csnroll",               S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_roll,                        NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
+    { "csnroll.in",            S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;i",              (SUBR) csnarray_roll_in,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnroll.ax",            S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_rollaxis,                    NULL,                                   (SUBR) csnarray_flip_deinit,            NULL, 0 },
+    { "csnroll.ax.in",         S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;ij",             (SUBR) csnarray_rollaxis_in,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnroll.k",             S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_roll,                        (SUBR) csnarray_roll_k,                 (SUBR) csnarray_flip_deinit,            NULL, 0 },
+    { "csnroll.in.k",          S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;k",              (SUBR) csnarray_roll_in_k_init,              (SUBR) csnarray_roll_in_k,              (SUBR) csnarray_flip_in_k_deinit,       NULL, 0 },
+    { "csnroll.ax.k",          S(CSN_FLIP_ROLL),              0, ":CsnArr;",    ":CsnArr;kJ",             (SUBR) csnarray_rollaxis,                    (SUBR) csnarray_rollaxis_k,             (SUBR) csnarray_flip_deinit,            NULL, 0 },
+    { "csnroll.ax.in.k",       S(CSN_FLIP_ROLL_IN),           0, "",            ":CsnArr;kJ",             (SUBR) csnarray_rollaxis_in_k_init,          (SUBR) csnarray_rollaxis_in_k,          (SUBR) csnarray_flip_in_k_deinit,       NULL, 0 },
+    { "csnget",                S(CSN_GET),                    0, "i",           ":CsnArr;i[]",            (SUBR) csnarray_get,                         NULL,                                   NULL,                                   NULL, 0 },
+    { "csnget.c",              S(CSN_GETCOMPLEX),             0, ":Complex;",   ":CsnArr;i[]",            (SUBR) csnarray_get_complex,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnget.k",              S(CSN_GET),                    0, "k",           ":CsnArr;k[]",            (SUBR) csnarray_get,                         (SUBR) csnarray_get_k,                  NULL,                                   NULL, 0 },
+    { "csnget.c.k",            S(CSN_GETCOMPLEX),             0, ":Complex;",   ":CsnArr;k[]",            (SUBR) csnarray_get_complex,                 (SUBR) csnarray_get_complex_k,          NULL,                                   NULL, 0 },
+    { "csnset",                S(CSN_SET),                    0, "",            ":CsnArr;i[]i",           (SUBR) csnarray_set,                         NULL,                                   NULL,                                   NULL, 0 },
+    { "csnset.c",              S(CSN_SETCOMPLEX),             0, "",            ":CsnArr;i[]:Complex;",   (SUBR) csnarray_set_complex,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnset.kk",             S(CSN_SET),                    0, "",            ":CsnArr;k[]k",           (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
+    { "csnset.c.k",            S(CSN_SETCOMPLEX),             0, "",            ":CsnArr;k[]:Complex;",   (SUBR) csnarray_set_complex,                 (SUBR) csnarray_set_complex_k,          NULL,                                   NULL, 0 },
+    { "csnset.ik",             S(CSN_SET),                    0, "",            ":CsnArr;i[]k",           (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
+    { "csnset.ki",             S(CSN_SET),                    0, "",            ":CsnArr;k[]i",           (SUBR) csnarray_set,                         (SUBR) csnarray_set_k,                  NULL,                                   NULL, 0 },
+    { "csntake",               S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ii",             (SUBR) csnarray_take,                        NULL,                                   (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.kk",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.ik",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ik",             (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.ki",            S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ki",             (SUBR) csnarray_take,                        (SUBR) csnarray_take_k,                 (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csntake.flat",          S(CSN_TAKE_FLAT),              0, "i",           ":CsnArr;i",              (SUBR) csnarray_take_flat,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csntake.flat.c",        S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;i",              (SUBR) csnarray_takecomp_flat,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csntake.flat.k",        S(CSN_TAKE_FLAT),              0, "k",           ":CsnArr;k",              (SUBR) csnarray_take_flat,                   (SUBR) csnarray_take_flat_k,            NULL,                                   NULL, 0 },
+    { "csntake.flat.c.k",      S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_takecomp_flat,               (SUBR) csnarray_takecomp_flat_k,        NULL,                                   NULL, 0 },
+    { "csngetslice",           S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;iiii",           (SUBR) csnarray_get_slice,                   NULL,                                   (SUBR) csnarray_slice_deinit,           NULL, 0 },
+    { "csngetslice.k",         S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;kkkk",           (SUBR) csnarray_get_slice,                   (SUBR) csnarray_get_slice_k,            (SUBR) csnarray_slice_deinit,           NULL, 0 },
+    { "csnsetslice",           S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;iiii",   (SUBR) csnarray_set_slice,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsetslice.k",         S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;kkkk",   (SUBR) csnarray_set_slice,                   (SUBR) csnarray_set_slice_k,            NULL,                                   NULL, 0 },
+    { "csnpush",               S(CSN_PUSH),                   0, "",            ":CsnArr;i",              (SUBR) csnarray_push,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpush.c",             S(CSN_PUSHCOMPLEX),            0, "",            ":CsnArr;:Complex;",      (SUBR) csnarray_pushcomp,                    NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpush.k",             S(CSN_PUSH_K),                 0, "",            ":CsnArr;kk",             (SUBR) csnarray_push_k_init,                 (SUBR) csnarray_push_k,                 NULL,                                   NULL, 0 },
+    { "csnpush.c.k",           S(CSN_PUSHCOMPLEX_K),          0, "",            ":CsnArr;:Complex;k",     (SUBR) csnarray_pushcomp_k_init,             (SUBR) csnarray_pushcomp_k,             NULL,                                   NULL, 0 },
+    { "csnpop",                S(CSN_POP),                    0, "i",           ":CsnArr;",               (SUBR) csnarray_pop,                         NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpop.c",              S(CSN_POPCOMPLEX),             0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_popcomp,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpop.k",              S(CSN_POP_K),                  0, "k",           ":CsnArr;k",              (SUBR) csnarray_pop_k_init,                  (SUBR) csnarray_pop_k,                  NULL,                                   NULL, 0 },
+    { "csnpop.c.k",            S(CSN_POPCOMPLEX_K),           0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_popcomp_k_init,              (SUBR) csnarray_popcomp_k,              NULL,                                   NULL, 0 },
+    { "csninsert.flat",        S(CSN_PUSH),                   0, "",            ":CsnArr;ii",             (SUBR) csnarray_insert,                      NULL,                                   NULL,                                   NULL, 0 },
+    { "csninsert.flat.c",      S(CSN_PUSHCOMPLEX),            0, "",            ":CsnArr;:Complex;i",     (SUBR) csnarray_insertcomp,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csninsert.flat.k",      S(CSN_PUSH_K),                 0, "",            ":CsnArr;kkk",            (SUBR) csnarray_push_k_init,                 (SUBR) csnarray_insert_k,               NULL,                                   NULL, 0 },
+    { "csninsert.flat.c.k",    S(CSN_PUSHCOMPLEX_K),          0, "",            ":CsnArr;:Complex;kk",    (SUBR) csnarray_pushcomp_k_init,             (SUBR) csnarray_insertcomp_k,           NULL,                                   NULL, 0 },
+    { "csnremove.flat",        S(CSN_POP),                    0, "i",           ":CsnArr;i",              (SUBR) csnarray_remove,                      NULL,                                   NULL,                                   NULL, 0 },
+    { "csnremove.flat.c",      S(CSN_POPCOMPLEX),             0, ":Complex;",   ":CsnArr;i",              (SUBR) csnarray_removecomp,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnremove.flat.k",      S(CSN_POP_K),                  0, "k",           ":CsnArr;kk",             (SUBR) csnarray_pop_k_init,                  (SUBR) csnarray_remove_k,               NULL,                                   NULL, 0 },
+    { "csnremove.flat.c.k",    S(CSN_POPCOMPLEX_K),           0, ":Complex;",   ":CsnArr;kk",             (SUBR) csnarray_popcomp_k_init,              (SUBR) csnarray_removecomp_k,           NULL,                                   NULL, 0 },
+    { "csninsert.block",       S(CSN_INSERT_BLOCK),           0, "",            ":CsnArr;:CsnArr;ii",     (SUBR) csnarray_insert_block,                NULL,                                   (SUBR) csnarray_insert_block_deinit,    NULL, 0 },
+    { "csninsert.block.k",     S(CSN_INSERT_BLOCK),           0, "",            ":CsnArr;:CsnArr;kkk",    (SUBR) csnarray_insert_block_k_init,         (SUBR) csnarray_insert_block_k,         (SUBR) csnarray_insert_block_deinit,    NULL, 0 },
+    { "csnremove.block",       S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;ii",             (SUBR) csnarray_remove_block,                NULL,                                   (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csnremove.block.k",     S(CSN_TAKE),                   0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_remove_block_k_init,         (SUBR) csnarray_remove_block_k,         (SUBR) csnarray_take_deinit,            NULL, 0 },
+    { "csnconcat.block",       S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;i",      (SUBR) csnarray_concat_block,                NULL,                                   (SUBR) csnarray_concat_deinit,          NULL, 0 },
+    { "csnconcat.block.k",     S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;kk",     (SUBR) csnarray_concat_block_k_init,         (SUBR) csnarray_concat_block_k,         (SUBR) csnarray_concat_deinit,          NULL, 0 },
+    { "csnconcat.flat",        S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_concat_flat,                 NULL,                                   (SUBR) csnarray_concat_deinit,          NULL, 0 },
+    { "csnconcat.flat.k",      S(CSN_CONCAT),                 0, ":CsnArr;",    ":CsnArr;:CsnArr;k",      (SUBR) csnarray_concat_flat,                 (SUBR) csnarray_concat_flat_k,          (SUBR) csnarray_concat_deinit,          NULL, 0 },
+    { "csnpad",                S(CSN_PAD),                    0, ":CsnArr;",    ":CsnArr;iio",            (SUBR) csnarray_pad,                         NULL,                                   (SUBR) csnarray_pad_deinit,             NULL, 0 },
+    { "csnpad.ax",             S(CSN_PAD),                    0, ":CsnArr;",    ":CsnArr;iiii",           (SUBR) csnarray_pad,                         NULL,                                   (SUBR) csnarray_pad_deinit,             NULL, 0 },
+    { "csnpad.in",             S(CSN_PAD_IN),                 0, "",            ":CsnArr;iio",            (SUBR) csnarray_pad_in,                      NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpad.ax.in",          S(CSN_PAD_IN),                 0, "",            ":CsnArr;iiii",           (SUBR) csnarray_pad_in,                      NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpad.c",              S(CSN_PADCOMPLEX),             0, ":CsnArr;",    ":CsnArr;ii:Complex;",    (SUBR) csnarray_padcomp,                     NULL,                                   (SUBR) csnarray_padcomp_deinit,         NULL, 0 },
+    { "csnpad.ax.c",           S(CSN_PADCOMPLEX),             0, ":CsnArr;",    ":CsnArr;ii:Complex;i",   (SUBR) csnarray_padcomp,                     NULL,                                   (SUBR) csnarray_padcomp_deinit,         NULL, 0 },
+    { "csnpad.in.c",           S(CSN_PADCOMPLEX_IN),          0, "",            ":CsnArr;ii:Complex;",    (SUBR) csnarray_padcomp_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpad.ax.in.c",        S(CSN_PADCOMPLEX_IN),          0, "",            ":CsnArr;ii:Complex;i",   (SUBR) csnarray_padcomp_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpad.k",              S(CSN_PAD),                    0, ":CsnArr;",    ":CsnArr;kkkk",           (SUBR) csnarray_pad_k_init,                  (SUBR) csnarray_pad_k,                  (SUBR) csnarray_pad_deinit,             NULL, 0 },
+    { "csnpad.ax.k",           S(CSN_PAD),                    0, ":CsnArr;",    ":CsnArr;kkkkk",          (SUBR) csnarray_pad_k_init,                  (SUBR) csnarray_pad_k,                  (SUBR) csnarray_pad_deinit,             NULL, 0 },
+    { "csnpad.in.k",           S(CSN_PAD_IN),                 0, "",            ":CsnArr;kkkk",           (SUBR) csnarray_pad_in_k_init,               (SUBR) csnarray_pad_in_k,               (SUBR) csnarray_pad_in_k_deinit,        NULL, 0 },
+    { "csnpad.ax.in.k",        S(CSN_PAD_IN),                 0, "",            ":CsnArr;kkkkk",          (SUBR) csnarray_pad_in_k_init,               (SUBR) csnarray_pad_in_k,               (SUBR) csnarray_pad_in_k_deinit,        NULL, 0 },
+    { "csnpad.c.k",            S(CSN_PADCOMPLEX),             0, ":CsnArr;",    ":CsnArr;kk:Complex;k",   (SUBR) csnarray_padcomp_k_init,              (SUBR) csnarray_padcomp_k,              (SUBR) csnarray_padcomp_deinit,         NULL, 0 },
+    { "csnpad.ax.c.k",         S(CSN_PADCOMPLEX),             0, ":CsnArr;",    ":CsnArr;kk:Complex;kk",  (SUBR) csnarray_padcomp_k_init,              (SUBR) csnarray_padcomp_k,              (SUBR) csnarray_padcomp_deinit,         NULL, 0 },
+    { "csnpad.in.c.k",         S(CSN_PADCOMPLEX_IN),          0, "",            ":CsnArr;kk:Complex;k",   (SUBR) csnarray_padcomp_in_k_init,           (SUBR) csnarray_padcomp_in_k,           (SUBR) csnarray_padcomp_in_k_deinit,    NULL, 0 },
+    { "csnpad.ax.in.c.k",      S(CSN_PADCOMPLEX_IN),          0, "",            ":CsnArr;kk:Complex;kk",  (SUBR) csnarray_padcomp_in_k_init,           (SUBR) csnarray_padcomp_in_k,           (SUBR) csnarray_padcomp_in_k_deinit,    NULL, 0 },
+    { "csnsum",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_sum_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsum.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_sum_all_k_init,              (SUBR) csnarray_sum_all_k,              NULL,                                   NULL, 0 },
+    { "csnprod",               S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_prod_all,                    NULL,                                   NULL,                                   NULL, 0 },
+    { "csnprod.k",             S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_prod_all_k_init,             (SUBR) csnarray_prod_all_k,             NULL,                                   NULL, 0 },
+    { "csnsub",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_sub_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsub.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_sub_all_k_init,              (SUBR) csnarray_sub_all_k,              NULL,                                   NULL, 0 },
+    { "csnmean",               S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_mean_all,                    NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmean.k",             S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_mean_all_k_init,             (SUBR) csnarray_mean_all_k,             NULL,                                   NULL, 0 },
+    { "csnall",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_all_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnall.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_all_all_k_init,              (SUBR) csnarray_all_all_k,              NULL,                                   NULL, 0 },
+    { "csnany",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_any_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnany.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_any_all_k_init,              (SUBR) csnarray_any_all_k,              NULL,                                   NULL, 0 },
+    { "csnstd",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_std_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnstd.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_std_all_k_init,              (SUBR) csnarray_std_all_k,              NULL,                                   NULL, 0 },
+    { "csnvar",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_var_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnvar.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_var_all_k_init,              (SUBR) csnarray_var_all_k,              NULL,                                   NULL, 0 },
+    { "csnsum.c",              S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_sumcomp_all,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnprod.c",             S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_prodcomp_all,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsub.c",              S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_subcomp_all,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmean.c",             S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_meancomp_all,                NULL,                                   NULL,                                   NULL, 0 },
+    /* Same in/out types as the .c rows, so the trailing k trigger is what
+       makes the k-rate overload resolvable. */
+    { "csnsum.c.k",            S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_sumcomp_all_k_init,          (SUBR) csnarray_sumcomp_all_k,          NULL,                                   NULL, 0 },
+    { "csnprod.c.k",           S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_prodcomp_all_k_init,         (SUBR) csnarray_prodcomp_all_k,         NULL,                                   NULL, 0 },
+    { "csnsub.c.k",            S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_subcomp_all_k_init,          (SUBR) csnarray_subcomp_all_k,          NULL,                                   NULL, 0 },
+    { "csnmean.c.k",           S(CSN_REDUCTION_COMPLEX_S),    0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_meancomp_all_k_init,         (SUBR) csnarray_meancomp_all_k,         NULL,                                   NULL, 0 },
+    { "csnsum.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_sum,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnsum.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_sum_k_init,                  (SUBR) csnarray_sum_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnprod.ax",            S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_prod,                        NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnprod.ax.k",          S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_prod_k_init,                 (SUBR) csnarray_prod_k,                 (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnsub.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_sub,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnsub.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_sub_k_init,                  (SUBR) csnarray_sub_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmean.ax",            S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_mean,                        NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnmean.ax.k",          S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_mean_k_init,                 (SUBR) csnarray_mean_k,                 (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnany.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_any,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnany.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_any_k_init,                  (SUBR) csnarray_any_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnall.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_all,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnall.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_all_k_init,                  (SUBR) csnarray_all_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnstd.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_std,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnstd.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_std_k_init,                  (SUBR) csnarray_std_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnvar.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_var,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnvar.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_var_k_init,                  (SUBR) csnarray_var_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnadd",                S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_add_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnadd.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_add_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnadd.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",    ":CsnArr;:Complex;",      (SUBR) csnarray_addcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnsubtract.hh",        S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_subtract_hh,                 NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnsubtract.hs",        S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_subtract_hs,                 NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnsubtract.hs.c",      S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",    ":CsnArr;:Complex;",      (SUBR) csnarray_subtractcomp_hs,             NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnsubtract.sh",        S(CSN_BINOP_SH),               0, ":CsnArr;",    "i:CsnArr;",              (SUBR) csnarray_subtract_sh,                 NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnsubtract.sh.c",      S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",    ":Complex;:CsnArr;",      (SUBR) csnarray_subtractcomp_sh,             NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnmul.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_mul_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmul.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_mul_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmul.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",    ":CsnArr;:Complex;",      (SUBR) csnarray_mulcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csndiv.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_div_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csndiv.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_div_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csndiv.sh",             S(CSN_BINOP_SH),               0, ":CsnArr;",    "i:CsnArr;",              (SUBR) csnarray_div_sh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csndiv.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",    ":CsnArr;:Complex;",      (SUBR) csnarray_divcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csndiv.sh.c",           S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",    ":Complex;:CsnArr;",      (SUBR) csnarray_divcomp_sh,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnpow.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_pow_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnpow.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_pow_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnpow.sh",             S(CSN_BINOP_SH),               0, ":CsnArr;",    "i:CsnArr;",              (SUBR) csnarray_pow_sh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnpow.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",    ":CsnArr;:Complex;",      (SUBR) csnarray_powcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnpow.sh.c",           S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",    ":Complex;:CsnArr;",      (SUBR) csnarray_powcomp_sh,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnlog.hh",             S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_log_hh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlog.hs",             S(CSN_BINOP_HS),               0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_log_hs,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlog.sh",             S(CSN_BINOP_SH),               0, ":CsnArr;",    "i:CsnArr;",              (SUBR) csnarray_log_sh,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnlog.hs.c",           S(CSN_BINOPCOMPLEX_HS),        0, ":CsnArr;",    ":CsnArr;:Complex;",      (SUBR) csnarray_logcomp_hs,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnlog.sh.c",           S(CSN_BINOPCOMPLEX_SH),        0, ":CsnArr;",    ":Complex;:CsnArr;",      (SUBR) csnarray_logcomp_sh,                  NULL,                                   (SUBR) csnarray_opbincomp_deinit,       NULL, 0 },
+    { "csnabs",                S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_abs,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnexp",                S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_exp,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnsqrt",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_sqrt,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csncbrt",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_cbrt,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnsin",                S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_sin,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csncos",                S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_cos,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csntan",                S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_tan,                         NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnasin",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_asin,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnacos",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_acos,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnatan",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_atan,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnsinh",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_sinh,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csncosh",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_cosh,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csntanh",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_tanh,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnasinh",              S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_asinh,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnacosh",              S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_acosh,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnatanh",              S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_atanh,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnsign",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_sign,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csndot",                S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_dot,                         NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csndot.s",              S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;",       (SUBR) csnarray_dot_scalar,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csndot.s.c",            S(CSN_BINOPCOMPLEX_HH_SCALAR), 0, ":Complex;",   ":CsnArr;:CsnArr;",       (SUBR) csnarray_dotcomp_scalar,              NULL,                                   NULL,                                   NULL, 0 },
+    { "csninner",              S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_inner,                       NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csninner.s",            S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;",       (SUBR) csnarray_inner_scalar,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csninner.s.c",          S(CSN_BINOPCOMPLEX_HH_SCALAR), 0, ":Complex;",   ":CsnArr;:CsnArr;",       (SUBR) csnarray_innercomp_scalar,            NULL,                                   NULL,                                   NULL, 0 },
+    { "csnouter",              S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_outer,                       NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnnorm",               S(CSN_NORM_REDUCTION),         0, ":CsnArr;",    ":CsnArr;ip",             (SUBR) csnarray_norm,                        NULL,                                   (SUBR) csnarray_norm_deinit,            NULL, 0 },
+    { "csnnorm.s",             S(CSN_NORM_REDUCTION_SCALAR),  0, "i",           ":CsnArr;p",              (SUBR) csnarray_norm_scalar,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnnormalize",          S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;jp",             (SUBR) csnarray_normalize,                   NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csnnormalize.in",       S(CSN_UNARYOP_AX_IN),          0, "",            ":CsnArr;jp",             (SUBR) csnarray_normalize_in,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csnpairdist",           S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_pair_distance,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csndist",               S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;p",      (SUBR) csnarray_distance,                    NULL,                                   NULL,                                   NULL, 0 },
+    { "csnangledist",          S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;",       (SUBR) csnarray_angle_distance,              NULL,                                   NULL,                                   NULL, 0 },
+    { "csnreflect",            S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_reflect,                     NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csndiff",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_diff,                        NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csncumsum",             S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_cumsum,                      NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csncumprod",            S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_cumprod,                     NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
+    { "csnmatmul",             S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_matmul,                      NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmatmul.s",           S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;",       (SUBR) csnarray_matmul_scalar,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csntrace",              S(CSN_UNARYOP_SCALAR),         0, "i",           ":CsnArr;",               (SUBR) csnarray_trace,                       NULL,                                   NULL,                                   NULL, 0 },
+    { "csntrace.c",            S(CSN_UNARYOPCOMPLEX_SCALAR),  0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_tracecomp,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csndiag",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_diag,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnmovmean",            S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmean,                     NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmean.in",         S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmean_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovstd",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movstd,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovstd.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movstd_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovvar",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movvar,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovvar.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movvar_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnreal",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_real,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnimag",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_imag,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csntoreal",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_complex_to_real,             NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csntocomplex",          S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_real_to_complex,             NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnconj",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_conj,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnangle",              S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_angle,                       NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
+    { "csnwrap",               S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_wrap_angle,                  NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
+    { "csnwrap.in",            S(CSN_ANGLE),                  0, "",            ":CsnArr;i",              (SUBR) csnarray_wrap_angle_in,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csnunwrap",             S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;iij",            (SUBR) csnarray_unwrap_angle,                NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
+    { "csnunwrap.in",          S(CSN_ANGLE),                  0, "",            ":CsnArr;iij",            (SUBR) csnarray_unwrap_angle_in,             NULL,                                   NULL,                                   NULL, 0 },
+    { "csntype",               S(CSN_UNARYOP_SCALAR),         0, "i",           ":CsnArr;",               (SUBR) csnarray_type,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csncopy",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_copy,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnreverse",            S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_reverse,                     NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnreverse_in",         S(CSN_UNARYOP_IN),             0, "",            ":CsnArr;",               (SUBR) csnarray_reverse_in,                  NULL,                                   NULL,                                   NULL, 0 },
     // ---
 };
 
@@ -11106,8 +12259,9 @@ PUBLIC int32_t csoundModuleInit(CSOUND *csound) {
         return CSOUND_ERROR;
     }
 
-    int32_t res = (int32_t) (sizeof(localops) / sizeof(OENTRY)) == 0 ? CSOUND_SUCCESS : CSOUND_ERROR;
-    return csound->AppendOpcodes(csound, localops, res);
+    /* The table has no NULL-opname sentinel, so the entry count has to be
+       passed explicitly: a non-positive n makes Csound scan past its end. */
+    return csound->AppendOpcodes(csound, localops, (int32_t) (sizeof(localops) / sizeof(OENTRY)));
 }
 
 PUBLIC int32_t csoundModuleDestroy(CSOUND *csound) {
