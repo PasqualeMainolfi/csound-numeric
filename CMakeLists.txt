@@ -176,6 +176,42 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_pad_regression.csd")
         add_test(
+            NAME csnum_krate_vecmath_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_vecmath_regression.csd")
+        add_test(
+            NAME csnum_krate_binop_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_binop_regression.csd")
+        add_test(
+            NAME csnum_krate_self_alias_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_self_alias_regression.csd")
+        add_test(
+            NAME csnum_krate_self_alias_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_self_alias_rejected.csd")
+        set_tests_properties(csnum_krate_self_alias_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "is also this opcode's own output")
+        add_test(
+            NAME csnum_krate_relayout_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_relayout_regression.csd")
+        add_test(
             NAME csnum_krate_reduction_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

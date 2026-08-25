@@ -9,6 +9,10 @@
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
 #define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
 #define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
+#define CHECK_KTRIG(trig)                         \
+    do {                                          \
+        if ((double) *(trig) == 0.0) return OK;   \
+    } while (0)
 
 #define CSN_ACCESSOR_ERROR(csound, perf_h, ...) \
     ((perf_h) != NULL ? (csound)->PerfError((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
@@ -806,8 +810,10 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_BINOP_HH;
 
 typedef struct {
@@ -817,7 +823,11 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *arg_a; // only for dist order (order Minkowski)
+    MYFLT *arg_a; // trig (all)
+                  // dist order (order Minkowski)
+    MYFLT *arg_b; // trig for dist
+    // private
+    CSN_REGISTRY *registry;
 } CSN_BINOP_HH_SCALAR;
 
 typedef struct {
@@ -827,6 +837,9 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_BINOPCOMPLEX_HH_SCALAR;
 
 /* The three binop structs share this prefix and tail, which is what lets one
@@ -838,8 +851,10 @@ typedef struct {
     CSNREF *handle;
     void *arg_a;
     void *arg_b;
+    void *arg_c;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_BINOP_COMMON;
 
 typedef struct {
@@ -849,8 +864,10 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *scalar;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_BINOP_HS;
 
 typedef struct {
@@ -860,12 +877,18 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     COMPLEXDAT *scalar;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_BINOPCOMPLEX_HS;
 
-/* normalize: v / ||v||, con asse opzionale (-1 = tutto l'array) e ordine
-   della norma opzionale. */
+
+typedef struct {
+    void *scratch;
+    size_t scratch_capacity;
+} CSN_SCRATCH;
+
 typedef struct {
     OPDS h;
     // outputs
@@ -874,8 +897,11 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *axis;
     MYFLT *order;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH scratch;
 } CSN_UNARYOP_AX;
 
 typedef struct {
@@ -884,6 +910,10 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *axis;
     MYFLT *order;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH scratch;
 } CSN_UNARYOP_AX_IN;
 
 typedef struct {
@@ -902,8 +932,10 @@ typedef struct {
     // inputs
     MYFLT *scalar;
     CSNREF *source_handle;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_BINOP_SH;
 
 typedef struct {
@@ -913,8 +945,10 @@ typedef struct {
     // inputs
     COMPLEXDAT *scalar;
     CSNREF *source_handle;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_BINOPCOMPLEX_SH;
 
 typedef struct {
@@ -923,8 +957,10 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_UNARYOP;
 
 typedef struct {
@@ -956,12 +992,14 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    /* L'ordine segue gli intypes ":CsnArr;ip": l'asse e' obbligatorio e viene
-       prima, l'ordine della norma e' opzionale e chiude. */
     MYFLT *axis;
     MYFLT *order;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    double *scratch;
+    size_t scratch_capacity;
 } CSN_NORM_REDUCTION;
 
 typedef struct {
@@ -971,6 +1009,9 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *order;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_NORM_REDUCTION_SCALAR;
 
 typedef struct {
