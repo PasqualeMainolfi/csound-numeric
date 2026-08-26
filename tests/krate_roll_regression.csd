@@ -34,8 +34,7 @@ instr 1
 
     kLength = (timeinsts() < 0.004 ? 1 : 10000)
     kShape[] = fillarray(kLength)
-    kType = 0
-    Growing = csnzeros(kShape, kType)
+    Growing = csnzeros(kShape, 0)
     csnroll(Growing, kShift)
 
     kEmptyAxis = 1
@@ -45,8 +44,7 @@ endin
 
 instr 2
     kShape[] = fillarray(10000)
-    kType = 0
-    SameShape = csnzeros(kShape, kType)
+    SameShape = csnzeros(kShape, 0)
 endin
 
 instr 3

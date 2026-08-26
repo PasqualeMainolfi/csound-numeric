@@ -12,12 +12,15 @@ nchnls = 1
 Array@global:CsnArr = csnempty(array(1))
 Alias@global:CsnArr = csnempty(array(1))
 
+/* itype is an i-argument, so this one stays complex for the whole note. */
+ArrayC@global:CsnArr = csnempty(array(1), 1)
+
 instr 1
     kShape[] = init(1)
     kElapsed = timeinsts()
     kShape[0] = (kElapsed < 0.035 ? 4 : 6)
-    kType = (kElapsed < 0.05 ? 0 : 1)
-    Array = csnempty(kShape, kType)
+    Array = csnempty(kShape, 0)
+    ArrayC = csnempty(kShape, 1)
 endin
 
 ; Capture an alias to the original handle. Later probes use both names: if
@@ -59,8 +62,12 @@ instr 5
 endin
 
 instr 6
+    ; The element type is fixed at init: no k pass can flip it either way.
+    iShape[] = csnshape(ArrayC)
     assert(csnsize(Array) == 0 && csnsize(Alias) == 0)
-    assert(csntype(Array) == 1 && csntype(Alias) == 1)
+    assert(csntype(Array) == 0 && csntype(Alias) == 0)
+    assert(csnsize(ArrayC) == 0 && csntype(ArrayC) == 1)
+    assert(iShape[0] == 6)
 endin
 </CsInstruments>
 

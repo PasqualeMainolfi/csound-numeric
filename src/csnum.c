@@ -272,10 +272,16 @@ static int32_t csnarray_clip_deinit(CSOUND *csound, CSN_CLIP *p) {
 }
 
 static int32_t csnarray_argwhere_deinit(CSOUND *csound, CSN_ARGWHERE *p) {
+    if (p->buffer != NULL) {
+        csound->Free(csound, p->buffer);
+    }
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 static int32_t csnarray_compare_deinit(CSOUND *csound, CSN_COMPARE *p) {
+    if (p->buffer != NULL) {
+        csound->Free(csound, p->buffer);
+    }
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
@@ -310,6 +316,9 @@ static int32_t csnarray_norm_deinit(CSOUND *csound, CSN_NORM_REDUCTION *p) {
 }
 
 static int32_t csnarray_movstats_deinit(CSOUND *csound, CSN_MOVSTATS *p) {
+    if (p->median_buffer != NULL) {
+        csound->Free(csound, p->median_buffer);
+    }
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
@@ -323,6 +332,9 @@ static int32_t csnarray_angle_deinit(CSOUND *csound, CSN_ANGLE *p) {
 }
 
 static int32_t csnarray_perquant_deinit(CSOUND *csound, CSN_PERCQUANT_AX *p) {
+    if (p->buffer != NULL) {
+        csound->Free(csound, p->buffer);
+    }
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
@@ -556,6 +568,9 @@ static int32_t create_shape_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p, CSN
     }
 
     csound->LockMutex(reg->mutex);
+    /* csnempty publishes the reserved shape with no elements; zeros and ones
+       publish a filled array, so that reading the handle before the first
+       triggered pass gives the same thing the i-rate form would. */
     if (mode == CSN_K_EMPTY) {
         reset_empty_csnarray(p->array, ndim, shape, itype);
     } else {
@@ -582,11 +597,9 @@ static int32_t create_ones_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p) {
 static int32_t create_shape_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p, CSN_K_SHAPE_INIT_MODE mode) {
     CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
 
-    double itype_arg = (double) *p->itype;
-    if (itype_arg != 0.0 && itype_arg != 1.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", itype_arg);
-    }
-    ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(itype_arg);
+    /* itype is an i-argument, so it cannot change between passes and the init
+       has already validated it. */
+    ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
 
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -823,6 +836,76 @@ int32_t create_random_csnarray(CSOUND *csound, CSN_ARR_RND_INIT *p) {
     return OK;
 }
 
+static int32_t create_random_csnarray_k_init(CSOUND *csound, CSN_ARR_RND_INIT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t ndim = 1U;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    shape[1] = 1U;
+
+    int32_t res = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, CSN_REAL);
+    if (res != OK) return res;
+
+    csound->LockMutex(reg->mutex);
+
+    reset_empty_csnarray(p->array, ndim, shape, CSN_REAL);
+    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, CSN_REAL, p->handle->id);
+
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
+
+int32_t create_random_csnarray_k(CSOUND *csound, CSN_ARR_RND_INIT *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t source_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, source_handle);
+
+    CHECK_KTRIG(p->trig);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    uint32_t new_ndim = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    res = parse_shape_array(csound, p->shape, &new_ndim, new_shape);
+    if (res != OK) return res;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    double min = (double) *p->min;
+    double max = (double) *p->max;
+    for (size_t i = 0; i < arr->size; i++) {
+        arr->data[i] = min + pcg32_random(&reg->rng) * (max - min);
+    }
+
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
+
 int32_t create_full_csnarray(CSOUND *csound, CSN_FULL *p) {
     CHECK_ITYPE(csound, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
@@ -853,11 +936,8 @@ static int32_t create_full_csnarray_k_init(CSOUND *csound, CSN_FULL *p) {
 int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p) {
     CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
 
-    double itype_arg = (double) *p->itype;
-    if (itype_arg != 0.0 && itype_arg != 1.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", itype_arg);
-    }
-    ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(itype_arg);
+    /* Validated by the init: itype is an i-argument. */
+    ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
 
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -908,11 +988,6 @@ static int32_t create_fullcomp_csnarray_k_init(CSOUND *csound, CSN_FULLCOMPLEX *
 int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p) {
     CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
 
-    double itype_arg = (double) *p->itype;
-    if (itype_arg != 1.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] csnfull.c fills with a complex value, so itype must be 1 (complex), got %g", itype_arg);
-    }
-
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array_k(csound, &p->h, p->shape, &ndim, shape);
@@ -947,11 +1022,6 @@ int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p) {
 }
 
 int32_t create_fullcomp_csnarray(CSOUND *csound, CSN_FULLCOMPLEX *p) {
-    CHECK_ITYPE(csound, *p->itype);
-    if (CSN_ITYPE_FROM_ARG(*p->itype) != CSN_COMPLEX) {
-        return csound->InitError(csound, "[csnarray] csnfull.c fills with a complex value, so itype must be 1 (complex), got %g", (double) *p->itype);
-    }
-
     int32_t res_init = create_csnarray_from_shape(csound, &p->h, p->shape, &p->array, p->handle, CSN_COMPLEX);
     if (res_init != OK) {
         return res_init;
@@ -1638,137 +1708,224 @@ int32_t csnarray_shape_k(CSOUND *csound, CSN_SHAPE *p) {
     return OK;
 }
 
-int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p) {
-    double step = (double) *p->step_num;
-    if (step == 0.0) {
-        return csound->InitError(csound, "[csnarray] The step argument must not be zero");
+static int32_t spaced_space_body(CSOUND *csound, OPDS *perf_h, double step_num, const MYFLT *in_start, const MYFLT *in_stop, const MYFLT *in_base, double *base, double *ratio, uint32_t *usize, CSN_SPACED_SPACE_MODE mode) {
+    double start = (double) *in_start;
+    double stop = (double) *in_stop;
+    switch (mode) {
+        case CSN_ARANGE:
+            if ((stop > start && step_num < 0) || (stop < start && step_num > 0)) {
+                return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Step %g has the wrong sign to go from start %g to stop %g", step_num, start, stop);
+            }
+            int32_t size = (int32_t) ceil((stop - start) / step_num);
+            if (size == 0) {
+                return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Start %g, stop %g and step %g produce an empty array", start, stop, step_num);
+            }
+            *usize = (uint32_t) size;
+            break;
+        case CSN_LINSPACE:
+        case CSN_LOGSPACE:
+        case CSN_GEOMSPACE:
+            if (mode == CSN_LOGSPACE) {
+                if (in_base == NULL) {
+                    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] The base argument is missing");
+                }
+                *base = (double) *in_base;
+                if (*base <= 0) {
+                    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] The base argument must be > 0, got %g", *base);
+                }
+            }
+            if (mode == CSN_GEOMSPACE) {
+                *ratio = pow(stop / start, 1.0 / (step_num - 1));
+            }
+            *usize = (uint32_t) step_num;
+            break;
     }
+
+    return OK;
+}
+
+static void spaced_space_assign_value(CSN_ARRAY *array, uint32_t usize, uint32_t arange_step, double start, double stop, double base, double ratio, CSN_SPACED_SPACE_MODE mode) {
+    switch (mode) {
+        case CSN_ARANGE:
+            for (uint32_t i = 0; i < usize; i++) {
+                array->data[i] =  (double) start + (i * arange_step);
+            }
+            break;
+        case CSN_LINSPACE:
+            if (usize == 1) {
+                array->data[0] = start;
+            } else {
+                double step = (stop - start) / (double) (usize - 1);
+                for (uint32_t i = 0; i < usize; i++) {
+                    array->data[i] =  (double) start + (i * step);
+                }
+                array->data[usize - 1] = stop;
+            }
+            break;
+        case CSN_LOGSPACE:
+            if (usize == 1) {
+                array->data[0] = pow(base, start);
+            } else {
+                double step = (stop - start) / (double) (usize - 1);
+                for (int32_t i = 0; i < usize; i++) {
+                    double exponent = start + (double) i * step;
+                    array->data[i] =  pow(base, exponent);
+                }
+                array->data[usize - 1] = pow(base, stop);
+            }
+            break;
+        case CSN_GEOMSPACE:
+            if (usize == 1) {
+                array->data[0] = start;
+            } else {
+                for (int32_t i = 0; i < usize; i++) {
+                    array->data[i] =  start * pow(ratio, i);
+                }
+                array->data[usize - 1] = stop;
+            }
+    }
+}
+
+static int32_t spaced_space_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SPACED_SPACE_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] NULL registry");
+    }
+
+    double num = (double) *p->step_num;
+    if (mode == CSN_ARANGE) {
+        if (num == 0.0) return csound->InitError(csound, "[csnarray] The step argument must not be zero");
+    } else {
+        if (num <= 0.0) return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", (int32_t) num);
+    }
+
+    double arange_step = num;
+    double base = 1.0;
+    const MYFLT *in_base = mode == CSN_LOGSPACE ? p->arg_a : NULL;
+    double ratio = 0.0;
+    uint32_t usize = 0;
+    int32_t res = spaced_space_body(csound, &p->h, arange_step, p->start, p->stop, in_base, &base, &ratio, &usize, mode);
+    if (res != OK) return res;
+
+    int32_t res_init = create_csnarray_init(csound, &p->h, 1U, &usize, &p->array, p->handle, CSN_REAL);
+    if (res_init != OK) return res_init;
+
+    csound->LockMutex(reg->mutex);
+    double start = (double) *p->start;
+    double stop = (double) *p->stop;
+    spaced_space_assign_value(p->array, usize, arange_step, start, stop, base, ratio, mode);
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
+
+static int32_t spaced_space_k_init_helper(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] NULL registry");
+    }
+
+    int32_t res = OK;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    shape[0] = 1;
+    res = create_csnarray_init(csound, &p->h, 1U, shape, &p->array, p->handle, CSN_REAL);
+    if (res != OK) {
+        return res;
+    }
+
+    csound->LockMutex(reg->mutex);
+    reset_empty_csnarray(p->array, 1U, shape, CSN_REAL);
+    csound->UnlockMutex(reg->mutex);
+
+    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
+    return OK;
+}
+
+static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SPACED_SPACE_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    const MYFLT *trig = mode == CSN_LOGSPACE ? p->arg_b : p->arg_a;
+    CHECK_KTRIG(trig);
+
+    double num = (double) *p->step_num;
+    if (mode == CSN_ARANGE) {
+        if (num == 0.0) return csound->PerfError(csound, &p->h, "[csnarray] The step argument must not be zero");
+    } else {
+        if (num <= 0.0) return csound->PerfError(csound, &p->h, "[csnarray] The num argument must be > 0, got %d", (int32_t) num);
+    }
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    double arange_step = num;
+    double base = 1.0;
+    const MYFLT *in_base = mode == CSN_LOGSPACE ? p->arg_a : NULL;
+    double ratio = 0.0;
+    uint32_t usize = 0;
+    res = spaced_space_body(csound, &p->h, arange_step, p->start, p->stop, in_base, &base, &ratio, &usize, mode);
+    if (res != OK) goto done;
+
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    shape[0] = usize;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, 1U, shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = usize == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, 1U, shape, logical_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
 
     double start = (double) *p->start;
     double stop = (double) *p->stop;
-    if ((stop > start && step < 0) || (stop < start && step > 0)) {
-        return csound->InitError(csound, "[csnarray] Step %g has the wrong sign to go from start %g to stop %g", step, start, stop);
-    }
+    spaced_space_assign_value(p->array, usize, arange_step, start, stop, base, ratio, mode);
+    SET_KDATA_NO_ID_END(p, shape, 1U, CSN_REAL);
 
-    int32_t size = (int32_t) ceil((stop - start) / step);
-    if (size == 0) {
-        return csound->InitError(csound, "[csnarray] Start %g, stop %g and step %g produce an empty array", start, stop, step);
-    }
-
-    uint32_t usize = (uint32_t) size;
-
-    int32_t res_init = create_csnarray_init(csound, &p->h, 1U, &usize, &p->array, p->handle, CSN_REAL);
-    if (res_init != OK) {
-        return res_init;
-    }
-
-    for (int32_t i = 0; i < size; i++) {
-        p->array->data[i] =  start + (i * step);
-    }
-
-
+done:
+    csound->UnlockMutex(reg->mutex);
     return OK;
+}
+
+static int32_t csnarray_spaced_space_k_init(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    return spaced_space_k_init_helper(csound, p);
+}
+
+int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    return spaced_space_helper(csound, p, CSN_ARANGE);
+}
+
+int32_t csnarray_arange_k(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    return spaced_space_k_helper(csound, p, CSN_ARANGE);
 }
 
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
-    int32_t num = (int32_t) *p->step_num;
-    if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
-    }
+    return spaced_space_helper(csound, p, CSN_LINSPACE);
+}
 
-    double start = (double) *p->start;
-    double stop = (double) *p->stop;
-
-    uint32_t usize = (uint32_t) num;
-
-    int32_t res_init = create_csnarray_init(csound, &p->h, 1U, &usize, &p->array, p->handle, CSN_REAL);
-    if (res_init != OK) {
-        return res_init;
-    }
-
-    if (num == 1) {
-        p->array->data[0] = start;
-    } else {
-        double step = (stop - start) / (double) (num - 1);
-        for (int32_t i = 0; i < num; i++) {
-            p->array->data[i] =  start + (double) i * step;
-        }
-        p->array->data[num - 1] = stop;
-    }
-
-
-    return OK;
+int32_t csnarray_linspace_k(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    return spaced_space_k_helper(csound, p, CSN_LINSPACE);
 }
 
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
-    int32_t num = (int32_t) *p->step_num;
-    if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
-    }
+    return spaced_space_helper(csound, p, CSN_LOGSPACE);
+}
 
-    if (p->base == NULL) {
-        return csound->InitError(csound, "[csnarray] The base argument is missing");
-    }
-
-    double base = (double) *p->base;
-    if (base <= 0) {
-        return csound->InitError(csound, "[csnarray] The base argument must be > 0, got %g", base);
-    }
-
-    double start = (double) *p->start;
-    double stop = (double) *p->stop;
-
-    uint32_t usize = (uint32_t) num;
-
-    int32_t res_init = create_csnarray_init(csound, &p->h, 1U, &usize, &p->array, p->handle, CSN_REAL);
-    if (res_init != OK) {
-        return res_init;
-    }
-
-    if (num == 1) {
-        p->array->data[0] = pow(base, start);
-    } else {
-        double step = (stop - start) / (double) (num - 1);
-        for (int32_t i = 0; i < num; i++) {
-            double exponent = start + (double) i * step;
-            p->array->data[i] =  pow(base, exponent);
-        }
-        p->array->data[num - 1] = pow(base, stop);
-    }
-
-
-    return OK;
+int32_t csnarray_logspace_k(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    return spaced_space_k_helper(csound, p, CSN_LOGSPACE);
 }
 
 int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
-    int32_t num = (int32_t) *p->step_num;
-    if (num <= 0) {
-        return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
-    }
+    return spaced_space_helper(csound, p, CSN_GEOMSPACE);
+}
 
-    double start = (double) *p->start;
-    double stop = (double) *p->stop;
-
-    uint32_t usize = (uint32_t) num;
-
-    int32_t res_init = create_csnarray_init(csound, &p->h, 1U, &usize, &p->array, p->handle, CSN_REAL);
-    if (res_init != OK) {
-        return res_init;
-    }
-
-    double ratio = pow(stop / start, 1.0 / (double) (num - 1));
-
-    if (num == 1) {
-        p->array->data[0] = start;
-    } else {
-        for (int32_t i = 0; i < num; i++) {
-            p->array->data[i] =  start * pow(ratio, i);
-        }
-        p->array->data[num - 1] = stop;
-    }
-
-
-    return OK;
+int32_t csnarray_geomspace_k(CSOUND *csound, CSN_SPACED_SPACE *p) {
+    return spaced_space_k_helper(csound, p, CSN_GEOMSPACE);
 }
 
 // return matrix n x n
@@ -1823,7 +1980,7 @@ static int32_t csnarray_identity_k_init(CSOUND *csound, CSN_IDENTITY *p) {
 }
 
 int32_t csnarray_identity_k(CSOUND *csound, CSN_IDENTITY *p) {
-    CHECK_KTYPE(csound, &p->h, *p->itype);
+    /* Validated by the init: itype is an i-argument. */
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
     if (!IS_VALID_VALUE((double) *p->num)) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid matrix size");
@@ -4119,7 +4276,7 @@ static void slice_set_assign_value(const CSN_ARRAY *data, CSN_ARRAY *destination
     }
 }
 
-int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
+static int32_t csnarray_get_slice_impl(CSOUND *csound, CSN_GET_SLICE *p, bool is_ktime) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -4146,7 +4303,20 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
     uint32_t start = 0;
     uint32_t step = 0;
     size_t output_size = 0;
-    res = validate_slice_spec(csound, NULL, arr, (double) *p->axis, (double) *p->start, (double) *p->stop, (double) *p->step, &axis, &start, &step, shape, &output_size);
+    /* The k form takes the whole spec at k-rate, so during the init pass it
+       normally still reads start=stop=step=0, which no validation can accept.
+       Stand in the full extent of axis 0 there: the slot only has to exist with
+       a usable layout, and the first performance pass republishes it. */
+    double in_start = (double) *p->start;
+    double in_stop = (double) *p->stop;
+    double in_step = (double) *p->step;
+    double in_axis = (double) *p->axis;
+    if (is_ktime && in_step == 0.0 && in_start == 0.0 && in_stop == 0.0) {
+        in_axis = 0.0;
+        in_stop = (double) arr->shape[0];
+        in_step = 1.0;
+    }
+    res = validate_slice_spec(csound, NULL, arr, in_axis, in_start, in_stop, in_step, &axis, &start, &step, shape, &output_size);
     if (res != OK) goto done;
 
     /* _locked: the registry mutex is already held and is not recursive. */
@@ -4164,6 +4334,14 @@ int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
+    return csnarray_get_slice_impl(csound, p, false);
+}
+
+static int32_t csnarray_get_slice_k_init(CSOUND *csound, CSN_GET_SLICE *p) {
+    return csnarray_get_slice_impl(csound, p, true);
 }
 
 int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p) {
@@ -4367,7 +4545,6 @@ int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p) {
     res = push_check_body(csound, NULL, &slot, &arr, reg, handle, false);
     if (res != OK) goto done;
     res = push_in(csound, NULL, arr, p->in_value, NULL);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -4397,7 +4574,6 @@ int32_t csnarray_push_k(CSOUND *csound, CSN_PUSH_K *p) {
     res = push_check_body(csound, &p->h, &slot, &arr, reg, handle, false);
     if (res != OK) goto done;
     res = push_in(csound, &p->h, arr, p->in_value, NULL);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -4420,7 +4596,6 @@ int32_t csnarray_pushcomp(CSOUND *csound, CSN_PUSHCOMPLEX *p) {
     res = push_check_body(csound, NULL, &slot, &arr, reg, handle, true);
     if (res != OK) goto done;
     res = push_in(csound, NULL, arr, NULL, p->in_value);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -4450,7 +4625,6 @@ int32_t csnarray_pushcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX_K *p) {
     res = push_check_body(csound, &p->h, &slot, &arr, reg, handle, true);
     if (res != OK) goto done;
     res = push_in(csound, &p->h, arr, NULL, p->in_value);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6293,7 +6467,6 @@ int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p) {
     }
 
     const uint32_t protect[1] = { source_handle };
-
     if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
@@ -6301,6 +6474,94 @@ int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p) {
 
     memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
     clip_value((double) *p->min, (double) *p->max, p->array);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_clip_k_init(CSOUND *csound, CSN_CLIP *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, source_arr->ndim, source_arr->shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, source_arr->shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+    clip_value((double) *p->min, (double) *p->max, p->array);
+
+    SET_KDATA_END(p, source_arr->shape, source_arr->ndim, source_arr->itype);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6328,6 +6589,46 @@ int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p) {
 
     if (source_arr->itype != CSN_REAL) {
         res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    clip_value((double) *p->min, (double) *p->max, source_arr);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_clip_in_k_init(CSOUND *csound, CSN_CLIP_IN *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+    p->registry = reg;
+    return OK;
+}
+
+int32_t csnarray_clip_in_k(CSOUND *csound, CSN_CLIP_IN *p) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -6380,64 +6681,37 @@ static size_t count_elements_from_value(const CSN_ARRAY *source_arr, double cmp_
     return count;
 }
 
-int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
-    }
-
-    uint32_t source_handle = p->source_handle->id;
-    uint32_t data_handle = p->data_handle->id;
-
-    int32_t res = OK;
-    const char *err = NULL;
-
-    csound->LockMutex(reg->mutex);
-
+static int32_t argwhere_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **data_array, uint32_t source_handle, uint32_t data_handle) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
     }
 
     CSN_SLOT *data_slot = get_slot(reg, data_handle);
     if (data_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
     }
 
     CSN_ARRAY *source_arr = source_slot->array;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] This operation is not implemented for complex arrays");
     }
+
     CSN_ARRAY *data_arr = data_slot->array;
 
-    uint32_t source_ndim = source_arr->ndim;
     uint32_t data_ndim = data_arr->ndim;
 
     if (data_ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Data array must be 1-D, got %u-D", data_ndim);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Data array must be 1-D, got %u-D", data_ndim);
     }
 
-    uint32_t *source_shape = source_arr->shape;
+    *source_array = source_slot->array;
+    *data_array = data_slot->array;
+    return OK;
+}
 
-    /* No match yields a {0, ndim} array rather than an invalid handle, so the
-       result stays usable in a chain. Matches np.argwhere. */
-    size_t count = count_elements_from_array(source_arr, data_arr, EQUAL);
-
-    uint32_t new_shape[2] = { (uint32_t) count, source_arr->ndim };
-
-    const uint32_t protect[2] = { source_handle, data_handle };
-    if (create_csnarray_locked(csound, reg, &p->h, 2U, new_shape, &p->array, p->handle, protect, 2U, &err, source_arr->itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-
-    CSN_ARRAY *arr = p->array;
-
+static void argwhere_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, CSN_ARRAY *arr) {
     size_t match = 0;
     for (size_t linear = 0; linear < source_arr->size; ++linear) {
         double value = source_arr->data[linear];
@@ -6452,18 +6726,170 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
         if (!found) continue;
 
         uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        from_linear_to_coords(src_coords, source_shape, linear, source_arr->ndim);
+        from_linear_to_coords(src_coords, source_arr->shape, linear, source_arr->ndim);
 
-        for (size_t j = 0; j < source_ndim; ++j) {
-            arr->data[match * source_ndim + j] = (double) src_coords[j];
+        for (size_t j = 0; j < source_arr->ndim; ++j) {
+            arr->data[match * source_arr->ndim + j] = (double) src_coords[j];
         }
 
         match++;
     }
+}
+
+
+int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t data_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *data_arr = NULL;
+    res = argwhere_body(csound, NULL, reg, &source_arr, &data_arr, source_handle, data_handle);
+    if (res != OK) goto done;
+
+
+    /* No match yields a {0, ndim} array rather than an invalid handle, so the
+       result stays usable in a chain. Matches np.argwhere. */
+    size_t count = count_elements_from_array(source_arr, data_arr, EQUAL);
+
+    uint32_t new_shape[2] = { (uint32_t) count, source_arr->ndim };
+    const uint32_t protect[2] = { source_handle, data_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, 2U, new_shape, &p->array, p->handle, protect, 2U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+
+    argwhere_assign_value(source_arr, data_arr, arr);
 
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+static int32_t csnarray_argwhere_k_init(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t data_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *data_arr = NULL;
+    res = argwhere_body(csound, NULL, reg, &source_arr, &data_arr, source_handle, data_handle);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    const uint32_t protect[2] = { source_handle, data_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim, source_shape, &p->array, p->handle, protect, 2U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+/* csnargwhere takes a mask array before the trigger; csnargunique, csnargnonzero
+   and csnargisnan do not, so on those the trigger is bound one slot earlier,
+   into the data_handle pointer. The declared arity tells them apart. */
+static inline const MYFLT *argwhere_trig(const OPDS *h, CSNREF *data_handle, MYFLT *trig) {
+    return h->optext->t.inArgCount > 2 ? trig : (const MYFLT *) data_handle;
+}
+
+/* Same story for the comparison family: csnunique has no compared value, so its
+   trigger lands in cmp_value. */
+static inline const MYFLT *compare_trig(const OPDS *h, MYFLT *cmp_value, MYFLT *trig) {
+    return h->optext->t.inArgCount > 2 ? trig : cmp_value;
+}
+
+int32_t csnarray_argwhere_k(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t data_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, data_handle);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *data_arr = NULL;
+    res = argwhere_body(csound, &p->h, reg, &source_arr, &data_arr, source_handle, data_handle);
+    if (res != OK) goto done;
+
+
+    size_t count = count_elements_from_array(source_arr, data_arr, EQUAL);
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) count;
+    new_shape[1] = source_arr->ndim;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, 2U, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = count == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, 2U, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+    argwhere_assign_value(source_arr, data_arr, arr);
+    p->array = arr;
+
+    SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static void argselect_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPARE_MODE mode) {
+    size_t match = 0;
+    for (size_t linear = 0; linear < source_arr->size; ++linear) {
+        if (compare_match(source_arr->data[linear], 0.0, mode)) {
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+            from_linear_to_coords(src_coords, source_arr->shape, linear, source_arr->ndim);
+
+            for (size_t j = 0; j < source_arr->ndim; ++j) {
+                arr->data[match * source_arr->ndim + j] = (double) src_coords[j];
+            }
+            match++;
+        }
+    }
 }
 
 /* Shared by csnargnonzero and csnargisnan: both select elements by a predicate
@@ -6493,8 +6919,6 @@ static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_CO
         res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
 
     size_t count = count_elements_from_value(source_arr, 0.0, mode);
     uint32_t new_shape[2] = { (uint32_t) count, source_arr->ndim };
@@ -6506,20 +6930,108 @@ static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_CO
     }
 
     CSN_ARRAY *arr = p->array;
+    argselect_assign_value(source_arr, arr, mode);
 
-    size_t match = 0;
-    for (size_t linear = 0; linear < source_arr->size; ++linear) {
-        if (compare_match(source_arr->data[linear], 0.0, mode)) {
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-            from_linear_to_coords(src_coords, source_shape, linear, source_arr->ndim);
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
-            for (size_t j = 0; j < source_ndim; ++j) {
-                arr->data[match * source_ndim + j] = (double) src_coords[j];
-            }
-
-            match++;
-        }
+static int32_t csnarray_argselect_k_init(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim, source_shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    if (source_arr->size > 0) {
+        memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size); // REAL
+        arr->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_argselect_k_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_COMPARE_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->source_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(argwhere_trig(&p->h, p->data_handle, p->trig));
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    size_t count = count_elements_from_value(source_arr, 0.0, mode);
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) count;
+    new_shape[1] = source_arr->ndim;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, 2U, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = count == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, 2U, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    p->array = arr;
+    argselect_assign_value(source_arr, arr, mode);
+
+    SET_KDATA_END(p, new_shape, 2U, CSN_REAL);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6530,8 +7042,16 @@ int32_t csnarray_argnonzero(CSOUND *csound, CSN_ARGWHERE *p) {
     return csnarray_argselect_helper(csound, p, NONZERO);
 }
 
+int32_t csnarray_argnonzero_k(CSOUND *csound, CSN_ARGWHERE *p) {
+    return csnarray_argselect_k_helper(csound, p, NONZERO);
+}
+
 int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p) {
     return csnarray_argselect_helper(csound, p, IS_NAN);
+}
+
+int32_t csnarray_argisnan_k(CSOUND *csound, CSN_ARGWHERE *p) {
+    return csnarray_argselect_k_helper(csound, p, IS_NAN);
 }
 
 static int compare_double_from_array_elem(const void *a, const void *b) {
@@ -6570,6 +7090,9 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
     int32_t res = OK;
     const char *err = NULL;
 
+    /* Declared before any goto: the done label frees it. */
+    ARRAY_ELEMENT *temp = NULL;
+
     csound->LockMutex(reg->mutex);
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
@@ -6587,7 +7110,7 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
+    temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
     if (temp == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
         goto done;
@@ -6601,7 +7124,6 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
     /* count == 0 needs no special case: the shape below becomes {0, ndim},
        a legal zero-length array, and the fill loop simply does not run. */
     size_t count = count_unique(temp, source_arr->size);
-
     uint32_t new_shape[2] = { (uint32_t) count, source_arr->ndim };
 
     const uint32_t protect[1] = { source_handle };
@@ -6624,14 +7146,15 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
         }
     }
 
-    csound->Free(csound, temp);
-
 done:
+    if (temp != NULL) {
+        csound->Free(csound, temp);
+    }
     csound->UnlockMutex(reg->mutex);
     return res;
 }
 
-int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
+static int32_t csnarray_argunique_k_init(CSOUND *csound, CSN_ARGWHERE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -6657,7 +7180,145 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
         goto done;
     }
 
-    ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
+    size_t capacity = source_arr->size > 0 ? source_arr->size * 2 : 1;
+    ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * capacity);
+    if (temp == NULL) {
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
+        goto done;
+    }
+
+    p->buffer = temp;
+    p->buffer_capacity = capacity;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, 2U, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(argwhere_trig(&p->h, p->data_handle, p->trig));
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+    size_t source_size = source_arr->size;
+
+    if (source_size > p->buffer_capacity) {
+        size_t new_cap = source_size * 2;
+        ARRAY_ELEMENT *temp = csound->ReAlloc(csound, p->buffer, sizeof(ARRAY_ELEMENT) * new_cap);
+        if (temp == NULL) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
+            goto done;
+        }
+        p->buffer = temp;
+        p->buffer_capacity = new_cap;
+    }
+
+    for (size_t i = 0; i < source_arr->size; i++) {
+        p->buffer[i].value = source_arr->data[i];
+        p->buffer[i].linear_index = (uint32_t) i;
+    }
+
+    size_t count = count_unique(p->buffer, source_arr->size);
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) count;
+    new_shape[1] = source_arr->ndim;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, 2U, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    size_t logical_size = count == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, 2U, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    for (size_t i = 0; i < count; ++i) {
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        ARRAY_ELEMENT *elem = &p->buffer[i];
+        from_linear_to_coords(src_coords, source_shape, elem->linear_index, source_arr->ndim);
+
+        for (size_t j = 0; j < source_ndim; ++j) {
+            arr->data[i * source_ndim + j] = (double) src_coords[j];
+        }
+    }
+
+    SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    /* Declared before any goto: the done label frees it. */
+    ARRAY_ELEMENT *temp = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
     if (temp == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
         goto done;
@@ -6679,12 +7340,135 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-
     for (size_t i = 0; i < count; ++i) {
         arr->data[i] = temp[i].value;
     }
 
+done:
     csound->Free(csound, temp);
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_unique_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    size_t capacity = source_arr->size > 0 ? source_arr->size * 2 : 1;
+    ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * capacity);
+    if (temp == NULL) {
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
+        goto done;
+    }
+    p->buffer = temp;
+    p->buffer_capacity = capacity;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(compare_trig(&p->h, p->cmp_value, p->trig));
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    size_t source_size = source_arr->size;
+    if (source_size > p->buffer_capacity) {
+        size_t new_cap = source_size * 2;
+        ARRAY_ELEMENT *temp = csound->ReAlloc(csound, p->buffer, sizeof(ARRAY_ELEMENT) * new_cap);
+        if (temp == NULL) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
+            goto done;
+        }
+        p->buffer = temp;
+        p->buffer_capacity = new_cap;
+    }
+
+    for (size_t i = 0; i < source_arr->size; i++) {
+        p->buffer[i].value = source_arr->data[i];
+        p->buffer[i].linear_index = (uint32_t) i;
+    }
+
+    size_t count = count_unique(p->buffer, source_arr->size);
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) count;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, 1U, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = count == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, 1U, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    for (size_t i = 0; i < count; ++i) {
+        arr->data[i] = p->buffer[i].value;
+    }
+
+    SET_KDATA_END(p, new_shape, 1U, source_arr->itype);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6740,32 +7524,155 @@ done:
     return res;
 }
 
+static int32_t csnarray_compare_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPARE_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+    double cmp_value = (double) *p->cmp_value;
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, source_arr->ndim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    for (size_t i = 0; i < source_arr->size; ++i) {
+        double value = source_arr->data[i];
+        if (compare_match(value, cmp_value, mode)) arr->data[i] = 1.0;
+    }
+
+    SET_KDATA_END(p, new_shape, source_arr->ndim, source_arr->itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
 int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_helper(csound, p, GREATER_THAN);
+}
+
+int32_t csnarray_greater_than_k(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_compare_k_helper(csound, p, GREATER_THAN);
 }
 
 int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_helper(csound, p, LESS_THAN);
 }
 
+int32_t csnarray_less_than_k(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_compare_k_helper(csound, p, LESS_THAN);
+}
+
 int32_t csnarray_not_equal(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_helper(csound, p, NOT_EQUAL);
+}
+
+int32_t csnarray_not_equal_k(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_compare_k_helper(csound, p, NOT_EQUAL);
 }
 
 int32_t csnarray_greater_equal(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_helper(csound, p, GREATER_EQUAL);
 }
 
+int32_t csnarray_greater_equal_k(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_compare_k_helper(csound, p, GREATER_EQUAL);
+}
+
 int32_t csnarray_less_equal(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_helper(csound, p, LESS_EQUAL);
+}
+
+int32_t csnarray_less_equal_k(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_compare_k_helper(csound, p, LESS_EQUAL);
 }
 
 int32_t csnarray_equal(CSOUND *csound, CSN_COMPARE *p) {
     return csnarray_compare_helper(csound, p, EQUAL);
 }
 
-int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_COMPARE_MODE mode) {
+int32_t csnarray_equal_k(CSOUND *csound, CSN_COMPARE *p) {
+    return csnarray_compare_k_helper(csound, p, EQUAL);
+}
+
+static int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_COMPARE_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -6793,7 +7700,54 @@ int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_COMPARE_
        such argument to read. */
     size_t count = (mode == NONZERO || mode == IS_NAN)
         ? count_elements_from_value(source_arr, 0.0, mode)
-        : count_elements_from_value(source_arr, (double) *p->cmp_value, mode);
+        : count_elements_from_value(source_arr, (double) *p->arg_a, mode);
+
+    *p->value = (MYFLT) count;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_compare_count_k_init(CSOUND *csound, CSN_COUNT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+    p->registry = reg;
+    return OK;
+}
+
+static int32_t csnarray_compare_count_k_helper(CSOUND *csound, CSN_COUNT *p, CSN_COMPARE_MODE mode) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    const MYFLT *trig = mode == EQUAL ? p->arg_b : p->arg_a;
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    size_t count = (mode == NONZERO || mode == IS_NAN)
+        ? count_elements_from_value(source_arr, 0.0, mode)
+        : count_elements_from_value(source_arr, (double) *p->arg_a, mode);
 
     *p->value = (MYFLT) count;
 
@@ -6806,12 +7760,24 @@ int32_t csnarray_count_equal(CSOUND *csound, CSN_COUNT *p) {
     return csnarray_compare_count_helper(csound, p, EQUAL);
 }
 
+int32_t csnarray_count_equal_k(CSOUND *csound, CSN_COUNT *p) {
+    return csnarray_compare_count_k_helper(csound, p, EQUAL);
+}
+
 int32_t csnarray_count_nonzero(CSOUND *csound, CSN_COUNT *p) {
     return csnarray_compare_count_helper(csound, p, NONZERO);
 }
 
+int32_t csnarray_count_nonzero_k(CSOUND *csound, CSN_COUNT *p) {
+    return csnarray_compare_count_k_helper(csound, p, NONZERO);
+}
+
 int32_t csnarray_count_nan(CSOUND *csound, CSN_COUNT *p) {
     return csnarray_compare_count_helper(csound, p, IS_NAN);
+}
+
+int32_t csnarray_count_nan_k(CSOUND *csound, CSN_COUNT *p) {
+    return csnarray_compare_count_k_helper(csound, p, IS_NAN);
 }
 
 static void init_value_for_reduction(double *value, CSN_REDUCTION_MODE mode) {
@@ -7868,7 +8834,6 @@ static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src
     }
 
     res = stdvar_assign_value(csound, NULL, source_arr, arr, out_value, axis, mode);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7895,7 +8860,6 @@ static int32_t csnarray_stdvar_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = 0;
     res = stdvar_body(csound, h, reg, &source_arr, source_handle, out_handle, &axis_value, &axis);
-    if (res != OK) goto done;
 
     CSN_ARRAY *arr = NULL;
     if (axis != -1) {
@@ -8839,7 +9803,6 @@ static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BIN
 
     CSN_ARRAY *arr = p->array;
     res = binop_hh_assign_value(csound, NULL, source_arr_a, source_arr_b, arr, itype, mode);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -9208,7 +10171,6 @@ static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, 
     CSN_ARRAY *arr = p->array;
 
     res = binop_hs_sh_assign_value(csound, NULL, scalar_arg, complex_arg, source_arr, arr, mode);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -10441,7 +11403,6 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
 
     CSN_ARRAY *arr = p->array;
     res = vec_assign_value(csound, NULL, source_arr_a, source_arr_b, arr, mode);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -10934,7 +11895,10 @@ static int32_t csnarray_norm_k_init(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     double axis_value = (double) *p->axis;
     double order = (double) *p->order;
 
-    if (order < 1.0) {
+    /* order is a k-argument and normally still reads 0 during the init pass, so
+       only a value the orchestra really set can be rejected here; the perf pass
+       checks it again before every use. */
+    if (order != 0.0 && order < 1.0) {
         return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
@@ -10985,7 +11949,11 @@ static int32_t csnarray_norm_k_init(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-    norm_assign_value(source_arr, arr, scratch, axis, run, itype, order);
+    /* With the order still unset the output keeps its shape and stays zeroed;
+       the first triggered pass fills it. */
+    if (order >= 1.0) {
+        norm_assign_value(source_arr, arr, scratch, axis, run, itype, order);
+    }
     SET_KDATA_BEGIN(p, reg);
     p->scratch = scratch;
     p->scratch_capacity = scratch_cap;
@@ -11102,6 +12070,22 @@ int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+/* Same as the axis form: the order arrives at k-rate and reads 0 at init. */
+static int32_t csnarray_norm_scalar_k_init(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
+    if ((double) *p->order >= 1.0) {
+        return csnarray_norm_scalar(csound, p);
+    }
+
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    p->registry = reg;
+    *p->value = FL(0.0);
+    return OK;
 }
 
 int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
@@ -11437,7 +12421,6 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *s
     if (res != OK) goto done;
 
     res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
-    if (res != OK) goto done;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -11458,7 +12441,10 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, const OPDS *h, CS
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
-    if (mode == CSN_NORMALIZE && order < 1.0) {
+    /* Only csnnormalize takes an order, and it is a k-argument that normally
+       still reads 0 during the init pass: reject only a value the orchestra
+       really set. The perf pass checks it again before every use. */
+    if (mode == CSN_NORMALIZE && order != 0.0 && order < 1.0) {
         return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
@@ -11510,8 +12496,12 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, const OPDS *h, CS
     res = unaryop_allocate_scratch(csound, NULL, scratch, source_arr->size, itype, mode);
     if (res != OK) goto done;
 
-    res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
-    if (res != OK) goto done;
+    /* csnnormalize with the order still unset leaves the output as created; the
+       first triggered pass computes it. Every other mode ignores order. */
+    if (mode != CSN_NORMALIZE || order >= 1.0) {
+        res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
+        if (res != OK) goto done;
+    }
 
     memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
     memcpy(k_data->prev_shape, new_shape, sizeof(k_data->prev_shape));
@@ -11661,6 +12651,25 @@ int32_t csnarray_sort_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     double dist_order = (double) *p->arg_a;
     return csnarray_scalar_helper(csound, p, CSN_DISTANCE, dist_order);
+}
+
+/* The Minkowski order is a k-argument here, so during the init pass it normally
+   still reads 0, which no validation can accept. Stash the registry the perf
+   pass needs, leave the scalar at 0, and let the first pass compute it. */
+static int32_t csnarray_distance_k_init(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
+    double dist_order = (double) *p->arg_a;
+    if (dist_order >= 1.0) {
+        return csnarray_distance(csound, p);
+    }
+
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    p->registry = reg;
+    *p->value = FL(0.0);
+    return OK;
 }
 
 int32_t csnarray_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
@@ -12178,7 +13187,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex) {
+static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -12186,6 +13195,8 @@ static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, MYFLT *out_v
 
     uint32_t source_handle = (uint32_t) src_ref->id;
     int32_t res = OK;
+
+    *registry = reg;
 
     csound->LockMutex(reg->mutex);
 
@@ -12236,13 +13247,117 @@ done:
     return res;
 }
 
+static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry, MYFLT *trig) {
+    CSN_REGISTRY *reg = *registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, perf_h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = (uint32_t) src_ref->id;
+    int32_t res = OK;
+
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot_a = get_slot(reg, source_handle);
+    if (slot_a == NULL) {
+        res = csound->PerfError(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot_a->array;
+    uint32_t dim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (dim != 2) {
+        res = csound->PerfError(csound, perf_h, "[csnarray] Trace needs a 2-D matrix, got %u-D", dim);
+        goto done;
+    }
+
+    uint32_t coords[2] = { 0, 0 };
+    uint32_t n = source_shape[0] < source_shape[1] ? source_shape[0] : source_shape[1];
+    CSN_COMPLEXDAT sum = { 0.0, 0.0 };
+    for (uint32_t i = 0; i < n; i++) {
+        coords[0] = i;
+        coords[1] = i;
+
+        size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+        complex_add(&sum, sum, item_at(source_arr, off));
+    }
+
+    if (source_arr->itype == CSN_COMPLEX) {
+        if (out_complex == NULL) {
+            res = csound->PerfError(csound, perf_h, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
+            goto done;
+        }
+        out_complex->real = (MYFLT) sum.re;
+        out_complex->imag = (MYFLT) sum.im;
+        out_complex->isPolar = 0;
+    } else {
+        if (out_value == NULL) {
+            res = csound->PerfError(csound, perf_h, "[csnarray] Handle holds a real array; declare the result as i");
+            goto done;
+        }
+        *out_value = (MYFLT) sum.re;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 int32_t csnarray_trace(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
-    return csnarray_trace_impl(csound, p->source_handle, p->value, NULL);
+    return csnarray_trace_impl(csound, p->source_handle, p->value, NULL, &p->registry);
+}
+
+int32_t csnarray_trace_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
+    return csnarray_trace_impl_k(csound, &p->h, p->source_handle, p->value, NULL, &p->registry, p->trig);
 }
 
 int32_t csnarray_tracecomp(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p) {
-    return csnarray_trace_impl(csound, p->source_handle, NULL, p->value);
+    return csnarray_trace_impl(csound, p->source_handle, NULL, p->value, &p->registry);
 }
+
+int32_t csnarray_tracecomp_k(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p) {
+    return csnarray_trace_impl_k(csound, &p->h, p->source_handle, NULL, p->value, &p->registry, p->trig);
+}
+
+static int32_t diag_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle) {
+    CSN_SLOT *slot_a = get_slot(reg, source_handle);
+    if (slot_a == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = slot_a->array;
+    CSN_ARRAY *source_arr = *source_array;
+    uint32_t dim = source_arr->ndim;
+
+    if (dim == 0 || dim > 2) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Diag needs a 1-D or 2-D array, got %u-D", dim);
+    }
+
+    return OK;
+}
+
+/* new_dim is the rank of the destination, the opposite of the source's: 1 means
+   the diagonal of a matrix is being read out, 2 means a vector is being spread
+   over the diagonal of a fresh matrix. */
+static void diag_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, uint32_t new_dim, uint32_t *new_shape) {
+    uint32_t coords[2] = { 0, 0 };
+    for (uint32_t i = 0; i < new_shape[0]; i++) {
+        coords[0] = i;
+        coords[1] = i;
+        if (new_dim == 1) {
+            size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+            item_set(arr, i, item_at(source_arr, off));
+        } else {
+            size_t off = from_coords_to_offset(coords, arr->strides, 2U);
+            item_set(arr, off, item_at(source_arr, i));
+        }
+    }
+}
+
 
 int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
@@ -12256,20 +13371,12 @@ int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p) {
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *slot_a = get_slot(reg, source_handle);
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
+    CSN_ARRAY *source_arr = NULL;
+    res = diag_body(csound, NULL, reg, &source_arr, source_handle);
+    if (res != OK) goto done;
 
-    CSN_ARRAY *source_arr = slot_a->array;
     uint32_t dim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
-
-    if (dim == 0 || dim > 2) {
-        res = csound->InitError(csound, "[csnarray] Diag needs a 1-D or 2-D array, got %u-D", dim);
-        goto done;
-    }
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_dim = dim == 2U ? 1U : 2U;
@@ -12287,20 +13394,58 @@ int32_t csnarray_diag(CSOUND *csound, CSN_UNARYOP *p) {
     }
 
     CSN_ARRAY *arr = p->array;
+    diag_assign_value(source_arr, arr, new_dim, new_shape);
+    SET_KDATA_BEGIN(p, reg);
 
-    uint32_t coords[2] = { 0, 0 };
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
-    for (uint32_t i = 0; i < new_shape[0]; i++) {
-        coords[0] = i;
-        coords[1] = i;
-        if (dim == 2) {
-            size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
-            item_set(arr, i, item_at(source_arr, off));
-        } else {
-            size_t off = from_coords_to_offset(coords, arr->strides, 2U);
-            item_set(arr, off, item_at(source_arr, i));
-        }
+int32_t csnarray_diag_k(CSOUND *csound, CSN_UNARYOP *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = (uint32_t) p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    res = diag_body(csound, &p->h, reg, &source_arr, source_handle);
+    if (res != OK) goto done;
+
+    uint32_t dim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = dim == 2U ? 1U : 2U;
+    if (dim == 1) {
+        new_shape[0] = source_shape[0];
+        new_shape[1] = source_shape[0];
+    } else {
+        new_shape[0] = source_shape[0] < source_shape[1] ? source_shape[0] : source_shape[1];
     }
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, new_dim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+
+    diag_assign_value(source_arr, arr, new_dim, new_shape);
+    SET_KDATA_END(p, new_shape, new_dim, source_arr->itype);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -12422,84 +13567,31 @@ static void movmedian_slice(double *dst, const double *src, double *scratch, siz
     }
 }
 
-static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOVSTATS_MODE mode) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
-    }
-
-    int32_t res = OK;
-    const char *err = NULL;
-
-    if (*p->winsize <= 0.0) {
-        return csound->InitError(csound, "[csnarray] Invalid window size");
-    }
-
-    double axis_value = (double) *p->axis;
-    size_t winsize = (size_t) *p->winsize;
-
-    double *median_buffer = NULL;
-    if (mode == CSN_MOVMEDIAN) {
-        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
-        if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Memory allocation failed");
-        }
-    }
-
-    csound->LockMutex(reg->mutex);
-
-    uint32_t source_handle = p->source_handle->id;
+static int32_t movstats_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSN_MOVSTATS_MODE mode, const MYFLT *in_axis, int32_t *out_axis) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
     }
 
-    CSN_ARRAY *source_arr = source_slot->array;
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
     ITEM_TYPE itype = source_arr->itype;
 
     if (itype == CSN_COMPLEX && (mode == CSN_MOVMIN || mode == CSN_MOVMAX || mode == CSN_MOVMEDIAN)) {
-        res = csound->InitError(csound, "[csnarray] Ordering is undefined for complex arrays, so this moving statistic is not available");
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Ordering is undefined for complex arrays, so this moving statistic is not available");
     }
+
     uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
+    double axis_value = (double) *in_axis;
     if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    int32_t axis = (int32_t) axis_value;
-
-    uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    uint32_t new_dim = source_ndim;
-    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-
-    if (axis == -1) {
-        if (winsize == 0 || winsize > source_arr->size) {
-            res = csound->InitError(csound, "[csnarray] Invalid window size");
-            goto done;
-        }
-
-        memset(new_shape, 0, sizeof(new_shape));
-        new_shape[0] = (uint32_t) source_arr->size;
-        new_dim = 1U;
-    } else {
-        if (winsize > source_shape[axis]) {
-            res = csound->InitError(csound, "[csnarray] Invalid window size");
-            goto done;
-        }
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
     }
 
-    const uint32_t protect[1] = { source_handle };
-    ITEM_TYPE out_itype = (mode == CSN_MOVSTD || mode == CSN_MOVVAR) ? CSN_REAL : itype;
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 1U, &err, out_itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    *out_axis = (int32_t) axis_value;
+    return OK;
+}
 
-    CSN_ARRAY *arr = p->array;
-
+static int32_t movstats_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *arr, double *median_buffer, size_t winsize, int32_t axis, ITEM_TYPE itype, CSN_MOVSTATS_MODE mode) {
     if (axis == -1) {
         switch (mode) {
             case CSN_MOVMEAN:
@@ -12510,14 +13602,12 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
                 break;
             case CSN_MOVSTD:
                 if (movstdvar_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_STD, itype) != OK) {
-                    res = csound->InitError(csound, "[csnarray] Division by zero in movstd");
-                    goto done;
+                    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero in movstd");
                 };
                 break;
             case CSN_MOVVAR:
                 if (movstdvar_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_VAR, itype) != OK) {
-                    res = csound->InitError(csound, "[csnarray] Division by zero in movvar");
-                    goto done;
+                    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero in movvar");
                 };
                 break;
             case CSN_MOVMIN:
@@ -12527,8 +13617,11 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
                 movminmax_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_MAX);
                 break;
         }
-        goto done;
+        return OK;
     }
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
 
     uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
     uint32_t reduced_ndim = 0;
@@ -12561,14 +13654,12 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
                 break;
             case CSN_MOVSTD:
                 if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, RED_STD, itype) != OK) {
-                    res = csound->InitError(csound, "[csnarray] Division by zero in movvar");
-                    goto done;
+                    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero in movvar");
                 };
                 break;
             case CSN_MOVVAR:
                 if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, RED_VAR, itype) != OK) {
-                    res = csound->InitError(csound, "[csnarray] Division by zero in movvar");
-                    goto done;
+                    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero in movvar");
                 };
                 break;
             case CSN_MOVMIN:
@@ -12580,6 +13671,73 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
         }
     }
 
+    return OK;
+}
+
+static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    if (*p->winsize <= 0.0) {
+        return csound->InitError(csound, "[csnarray] Invalid window size");
+    }
+
+    size_t winsize = (size_t) *p->winsize;
+
+    double *median_buffer = NULL;
+    if (mode == CSN_MOVMEDIAN) {
+        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
+        if (median_buffer == NULL) {
+            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+        }
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = -1;
+    res = movstats_body(csound, NULL, reg, &source_arr, source_handle, mode, p->axis, &axis);
+    if (res != OK) goto done;
+
+    uint32_t new_dim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    if (axis == -1) {
+        if (winsize == 0 || winsize > source_arr->size) {
+            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            goto done;
+        }
+
+        memset(new_shape, 0, sizeof(new_shape));
+        new_shape[0] = (uint32_t) source_arr->size;
+        new_dim = 1U;
+    } else {
+        if (winsize > source_shape[axis]) {
+            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            goto done;
+        }
+    }
+
+    const uint32_t protect[1] = { source_handle };
+    ITEM_TYPE out_itype = (mode == CSN_MOVSTD || mode == CSN_MOVVAR) ? CSN_REAL : source_arr->itype;
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 1U, &err, out_itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    CSN_ARRAY *arr = p->array;
+    res = movstats_assign_value(csound, NULL, source_arr, arr, median_buffer, winsize,  axis, itype, mode);
+
 done:
     if (median_buffer != NULL) {
         csound->Free(csound, median_buffer);
@@ -12588,28 +13746,210 @@ done:
     return res;
 }
 
+static int32_t csnarray_movstats_k_init_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    /* No window check here: winsize is a k-argument and normally still reads 0
+       during the init pass. The perf pass validates it before every use. */
+    size_t winsize = (size_t) *p->winsize;
+
+    if (mode == CSN_MOVMEDIAN) {
+        size_t cap = winsize > 0 ? winsize * 2 : 1;
+        double *median_buffer = csound->Calloc(csound, sizeof(double) * cap);
+        if (median_buffer == NULL) {
+            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+        }
+        p->median_buffer = median_buffer;
+        p->median_buffer_capacity = cap;
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = -1;
+    res = movstats_body(csound, NULL, reg, &source_arr, source_handle, mode, p->axis, &axis);
+    if (res != OK) goto done;
+
+    const uint32_t protect[1] = { source_handle };
+    ITEM_TYPE out_itype = (mode == CSN_MOVSTD || mode == CSN_MOVVAR) ? CSN_REAL : source_arr->itype;
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, out_itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    CSN_ARRAY *arr = p->array;
+    /* With the window still unknown the output keeps the source's layout and
+       stays zeroed; the first triggered pass fills it. */
+    if (winsize > 0) {
+        res = movstats_assign_value(csound, NULL, source_arr, arr, p->median_buffer, winsize,  axis, itype, mode);
+        if (res != OK) goto done;
+    }
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    uint32_t source_handle = p->source_handle->id;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    if (*p->winsize <= 0.0) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid window size");
+    }
+
+    CHECK_KTRIG(p->trig);
+    size_t winsize = (size_t) *p->winsize;
+
+    if (mode == CSN_MOVMEDIAN) {
+        if (winsize > p->median_buffer_capacity) {
+            size_t new_cap = winsize * 2;
+            double *median_buffer = csound->ReAlloc(csound, p->median_buffer, sizeof(double) * new_cap);
+            if (median_buffer == NULL) {
+                return csound->PerfError(csound, &p->h, "[csnarray] Memory allocation failed");
+            }
+            p->median_buffer = median_buffer;
+            p->median_buffer_capacity = new_cap;
+        }
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = -1;
+    res = movstats_body(csound, &p->h, reg, &source_arr, source_handle, mode, p->axis, &axis);
+    if (res != OK) goto done;
+
+    uint32_t new_dim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    if (axis == -1) {
+        if (winsize == 0 || winsize > source_arr->size) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Invalid window size");
+            goto done;
+        }
+
+        memset(new_shape, 0, sizeof(new_shape));
+        new_shape[0] = (uint32_t) source_arr->size;
+        new_dim = 1U;
+    } else {
+        if (winsize > source_shape[axis]) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Invalid window size");
+            goto done;
+        }
+    }
+
+    size_t requested_size = 0;
+    if (get_array_size_from_shape(&requested_size, new_dim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    CSN_ARRAY *arr = p->array;
+
+    size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+
+    res = movstats_assign_value(csound, &p->h, source_arr, arr, p->median_buffer, winsize,  axis, itype, mode);
+    if (res != OK) goto done;
+    SET_KDATA_END(p, new_shape, new_dim, itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 int32_t csnarray_movmean(CSOUND *csound, CSN_MOVSTATS *p) {
     return csnarray_movstats_helper(csound, p, CSN_MOVMEAN);
+}
+
+static int32_t csnarray_movmean_k_init(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_init_helper(csound, p, CSN_MOVMEAN);
+}
+
+int32_t csnarray_movmean_k(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_helper(csound, p, CSN_MOVMEAN);
 }
 
 int32_t csnarray_movmedian(CSOUND *csound, CSN_MOVSTATS *p) {
     return csnarray_movstats_helper(csound, p, CSN_MOVMEDIAN);
 }
 
+static int32_t csnarray_movmedian_k_init(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_init_helper(csound, p, CSN_MOVMEDIAN);
+}
+
+int32_t csnarray_movmedian_k(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_helper(csound, p, CSN_MOVMEDIAN);
+}
+
 int32_t csnarray_movstd(CSOUND *csound, CSN_MOVSTATS *p) {
     return csnarray_movstats_helper(csound, p, CSN_MOVSTD);
+}
+
+static int32_t csnarray_movstd_k_init(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_init_helper(csound, p, CSN_MOVSTD);
+}
+
+int32_t csnarray_movstd_k(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_helper(csound, p, CSN_MOVSTD);
 }
 
 int32_t csnarray_movvar(CSOUND *csound, CSN_MOVSTATS *p) {
     return csnarray_movstats_helper(csound, p, CSN_MOVVAR);
 }
 
+static int32_t csnarray_movvar_k_init(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_init_helper(csound, p, CSN_MOVVAR);
+}
+
+int32_t csnarray_movvar_k(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_helper(csound, p, CSN_MOVVAR);
+}
+
 int32_t csnarray_movmin(CSOUND *csound, CSN_MOVSTATS *p) {
     return csnarray_movstats_helper(csound, p, CSN_MOVMIN);
 }
 
+static int32_t csnarray_movmin_k_init(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_init_helper(csound, p, CSN_MOVMIN);
+}
+
+int32_t csnarray_movmin_k(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_helper(csound, p, CSN_MOVMIN);
+}
+
 int32_t csnarray_movmax(CSOUND *csound, CSN_MOVSTATS *p) {
     return csnarray_movstats_helper(csound, p, CSN_MOVMAX);
+}
+
+static int32_t csnarray_movmax_k_init(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_init_helper(csound, p, CSN_MOVMAX);
+}
+
+int32_t csnarray_movmax_k(CSOUND *csound, CSN_MOVSTATS *p) {
+    return csnarray_movstats_k_helper(csound, p, CSN_MOVMAX);
 }
 
 static int32_t dispatch_movstats(double *dst, double *src, size_t size, uint32_t stride, size_t winsize, double *median_buffer, CSN_MOVSTATS_MODE mode, ITEM_TYPE itype) {
@@ -12640,74 +13980,57 @@ static int32_t dispatch_movstats(double *dst, double *src, size_t size, uint32_t
     return OK;
 }
 
-
-static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, CSN_MOVSTATS_MODE mode) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
-    }
-
-    int32_t res = OK;
-
-    double axis_value = (double) *p->axis;
-    size_t winsize = (size_t) *p->winsize;
-
-    double *median_buffer = NULL;
-    if (mode == CSN_MOVMEDIAN) {
-        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
-        if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Memory allocation failed");
-        }
-    }
-
-    csound->LockMutex(reg->mutex);
-
-    uint32_t source_handle = p->source_handle->id;
+static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, MYFLT *in_axis, int32_t *out_axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
     }
 
-    CSN_ARRAY *source_arr = source_slot->array;
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
     ITEM_TYPE itype = source_arr->itype;
 
     if (itype == CSN_COMPLEX && (mode == CSN_MOVMIN || mode == CSN_MOVMAX || mode == CSN_MOVMEDIAN)) {
-        res = csound->InitError(csound, "[csnarray] Ordering is undefined for complex arrays, so this moving statistic is not available");
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Ordering is undefined for complex arrays, so this moving statistic is not available");
     }
 
     if (itype == CSN_COMPLEX && (mode == CSN_MOVSTD || mode == CSN_MOVVAR)) {
-        res = csound->InitError(csound, "[csnarray] Moving std and var of a complex array are real, so they cannot be written back in place");
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Moving std and var of a complex array are real, so they cannot be written back in place");
     }
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
+    double axis_value = (double) *in_axis;
     if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
     }
     int32_t axis = (int32_t) axis_value;
 
     if (axis == -1) {
         if (winsize == 0 || winsize > source_arr->size) {
-            res = csound->InitError(csound, "[csnarray] Invalid window size");
-            goto done;
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid window size");
         }
     } else {
         if (winsize == 0 || winsize > source_shape[axis]) {
-            res = csound->InitError(csound, "[csnarray] Invalid window size");
-            goto done;
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid window size");
         }
     }
 
+    *out_axis = (int32_t) axis;
+    return OK;
+}
+
+static int32_t movstats_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, double *median_buffer, int32_t axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
+    ITEM_TYPE itype = source_arr->itype;
     if (axis == -1) {
         if (dispatch_movstats(source_arr->data, source_arr->data, source_arr->size, 1, winsize, median_buffer, mode, itype) != OK) {
-            res = csound->InitError(csound, "[csnarray] Division by zero");
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero");
         };
-        goto done;
+        return OK;
     }
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
 
     uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
     uint32_t reduced_ndim = 0;
@@ -12731,10 +14054,40 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
 
         size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
         if (dispatch_movstats(source_arr->data + src_base * itype, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, median_buffer, mode, itype) != OK) {
-            res = csound->InitError(csound, "[csnarray] Division by zero");
-            goto done;
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero");
         };
     }
+
+    return OK;
+}
+
+static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    int32_t res = OK;
+
+    uint32_t source_handle = p->source_handle->id;
+    size_t winsize = (size_t) *p->winsize;
+
+    double *median_buffer = NULL;
+    if (mode == CSN_MOVMEDIAN) {
+        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
+        if (median_buffer == NULL) {
+            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+        }
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = -1;
+    res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
+    if (res != OK) goto done;
+
+    res = movstats_in_assign_value(csound, NULL, source_arr, median_buffer, axis, winsize, mode);
 
 done:
     if (median_buffer != NULL) {
@@ -12744,31 +14097,192 @@ done:
     return res;
 }
 
+static int32_t csnarray_movstats_in_k_deinit(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    if (p->median_buffer != NULL) {
+        csound->Free(csound, p->median_buffer);
+    }
+    return OK;
+}
+
+static int32_t csnarray_movstats_in_k_init_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    p->registry = reg;
+    int32_t res = OK;
+
+    uint32_t source_handle = p->source_handle->id;
+    size_t winsize = (size_t) *p->winsize;
+
+    p->median_buffer = NULL;
+    p->median_buffer_capacity = 0;
+    if (mode == CSN_MOVMEDIAN) {
+        /* The window is a k-argument, so it still reads 0 here; the perf pass
+           grows the buffer on demand and only needs a seed it can realloc. */
+        size_t cap = winsize > 0 ? winsize * 2 : 1;
+        double *median_buffer = csound->Calloc(csound, sizeof(double) * cap);
+        if (median_buffer == NULL) {
+            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+        }
+        p->median_buffer = median_buffer;
+        p->median_buffer_capacity = cap;
+    }
+
+    /* Same reason as the output form: with a k window this check can only run
+       once the first performance pass knows the value. */
+    if (winsize == 0) {
+        return OK;
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = -1;
+    res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
+
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_movstats_in_k_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, CSN_MOVSTATS_MODE mode) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    int32_t res = OK;
+
+    /* The in-place form rewrites its own source, so an ungated pass is not a
+       wasted recomputation: it filters an already filtered array. */
+    CHECK_KTRIG(p->trig);
+
+    uint32_t source_handle = p->source_handle->id;
+    size_t winsize = (size_t) *p->winsize;
+
+    if (mode == CSN_MOVMEDIAN) {
+        if (winsize > p->median_buffer_capacity) {
+            size_t new_cap = winsize * 2;
+            double *median_buffer = csound->ReAlloc(csound, p->median_buffer, sizeof(double) * new_cap);
+            if (median_buffer == NULL) {
+                return csound->PerfError(csound, &p->h, "[csnarray] Memory allocation failed");
+            }
+            p->median_buffer = median_buffer;
+            p->median_buffer_capacity = new_cap;
+        }
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    int32_t axis = -1;
+    res = movstats_in_body(csound, &p->h, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
+    if (res != OK) goto done;
+
+    res = movstats_in_assign_value(csound, &p->h, source_arr, p->median_buffer, axis, winsize, mode);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 int32_t csnarray_movmean_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
     return csnarray_movstats_in_helper(csound, p, CSN_MOVMEAN);
+}
+
+static int32_t csnarray_movmean_in_k_init(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_init_helper(csound, p, CSN_MOVMEAN);
+}
+
+int32_t csnarray_movmean_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_helper(csound, p, CSN_MOVMEAN);
 }
 
 int32_t csnarray_movmedian_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
     return csnarray_movstats_in_helper(csound, p, CSN_MOVMEDIAN);
 }
 
+static int32_t csnarray_movmedian_in_k_init(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_init_helper(csound, p, CSN_MOVMEDIAN);
+}
+
+int32_t csnarray_movmedian_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_helper(csound, p, CSN_MOVMEDIAN);
+}
+
 int32_t csnarray_movstd_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
     return csnarray_movstats_in_helper(csound, p, CSN_MOVSTD);
+}
+
+static int32_t csnarray_movstd_in_k_init(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_init_helper(csound, p, CSN_MOVSTD);
+}
+
+int32_t csnarray_movstd_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_helper(csound, p, CSN_MOVSTD);
 }
 
 int32_t csnarray_movvar_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
     return csnarray_movstats_in_helper(csound, p, CSN_MOVVAR);
 }
 
+static int32_t csnarray_movvar_in_k_init(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_init_helper(csound, p, CSN_MOVVAR);
+}
+
+int32_t csnarray_movvar_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_helper(csound, p, CSN_MOVVAR);
+}
+
 int32_t csnarray_movmin_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
     return csnarray_movstats_in_helper(csound, p, CSN_MOVMIN);
+}
+
+static int32_t csnarray_movmin_in_k_init(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_init_helper(csound, p, CSN_MOVMIN);
+}
+
+int32_t csnarray_movmin_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_helper(csound, p, CSN_MOVMIN);
 }
 
 int32_t csnarray_movmax_in(CSOUND *csound, CSN_MOVSTATS_IN *p) {
     return csnarray_movstats_in_helper(csound, p, CSN_MOVMAX);
 }
 
-int32_t csnarray_complop_unary_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPLEXOP_MODE mode) {
+static int32_t csnarray_movmax_in_k_init(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_init_helper(csound, p, CSN_MOVMAX);
+}
+
+int32_t csnarray_movmax_in_k(CSOUND *csound, CSN_MOVSTATS_IN *p) {
+    return csnarray_movstats_in_k_helper(csound, p, CSN_MOVMAX);
+}
+
+static void complop_unary_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPLEXOP_MODE mode) {
+    for (size_t i = 0; i < source_arr->size; i ++) {
+        switch (mode) {
+            case CSN_REAL_PART:
+                arr->data[i] = source_arr->data[i * 2];
+                break;
+            case CSN_IMAG_PART:
+                arr->data[i] = source_arr->data[i * 2 + 1];
+                break;
+            case CSN_REAL_TO_COMPLEX:
+                arr->data[i * 2] = source_arr->data[i];
+                arr->data[i * 2 + 1] = 0.0;
+                break;
+            case CSN_CONJ_PART:
+                arr->data[i * 2] = source_arr->data[i * 2];
+                arr->data[i * 2 + 1] = -source_arr->data[i * 2 + 1];
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static int32_t csnarray_complop_unary_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPLEXOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -12816,72 +14330,14 @@ int32_t csnarray_complop_unary_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPLE
     }
 
     CSN_ARRAY *arr = p->array;
-
-    for (size_t i = 0; i < source_arr->size; i ++) {
-        switch (mode) {
-            case CSN_REAL_PART:
-                arr->data[i] = source_arr->data[i * 2];
-                break;
-            case CSN_IMAG_PART:
-                arr->data[i] = source_arr->data[i * 2 + 1];
-                break;
-            case CSN_REAL_TO_COMPLEX:
-                arr->data[i * 2] = source_arr->data[i];
-                arr->data[i * 2 + 1] = 0.0;
-                break;
-            case CSN_CONJ_PART:
-                arr->data[i * 2] = source_arr->data[i * 2];
-                arr->data[i * 2 + 1] = -source_arr->data[i * 2 + 1];
-                break;
-            default:
-                break;
-        }
-    }
+    complop_unary_assign_value(source_arr, arr, mode);
 
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
 }
 
-int32_t csnarray_real(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnarray_complop_unary_helper(csound, p, CSN_REAL_PART);
-}
-
-int32_t csnarray_imag(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnarray_complop_unary_helper(csound, p, CSN_IMAG_PART);
-}
-
-int32_t csnarray_complex_to_real(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnarray_complop_unary_helper(csound, p, CSN_REAL_PART);
-}
-
-int32_t csnarray_real_to_complex(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnarray_complop_unary_helper(csound, p, CSN_REAL_TO_COMPLEX);
-}
-
-int32_t csnarray_conj(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnarray_complop_unary_helper(csound, p, CSN_CONJ_PART);
-}
-
-static inline double wrap_angle(double angle, double period) {
-    double half_period = period * 0.5;
-    double x = fmod(half_period + angle, period);
-    if (x < 0.0)  x += period;
-    return x - half_period;
-}
-
-static void unwrap_slice(double *dst, const double *src, size_t n, size_t stride, double period, double discont) {
-    if (n == 0) return;
-    dst[0] = src[0];
-    for (size_t i = 1; i < n; ++i) {
-        double delta = src[i * stride] - src[(i - 1) * stride];
-        double wrapped = wrap_angle(delta, period);
-        double correction = fabs(delta) < discont ? 0.0 : wrapped - delta;
-        dst[i * stride] = dst[(i - 1) * stride] + delta + correction;
-    }
-}
-
-static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP_MODE mode) {
+static int32_t csnarray_complop_unary_k_init_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPLEXOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
@@ -12903,54 +14359,225 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
     CSN_ARRAY *source_arr = source_slot->array;
     ITEM_TYPE itype = source_arr->itype;
 
-    if (mode == CSN_COMPLEX_TO_ANGLE) {
-        if (itype != CSN_COMPLEX) {
-            res = csound->InitError(csound, "[csnarray] Complex to angle requires complex array");
+    if (mode == CSN_REAL_TO_COMPLEX) {
+        if (itype != CSN_REAL) {
+            res = csound->InitError(csound, "[csnarray] Real-to-complex operation requires real array");
             goto done;
         }
-    } else if (itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Angle operations requires real array");
+    } else if (itype != CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] Operation requires complex array");
         goto done;
     }
 
-    double period = 0.0;
-    double discont = 0.0;
-    double axis_value = 0.0;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim, source_shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    if (source_arr->size > 0) {
+        memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size);
+        arr->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_complop_unary_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPLEXOP_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    ITEM_TYPE itype = source_arr->itype;
+
+    if (mode == CSN_REAL_TO_COMPLEX) {
+        if (itype != CSN_REAL) {
+            res = csound->PerfError(csound, &p->h, "[csnarray] Real-to-complex operation requires real array");
+            goto done;
+        }
+    } else if (itype != CSN_COMPLEX) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Operation requires complex array");
+        goto done;
+    }
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = source_ndim;
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    ITEM_TYPE out_itype = (mode == CSN_CONJ_PART || mode == CSN_REAL_TO_COMPLEX) ? CSN_COMPLEX : CSN_REAL;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_dim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    /* out_itype, not the source's: csnreal and csnimag hand back a real array
+       from a complex one, csnconj and csntocomplex the other way round. */
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, out_itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    complop_unary_assign_value(source_arr, arr, mode);
+    SET_KDATA_END(p, new_shape, new_dim, out_itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_real(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_helper(csound, p, CSN_REAL_PART);
+}
+
+static int32_t csnarray_real_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_init_helper(csound, p, CSN_REAL_PART);
+}
+
+int32_t csnarray_real_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_helper(csound, p, CSN_REAL_PART);
+}
+
+int32_t csnarray_imag(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_helper(csound, p, CSN_IMAG_PART);
+}
+
+static int32_t csnarray_imag_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_init_helper(csound, p, CSN_IMAG_PART);
+}
+
+int32_t csnarray_imag_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_helper(csound, p, CSN_IMAG_PART);
+}
+
+int32_t csnarray_complex_to_real(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_helper(csound, p, CSN_REAL_PART);
+}
+
+static int32_t csnarray_complex_to_real_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_init_helper(csound, p, CSN_REAL_PART);
+}
+
+int32_t csnarray_complex_to_real_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_helper(csound, p, CSN_REAL_PART);
+}
+
+int32_t csnarray_real_to_complex(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_helper(csound, p, CSN_REAL_TO_COMPLEX);
+}
+
+static int32_t csnarray_real_to_complex_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_init_helper(csound, p, CSN_REAL_TO_COMPLEX);
+}
+
+int32_t csnarray_real_to_complex_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_helper(csound, p, CSN_REAL_TO_COMPLEX);
+}
+
+int32_t csnarray_conj(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_helper(csound, p, CSN_CONJ_PART);
+}
+
+static int32_t csnarray_conj_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_init_helper(csound, p, CSN_CONJ_PART);
+}
+
+int32_t csnarray_conj_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_complop_unary_k_helper(csound, p, CSN_CONJ_PART);
+}
+
+static inline double wrap_angle(double angle, double period) {
+    double half_period = period * 0.5;
+    double x = fmod(half_period + angle, period);
+    if (x < 0.0)  x += period;
+    return x - half_period;
+}
+
+static void unwrap_slice(double *dst, const double *src, size_t n, size_t stride, double period, double discont) {
+    if (n == 0) return;
+    dst[0] = src[0];
+    for (size_t i = 1; i < n; ++i) {
+        double delta = src[i * stride] - src[(i - 1) * stride];
+        double wrapped = wrap_angle(delta, period);
+        double correction = fabs(delta) < discont ? 0.0 : wrapped - delta;
+        dst[i * stride] = dst[(i - 1) * stride] + delta + correction;
+    }
+}
+
+static int32_t angle_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, double in_period, double in_discount, double in_axis, double *out_period, double *out_discount, int32_t *out_axis,  CSN_COMPLEXOP_MODE mode) {
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+
+    *source_array = source_slot->array;
+    CSN_ARRAY *source_arr = *source_array;
+    ITEM_TYPE itype = source_arr->itype;
+
+    if (mode == CSN_COMPLEX_TO_ANGLE) {
+        if (itype != CSN_COMPLEX) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Complex to angle requires complex array");
+        }
+    } else if (itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] wrap/unwrap angle operations requires real array");
+    }
+
+    double axis_value = -1.0;
     switch (mode) {
         case CSN_WRAP:
-            period = (double) *p->period;
+            *out_period = in_period;
             break;
         case CSN_UNWRAP:
-            period = (double) *p->period;
-            discont = (double) *p->discount;
-            if (discont <= 0.0) discont = period * 0.5;
-            axis_value = (double) *p->axis;
+            *out_period = in_period;
+            *out_discount = in_discount;
+            if (*out_discount <= 0.0) *out_discount = *out_period * 0.5;
+            axis_value = in_axis;
             break;
         default:
             break;
     }
 
     uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
 
     if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
-        goto done;
-    }
-    int32_t axis = (int32_t) axis_value;
-
-    uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    uint32_t new_dim = source_ndim;
-    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-
-    const uint32_t protect[1] = { source_handle };
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
     }
 
-    CSN_ARRAY *arr = p->array;
+    *out_axis = (int32_t) axis_value;
+    return OK;
+}
 
+static int32_t angle_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *arr, double period, double discount, int32_t axis, CSN_COMPLEXOP_MODE mode) {
     if (mode == CSN_COMPLEX_TO_ANGLE || mode == CSN_WRAP) {
         for (size_t i = 0; i < source_arr->size; i ++) {
             double angle = 0.0;
@@ -12966,20 +14593,19 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
         }
     } else if (mode == CSN_UNWRAP) {
         if (source_arr->size < 2) {
-            res = csound->InitError(csound, "[csnarray] Unwrap needs at least 2 elements, got %zu", source_arr->size);
-            goto done;
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unwrap needs at least 2 elements, got %zu", source_arr->size);
         }
 
         if (axis == -1) {
-            unwrap_slice(arr->data, source_arr->data, source_arr->size, 1, period, discont);
+            unwrap_slice(arr->data, source_arr->data, source_arr->size, 1, period, discount);
         } else {
             uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
             uint32_t reduced_ndim = 0;
             size_t slice_count = 1;
-            for (uint32_t i = 0; i < source_ndim; ++i) {
+            for (uint32_t i = 0; i < source_arr->ndim; ++i) {
                 if (i != (uint32_t) axis) {
-                    reduced_shape[reduced_ndim++] = source_shape[i];
-                    slice_count *= source_shape[i];
+                    reduced_shape[reduced_ndim++] = source_arr->shape[i];
+                    slice_count *= source_arr->shape[i];
                 }
             }
 
@@ -12989,72 +14615,164 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
                 uint32_t src_coords[CSN_MAX_DIMS] = {0};
 
                 from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-                for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
+                for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
                     src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
                 }
 
-                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-                size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_ndim);
-                unwrap_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, period, discont);
+                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+                size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_arr->ndim);
+                unwrap_slice(arr->data + dst_base, source_arr->data + src_base, source_arr->shape[axis], src_stride, period, discount);
             }
         }
     }
-done:
-    csound->UnlockMutex(reg->mutex);
-    return res;
+
+    return OK;
 }
 
-static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COMPLEXOP_MODE mode) {
+static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
     uint32_t source_handle = p->source_handle->id;
+
     int32_t res = OK;
+    const char *err = NULL;
 
     csound->LockMutex(reg->mutex);
 
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = source_slot->array;
-    ITEM_TYPE itype = source_arr->itype;
-
-    if (itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Angle operations requires real array");
-        goto done;
-    }
-
+    CSN_ARRAY *source_arr = NULL;
+    double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
+    double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
+    double in_axis = mode == CSN_UNWRAP ? (double) *p->arg_c : -1.0;
     double period = 0.0;
-    double discont = 0.0;
-    double axis_value = 0.0;
-    switch (mode) {
-        case CSN_WRAP:
-            period = (double) *p->period;
-            break;
-        case CSN_UNWRAP:
-            period = (double) *p->period;
-            discont = (double) *p->discount;
-            if (discont <= 0.0) discont = period * 0.5;
-            axis_value = (double) *p->axis;
-            break;
-        default:
-            break;
-    }
+    double discount = 0.0;
+    int32_t axis = -1;
+    res = angle_body(csound, NULL, reg, source_handle, &source_arr, in_period, in_discount, in_axis, &period, &discount, &axis, mode);
+    if (res != OK) goto done;
 
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = source_ndim;
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 1U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
-    int32_t axis = (int32_t) axis_value;
 
+    CSN_ARRAY *arr = p->array;
+    res = angle_assign_value(csound, NULL, source_arr, arr, period, discount, axis, mode);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_angle_k_init_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
+    double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
+    double in_axis = mode == CSN_UNWRAP ? (double) *p->arg_c : -1.0;
+    double period = 0.0;
+    double discount = 0.0;
+    int32_t axis = -1;
+    res = angle_body(csound, NULL, reg, source_handle, &source_arr, in_period, in_discount, in_axis, &period, &discount, &axis, mode);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim, source_shape, &p->array, p->handle, protect, 1U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    MYFLT *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_d) : p->arg_a;
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
+    double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
+    double in_axis = mode == CSN_UNWRAP ? (double) *p->arg_c : -1.0;
+    double period = 0.0;
+    double discount = 0.0;
+    int32_t axis = -1;
+    res = angle_body(csound, &p->h, reg, source_handle, &source_arr, in_period, in_discount, in_axis, &period, &discount, &axis, mode);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+    ITEM_TYPE itype = source_arr->itype;
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = source_ndim;
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_dim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+
+    res = angle_assign_value(csound, &p->h, source_arr, arr, period, discount, axis, mode);
+    if (res != OK) goto done;
+
+    SET_KDATA_END(p, new_shape, new_dim, itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t angle_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, double period, double discount, int32_t axis, CSN_COMPLEXOP_MODE mode) {
     if (mode == CSN_WRAP) {
         for (size_t i = 0; i < source_arr->size; i ++) {
             double angle_temp = source_arr->data[i];
@@ -13063,20 +14781,19 @@ static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COM
         }
     } else if (mode == CSN_UNWRAP) {
         if (source_arr->size < 2) {
-            res = csound->InitError(csound, "[csnarray] Unwrap needs at least 2 elements, got %zu", source_arr->size);
-            goto done;
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unwrap needs at least 2 elements, got %zu", source_arr->size);
         }
 
         if (axis == -1) {
-            unwrap_slice(source_arr->data, source_arr->data, source_arr->size, 1, period, discont);
+            unwrap_slice(source_arr->data, source_arr->data, source_arr->size, 1, period, discount);
         } else {
             uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
             uint32_t reduced_ndim = 0;
             size_t slice_count = 1;
-            for (uint32_t i = 0; i < source_ndim; ++i) {
+            for (uint32_t i = 0; i < source_arr->ndim; ++i) {
                 if (i != (uint32_t) axis) {
-                    reduced_shape[reduced_ndim++] = source_shape[i];
-                    slice_count *= source_shape[i];
+                    reduced_shape[reduced_ndim++] = source_arr->shape[i];
+                    slice_count *= source_arr->shape[i];
                 }
             }
 
@@ -13086,16 +14803,80 @@ static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COM
                 uint32_t src_coords[CSN_MAX_DIMS] = {0};
 
                 from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-                for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
+                for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
                     src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
                 }
 
-                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-                size_t dst_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-                unwrap_slice(source_arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, period, discont);
+                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+                size_t dst_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+                unwrap_slice(source_arr->data + dst_base, source_arr->data + src_base, source_arr->shape[axis], src_stride, period, discount);
             }
         }
     }
+
+    return OK;
+}
+
+static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COMPLEXOP_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    p->registry = reg;
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
+    double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
+    double in_axis = mode == CSN_UNWRAP ? (double) *p->arg_c : -1.0;
+    double period = 0.0;
+    double discount = 0.0;
+    int32_t axis = -1;
+    res = angle_body(csound, &p->h, reg, source_handle, &source_arr, in_period, in_discount, in_axis, &period, &discount, &axis, mode);
+    if (res != OK) goto done;
+
+
+    res = angle_in_assign_value(csound, &p->h, source_arr, period, discount, axis, mode);
+    if (res != OK) goto done;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_COMPLEXOP_MODE mode) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    p->registry = reg;
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    MYFLT *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_d) : p->arg_a;
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
+    double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
+    double in_axis = mode == CSN_UNWRAP ? (double) *p->arg_c : -1.0;
+    double period = 0.0;
+    double discount = 0.0;
+    int32_t axis = -1;
+    res = angle_body(csound, &p->h, reg, source_handle, &source_arr, in_period, in_discount, in_axis, &period, &discount, &axis, mode);
+    if (res != OK) goto done;
+
+
+    res = angle_in_assign_value(csound, &p->h, source_arr, period, discount, axis, mode);
+    if (res != OK) goto done;
+
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
@@ -13106,36 +14887,73 @@ int32_t csnarray_angle(CSOUND *csound, CSN_ANGLE *p) {
     return csnarray_angle_helper(csound, p, CSN_COMPLEX_TO_ANGLE);
 }
 
+static int32_t csnarray_angle_k_init(CSOUND *csound, CSN_ANGLE *p) {
+    return csnarray_angle_k_init_helper(csound, p, CSN_COMPLEX_TO_ANGLE);
+}
+
+int32_t csnarray_angle_k(CSOUND *csound, CSN_ANGLE *p) {
+    return csnarray_angle_k_helper(csound, p, CSN_COMPLEX_TO_ANGLE);
+}
+
 int32_t csnarray_wrap_angle(CSOUND *csound, CSN_ANGLE *p) {
     return csnarray_angle_helper(csound, p, CSN_WRAP);
+}
+
+static int32_t csnarray_wrap_angle_k_init(CSOUND *csound, CSN_ANGLE *p) {
+    return csnarray_angle_k_init_helper(csound, p, CSN_WRAP);
+}
+
+int32_t csnarray_wrap_angle_k(CSOUND *csound, CSN_ANGLE *p) {
+    return csnarray_angle_k_helper(csound, p, CSN_WRAP);
 }
 
 int32_t csnarray_unwrap_angle(CSOUND *csound, CSN_ANGLE *p) {
     return csnarray_angle_helper(csound, p, CSN_UNWRAP);
 }
 
+static int32_t csnarray_unwrap_angle_k_init(CSOUND *csound, CSN_ANGLE *p) {
+    return csnarray_angle_k_init_helper(csound, p, CSN_UNWRAP);
+}
+
+int32_t csnarray_unwrap_angle_k(CSOUND *csound, CSN_ANGLE *p) {
+    return csnarray_angle_k_helper(csound, p, CSN_UNWRAP);
+}
+
 int32_t csnarray_wrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p) {
     return csnarray_angle_in_helper(csound, p, CSN_WRAP);
+}
+
+int32_t csnarray_wrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p) {
+    return csnarray_angle_in_k_helper(csound, p, CSN_WRAP);
 }
 
 int32_t csnarray_unwrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p) {
     return csnarray_angle_in_helper(csound, p, CSN_UNWRAP);
 }
 
-int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
+int32_t csnarray_unwrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p) {
+    return csnarray_angle_in_k_helper(csound, p, CSN_UNWRAP);
+}
+
+static int32_t csnarray_type_helper(CSOUND *csound, OPDS *perf_h, CSN_UNARYOP_SCALAR *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     if (reg == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
+    p->registry = reg;
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
+
+    if (perf_h != NULL) {
+        CHECK_KTRIG(p->trig);
+    }
 
     csound->LockMutex(reg->mutex);
 
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        res = CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -13146,6 +14964,31 @@ int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
+    return csnarray_type_helper(csound, NULL, p);
+}
+
+int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
+    return csnarray_type_helper(csound, &p->h, p);
+}
+
+/* Shared by the i-rate form, the k init and the k perf: a straight copy, or the
+   same copy read back to front. A complex item moves as a pair. */
+static void copy_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool reverse, ITEM_TYPE itype) {
+    if (!reverse) {
+        memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+        return;
+    }
+
+    for (size_t i = 0; i < source_arr->size; i++) {
+        size_t src = (source_arr->size - 1U - i) * (size_t) itype;
+        size_t dst = i * (size_t) itype;
+        arr->data[dst] = source_arr->data[src];
+        if (itype == CSN_COMPLEX)
+            arr->data[dst + 1U] = source_arr->data[src + 1U];
+    }
 }
 
 static int32_t csnarray_copy_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse) {
@@ -13183,17 +15026,100 @@ static int32_t csnarray_copy_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse
     }
 
     CSN_ARRAY *arr = p->array;
-    if (!reverse) {
-        memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
-    } else {
-        for (size_t i = 0; i < source_arr->size; i++) {
-            size_t src = (source_arr->size - 1U - i) * (size_t) itype;
-            size_t dst = i * (size_t) itype;
-            arr->data[dst] = source_arr->data[src];
-            if (itype == CSN_COMPLEX)
-                arr->data[dst + 1U] = source_arr->data[src + 1U];
-        }
+    copy_assign_value(source_arr, arr, reverse, itype);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_copy_k_init_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    ITEM_TYPE itype = source_arr->itype;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim, source_shape, &p->array, p->handle, protect, 1U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (source_arr->size > 0) {
+        /* reverse and itype matter here too: a gated csnreverse must already
+           read back to front, and a complex item is two doubles wide. */
+        copy_assign_value(source_arr, p->array, reverse, itype);
+        p->array->size = source_arr->size;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    ITEM_TYPE itype = source_arr->itype;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t new_dim = source_ndim;
+    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_dim, new_shape) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+
+    copy_assign_value(source_arr, arr, reverse, itype);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -13204,8 +15130,24 @@ int32_t csnarray_copy(CSOUND *csound, CSN_UNARYOP *p) {
     return csnarray_copy_helper(csound, p, false);
 }
 
+static int32_t csnarray_copy_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_copy_k_init_helper(csound, p, false);
+}
+
+int32_t csnarray_copy_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_copy_k_helper(csound, p, false);
+}
+
 int32_t csnarray_reverse(CSOUND *csound, CSN_UNARYOP *p) {
     return csnarray_copy_helper(csound, p, true);
+}
+
+int32_t csnarray_reverse_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_copy_k_init_helper(csound, p, true);
+}
+
+int32_t csnarray_reverse_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnarray_copy_k_helper(csound, p, true);
 }
 
 int32_t csnarray_reverse_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
@@ -13214,6 +15156,7 @@ int32_t csnarray_reverse_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
         return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
     }
 
+    p->registry = reg;
     uint32_t source_handle = p->source_handle->id;
 
     int32_t res = OK;
@@ -13223,6 +15166,45 @@ int32_t csnarray_reverse_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    ITEM_TYPE itype = source_arr->itype;
+    for (size_t i = 0; i < source_arr->size / 2U; i++) {
+        size_t lo = i * (size_t) itype;
+        size_t hi = (source_arr->size - 1U - i) * (size_t) itype;
+        double temp_re = source_arr->data[hi];
+        source_arr->data[hi] = source_arr->data[lo];
+        source_arr->data[lo] = temp_re;
+        if (itype == CSN_COMPLEX) {
+            double temp_im = source_arr->data[hi + 1U];
+            source_arr->data[hi + 1U] = source_arr->data[lo + 1U];
+            source_arr->data[lo + 1U] = temp_im;
+        }
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_reverse_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    CSN_REGISTRY *reg = p->registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
         goto done;
     }
 
@@ -13389,20 +15371,260 @@ done:
     return res;
 }
 
+static int32_t csnarray_perquant_s_k_deinit(CSOUND *csound, CSN_PERCQUANT *p) {
+    if (p->buffer != NULL) {
+        csound->Free(csound, p->buffer);
+    }
+
+    return OK;
+}
+
+static int32_t csnarray_perquant_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    double *buffer = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (source_arr->size == 0U) {
+        res = csound->InitError(csound, "[csnarray] Percentile and quantile are undefined for an empty array");
+        goto done;
+    }
+
+    if (source_arr->itype == CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] Percentile and quantile reductions require real arrays");
+        goto done;
+    }
+
+    const uint32_t protect[1] = { source_handle };
+
+    if (create_csnarray_locked(csound, reg, &p->h, source_ndim, source_shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    size_t source_size = source_arr->size;
+    if (source_arr->size > 0) {
+        memcpy(p->array->data, source_arr->data, source_size);
+        p->array->size = source_size;
+    }
+
+    size_t cap = source_size > 0 ? source_size * 2 : 1;
+    buffer = csound->Calloc(csound, sizeof(double) * cap);
+    if (buffer == NULL) {
+        res = csound->InitError(csound, "Memory allocation failed");
+        goto done;
+    }
+
+    p->buffer = buffer;
+    p->buffer_capacity = cap;
+
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    p->registry = reg;
+
+    size_t init_capacity = 256;
+    double *buffer = csound->Calloc(csound, sizeof(double) * init_capacity);
+    if (buffer == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal memory allocation failed");
+    }
+
+    p->buffer = buffer;
+    p->buffer_capacity = init_capacity;
+
+    return OK;
+}
+
+/* The scalar forms own no output slot, so they carry a bare registry instead of
+   a K_DATA: everything that depends on a slot is guarded on k_data. */
+static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, bool is_percentile, double q, K_DATA *k_data, CSN_REGISTRY *registry, const MYFLT *trig, double **buffer, size_t *buffer_capacity) {
+    CSN_REGISTRY *reg = k_data != NULL ? k_data->registry : registry;
+    if (reg == NULL) {
+        return csound->PerfError(csound, h, "[csnarray] k-rate output slot was not initialized");
+    }
+    if (k_data != NULL) {
+        CHECK_REG_HANDLE(csound, h, reg, k_data->owned_handle);
+    }
+
+    if (is_percentile) {
+        if (q < 0.0 || q > 100) {
+            return csound->PerfError(csound, h, "[csnarray] Percentile must be in the range [0, 100]");
+        }
+    } else {
+        if (q < 0.0 || q > 1.0) {
+            return csound->PerfError(csound, h, "[csnarray] Quantile must be in the range [0, 1]");
+        }
+    }
+
+    uint32_t source_handle = src_ref->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    if (k_data != NULL) {
+        res = CHECK_SELF_ALIAS(csound, h, k_data, source_handle, 0);
+        if (res != OK) return res;
+    }
+
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->PerfError(csound, h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    if (source_arr->size == 0U) {
+        res = csound->PerfError(csound, h, "[csnarray] Percentile and quantile are undefined for an empty array");
+        goto done;
+    }
+
+    if (out_handle != NULL && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        res = csound->PerfError(csound, h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+        goto done;
+    }
+    int32_t axis = (int32_t) axis_value;
+
+    if (source_arr->itype == CSN_COMPLEX) {
+        res = csound->PerfError(csound, h, "[csnarray] Percentile and quantile reductions require real arrays");
+        goto done;
+    }
+
+    if (axis != -1 && source_ndim == 1U) {
+        res = csound->PerfError(csound, h, "[csnarray] Reducing a 1-D array produces a scalar; omit the axis argument");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    if (axis != -1) {
+        uint32_t new_ndim = source_ndim - 1;
+        uint32_t new_shape[CSN_MAX_DIMS] = {0};
+        for (uint32_t i = 0, j = 0; i < source_ndim; i++) {
+            if (i != (uint32_t) axis) new_shape[j++] = source_shape[i];
+        }
+
+        size_t req_size = 0;
+        if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+            res = csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+            goto done;
+        }
+
+        size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+        res = NEED_TO_UPDATE_SLOT(csound, h, out_array, k_data, new_ndim, new_shape, logical_size, CSN_REAL, err);
+        if (res != OK) goto done;
+
+        arr = *out_array;
+    }
+
+    if (arr != NULL) {
+        size_t r_size = (size_t) source_shape[axis];
+        if (r_size > *buffer_capacity) {
+            size_t new_cap = r_size > 0 ? r_size * 2 : 1;
+            double *temp = csound->ReAlloc(csound, *buffer, sizeof(double) * new_cap);
+            if (temp == NULL) {
+                res = csound->PerfError(csound, h, "[csnarray] Memory allocation failed");
+                goto done;
+            }
+            *buffer = temp;
+            *buffer_capacity = new_cap;
+        }
+
+        for (size_t linear = 0; linear < arr->size; ++linear) {
+            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+            double value = 0.0;
+            accumulate_perquant_reduction_axis_helper(&value, q, *buffer, source_arr, src_coords, dst_coords, is_percentile, (uint32_t) axis);
+            arr->data[linear] = value;
+        }
+    } else {
+        size_t r_size = (size_t) source_arr->size;
+        if (r_size > *buffer_capacity) {
+            size_t new_cap = r_size > 0 ? r_size * 2 : 1;
+            double *temp = csound->ReAlloc(csound, *buffer, sizeof(double) * new_cap);
+            if (temp == NULL) {
+                res = csound->PerfError(csound, h, "[csnarray] Memory allocation failed");
+                goto done;
+            }
+            *buffer = temp;
+            *buffer_capacity = new_cap;
+        }
+
+        double value = 0;
+        accumulate_perquant_reduction_scalar_helper(&value, q, *buffer, source_arr, is_percentile);
+        *out_value = (MYFLT) value;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 int32_t csnarray_percentile(CSOUND *csound, CSN_PERCQUANT_AX *p) {
     return csnarray_perquant_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, true, (double) *p->quantity);
+}
+
+int32_t csnarray_percentile_k(CSOUND *csound, CSN_PERCQUANT_AX *p) {
+    return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, true, (double) *p->quantity, &p->k_data, NULL, p->trig, &p->buffer, &p->buffer_capacity);
 }
 
 int32_t csnarray_percentile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
     return csnarray_perquant_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, true, (double) *p->quantity);
 }
 
+int32_t csnarray_percentile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p) {
+    return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, true, (double) *p->quantity, NULL, p->registry, p->trig, &p->buffer, &p->buffer_capacity);
+}
+
 int32_t csnarray_quantile(CSOUND *csound, CSN_PERCQUANT_AX *p) {
     return csnarray_perquant_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, false, (double) *p->quantity);
 }
 
+int32_t csnarray_quantile_k(CSOUND *csound, CSN_PERCQUANT_AX *p) {
+    return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, false, (double) *p->quantity, &p->k_data, NULL, p->trig, &p->buffer, &p->buffer_capacity);
+}
+
 int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
     return csnarray_perquant_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, false, (double) *p->quantity);
+}
+
+int32_t csnarray_quantile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p) {
+    return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, false, (double) *p->quantity, NULL, p->registry, p->trig, &p->buffer, &p->buffer_capacity);
 }
 
 
@@ -13413,26 +15635,47 @@ int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
 static OENTRY localops[] = {
     // REAL-ONLY
     { "csnrand",               S(CSN_ARR_RND_INIT),           0, ":CsnArr;",    "i[]ii",                  (SUBR) create_random_csnarray,               NULL,                                   (SUBR) create_csnarray_random_deinit,   NULL, 0 },
+    { "csnrand.k",             S(CSN_ARR_RND_INIT),           0, ":CsnArr;",    "k[]kkk",                 (SUBR) create_random_csnarray_k_init,        (SUBR) create_random_csnarray_k,        (SUBR) create_csnarray_random_deinit,   NULL, 0 },
     { "csnarange",             S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                    (SUBR) csnarray_arange,                      NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
     { "csnlinspace",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                    (SUBR) csnarray_linspace,                    NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
     { "csnlogspace",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iiii",                   (SUBR) csnarray_logspace,                    NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
     { "csngeomspace",          S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "iii",                    (SUBR) csnarray_geomspace,                   NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csnarange.k",           S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "kkkk",                   (SUBR) csnarray_spaced_space_k_init,         (SUBR) csnarray_arange_k,               (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csnlinspace.k",         S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "kkkk",                   (SUBR) csnarray_spaced_space_k_init,         (SUBR) csnarray_linspace_k,             (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csnlogspace.k",         S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "kkkkk",                  (SUBR) csnarray_spaced_space_k_init,         (SUBR) csnarray_logspace_k,             (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
+    { "csngeomspace.k",        S(CSN_SPACED_SPACE),           0, ":CsnArr;",    "kkkk",                   (SUBR) csnarray_spaced_space_k_init,         (SUBR) csnarray_geomspace_k,            (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },
     { "csnclip",               S(CSN_CLIP),                   0, ":CsnArr;",    ":CsnArr;ii",             (SUBR) csnarray_clip,                        NULL,                                   (SUBR) csnarray_clip_deinit,            NULL, 0 },
+    { "csnclip.k",             S(CSN_CLIP),                   0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_clip_k_init,                 (SUBR) csnarray_clip_k,                 (SUBR) csnarray_clip_deinit,            NULL, 0 },
     { "csnclip.in",            S(CSN_CLIP_IN),                0, "",            ":CsnArr;ii",             (SUBR) csnarray_clip_in,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnclip.in.k",          S(CSN_CLIP_IN),                0, "",            ":CsnArr;kkk",            (SUBR) csnarray_clip_in_k_init,              (SUBR) csnarray_clip_in_k,              NULL,                                   NULL, 0 },
     { "csnargwhere",           S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_argwhere,                    NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargwhere.k",         S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;:CsnArr;k",      (SUBR) csnarray_argwhere_k_init,             (SUBR) csnarray_argwhere_k,             (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     { "csnargnonzero",         S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_argnonzero,                  NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargnonzero.k",       S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_argselect_k_init,            (SUBR) csnarray_argnonzero_k,           (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     { "csnargisnan",           S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_argisnan,                    NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargisnan.k",         S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_argselect_k_init,            (SUBR) csnarray_argisnan_k,             (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     { "csnargunique",          S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_argunique,                   NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnargunique.k",        S(CSN_ARGWHERE),               0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_argunique_k_init,            (SUBR) csnarray_argunique_k,            (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     { "csnunique",             S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_unique,                      NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnunique.k",           S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_unique_k_init,               (SUBR) csnarray_unique_k,               (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csngt",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_greater_than,                NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csnlt",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_less_than,                   NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csnne",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_not_equal,                   NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csnge",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_greater_equal,               NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csnle",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_less_equal,                  NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csneq",                 S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_equal,                       NULL,                                   (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csngt.k",               S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_compare_k_init,              (SUBR) csnarray_greater_than_k,         (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnlt.k",               S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_compare_k_init,              (SUBR) csnarray_less_than_k,            (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnne.k",               S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_compare_k_init,              (SUBR) csnarray_not_equal_k,            (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnge.k",               S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_compare_k_init,              (SUBR) csnarray_greater_equal_k,        (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csnle.k",               S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_compare_k_init,              (SUBR) csnarray_less_equal_k,           (SUBR) csnarray_compare_deinit,         NULL, 0 },
+    { "csneq.k",               S(CSN_COMPARE),                0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_compare_k_init,              (SUBR) csnarray_equal_k,                (SUBR) csnarray_compare_deinit,         NULL, 0 },
     { "csncnteq",              S(CSN_COUNT),                  0, "i",           ":CsnArr;i",              (SUBR) csnarray_count_equal,                 NULL,                                   NULL,                                   NULL, 0 },
     { "csncntnz",              S(CSN_COUNT),                  0, "i",           ":CsnArr;",               (SUBR) csnarray_count_nonzero,               NULL,                                   NULL,                                   NULL, 0 },
     { "csncntnan",             S(CSN_COUNT),                  0, "i",           ":CsnArr;",               (SUBR) csnarray_count_nan,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csncnteq.k",            S(CSN_COUNT),                  0, "k",           ":CsnArr;kk",             (SUBR) csnarray_compare_count_k_init,        (SUBR) csnarray_count_equal_k,          NULL,                                   NULL, 0 },
+    { "csncntnz.k",            S(CSN_COUNT),                  0, "k",           ":CsnArr;k",              (SUBR) csnarray_compare_count_k_init,        (SUBR) csnarray_count_nonzero_k,        NULL,                                   NULL, 0 },
+    { "csncntnan.k",           S(CSN_COUNT),                  0, "k",           ":CsnArr;k",              (SUBR) csnarray_compare_count_k_init,        (SUBR) csnarray_count_nan_k,            NULL,                                   NULL, 0 },
     { "csnmin",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_min_all,                     NULL,                                   NULL,                                   NULL, 0 },
     { "csnmin.k",              S(CSN_REDUCTION_SCALAR),       0, "k",           ":CsnArr;k",              (SUBR) csnarray_min_all_k_init,              (SUBR) csnarray_min_all_k,              NULL,                                   NULL, 0 },
     { "csnmax",                S(CSN_REDUCTION_SCALAR),       0, "i",           ":CsnArr;",               (SUBR) csnarray_max_all,                     NULL,                                   NULL,                                   NULL, 0 },
@@ -13464,11 +15707,17 @@ static OENTRY localops[] = {
     { "csngrad",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_gradient,                    NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csngrad.k",             S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_gradient_k_init,             (SUBR) csnarray_gradient_k,             (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csnmovmedian",          S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmedian,                   NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmedian.k",        S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_movmedian_k_init,            (SUBR) csnarray_movmedian_k,            (SUBR) csnarray_movstats_deinit,        NULL, 0 },
     { "csnmovmedian.in",       S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmedian_in,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovmedian.in.k",     S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;kkk",            (SUBR) csnarray_movmedian_in_k_init,         (SUBR) csnarray_movmedian_in_k,         (SUBR) csnarray_movstats_in_k_deinit,   NULL, 0 },
     { "csnmovmin",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmin,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmin.k",           S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_movmin_k_init,               (SUBR) csnarray_movmin_k,               (SUBR) csnarray_movstats_deinit,        NULL, 0 },
     { "csnmovmin.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmin_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovmin.in.k",        S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;kkk",            (SUBR) csnarray_movmin_in_k_init,            (SUBR) csnarray_movmin_in_k,            (SUBR) csnarray_movstats_in_k_deinit,   NULL, 0 },
     { "csnmovmax",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmax,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmax.k",           S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_movmax_k_init,               (SUBR) csnarray_movmax_k,               (SUBR) csnarray_movstats_deinit,        NULL, 0 },
     { "csnmovmax.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmax_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovmax.in.k",        S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;kkk",            (SUBR) csnarray_movmax_in_k_init,            (SUBR) csnarray_movmax_in_k,            (SUBR) csnarray_movstats_in_k_deinit,   NULL, 0 },
     { "csnsort",               S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_sort,                        NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csnsort.k",             S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_sort_k_init,                 (SUBR) csnarray_sort_k,                 (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csnsort.in",            S(CSN_UNARYOP_AX_IN),          0, "",            ":CsnArr;j",              (SUBR) csnarray_sort_in,                     NULL,                                   NULL,                                   NULL, 0 },
@@ -13476,9 +15725,13 @@ static OENTRY localops[] = {
     { "csnargsort",            S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;j",              (SUBR) csnarray_argsort,                     NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csnargsort.k",          S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_argsort_k_init,              (SUBR) csnarray_argsort_k,              (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csnpercentile",         S(CSN_PERCQUANT),              0, "i",           ":CsnArr;i",              (SUBR) csnarray_percentile_scalar,           NULL,                                   NULL,                                   NULL, 0 },
-    { "csnpercentile.ax",      S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_percentile,                  NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
+    { "csnpercentile.ax",      S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;ii",             (SUBR) csnarray_percentile,                  NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
     { "csnquantile",           S(CSN_PERCQUANT),              0, "i",           ":CsnArr;i",              (SUBR) csnarray_quantile_scalar,             NULL,                                   NULL,                                   NULL, 0 },
-    { "csnquantile.ax",        S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_quantile,                    NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
+    { "csnquantile.ax",        S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;ii",             (SUBR) csnarray_quantile,                    NULL,                                   (SUBR) csnarray_perquant_deinit,        NULL, 0 },
+    { "csnpercentile.k",       S(CSN_PERCQUANT),              0, "k",           ":CsnArr;kk",             (SUBR) csnarray_perquant_scalar_k_init,      (SUBR) csnarray_percentile_scalar_k,    (SUBR) csnarray_perquant_s_k_deinit,    NULL, 0 },
+    { "csnpercentile.ax.k",    S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_perquant_k_init,             (SUBR) csnarray_percentile_k,           (SUBR) csnarray_perquant_deinit,        NULL, 0 },
+    { "csnquantile.k",         S(CSN_PERCQUANT),              0, "k",           ":CsnArr;kk",             (SUBR) csnarray_perquant_scalar_k_init,      (SUBR) csnarray_quantile_scalar_k,      (SUBR) csnarray_perquant_s_k_deinit,    NULL, 0 },
+    { "csnquantile.ax.k",      S(CSN_PERCQUANT_AX),           0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_perquant_k_init,             (SUBR) csnarray_quantile_k,             (SUBR) csnarray_perquant_deinit,        NULL, 0 },
     { "csnlogicand.hh",        S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_logical_and_hh,              NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
     { "csnlogicand.hh.k",      S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;k",      (SUBR) csnarray_logical_and_hh_k_init,       (SUBR) csnarray_logical_and_hh_k,       (SUBR) csnarray_opbin_deinit,           NULL, 0 },
     { "csnlogicor.hh",         S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_logical_or_hh,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
@@ -13496,15 +15749,15 @@ static OENTRY localops[] = {
     // ---
     // REAL AND COMPLEX
     { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                   (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnempty.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                   (SUBR) create_empty_csnarray_k_init,         (SUBR) create_empty_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnempty.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]o",                   (SUBR) create_empty_csnarray_k_init,         (SUBR) create_empty_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
     { "csnzeros",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                   (SUBR) create_zeros_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnzeros.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                   (SUBR) create_zeros_csnarray_k_init,         (SUBR) create_zeros_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnzeros.k",            S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]o",                   (SUBR) create_zeros_csnarray_k_init,         (SUBR) create_zeros_csnarray_k,         (SUBR) create_csnarray_deinit,          NULL, 0 },
     { "csnones",               S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                   (SUBR) create_ones_csnarray,                 NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
-    { "csnones.k",             S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]O",                   (SUBR) create_ones_csnarray_k_init,          (SUBR) create_ones_csnarray_k,          (SUBR) create_csnarray_deinit,          NULL, 0 },
+    { "csnones.k",             S(CSN_ARR_INIT),               0, ":CsnArr;",    "k[]o",                   (SUBR) create_ones_csnarray_k_init,          (SUBR) create_ones_csnarray_k,          (SUBR) create_csnarray_deinit,          NULL, 0 },
     { "csnfull",               S(CSN_FULL),                   0, ":CsnArr;",    "i[]io",                  (SUBR) create_full_csnarray,                 NULL,                                   (SUBR) create_csnarray_full_deinit,     NULL, 0 },
-    { "csnfull.c",             S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "i[]:Complex;p",          (SUBR) create_fullcomp_csnarray,             NULL,                                   (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
-    { "csnfull.k",             S(CSN_FULL),                   0, ":CsnArr;",    "k[]kO",                  (SUBR) create_full_csnarray_k_init,          (SUBR) create_full_csnarray_k,          (SUBR) create_csnarray_full_deinit,     NULL, 0 },
-    { "csnfull.c.k",           S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "k[]:Complex;P",          (SUBR) create_fullcomp_csnarray_k_init,      (SUBR) create_fullcomp_csnarray_k,      (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
+    { "csnfull.c",             S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "i[]:Complex;" ,          (SUBR) create_fullcomp_csnarray,             NULL,                                   (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
+    { "csnfull.k",             S(CSN_FULL),                   0, ":CsnArr;",    "k[]ko",                  (SUBR) create_full_csnarray_k_init,          (SUBR) create_full_csnarray_k,          (SUBR) create_csnarray_full_deinit,     NULL, 0 },
+    { "csnfull.c.k",           S(CSN_FULLCOMPLEX),            0, ":CsnArr;",    "k[]:Complex;" ,          (SUBR) create_fullcomp_csnarray_k_init,      (SUBR) create_fullcomp_csnarray_k,      (SUBR) create_csnarray_fullcomp_deinit, NULL, 0 },
     { "csnlike",               S(CSN_ARR_INIT_LIKE),          0, ":CsnArr;",    ":CsnArr;i",              (SUBR) create_like_csnarray,                 NULL,                                   (SUBR) create_csnarray_like_deinit,     NULL, 0 },
     { "csnlike.k",             S(CSN_ARR_INIT_LIKE),          0, ":CsnArr;",    ":CsnArr;k",              (SUBR) create_like_csnarray_k_init,          (SUBR) create_like_csnarray_k,          (SUBR) create_csnarray_like_deinit,     NULL, 0 },
     { "csnfromarray",          S(CSN_FROM_ARRAY),             0, ":CsnArr;",    "i[]",                    (SUBR) from_array_to_csnarray,               NULL,                                   (SUBR) from_array_to_csnarray_deinit,   NULL, 0 },
@@ -13523,7 +15776,7 @@ static OENTRY localops[] = {
     { "csnisempty.k",          S(CSN_SIZE_DIMS),              0, "k",           ":CsnArr;",               NULL,                                        (SUBR) csnarray_is_empty_k,             NULL,                                   NULL, 0 },
     { "csnshape.k",            S(CSN_SHAPE),                  0, "k[]",         ":CsnArr;",               (SUBR) csnarray_shape,                       (SUBR) csnarray_shape_k,                NULL,                                   NULL, 0 },
     { "csnidentity",           S(CSN_IDENTITY),               0, ":CsnArr;",    "io",                     (SUBR) csnarray_identity,                    NULL,                                   (SUBR) csnarray_identity_deinit,        NULL, 0 },
-    { "csnidentity.k",         S(CSN_IDENTITY),               0, ":CsnArr;",    "kO",                     (SUBR) csnarray_identity_k_init,             (SUBR) csnarray_identity_k,             (SUBR) csnarray_identity_deinit,        NULL, 0 },
+    { "csnidentity.k",         S(CSN_IDENTITY),               0, ":CsnArr;",    "ko",                     (SUBR) csnarray_identity_k_init,             (SUBR) csnarray_identity_k,             (SUBR) csnarray_identity_deinit,        NULL, 0 },
     { "csnreshape",            S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;i[]",            (SUBR) csnarray_reshape,                     NULL,                                   (SUBR) csnarray_shape_deinit,           NULL, 0 },
     { "csnreshape.in",         S(CSN_RESHAPE_IN),             0, "",            ":CsnArr;i[]",            (SUBR) csnarray_reshape_in,                  NULL,                                   NULL,                                   NULL, 0 },
     { "csnreshape.k",          S(CSN_RESHAPE),                0, ":CsnArr;",    ":CsnArr;k[]",            (SUBR) csnarray_reshape_k_init,              (SUBR) csnarray_reshape_k,              (SUBR) csnarray_shape_deinit,           NULL, 0 },
@@ -13567,7 +15820,7 @@ static OENTRY localops[] = {
     { "csntake.flat.k",        S(CSN_TAKE_FLAT),              0, "k",           ":CsnArr;k",              (SUBR) csnarray_take_flat,                   (SUBR) csnarray_take_flat_k,            NULL,                                   NULL, 0 },
     { "csntake.flat.c.k",      S(CSN_TAKECOMPLEX_FLAT),       0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_takecomp_flat,               (SUBR) csnarray_takecomp_flat_k,        NULL,                                   NULL, 0 },
     { "csngetslice",           S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;iiii",           (SUBR) csnarray_get_slice,                   NULL,                                   (SUBR) csnarray_slice_deinit,           NULL, 0 },
-    { "csngetslice.k",         S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;kkkk",           (SUBR) csnarray_get_slice,                   (SUBR) csnarray_get_slice_k,            (SUBR) csnarray_slice_deinit,           NULL, 0 },
+    { "csngetslice.k",         S(CSN_GET_SLICE),              0, ":CsnArr;",    ":CsnArr;kkkk",           (SUBR) csnarray_get_slice_k_init,                   (SUBR) csnarray_get_slice_k,            (SUBR) csnarray_slice_deinit,           NULL, 0 },
     { "csnsetslice",           S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;iiii",   (SUBR) csnarray_set_slice,                   NULL,                                   NULL,                                   NULL, 0 },
     { "csnsetslice.k",         S(CSN_SET_SLICE),              0, "",            ":CsnArr;:CsnArr;kkkk",   (SUBR) csnarray_set_slice,                   (SUBR) csnarray_set_slice_k,            NULL,                                   NULL, 0 },
     { "csnpush",               S(CSN_PUSH),                   0, "",            ":CsnArr;i",              (SUBR) csnarray_push,                        NULL,                                   NULL,                                   NULL, 0 },
@@ -13753,7 +16006,7 @@ static OENTRY localops[] = {
     { "csnnorm",               S(CSN_NORM_REDUCTION),         0, ":CsnArr;",    ":CsnArr;ip",             (SUBR) csnarray_norm,                        NULL,                                   (SUBR) csnarray_norm_deinit,            NULL, 0 },
     { "csnnorm.k",             S(CSN_NORM_REDUCTION),         0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_norm_k_init,                 (SUBR) csnarray_norm_k,                 (SUBR) csnarray_norm_deinit,            NULL, 0 },
     { "csnnorm.s",             S(CSN_NORM_REDUCTION_SCALAR),  0, "i",           ":CsnArr;p",              (SUBR) csnarray_norm_scalar,                 NULL,                                   NULL,                                   NULL, 0 },
-    { "csnnorm.s.k",           S(CSN_NORM_REDUCTION_SCALAR),  0, "k",           ":CsnArr;kk",             (SUBR) csnarray_norm_scalar,                 (SUBR) csnarray_norm_scalar_k,          NULL,                                   NULL, 0 },
+    { "csnnorm.s.k",           S(CSN_NORM_REDUCTION_SCALAR),  0, "k",           ":CsnArr;kk",             (SUBR) csnarray_norm_scalar_k_init,                 (SUBR) csnarray_norm_scalar_k,          NULL,                                   NULL, 0 },
     { "csnnormalize",          S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;jp",             (SUBR) csnarray_normalize,                   NULL,                                   (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
     { "csnnormalize.in",       S(CSN_UNARYOP_AX_IN),          0, "",            ":CsnArr;jp",             (SUBR) csnarray_normalize_in,                NULL,                                   NULL,                                   NULL, 0 },
     { "csnnormalize.k",        S(CSN_UNARYOP_AX),             0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_normalize_k_init,            (SUBR) csnarray_normalize_k,            (SUBR) csnarray_opunary_ax_deinit,      NULL, 0 },
@@ -13761,7 +16014,7 @@ static OENTRY localops[] = {
     { "csnpairdist",           S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_pair_distance,               NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
     { "csnpairdist.k",         S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;k",      (SUBR) csnarray_pair_distance_k_init,        (SUBR) csnarray_pair_distance_k,        (SUBR) csnarray_opbin_deinit,           NULL, 0 },
     { "csndist",               S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;p",      (SUBR) csnarray_distance,                    NULL,                                   NULL,                                   NULL, 0 },
-    { "csndist.k",             S(CSN_BINOP_HH_SCALAR),        0, "k",           ":CsnArr;:CsnArr;kk",     (SUBR) csnarray_distance,                    (SUBR) csnarray_distance_k,             NULL,                                   NULL, 0 },
+    { "csndist.k",             S(CSN_BINOP_HH_SCALAR),        0, "k",           ":CsnArr;:CsnArr;kk",     (SUBR) csnarray_distance_k_init,                    (SUBR) csnarray_distance_k,             NULL,                                   NULL, 0 },
     { "csnangledist",          S(CSN_BINOP_HH_SCALAR),        0, "i",           ":CsnArr;:CsnArr;",       (SUBR) csnarray_angle_distance,              NULL,                                   NULL,                                   NULL, 0 },
     { "csnangledist.k",        S(CSN_BINOP_HH_SCALAR),        0, "k",           ":CsnArr;:CsnArr;k",      (SUBR) csnarray_angle_distance,              (SUBR) csnarray_angle_distance_k,       NULL,                                   NULL, 0 },
     { "csnreflect",            S(CSN_BINOP_HH),               0, ":CsnArr;",    ":CsnArr;:CsnArr;",       (SUBR) csnarray_reflect,                     NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
@@ -13778,27 +16031,50 @@ static OENTRY localops[] = {
     { "csnmatmul.s.k",         S(CSN_BINOP_HH_SCALAR),        0, "k",           ":CsnArr;:CsnArr;k",      (SUBR) csnarray_matmul_scalar,               (SUBR) csnarray_matmul_scalar_k,        NULL,                                   NULL, 0 },
     { "csntrace",              S(CSN_UNARYOP_SCALAR),         0, "i",           ":CsnArr;",               (SUBR) csnarray_trace,                       NULL,                                   NULL,                                   NULL, 0 },
     { "csntrace.c",            S(CSN_UNARYOPCOMPLEX_SCALAR),  0, ":Complex;",   ":CsnArr;",               (SUBR) csnarray_tracecomp,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csntrace.k",            S(CSN_UNARYOP_SCALAR),         0, "k",           ":CsnArr;k",              (SUBR) csnarray_trace,                       (SUBR) csnarray_trace_k,                NULL,                                   NULL, 0 },
+    { "csntrace.c.k",          S(CSN_UNARYOPCOMPLEX_SCALAR),  0, ":Complex;",   ":CsnArr;k",              (SUBR) csnarray_tracecomp,                   (SUBR) csnarray_tracecomp_k,            NULL,                                   NULL, 0 },
     { "csndiag",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_diag,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csndiag.k",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_diag,                        (SUBR) csnarray_diag_k,                 (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnmovmean",            S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movmean,                     NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovmean.k",          S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_movmean_k_init,              (SUBR) csnarray_movmean_k,              (SUBR) csnarray_movstats_deinit,        NULL, 0 },
     { "csnmovmean.in",         S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movmean_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovmean.in.k",       S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;kkk",            (SUBR) csnarray_movmean_in_k_init,           (SUBR) csnarray_movmean_in_k,           (SUBR) csnarray_movstats_in_k_deinit,   NULL, 0 },
     { "csnmovstd",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movstd,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovstd.k",           S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_movstd_k_init,               (SUBR) csnarray_movstd_k,               (SUBR) csnarray_movstats_deinit,        NULL, 0 },
     { "csnmovstd.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movstd_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovstd.in.k",        S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;kkk",            (SUBR) csnarray_movstd_in_k_init,            (SUBR) csnarray_movstd_in_k,            (SUBR) csnarray_movstats_in_k_deinit,   NULL, 0 },
     { "csnmovvar",             S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;ij",             (SUBR) csnarray_movvar,                      NULL,                                   (SUBR) csnarray_movstats_deinit,        NULL, 0 },
+    { "csnmovvar.k",           S(CSN_MOVSTATS),               0, ":CsnArr;",    ":CsnArr;kkk",            (SUBR) csnarray_movvar_k_init,               (SUBR) csnarray_movvar_k,               (SUBR) csnarray_movstats_deinit,        NULL, 0 },
     { "csnmovvar.in",          S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;ij",             (SUBR) csnarray_movvar_in,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnmovvar.in.k",        S(CSN_MOVSTATS_IN),            0, "",            ":CsnArr;kkk",            (SUBR) csnarray_movvar_in_k_init,            (SUBR) csnarray_movvar_in_k,            (SUBR) csnarray_movstats_in_k_deinit,   NULL, 0 },
     { "csnreal",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_real,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnreal.k",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_real_k_init,                 (SUBR) csnarray_real_k,                 (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnimag",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_imag,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnimag.k",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_imag_k_init,                 (SUBR) csnarray_imag_k,                 (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csntoreal",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_complex_to_real,             NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csntoreal.k",           S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_complex_to_real_k_init,      (SUBR) csnarray_complex_to_real_k,      (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csntocomplex",          S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_real_to_complex,             NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csntocomplex.k",        S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_real_to_complex_k_init,      (SUBR) csnarray_real_to_complex_k,      (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnconj",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_conj,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnconj.k",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_conj_k_init,                 (SUBR) csnarray_conj_k,                 (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnangle",              S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_angle,                       NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
+    { "csnangle.k",            S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_angle_k_init,                (SUBR) csnarray_angle_k,                (SUBR) csnarray_angle_deinit,           NULL, 0 },
     { "csnwrap",               S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;i",              (SUBR) csnarray_wrap_angle,                  NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
+    { "csnwrap.k",             S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;kk",             (SUBR) csnarray_wrap_angle_k_init,           (SUBR) csnarray_wrap_angle_k,           (SUBR) csnarray_angle_deinit,           NULL, 0 },
     { "csnwrap.in",            S(CSN_ANGLE),                  0, "",            ":CsnArr;i",              (SUBR) csnarray_wrap_angle_in,               NULL,                                   NULL,                                   NULL, 0 },
+    { "csnwrap.in.k",          S(CSN_ANGLE),                  0, "",            ":CsnArr;kk",             (SUBR) csnarray_wrap_angle_in,               (SUBR) csnarray_wrap_angle_in_k,        NULL,                                   NULL, 0 },
     { "csnunwrap",             S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;iij",            (SUBR) csnarray_unwrap_angle,                NULL,                                   (SUBR) csnarray_angle_deinit,           NULL, 0 },
+    { "csnunwrap.k",           S(CSN_ANGLE),                  0, ":CsnArr;",    ":CsnArr;kkkk",           (SUBR) csnarray_unwrap_angle_k_init,         (SUBR) csnarray_unwrap_angle_k,         (SUBR) csnarray_angle_deinit,           NULL, 0 },
     { "csnunwrap.in",          S(CSN_ANGLE),                  0, "",            ":CsnArr;iij",            (SUBR) csnarray_unwrap_angle_in,             NULL,                                   NULL,                                   NULL, 0 },
+    { "csnunwrap.in.k",        S(CSN_ANGLE),                  0, "",            ":CsnArr;kkkk",           (SUBR) csnarray_unwrap_angle_in,             (SUBR) csnarray_unwrap_angle_in_k,      NULL,                                   NULL, 0 },
     { "csntype",               S(CSN_UNARYOP_SCALAR),         0, "i",           ":CsnArr;",               (SUBR) csnarray_type,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csntype.k",             S(CSN_UNARYOP_SCALAR),         0, "k",           ":CsnArr;k",              (SUBR) csnarray_type,                        (SUBR) csnarray_type_k,                 NULL,                                   NULL, 0 },
     { "csncopy",               S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_copy,                        NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csncopy.k",             S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_copy_k_init,                 (SUBR) csnarray_copy_k,                 (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnreverse",            S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;",               (SUBR) csnarray_reverse,                     NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
-    { "csnreverse_in",         S(CSN_UNARYOP_IN),             0, "",            ":CsnArr;",               (SUBR) csnarray_reverse_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnreverse.k",          S(CSN_UNARYOP),                0, ":CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_reverse_k_init,              (SUBR) csnarray_reverse_k,              (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnreverse.in",         S(CSN_UNARYOP_IN),             0, "",            ":CsnArr;",               (SUBR) csnarray_reverse_in,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnreverse.in.k",       S(CSN_UNARYOP_IN),             0, "",            ":CsnArr;k",              (SUBR) csnarray_reverse_in,                  (SUBR) csnarray_reverse_in_k,           NULL,                                   NULL, 0 },
     // ---
 };
 

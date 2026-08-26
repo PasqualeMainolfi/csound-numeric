@@ -16,16 +16,25 @@ ZerosAlias@global:CsnArr = csnzeros(array(1))
 OnesAlias@global:CsnArr = csnones(array(1))
 LikeAlias@global:CsnArr = csnzeros(array(1))
 
+/* itype is an i-argument, so a handle keeps its element type for the whole
+   note. The complex constructors get their own slots instead. */
+ZerosC@global:CsnArr = csnzeros(array(1), 1)
+OnesC@global:CsnArr = csnones(array(1), 1)
+LikeC@global:CsnArr = csnlike(ZerosC, 0)
+
 instr 1
     kShape[] = init(1)
     kElapsed = timeinsts()
     kShape[0] = (kElapsed < 0.04 ? 2 : 3)
-    kType = (kElapsed < 0.055 ? 0 : 1)
     kFill = (kElapsed < 0.025 ? 5 : 7)
 
-    Zeros = csnzeros(kShape, kType)
-    Ones = csnones(kShape, kType)
+    Zeros = csnzeros(kShape, 0)
+    Ones = csnones(kShape, 0)
     Like = csnlike(Zeros, kFill)
+
+    ZerosC = csnzeros(kShape, 1)
+    OnesC = csnones(kShape, 1)
+    LikeC = csnlike(ZerosC, kFill)
 endin
 
 instr 2
@@ -68,18 +77,21 @@ instr 5
 endin
 
 instr 6
-    ; A real-to-complex transition preserves the handles and fills both lanes.
+    ; Complex constructors driven at k-rate fill both lanes.
     iIndex0[] = array(0)
-    Z:Complex = csnget(ZerosAlias, iIndex0)
-    O:Complex = csnget(OnesAlias, iIndex0)
-    L:Complex = csnget(LikeAlias, iIndex0)
+    Z:Complex = csnget(ZerosC, iIndex0)
+    O:Complex = csnget(OnesC, iIndex0)
+    L:Complex = csnget(LikeC, iIndex0)
     iZReal = real(Z)
     iZImag = imag(Z)
     iOReal = real(O)
     iOImag = imag(O)
     iLReal = real(L)
     iLImag = imag(L)
-    assert(csntype(ZerosAlias) == 1 && csntype(OnesAlias) == 1 && csntype(LikeAlias) == 1)
+    /* The complex constructors stay complex and the real ones stay real: the
+       element type is fixed at init and no k pass can flip it. */
+    assert(csntype(ZerosC) == 1 && csntype(OnesC) == 1 && csntype(LikeC) == 1)
+    assert(csntype(Zeros) == 0 && csntype(Ones) == 0 && csntype(Like) == 0)
     assert(iZReal == 0 && iZImag == 0)
     assert(iOReal == 1 && iOImag == 0)
     assert(iLReal == 7 && iLImag == 0)

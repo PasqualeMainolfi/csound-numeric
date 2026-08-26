@@ -25,8 +25,8 @@ instr 1
     B:Complex = init(3, 4, 0)
     Ten:Complex = init(10, 0, 0)
 
-    iArrA:CsnArr = csnfull(iShape1, A, 1)
-    iArrB:CsnArr = csnfull(iShape1, B, 1)
+    iArrA:CsnArr = csnfull(iShape1, A)
+    iArrB:CsnArr = csnfull(iShape1, B)
     iReal10:CsnArr = csnfull(iShape1, 10)
 
     ; (1 + 2i) * (3 + 4i) = -5 + 10i.
@@ -212,7 +212,7 @@ instr 1
     assert(iRealReverseValues[0] == 20 && iRealReverseValues[1] == 30 && iRealReverseValues[2] == 10 && iRealReverseValues[3] == 40)
 
     iRealReverseIn:CsnArr = csncopy(iValuesArr)
-    csnreverse_in(iRealReverseIn)
+    csnreverse(iRealReverseIn)
     iRealReverseInValues[] = csntoarray(iRealReverseIn)
     assert(iRealReverseInValues[0] == 20 && iRealReverseInValues[1] == 30 && iRealReverseInValues[2] == 10 && iRealReverseInValues[3] == 40)
     ; Mutating the copy must not modify its source.
@@ -223,7 +223,7 @@ instr 1
     iComplexCopy:CsnArr = csncopy(iComplexPair)
     iComplexReverse:CsnArr = csnreverse(iComplexPair)
     iComplexReverseIn:CsnArr = csncopy(iComplexPair)
-    csnreverse_in(iComplexReverseIn)
+    csnreverse(iComplexReverseIn)
     assert(csntype(iComplexCopy) == 1)
     assert(csntype(iComplexReverse) == 1)
 
@@ -427,7 +427,7 @@ instr 3
     iA:Complex = csnget(iComplexSeed, iIndex0)
     iB:Complex = csnget(iComplexSeed, iIndex1)
     iC:Complex = csnget(iComplexSeed, iIndex2)
-    iFullComplex:CsnArr = csnfull(iShape2, iA, 1)
+    iFullComplex:CsnArr = csnfull(iShape2, iA)
     iLike:CsnArr = csnlike(iFull, 3)
 
     iNative[][] = init(2, 2)
@@ -584,7 +584,7 @@ instr 3
     iComplexSliceImag = imag(ComplexSliceValue)
     assert(iComplexSliceReal == 3 && iComplexSliceImag == 0)
 
-    iComplexSliceData:CsnArr = csnfull(iShape1, iC, 1)
+    iComplexSliceData:CsnArr = csnfull(iShape1, iC)
     iComplexSliceTarget:CsnArr = csncopy(iFromComplex)
     csnsetslice(iComplexSliceTarget, iComplexSliceData, 0, 1, 2, 1)
     ComplexSetSliceValue:Complex = csnget(iComplexSliceTarget, iIndex1)
@@ -933,6 +933,6 @@ e
 ; csnreflect csndiff csncumsum csncumprod csnmatmul csnmatmul.s csntrace csntrace.c
 ; csndiag csnmovmean csnmovmean.in csnmovstd csnmovstd.in csnmovvar csnmovvar.in csnreal
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
-; csnunwrap.in csntype csncopy csnreverse csnreverse_in
+; csnunwrap.in csntype csncopy csnreverse csnreverse.in
 ; @covers-end
 </CsoundSynthesizer>

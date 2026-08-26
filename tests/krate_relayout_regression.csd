@@ -27,11 +27,10 @@ Zeros@global:CsnArr = csnzeros(giShape)
 instr 1
     kAxis = -1
     kShape[] = fillarray(2, 3)
-    kType = 0
 
     Flipped = csnflip(Source, kAxis)
     Transposed = csntranspose(Source)
-    Zeros = csnzeros(kShape, kType)
+    Zeros = csnzeros(kShape, 0)
 endin
 
 instr 2

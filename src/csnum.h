@@ -204,6 +204,13 @@ typedef enum {
     CSN_K_ONES
 } CSN_K_SHAPE_INIT_MODE;
 
+typedef enum {
+    CSN_ARANGE,
+    CSN_LINSPACE,
+    CSN_LOGSPACE,
+    CSN_GEOMSPACE
+} CSN_SPACED_SPACE_MODE;
+
 typedef struct {
     double re;
     double im;
@@ -259,8 +266,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
+    /* The value's own type fixes the array's, so there is no itype argument. */
     COMPLEXDAT *value;
-    MYFLT *itype;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -274,8 +281,10 @@ typedef struct {
     ARRAYDAT *shape;
     MYFLT *min;
     MYFLT *max;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_ARR_RND_INIT;
 
 typedef struct {
@@ -324,10 +333,13 @@ typedef struct {
     MYFLT *stop;
     MYFLT *step_num; // step for arange
                      // num for linspace, logspace and geomspace
-    MYFLT *base;     // only for logspace
+    MYFLT *arg_a;    // trig for all the others
+                     // only for logspace -> base
+    MYFLT *arg_b;    // trig only for logspace
     // private
     CSN_ARRAY *array;
     uint32_t handle_id;
+    K_DATA k_data;
 } CSN_SPACED_SPACE;
 
 typedef struct {
@@ -711,8 +723,10 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *min;
     MYFLT *max;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_CLIP;
 
 typedef struct {
@@ -721,6 +735,9 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *min;
     MYFLT *max;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_CLIP_IN;
 
 typedef struct {
@@ -730,8 +747,12 @@ typedef struct {
     // inputs
     CSNREF *source_handle; // array source
     CSNREF *data_handle;   // array of values (source array will compared with data_handle)
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    ARRAY_ELEMENT *buffer;
+    size_t buffer_capacity;
 } CSN_ARGWHERE;
 
 typedef struct {
@@ -741,8 +762,12 @@ typedef struct {
     // inputs
     CSNREF *source_handle; // array source
     MYFLT *cmp_value;     // only for gt, lt, ne
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    ARRAY_ELEMENT *buffer;
+    size_t buffer_capacity;
 } CSN_COMPARE;
 
 /* The count family returns how many elements matched, never an array, so its
@@ -753,7 +778,11 @@ typedef struct {
     MYFLT *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *cmp_value;     // only for cnteq
+    MYFLT *arg_a;     // compared value for cnteq
+                      // trig for all
+    MYFLT *arg_b;     // trig only for cnteq
+    // private
+    CSN_REGISTRY *registry;
 } CSN_COUNT;
 
 /* Reducing along an axis drops that axis and yields an array. */
@@ -969,6 +998,9 @@ typedef struct {
     MYFLT *value;
     // inputs
     CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_UNARYOP_SCALAR;
 
 typedef struct {
@@ -977,13 +1009,18 @@ typedef struct {
     COMPLEXDAT *value;
     // inputs
     CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_UNARYOPCOMPLEX_SCALAR;
 
 typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *arg_a; // in normalize is axis
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_UNARYOP_IN;
 
 typedef struct {
@@ -1022,8 +1059,12 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *winsize;
     MYFLT *axis;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    double *median_buffer;
+    size_t median_buffer_capacity;
 } CSN_MOVSTATS;
 
 typedef struct {
@@ -1032,6 +1073,11 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *winsize;
     MYFLT *axis;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    double *median_buffer;
+    size_t median_buffer_capacity;
 } CSN_MOVSTATS_IN;
 
 typedef struct {
@@ -1040,22 +1086,31 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *period;   // in wrap is period zero-centered
-                     // in unwrap is period (see numpy)
-    MYFLT *discount; // only for unwrap
-    MYFLT *axis;
+    MYFLT *arg_a;  // in angle is trig
+                   // in wrap is period zero-centered
+                   // in unwrap is period (see numpy)
+    MYFLT *arg_b;  // in wrap is trig
+                   // discount for unwrap
+    MYFLT *arg_c;  // axis
+    MYFLT *arg_d;  // trig in unwrap
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
 } CSN_ANGLE;
 
 typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *period;   // in wrap is period zero-centered
-                     // in unwrap is period (see numpy)
-    MYFLT *discount; // only for unwrap
-    MYFLT *axis;
+    MYFLT *arg_a;  // in angle is trig
+                   // in wrap is period zero-centered
+                   // in unwrap is period (see numpy)
+    MYFLT *arg_b;  // in wrap is trig
+                   // discount for unwrap
+    MYFLT *arg_c;  // axis
+    MYFLT *arg_d;  // trig in unwrap
+    // private
+    CSN_REGISTRY *registry;
 } CSN_ANGLE_IN;
 
 typedef struct {
@@ -1066,8 +1121,12 @@ typedef struct {
     CSNREF *source_handle;
     MYFLT *quantity;
     MYFLT *axis;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
+    K_DATA k_data;
+    double *buffer;
+    size_t buffer_capacity;
 } CSN_PERCQUANT_AX;
 
 typedef struct {
@@ -1077,6 +1136,11 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *quantity;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    double *buffer;
+    size_t buffer_capacity;
 } CSN_PERCQUANT;
 
 // i-rate

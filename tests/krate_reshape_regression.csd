@@ -13,7 +13,9 @@ Source@global:CsnArr = csnfromarray(array(1, 2, 3, 4))
 Reshaped@global:CsnArr = csnreshape(Source, array(2, 2))
 ReshapedAlias@global:CsnArr = csnreshape(Source, array(2, 2))
 InPlace@global:CsnArr = csnfromarray(array(1, 2, 3, 4))
-DynamicSource@global:CsnArr = csnfull(array(1), 0)
+/* itype is an i-argument, so the complex source keeps its type for the whole
+   note; reshaping it must preserve that type across every layout change. */
+DynamicSource@global:CsnArr = csnfull(array(1), 5, 1)
 DynamicReshaped@global:CsnArr = csnreshape(DynamicSource, array(1))
 DynamicAlias@global:CsnArr = csnreshape(DynamicSource, array(1))
 
@@ -21,12 +23,11 @@ instr 1
     kElapsed = timeinsts()
     kRows = (kElapsed < 0.015 ? 2 : 1)
     kCols = (kElapsed < 0.015 ? 2 : 4)
-    kType = (kElapsed < 0.015 ? 0 : 1)
     kFour = 4
     kShape[] = fillarray(kRows, kCols)
     kSourceShape[] = fillarray(kFour)
 
-    DynamicSource = csnfull(kSourceShape, 5, kType)
+    DynamicSource = csnfull(kSourceShape, 5, 1)
     Reshaped = csnreshape(Source, kShape)
     DynamicReshaped = csnreshape(DynamicSource, kShape)
     csnreshape(InPlace, kShape)
@@ -45,7 +46,9 @@ instr 3
     iIndex[] = array(0, 0)
     assert(csnget(ReshapedAlias, iIndex) == 9)
     assert(csnget(InPlace, iIndex) == 8)
-    assert(csntype(DynamicAlias) == 0 && csnget(DynamicAlias, iIndex) == 5)
+    DEarly:Complex = csnget(DynamicAlias, iIndex)
+    iDEarlyReal = real(DEarly)
+    assert(csntype(DynamicAlias) == 1 && iDEarlyReal == 5)
 endin
 
 instr 4
