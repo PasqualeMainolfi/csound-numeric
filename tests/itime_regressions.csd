@@ -278,6 +278,23 @@ instr 2
     assert(iLinspaceValues[0] == 0 && iLinspaceValues[1] == 0.5 && iLinspaceValues[2] == 1)
     assert(abs(iGeomspaceValues[0] - 1) < 1e-12 && abs(iGeomspaceValues[1] - 2) < 1e-12 && abs(iGeomspaceValues[2] - 4) < 1e-12 && abs(iGeomspaceValues[3] - 8) < 1e-12 && abs(iGeomspaceValues[4] - 16) < 1e-12)
 
+    ; A non-zero seed replays the same stream, so csnrand becomes reproducible.
+    ; The registry generator is global state: reseeding here also decides what
+    ; every later csnrand draws.
+    csnseed 12345
+    iSeededA:CsnArr = csnrand(iShape4, 0, 1)
+    iSeededAValues[] = csntoarray(iSeededA)
+    csnseed 12345
+    iSeededB:CsnArr = csnrand(iShape4, 0, 1)
+    iSeededBValues[] = csntoarray(iSeededB)
+    assert(iSeededAValues[0] == iSeededBValues[0] && iSeededAValues[1] == iSeededBValues[1] && iSeededAValues[2] == iSeededBValues[2] && iSeededAValues[3] == iSeededBValues[3])
+
+    ; A different seed selects a different stream.
+    csnseed 54321
+    iSeededC:CsnArr = csnrand(iShape4, 0, 1)
+    iSeededCValues[] = csntoarray(iSeededC)
+    assert(iSeededCValues[0] != iSeededAValues[0])
+
     iClipSourceValues[] = fillarray(-2, -0.5, 0.5, 2)
     iClipSource:CsnArr = csnfromarray(iClipSourceValues)
     iClipped:CsnArr = csnclip(iClipSource, -1, 1)
@@ -933,6 +950,6 @@ e
 ; csnreflect csndiff csncumsum csncumprod csnmatmul csnmatmul.s csntrace csntrace.c
 ; csndiag csnmovmean csnmovmean.in csnmovstd csnmovstd.in csnmovvar csnmovvar.in csnreal
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
-; csnunwrap.in csntype csncopy csnreverse csnreverse.in
+; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed
 ; @covers-end
 </CsoundSynthesizer>

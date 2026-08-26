@@ -5,6 +5,18 @@
 #include <string.h>
 #include <time.h>
 
+/* Two Csound instances inside one host build their registries on different
+   threads and both bump the auto-seed counter without holding a lock, so it
+   has to be atomic. A toolchain without C11 atomics falls back to a plain
+   counter: the worst case there is two instances reading the same tick, and
+   the timestamp and the registry address still separate them. */
+#if defined(__STDC_NO_ATOMICS__)
+typedef uint64_t CSN_AUTO_SEED_COUNTER;
+#else
+#include <stdatomic.h>
+typedef _Atomic uint64_t CSN_AUTO_SEED_COUNTER;
+#endif
+
 
 static int32_t reset_registry(CSOUND *csound, void *userdata) {
     CSN_REGISTRY *reg = (CSN_REGISTRY *) userdata;
@@ -64,7 +76,7 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
         return NULL;
     }
 
-    pcg32_random_init(&reg->rng);
+    pcg32_random_init(&reg->rng, CSN_RND_DEFAULT_STATE);
 
     if (csound->RegisterResetCallback(csound, reg, reset_registry) != OK) {
         csound->DestroyMutex(reg->mutex);
@@ -338,20 +350,6 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
     dest->itype = src->itype;
 }
 
-void pcg32_random_init(PCG32_STATE *rng) {
-    /* time() only moves once a second and inc was a fixed constant, so two
-       Csound instances launched together produced the identical stream — very
-       audible when the arrays feed noise. The registry's own address separates
-       the sequences. */
-    uintptr_t tag = (uintptr_t) rng;
-    rng->state = (uint64_t) time(NULL) ^ ((uint64_t) tag * 0x9E3779B97F4A7C15ULL);
-    rng->inc = (((uint64_t) tag) << 1u) | 1u;
-
-    /* PCG's seeding step: one advance so the first draw is properly mixed
-       rather than a thin function of the seed. */
-    (void) pcg32_random(rng);
-}
-
 double pcg32_random(PCG32_STATE *rng) {
     uint64_t oldstate = rng->state;
     rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
@@ -361,6 +359,45 @@ double pcg32_random(PCG32_STATE *rng) {
     return (double) gen / 4294967296.0;
 }
 
+static void pcg32_seed(PCG32_STATE *rng, uint64_t seed, uint64_t sequence) {
+    rng->state = 0U;
+    rng->inc = (sequence << 1U) | 1U;
+    (void) pcg32_random(rng);
+    rng->state += seed;
+    (void) pcg32_random(rng);
+}
+
+static void pcg32_manual_seed(PCG32_STATE *rng, uint64_t seed) {
+    pcg32_seed(rng, seed, 0);
+}
+
+static void pcg32_auto_seed(PCG32_STATE *rng) {
+    /* Three independent sources, because each one alone repeats:
+       time() only ticks once a second, so two `csnseed 0` calls inside the
+       same second replayed the same stream; the registry address is fixed for
+       the whole process; and the counter alone is identical in two instances
+       launched together. The nanosecond field separates reseeds, the address
+       separates instances, the counter separates reseeds that land in the
+       same clock tick. */
+    static CSN_AUTO_SEED_COUNTER auto_seed_counter = 0;
+
+    struct timespec ts;
+    uint64_t now = (uint64_t) time(NULL) * UINT64_C(1000000000);
+    if (timespec_get(&ts, TIME_UTC) == TIME_UTC) {
+        now = (uint64_t) ts.tv_sec * UINT64_C(1000000000) + (uint64_t) ts.tv_nsec;
+    }
+
+    uint64_t tag = (uint64_t) (uintptr_t) rng;
+    uint64_t tick = (uint64_t) (++auto_seed_counter);
+    uint64_t seed = now ^ (tag * UINT64_C(0x9E3779B97F4A7C15)) ^ (tick * UINT64_C(0xBF58476D1CE4E5B9));
+
+    pcg32_seed(rng, seed, tag);
+}
+
+void pcg32_random_init(PCG32_STATE *rng, uint64_t seed) {
+    if (seed == 0) pcg32_auto_seed(rng);
+    else pcg32_manual_seed(rng, seed);
+}
 
 // CSN TYPE SYSTEM
 

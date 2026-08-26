@@ -22,6 +22,8 @@
 #define SLT_FROM_HANDLE(handle) ((handle) & CSN_SLT_MASK)
 #define GEN_FROM_HANDLE(handle) ((handle) >> CSN_SLT_BITS & CSN_GEN_MASK)
 
+#define CSN_RND_DEFAULT_STATE 42
+
 #define CHECK_ITYPE(csound, x)                                                             \
     do {                                                                                   \
         if ((x) != 0.0 && (x) != 1.0) {                                                    \
@@ -114,29 +116,13 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot);
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim);
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype);
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
-void pcg32_random_init(PCG32_STATE *rng);
 double pcg32_random(PCG32_STATE *rng);
+void pcg32_random_init(PCG32_STATE *rng, uint64_t seed);
 
 int32_t csn_register_type(CSOUND *csound);
 int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *shape);
 /* Caller must hold registry->mutex. */
-int32_t update_slot_array_locked(
-    CSOUND *csound,
-    CSN_REGISTRY *registry,
-    uint32_t handle,
-    uint32_t ndim,
-    const uint32_t *shape,
-    ITEM_TYPE itype,
-    CSN_ARRAY **out_array,
-    const char **err);
-int32_t update_slot_array(
-    CSOUND *csound,
-    CSN_REGISTRY *registry,
-    uint32_t handle,
-    uint32_t ndim,
-    const uint32_t *shape,
-    ITEM_TYPE itype,
-    CSN_ARRAY **out_array,
-    const char **err);
+int32_t update_slot_array_locked(CSOUND *csound, CSN_REGISTRY *registry, uint32_t handle, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, CSN_ARRAY **out_array, const char **err);
+int32_t update_slot_array(CSOUND *csound, CSN_REGISTRY *registry, uint32_t handle, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, CSN_ARRAY **out_array, const char **err);
 
 #endif

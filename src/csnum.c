@@ -47,6 +47,10 @@ static bool IS_VALID_SHIFT(double shift) {
     return isfinite(shift) && trunc(shift) == shift && shift >= (double) INT32_MIN && shift <= (double) INT32_MAX;
 }
 
+static bool IS_VALID_SEED(double seed) {
+    return isfinite(seed) && trunc(seed) == seed && seed >= 0.0 && seed <= 9007199254740992.0; /* 2^53, exact in double */
+}
+
 static bool IS_VALID_INDEX(double index) {
     return isfinite(index) && trunc(index) == index && index >= 0.0 && index <= (double) UINT32_MAX;
 }
@@ -15627,12 +15631,28 @@ int32_t csnarray_quantile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p) {
     return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, false, (double) *p->quantity, NULL, p->registry, p->trig, &p->buffer, &p->buffer_capacity);
 }
 
+int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+    double seed_temp = (double) *p->seed;
+    if (!IS_VALID_SEED(seed_temp)) {
+        return csound->InitError(csound, "[csnarray] Invalid seed %g: expected a non-negative integer up to 2^53 (0 seeds from the clock)", seed_temp);
+    }
+    uint64_t seed = (uint64_t) seed_temp;
+    csound->LockMutex(reg->mutex);
+    pcg32_random_init(&reg->rng, seed);
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
 
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
 
 static OENTRY localops[] = {
+    { "csnseed",               S(CSN_SEED),                   0, "",            "i",                      (SUBR) csnarray_set_seed,                    NULL,                                   NULL,                                   NULL, 0 },
     // REAL-ONLY
     { "csnrand",               S(CSN_ARR_RND_INIT),           0, ":CsnArr;",    "i[]ii",                  (SUBR) create_random_csnarray,               NULL,                                   (SUBR) create_csnarray_random_deinit,   NULL, 0 },
     { "csnrand.k",             S(CSN_ARR_RND_INIT),           0, ":CsnArr;",    "k[]kkk",                 (SUBR) create_random_csnarray_k_init,        (SUBR) create_random_csnarray_k,        (SUBR) create_csnarray_random_deinit,   NULL, 0 },

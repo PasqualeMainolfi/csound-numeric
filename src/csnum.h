@@ -1143,7 +1143,16 @@ typedef struct {
     size_t buffer_capacity;
 } CSN_PERCQUANT;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    MYFLT *seed;
+} CSN_SEED;
+
 // i-rate
+
+int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p);
+
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
