@@ -292,8 +292,7 @@ int32_t update_slot_array(
     }
 
     csound->LockMutex(registry->mutex);
-    int32_t res = update_slot_array_locked(
-        csound, registry, handle, ndim, shape, itype, out_array, err);
+    int32_t res = update_slot_array_locked(csound, registry, handle, ndim, shape, itype, out_array, err);
     csound->UnlockMutex(registry->mutex);
     return res;
 }
@@ -417,8 +416,7 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
 /* Copies the payload and the layout, but not ndim: both callers preserve the
    rank and only reshape one axis. A caller that changes rank must set it. */
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
-    bool shape_changed = dest->size != src->size
-        || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
+    bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
     bool itype_changed = dest->itype != src->itype;
 
     memcpy(dest->data, src->data, sizeof(double) * src->size * src->itype);

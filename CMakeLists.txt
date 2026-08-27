@@ -205,6 +205,15 @@ if(BUILD_TESTING)
         set_tests_properties(csnum_krate_self_alias_rejected PROPERTIES
             PASS_REGULAR_EXPRESSION "is also this opcode's own output")
         add_test(
+            NAME csnum_krate_self_alias_gradient_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_self_alias_gradient_rejected.csd")
+        set_tests_properties(csnum_krate_self_alias_gradient_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "is also this opcode's own output")
+        add_test(
             NAME csnum_krate_relayout_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests
@@ -225,6 +234,13 @@ if(BUILD_TESTING)
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_inplace_version_regression.csd")
+        add_test(
+            NAME csnum_krate_self_alias_cell_local
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_self_alias_cell_local.csd")
         add_test(
             NAME csnum_krate_optional_trig_regression
             COMMAND "${CSOUND_EXECUTABLE}"

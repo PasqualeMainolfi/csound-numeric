@@ -432,6 +432,31 @@ static const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, 
     return buf;
 }
 
+/* The blanket rejection in CHECK_SELF_ALIAS is too strong for an opcode whose
+   fill writes each result cell from the input cell sitting at the same index:
+   X = csnsin(X) is perfectly well defined, and every cell is read before it is
+   written. What such an opcode still cannot survive is a reallocation, which
+   would hand the fill a fresh zeroed buffer and drop the data it is about to
+   read. So the permission is conditional on the requested layout matching the
+   aliased array's — the same test the elementwise binops already apply.
+
+   Callers must resolve the source and compute the output layout first, then
+   call this in place of CHECK_SELF_ALIAS. */
+static int32_t CHECK_SELF_ALIAS_CELL_LOCAL(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, uint32_t new_ndim, const uint32_t *new_shape, ITEM_TYPE new_itype) {
+    uint32_t owned = k_data->owned_handle;
+    if (owned == 0 || source_handle != owned) {
+        return OK;
+    }
+
+    if (source_arr->ndim != new_ndim
+        || source_arr->itype != new_itype
+        || memcmp(source_arr->shape, new_shape, sizeof(uint32_t) * new_ndim) != 0) {
+        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+        return csound->PerfError(csound, h, "[csnarray] Input array %u is also this opcode's own output, so the result must keep its %s layout, not %s: assign the result to a different handle", owned, shape_str(abuf, sizeof(abuf), source_arr->shape, source_arr->ndim), shape_str(bbuf, sizeof(bbuf), new_shape, new_ndim));
+    }
+    return OK;
+}
+
 static void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim) {
     for (uint32_t i = ndim; i-- > 0;) {
         coords[i] = (uint32_t) (linear % shape[i]);
@@ -6669,9 +6694,6 @@ int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p) {
 
     int32_t res = OK;
     const char *err = NULL;
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
-
     CHECK_KTRIG(p->trig);
 
     csound->LockMutex(reg->mutex);
@@ -6697,11 +6719,20 @@ int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p) {
 
     CSN_ARRAY *arr = NULL;
     size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    /* Clipping never moves a value out of its cell, so an array may clip
+       itself as long as the layout holds still. */
+    res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, source_arr->shape, source_arr->itype);
+    if (res != OK) goto done;
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, source_arr->shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
     p->array = arr;
 
-    memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+    /* Skipped when the source is the destination: memcpy over itself is
+       undefined, and there is nothing to move. */
+    if (p->array->data != source_arr->data) {
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size);
+    }
     (void) clip_value((double) *p->min, (double) *p->max, p->array);
 
     SET_KDATA_END(p, source_arr->shape, source_arr->ndim, source_arr->itype);
@@ -7723,9 +7754,6 @@ static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COM
 
     int32_t res = OK;
     const char *err = NULL;
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
-
     CHECK_KTRIG(p->trig);
 
     csound->LockMutex(reg->mutex);
@@ -7753,15 +7781,24 @@ static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COM
         goto done;
     }
 
+    /* Comparing an array against a scalar writes each result cell from the cell
+       it sits on, so feeding on its own output is legal as long as the layout
+       holds still. */
+    res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, new_shape, source_arr->itype);
+    if (res != OK) goto done;
+
     CSN_ARRAY *arr = NULL;
     size_t logical_size = source_arr->size == 0 ? 0 : req_size;
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
     p->array = arr;
 
+    /* Both branches are written, never just the matches: the slot is only
+       reallocated when the request changes, so on a steady layout an unwritten
+       cell would still be holding the 1.0 some earlier pass put there. */
     for (size_t i = 0; i < source_arr->size; ++i) {
         double value = source_arr->data[i];
-        if (compare_match(value, cmp_value, mode)) arr->data[i] = 1.0;
+        arr->data[i] = compare_match(value, cmp_value, mode) ? 1.0 : 0.0;
     }
 
     SET_KDATA_END(p, new_shape, source_arr->ndim, source_arr->itype);
@@ -11105,9 +11142,6 @@ static int32_t csnarray_unaryop_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNA
     int32_t res = OK;
     const char *err = NULL;
 
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
-
     CHECK_KTRIG(p->trig);
 
     csound->LockMutex(reg->mutex);
@@ -11126,6 +11160,12 @@ static int32_t csnarray_unaryop_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNA
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    /* Every unary function writes the cell it reads and keeps the source's
+       shape; the one layout change in the family is csnabs turning a complex
+       array real, which the layout test below catches. */
+    res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, new_shape, new_itype);
+    if (res != OK) goto done;
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, source_arr->ndim, new_shape, logical_size, new_itype, err);
     if (res != OK) goto done;
 
@@ -12484,7 +12524,11 @@ static int32_t unary_ax_assign_value(CSN_SCRATCH *scratch, CSN_ARRAY *source_arr
                 break;
             }
             case CSN_SORT:
-                memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size);
+                /* Skipped when the array is sorting itself: memcpy over itself
+                   is undefined, and qsort then works in place. */
+                if (arr->data != source_arr->data) {
+                    memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size);
+                }
                 qsort(arr->data, source_arr->size, sizeof(double), compare_double);
                 break;
             case CSN_ARGSORT:{
@@ -12760,7 +12804,13 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_r
     int32_t res = OK;
     const char *err = NULL;
 
-    if (out_handle != NULL) {
+    /* Only csngrad reads a neighbour it has already written; every other mode
+       here either finishes reading the whole slice before it writes any of it
+       (the norm accumulates first, the two sorts stage through the scratch) or
+       writes the cell it just read (the running totals). Those are checked
+       against the layout instead, once the source is resolved — which is also
+       what rejects csndiff, whose result is one element shorter. */
+    if (out_handle != NULL && mode == CSN_GRADIENT) {
         res = CHECK_SELF_ALIAS(csound, h, k_data, source_handle, 0);
         if (res != OK) return res;
     }
@@ -12805,6 +12855,11 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_r
             res = csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
             goto done;
         }
+        if (mode != CSN_GRADIENT) {
+            res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, h, k_data, source_handle, source_arr, new_dim, new_shape, itype);
+            if (res != OK) goto done;
+        }
+
         size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
         res = NEED_TO_UPDATE_SLOT(csound, h, out_array, k_data, new_dim, new_shape, logical_size, itype, err);
         if (res != OK) goto done;
@@ -14641,8 +14696,13 @@ static int32_t csnarray_complop_unary_k_helper(CSOUND *csound, CSN_UNARYOP *p, C
 
     int32_t res = OK;
     const char *err = NULL;
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
+    /* csnconj writes each cell from itself and stays complex. csnreal, csnimag
+       and csntocomplex all change the element type, which reallocates the
+       destination and drops the source the fill is about to read. */
+    if (mode != CSN_CONJ_PART) {
+        res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+        if (res != OK) return res;
+    }
 
     CHECK_KTRIG(p->trig);
 
@@ -14686,6 +14746,11 @@ static int32_t csnarray_complop_unary_k_helper(CSOUND *csound, CSN_UNARYOP *p, C
     size_t logical_size = source_arr->size == 0 ? 0 : req_size;
     /* out_itype, not the source's: csnreal and csnimag hand back a real array
        from a complex one, csnconj and csntocomplex the other way round. */
+    if (mode == CSN_CONJ_PART) {
+        res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, new_dim, new_shape, out_itype);
+        if (res != OK) goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, out_itype, err);
     if (res != OK) goto done;
     p->array = arr;
@@ -14967,8 +15032,12 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
 
     int32_t res = OK;
     const char *err = NULL;
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
+    /* Wrapping folds each angle on its own; csnunwrap walks an axis and reads
+       the neighbour it has just written, and csnangle turns complex into real. */
+    if (mode != CSN_WRAP) {
+        res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+        if (res != OK) return res;
+    }
 
     MYFLT *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_d) : p->arg_a;
     CHECK_KTRIG(trig);
@@ -15001,6 +15070,11 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    if (mode == CSN_WRAP) {
+        res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, new_dim, new_shape, itype);
+        if (res != OK) goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
@@ -15330,8 +15404,14 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
     int32_t res = OK;
     const char *err = NULL;
 
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
+    /* csncopy leaves every value in its own cell, so a handle may copy onto
+       itself; csnreverse reads the cell at the far end of the array and must
+       still be kept apart from its own output. The layout test is applied once
+       the source is resolved, below. */
+    if (reverse) {
+        res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+        if (res != OK) return res;
+    }
 
     CHECK_KTRIG(p->trig);
 
@@ -15360,10 +15440,17 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    if (!reverse) {
+        res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, new_dim, new_shape, itype);
+        if (res != OK) goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, new_dim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
-    copy_assign_value(source_arr, arr, reverse, itype);
+    if (arr->data != source_arr->data) {
+        copy_assign_value(source_arr, arr, reverse, itype);
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
