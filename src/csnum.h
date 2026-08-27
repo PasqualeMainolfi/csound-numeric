@@ -120,7 +120,9 @@ typedef enum {
     CSN_LOGICAL_AND_HS,
     CSN_LOGICAL_OR_HS,
     CSN_LOGICAL_AND_SH,
-    CSN_LOGICAL_OR_SH
+    CSN_LOGICAL_OR_SH,
+    CSN_HYPOT_HH,
+    CSN_HYPOT_HS
 } CSN_BINOP_MODE;
 
 typedef enum {
@@ -232,6 +234,24 @@ typedef struct {
     ITEM_TYPE prev_itype;
     uint32_t owned_handle;
     uint32_t owned_data_handle;
+    /* What this opcode last computed from, so a pass can be skipped when the
+       source has not moved since. The handle is part of the key: a released
+       slot is recycled under a new gen_id, and the array that replaces it
+       starts counting from CSN_ARRAY_FIRST_VERSION, so a version alone would
+       compare equal against a completely different array. Csound zeroes the
+       opcode struct, which leaves the cache at CSN_ARRAY_NULL_VERSION and
+       forces the first pass to compute. */
+    uint32_t prev_source_handle;
+    /* A k-rate scalar the result depends on and that has no other slot here —
+       the quantile of csnpercentile, the window of the moving statistics. It
+       belongs to the reuse key alongside the source version. */
+    double prev_scalar_param;
+    ARRAY_VERSION prev_source_version;
+    /* The generation this opcode left its own output slot at. An unchanged
+       source is not enough to reuse a result: the in-place opcodes rewrite
+       arrays they do not own, and this opcode's output is a legitimate target
+       for one of them. */
+    ARRAY_VERSION prev_output_version;
     CSN_REGISTRY *registry;
 } K_DATA;
 
@@ -1326,6 +1346,8 @@ int32_t csnarray_logical_or_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_logical_and_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_or_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_not(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_hypot_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_hypot_hs(CSOUND *csound, CSN_BINOP_HS *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1563,7 +1585,8 @@ int32_t csnarray_logical_or_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_logical_and_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_or_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_not_k(CSOUND *csound, CSN_UNARYOP *p);
-
+int32_t csnarray_hypot_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_hypot_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);

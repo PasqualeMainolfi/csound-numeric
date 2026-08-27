@@ -63,6 +63,9 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
 
     reg->capacity = CSN_MAX_SLTS;
     reg->active_count = 0;
+#ifdef CSN_VERSION_CROSSCHECK
+    reg->csound = csound;
+#endif
 
     for (uint32_t i = 0; i < CSN_MAX_SLTS; i++) {
         reg->slots[i].array = NULL;
@@ -97,6 +100,54 @@ uint32_t find_free_slot(CSN_REGISTRY *registry) {
     return 0; // full registry
 }
 
+#ifdef CSN_VERSION_CROSSCHECK
+void csn_release_shadow(CSOUND *csound, CSN_ARRAY *array) {
+    if (array == NULL || array->shadow == NULL) return;
+    csound->Free(csound, array->shadow);
+    array->shadow = NULL;
+    array->shadow_capacity = 0;
+    array->shadow_size = 0;
+    array->shadow_data_version = CSN_ARRAY_NULL_VERSION;
+}
+
+void csn_verify_shadow(CSN_REGISTRY *registry, CSN_ARRAY *array, const char *where) {
+    if (registry == NULL || registry->csound == NULL || array == NULL) return;
+    CSOUND *csound = registry->csound;
+
+    size_t doubles = array->data == NULL ? 0 : array->size * (size_t) array->itype;
+
+    /* Only a generation the snapshot was actually taken at can be audited.
+       CSN_ARRAY_NULL_VERSION means no snapshot yet, and a version that has
+       moved since is exactly what the counters are supposed to report. */
+    if (array->shadow_data_version != CSN_ARRAY_NULL_VERSION
+        && array->shadow_data_version == array->version.data_version) {
+        if (doubles != array->shadow_size) {
+            csound->Message(csound,
+                "[csnarray] VERSION CROSSCHECK (%s): array %u held data version %llu while its element count went from %zu to %zu — a writer did not advance it\n",
+                where, array->array_id, (unsigned long long) array->version.data_version,
+                array->shadow_size, doubles);
+        } else if (doubles > 0 && memcmp(array->data, array->shadow, sizeof(double) * doubles) != 0) {
+            csound->Message(csound,
+                "[csnarray] VERSION CROSSCHECK (%s): array %u held data version %llu while its payload changed — a writer did not advance it\n",
+                where, array->array_id, (unsigned long long) array->version.data_version);
+        }
+    }
+
+    if (doubles > array->shadow_capacity) {
+        double *grown = csound->ReAlloc(csound, array->shadow, sizeof(double) * doubles);
+        if (grown == NULL) return; /* leave the old snapshot rather than lie about a new one */
+        array->shadow = grown;
+        array->shadow_capacity = doubles;
+    }
+
+    if (doubles > 0) {
+        memcpy(array->shadow, array->data, sizeof(double) * doubles);
+    }
+    array->shadow_size = doubles;
+    array->shadow_data_version = array->version.data_version;
+}
+#endif
+
 CSN_SLOT *get_slot(CSN_REGISTRY *registry, uint32_t handle) {
     if (registry == NULL || handle == 0) {
         return NULL;
@@ -111,6 +162,13 @@ CSN_SLOT *get_slot(CSN_REGISTRY *registry, uint32_t handle) {
     if (slot->state == INACTIVE_SLOT) return NULL;
     if (slot->gen_id != hgen) return NULL;
     if (slot->array == NULL) return NULL;
+
+#ifdef CSN_VERSION_CROSSCHECK
+    /* Every opcode resolves its handle here before touching an array, so an
+       unbumped write is caught on whichever pass next looks the array up —
+       whoever that turns out to be. */
+    csn_verify_shadow(registry, slot->array, "get_slot");
+#endif
 
     return slot;
 }
@@ -208,6 +266,10 @@ int32_t update_slot_array_locked(
     memcpy(array->strides, strides, sizeof(size_t) * ndim);
     *out_array = array;
 
+    /* Fresh Calloc'd storage under a possibly new layout: nothing a consumer
+       cached about this array survives, so every counter moves. */
+    update_array_version(&array->version);
+
     csound->Free(csound, old_data);
     return OK;
 }
@@ -276,11 +338,24 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     array->ndim = ndim;
     array->array_id = array_id;
 
+    /* init array version */
+    init_array_version(&array->version);
+
+#ifdef CSN_VERSION_CROSSCHECK
+    array->shadow = NULL;
+    array->shadow_capacity = 0;
+    array->shadow_size = 0;
+    array->shadow_data_version = CSN_ARRAY_NULL_VERSION;
+#endif
+
     return OK;
 }
 
 static void destroy_array(CSOUND *csound, CSN_ARRAY *array) {
     if (array != NULL) {
+#ifdef CSN_VERSION_CROSSCHECK
+        csn_release_shadow(csound, array);
+#endif
         if (array->data != NULL) {
             csound->Free(csound, array->data);
         }
@@ -342,12 +417,74 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
 /* Copies the payload and the layout, but not ndim: both callers preserve the
    rank and only reshape one axis. A caller that changes rank must set it. */
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
+    bool shape_changed = dest->size != src->size
+        || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
+    bool itype_changed = dest->itype != src->itype;
+
     memcpy(dest->data, src->data, sizeof(double) * src->size * src->itype);
     memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
     memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
     dest->size = src->size;
     dest->capacity = src->capacity;
     dest->itype = src->itype;
+
+    /* dest keeps its own identity and its own counters; it does not inherit
+       src's. Its payload was just overwritten, so its data version moves
+       whatever src's happens to be. */
+    update_array_data_version(&dest->version);
+    update_array_layout_version(&dest->version, shape_changed, false, itype_changed);
+}
+
+/* A consumer caches the version it last computed from inside its own opcode
+   struct, which Csound zeroes at allocation. Arrays therefore start at
+   CSN_ARRAY_FIRST_VERSION and never reach CSN_ARRAY_NULL_VERSION again: if
+   they started at zero too, a consumer's first pass would compare equal and
+   skip the very computation that fills its buffer. */
+void init_array_version(ARRAY_VERSION *version) {
+    version->data_version = CSN_ARRAY_FIRST_VERSION;
+    version->shape_version = CSN_ARRAY_FIRST_VERSION;
+    version->ndim_version = CSN_ARRAY_FIRST_VERSION;
+    version->itype_version = CSN_ARRAY_FIRST_VERSION;
+}
+
+/* Each counter moves on its own. A consumer that only needs the layout (an
+   index map, a stride plan, a window whose length follows the shape) keeps its
+   cache while the values underneath it change, and the reverse holds for one
+   that only reads values. Bumping them together would collapse the four
+   counters back into a single bit. */
+void update_array_data_version(ARRAY_VERSION *version) {
+    version->data_version++;
+}
+
+void update_array_layout_version(ARRAY_VERSION *version, bool shape_changed, bool ndim_changed, bool itype_changed) {
+    if (shape_changed) version->shape_version++;
+    if (ndim_changed) version->ndim_version++;
+    if (itype_changed) version->itype_version++;
+}
+
+void update_array_version(ARRAY_VERSION *version) {
+    version->data_version++;
+    version->shape_version++;
+    version->ndim_version++;
+    version->itype_version++;
+}
+
+bool is_same_array_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
+    return version_a->data_version == version_b->data_version
+        && version_a->shape_version == version_b->shape_version
+        && version_a->ndim_version == version_b->ndim_version
+        && version_a->itype_version == version_b->itype_version;
+}
+
+bool is_same_array_data_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
+    return version_a->data_version == version_b->data_version;
+}
+
+void set_array_version(ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
+    version_a->data_version = version_b->data_version;
+    version_a->shape_version = version_b->shape_version;
+    version_a->ndim_version = version_b->ndim_version;
+    version_a->itype_version = version_b->itype_version;
 }
 
 double pcg32_random(PCG32_STATE *rng) {

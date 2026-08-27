@@ -218,6 +218,27 @@ if(BUILD_TESTING)
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_reduction_regression.csd")
+        add_test(
+            NAME csnum_krate_inplace_version_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_inplace_version_regression.csd")
+        add_test(
+            NAME csnum_krate_optional_trig_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_optional_trig_regression.csd")
+        add_test(
+            NAME csnum_krate_version_cache_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_version_cache_regression.csd")
     endif()
 endif()
 endif()

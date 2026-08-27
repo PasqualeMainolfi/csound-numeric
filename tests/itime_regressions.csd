@@ -791,6 +791,21 @@ instr 4
     assert(csnsize(iLogHH) == 3 && csnsize(iLogHS) == 3 && csnsize(iLogSH) == 3)
     assert(csntype(iLogHC) == 1 && csntype(iLogCH) == 1)
 
+    /* csnhypot is real-only, and its operands are Pythagorean triples so the
+       results come out exact rather than needing a tolerance. */
+    iHypotAValues[] = fillarray(3, 6, 8)
+    iHypotBValues[] = fillarray(4, 8, 15)
+    iHypotA:CsnArr = csnfromarray(iHypotAValues)
+    iHypotB:CsnArr = csnfromarray(iHypotBValues)
+
+    iHypotHH:CsnArr = csnhypot(iHypotA, iHypotB)
+    iHypotHS:CsnArr = csnhypot(iHypotA, 4)
+    iHypotHHValues[] = csntoarray(iHypotHH)
+    iHypotHSValues[] = csntoarray(iHypotHS)
+    assert(iHypotHHValues[0] == 5 && iHypotHHValues[1] == 10 && iHypotHHValues[2] == 17)
+    assert(iHypotHSValues[0] == 5)
+    assert(csnsize(iHypotHS) == 3)
+
     ; Every unary numerical signature, on inputs inside its real domain.
     iAbs:CsnArr = csnabs(iValuesArr)
     iExp:CsnArr = csnexp(iDomain)
@@ -950,6 +965,6 @@ e
 ; csnreflect csndiff csncumsum csncumprod csnmatmul csnmatmul.s csntrace csntrace.c
 ; csndiag csnmovmean csnmovmean.in csnmovstd csnmovstd.in csnmovvar csnmovvar.in csnreal
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
-; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed
+; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; @covers-end
 </CsoundSynthesizer>

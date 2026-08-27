@@ -13,9 +13,13 @@ foreach(line IN LISTS source_lines)
         set(input_signature "${CMAKE_MATCH_3}")
 
         # OENTRY suffixes are only human-readable reminders. Determine the
-        # rate from the actual type signatures: k is a required k argument and
-        # J is Csound's optional k argument (j is its i-rate counterpart).
-        if(output_signature MATCHES "[kJ]" OR input_signature MATCHES "[kJ]")
+        # rate from the actual type signatures. k is a required k argument;
+        # J, O, P and V are Csound's optional k arguments, differing only in
+        # the value they default to (-1, 0, 1 and 0.5). An opcode whose trigger
+        # is an optional P still runs at k-rate and does not belong in the
+        # i-time inventory. The lowercase j/o/p/v are the i-rate counterparts
+        # and stay out of this set.
+        if(output_signature MATCHES "[kJOPV]" OR input_signature MATCHES "[kJOPV]")
             continue()
         endif()
         list(APPEND registered "${name}")
