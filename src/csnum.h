@@ -17,6 +17,14 @@
 #define CSN_ACCESSOR_ERROR(csound, perf_h, ...) \
     ((perf_h) != NULL ? (csound)->PerfError((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
 
+/* Same report, for the helpers that run with the registry mutex held: see
+   csn_locked_perf_error. Only the perf branch needs the detour, because
+   InitError just prints and never tears the note down. */
+int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...);
+
+#define CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, ...) \
+    ((perf_h) != NULL ? csn_locked_perf_error((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
+
 #define CHECK_REG_HANDLE(csound, h, reg, handle)                     \
 do {                                                                 \
     if ((reg) == NULL || (handle) == 0) {                            \
@@ -146,7 +154,10 @@ typedef enum {
     CSN_FLOOR,
     CSN_CEIL,
     CSN_ROUND,
-    CSN_LOGICAL_NOT
+    CSN_LOGICAL_NOT,
+    CSN_DEG2RAD,
+    CSN_RAD2DEG,
+    CSN_REVERSE
 } CSN_UNARY_MODE;
 
 typedef enum {
@@ -212,6 +223,14 @@ typedef enum {
     CSN_LOGSPACE,
     CSN_GEOMSPACE
 } CSN_SPACED_SPACE_MODE;
+
+typedef enum {
+    W_HANNING = 0,
+    W_HAMMING,
+    W_BARTLETT,
+    W_BLACKMAN,
+    W_KAISER
+} CSN_WINDOW_MODE;
 
 typedef struct {
     double re;
@@ -1169,6 +1188,22 @@ typedef struct {
     MYFLT *seed;
 } CSN_SEED;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *length;
+    MYFLT *beta;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    int32_t prev_length;
+    double prev_beta;
+    bool is_i_time_length;
+    bool is_published;
+} CSN_WINDOW;
+
 // i-rate
 
 int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p);
@@ -1348,6 +1383,10 @@ int32_t csnarray_logical_or_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_not(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_hypot_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_hypot_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_degtorad(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_radtodeg(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_degtorad_in(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_radtodeg_in(CSOUND *csound, CSN_UNARYOP_IN *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1410,7 +1449,12 @@ int32_t csnarray_unwrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_conj(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
 
-
+// WINDOW FUNCTION
+int32_t csnarray_hanning(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_hamming(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_bartlett(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_blackman(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_kaiser(CSOUND *csound, CSN_WINDOW *p);
 
 // k-rate
 // CREATION
@@ -1587,6 +1631,10 @@ int32_t csnarray_logical_or_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_logical_not_k(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_hypot_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_hypot_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_degtorad_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_radtodeg_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_degtorad_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_radtodeg_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1648,5 +1696,13 @@ int32_t csnarray_wrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_unwrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_conj_k(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
+
+// WINDOW FUNCTION
+int32_t csnarray_hanning_k(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_hamming_k(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_bartlett_k(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_blackman_k(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_kaiser_k(CSOUND *csound, CSN_WINDOW *p);
+
 
 #endif
