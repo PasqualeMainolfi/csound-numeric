@@ -360,6 +360,16 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *ftable;
+    // private
+    CSN_ARRAY *array;
+} CSN_FROM_FTABLE;
+
+typedef struct {
+    OPDS h;
+    // outputs
     ARRAYDAT *array;
     // inputs
     CSNREF *source_handle;
@@ -1294,6 +1304,7 @@ int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p);
+int32_t from_ftable_to_csnarray(CSOUND *csound, CSN_FROM_FTABLE *p);
 
 // SHAPE
 int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p);

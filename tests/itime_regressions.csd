@@ -1035,10 +1035,26 @@ instr 6
     assert(iGridQuotient00 == 0 && iGridRemainder00 == 1)
     assert(iGridQuotient11 == 1 && iGridRemainder11 == 2)
     assert(csnsize(iGridQuotient) == 6 && csnsize(iGridRemainder) == 6)
+
+    /* A function table holds flen values plus a guard point that is not part
+       of the data, so the array must come out exactly flen long. The copy is
+       a snapshot: writing into it must not reach back into the table. */
+    iTable:CsnArr = csnfromftable(1)
+    iTableValues[] = csntoarray(iTable)
+    assert(csnsize(iTable) == 8)
+    assert(iTableValues[0] == 10 && iTableValues[3] == 40 && iTableValues[7] == 80)
+
+    iTableIndex0[] = fillarray(0)
+    csnset iTable, iTableIndex0, 999
+    iTableAfterSet[] = csntoarray(iTable)
+    iTableSourceCell = table(0, 1)
+    assert(iTableAfterSet[0] == 999 && iTableSourceCell == 10)
 endin
 </CsInstruments>
 
 <CsScore>
+; instr 6 reads this table; -2 keeps the values unscaled
+f 1 0 8 -2 10 20 30 40 50 60 70 80
 i 1 0 0.01
 i 2 0.02 0.01
 i 3 0.04 0.01
@@ -1081,6 +1097,6 @@ e
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
-; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh
+; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable
 ; @covers-end
 </CsoundSynthesizer>

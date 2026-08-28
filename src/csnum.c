@@ -470,6 +470,10 @@ static int32_t csnarray_divmod_deinit(CSOUND *csound, void *p) {
     return csnarray_deinit_by_handle(csound, &ptr->handle_b->id, &ptr->array_b, &ptr->h);
 }
 
+static int32_t csnarray_from_ftable_deinit(CSOUND *csound, CSN_FROM_FTABLE *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
 static const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_t ndim) {
     size_t off = 0;
     int written = snprintf(buf, buf_size, "(");
@@ -16934,6 +16938,44 @@ int32_t csnarray_divmod_sh_k(CSOUND *csound, CSN_DIVMOD_SH *p) {
     return csnarray_divmod_hs_sh_k_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, p->source_handle, p->scalar, &p->k_data, true, &p->is_published);
 }
 
+int32_t from_ftable_to_csnarray(CSOUND *csound, CSN_FROM_FTABLE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    /* FTFind names the offending table number itself and counts the init
+       error, so reporting again here would delete the note with two errors
+       for one mistake. */
+    FUNC *ftable = csound->FTFind(csound, p->ftable);
+    if (ftable == NULL) {
+        return NOTOK;
+    }
+
+    /* flen counts the data; the guard point past it is not part of the table. */
+    uint32_t size = ftable->flen;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    shape[0] = size;
+
+    if (create_csnarray_locked(csound, reg, &p->h, 1U, shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    for (uint32_t i = 0; i < size; i++) {
+        arr->data[i] = (double) ftable->ftable[i];
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
 
 // --- OENTRY ---
 
@@ -17083,6 +17125,7 @@ static OENTRY localops[] = {
     { "csndivmod.hh.k",        S(CSN_DIVMOD_HH),              0, ":CsnArr;:CsnArr;",    ":CsnArr;:CsnArr;P",      (SUBR) csnarray_divmod_hh_k_init,            (SUBR) csnarray_divmod_hh_k,            (SUBR) csnarray_divmod_deinit,          NULL, 0 },
     { "csndivmod.hs.k",        S(CSN_DIVMOD_HS),              0, ":CsnArr;:CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_divmod_hs_k_init,            (SUBR) csnarray_divmod_hs_k,            (SUBR) csnarray_divmod_deinit,          NULL, 0 },
     { "csndivmod.sh.k",        S(CSN_DIVMOD_SH),              0, ":CsnArr;:CsnArr;",    "k:CsnArr;",              (SUBR) csnarray_divmod_sh_k_init,            (SUBR) csnarray_divmod_sh_k,            (SUBR) csnarray_divmod_deinit,          NULL, 0 },
+    { "csnfromftable",         S(CSN_FROM_FTABLE),            0, ":CsnArr;",             "i",                     (SUBR) from_ftable_to_csnarray,              NULL,                                   (SUBR) csnarray_from_ftable_deinit,     NULL, 0 },
     // ---
     // REAL AND COMPLEX
     { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                           (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
