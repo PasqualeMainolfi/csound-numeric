@@ -243,6 +243,13 @@ typedef struct {
 } ARRAY_ELEMENT;
 
 typedef struct {
+    uint32_t owned_handle_q;
+    uint32_t owned_handle_r;
+    ARRAY_VERSION prev_source_a_version;
+    ARRAY_VERSION prev_source_b_version;
+} CSN_DIVMOD_K_STATE;
+
+typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
     uint32_t prev_axes[CSN_MAX_DIMS];
     uint32_t prev_axis;
@@ -272,6 +279,7 @@ typedef struct {
        for one of them. */
     ARRAY_VERSION prev_output_version;
     CSN_REGISTRY *registry;
+    CSN_DIVMOD_K_STATE prev_divmod_state;
 } K_DATA;
 
 typedef struct {
@@ -917,6 +925,7 @@ typedef struct {
     OPDS h;
     // outputs
     CSNREF *handle;
+    // inputs
     void *arg_a;
     void *arg_b;
     void *arg_c;
@@ -1204,6 +1213,66 @@ typedef struct {
     bool is_published;
 } CSN_WINDOW;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_a;
+    CSNREF *handle_b;
+    // inputs
+    void *arg_a;
+    void *arg_b;
+    // private
+    CSN_ARRAY *array_a;
+    CSN_ARRAY *array_b;
+    K_DATA k_data;
+} CSN_DIVMOD_COMMON;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_a;
+    CSNREF *handle_b;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array_a;
+    CSN_ARRAY *array_b;
+    K_DATA k_data;
+    bool is_published;
+} CSN_DIVMOD_HH;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_a;
+    CSNREF *handle_b;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *scalar;
+    // private
+    CSN_ARRAY *array_a;
+    CSN_ARRAY *array_b;
+    K_DATA k_data;
+    bool is_published;
+} CSN_DIVMOD_HS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_a;
+    CSNREF *handle_b;
+    // inputs
+    MYFLT *scalar;
+    CSNREF *source_handle;
+    // private
+    CSN_ARRAY *array_a;
+    CSN_ARRAY *array_b;
+    K_DATA k_data;
+    bool is_published;
+} CSN_DIVMOD_SH;
+
 // i-rate
 
 int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p);
@@ -1387,6 +1456,9 @@ int32_t csnarray_degtorad(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_radtodeg(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_degtorad_in(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_radtodeg_in(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_divmod_hh(CSOUND *csound, CSN_DIVMOD_HH *p);
+int32_t csnarray_divmod_hs(CSOUND *csound, CSN_DIVMOD_HS *p);
+int32_t csnarray_divmod_sh(CSOUND *csound, CSN_DIVMOD_SH *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1635,6 +1707,9 @@ int32_t csnarray_degtorad_k(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_radtodeg_k(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_degtorad_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_radtodeg_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_divmod_hh_k(CSOUND *csound, CSN_DIVMOD_HH *p);
+int32_t csnarray_divmod_hs_k(CSOUND *csound, CSN_DIVMOD_HS *p);
+int32_t csnarray_divmod_sh_k(CSOUND *csound, CSN_DIVMOD_SH *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);
