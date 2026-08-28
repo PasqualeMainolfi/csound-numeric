@@ -923,6 +923,119 @@ instr 5
     assert(abs(iUnwrappedValues[2] - 3.283185307179586) < 1e-12)
     assert(abs(iUnwrapInValues[3] - 4.283185307179586) < 1e-12)
 endin
+
+instr 6
+    ; ------------------------------------------------------------------
+    ; Angle conversion, both the copying and the in-place overload. The
+    ; in-place form has to leave the source it was handed converted, and
+    ; the copying form has to leave it alone.
+    ; ------------------------------------------------------------------
+    iDegreeValues[] = fillarray(0, 90, 180, 270, 360, -45)
+    iDegrees:CsnArr = csnfromarray(iDegreeValues)
+
+    iRadians:CsnArr = csndegtorad(iDegrees)
+    iRadianValues[] = csntoarray(iRadians)
+    assert(abs(iRadianValues[1] - 1.5707963267948966) < 1e-12)
+    assert(abs(iRadianValues[3] - 4.71238898038469) < 1e-12)
+    assert(abs(iRadianValues[5] + 0.7853981633974483) < 1e-12)
+
+    iBackToDegrees:CsnArr = csnradtodeg(iRadians)
+    iBackValues[] = csntoarray(iBackToDegrees)
+    assert(abs(iBackValues[1] - 90) < 1e-10 && abs(iBackValues[4] - 360) < 1e-10)
+
+    iSourceAfterAngle[] = csntoarray(iDegrees)
+    assert(iSourceAfterAngle[1] == 90 && iSourceAfterAngle[4] == 360)
+
+    iAngleIn:CsnArr = csncopy(iDegrees)
+    csndegtorad(iAngleIn)
+    iAngleInValues[] = csntoarray(iAngleIn)
+    assert(abs(iAngleInValues[2] - 3.141592653589793) < 1e-12)
+    csnradtodeg(iAngleIn)
+    iAngleBackValues[] = csntoarray(iAngleIn)
+    assert(abs(iAngleBackValues[2] - 180) < 1e-10)
+
+    ; ------------------------------------------------------------------
+    ; Window functions, against NumPy's values for the same length. Kaiser
+    ; needs a looser bound than the others: its modified Bessel term is a
+    ; polynomial approximation good to roughly 1e-7, not to the last bit.
+    ; ------------------------------------------------------------------
+    iHanning:CsnArr = csnhanning(8)
+    iHamming:CsnArr = csnhamming(8)
+    iBartlett:CsnArr = csnbartlett(8)
+    iBlackman:CsnArr = csnblackman(8)
+    iKaiser:CsnArr = csnkaiser(8, 4)
+
+    iHanningValues[] = csntoarray(iHanning)
+    iHammingValues[] = csntoarray(iHamming)
+    iBartlettValues[] = csntoarray(iBartlett)
+    iBlackmanValues[] = csntoarray(iBlackman)
+    iKaiserValues[] = csntoarray(iKaiser)
+
+    assert(abs(iHanningValues[1] - 0.188255099070633) < 1e-12 && abs(iHanningValues[5] - 0.611260466978157) < 1e-12)
+    assert(abs(iHammingValues[1] - 0.253194691144983) < 1e-12 && abs(iHammingValues[5] - 0.642359629619905) < 1e-12)
+    assert(abs(iBartlettValues[1] - 0.285714285714286) < 1e-12 && abs(iBartlettValues[5] - 0.571428571428571) < 1e-12)
+    assert(abs(iBlackmanValues[1] - 0.090453424354128) < 1e-12 && abs(iBlackmanValues[5] - 0.459182957545964) < 1e-12)
+    assert(abs(iKaiserValues[1] - 0.367669606379961) < 1e-7 && abs(iKaiserValues[5] - 0.718780790355119) < 1e-7)
+
+    /* A window of one is the degenerate case: the usual n/(size - 1) ramp
+       divides by zero there, so every window has to answer 1 instead. A
+       window of zero reserves nothing at all. */
+    iSinglePoint:CsnArr = csnkaiser(1, 4)
+    iSinglePointValues[] = csntoarray(iSinglePoint)
+    assert(iSinglePointValues[0] == 1)
+    iNoPoints:CsnArr = csnblackman(0)
+    assert(csnsize(iNoPoints) == 0)
+
+    ; ------------------------------------------------------------------
+    ; divmod publishes two handles at once, and its quotient follows the
+    ; floor convention rather than truncation: -7 divided by 3 is -3 with a
+    ; remainder of 2, not -2 with a remainder of -1.
+    ; ------------------------------------------------------------------
+    iDividendValues[] = fillarray(7, -7, 13, 5)
+    iDivisorValues[] = fillarray(3, 3, 5, 5)
+    iDividend:CsnArr = csnfromarray(iDividendValues)
+    iDivisor:CsnArr = csnfromarray(iDivisorValues)
+
+    iQuotient:CsnArr, iRemainder:CsnArr csndivmod iDividend, iDivisor
+    iQuotientValues[] = csntoarray(iQuotient)
+    iRemainderValues[] = csntoarray(iRemainder)
+    assert(iQuotientValues[0] == 2 && iQuotientValues[1] == -3 && iQuotientValues[2] == 2 && iQuotientValues[3] == 1)
+    assert(iRemainderValues[0] == 1 && iRemainderValues[1] == 2 && iRemainderValues[2] == 3 && iRemainderValues[3] == 0)
+
+    iScalarQuotient:CsnArr, iScalarRemainder:CsnArr csndivmod iDividend, 3
+    iScalarQuotientValues[] = csntoarray(iScalarQuotient)
+    iScalarRemainderValues[] = csntoarray(iScalarRemainder)
+    assert(iScalarQuotientValues[1] == -3 && iScalarQuotientValues[2] == 4)
+    assert(iScalarRemainderValues[1] == 2 && iScalarRemainderValues[2] == 1)
+
+    /* The scalar on the left divides each element, so the roles of the two
+       operands swap: the remainder is taken from the scalar, not the array. */
+    iLeftQuotient:CsnArr, iLeftRemainder:CsnArr csndivmod 3, iDividend
+    iLeftQuotientValues[] = csntoarray(iLeftQuotient)
+    iLeftRemainderValues[] = csntoarray(iLeftRemainder)
+    assert(iLeftQuotientValues[0] == 0 && iLeftQuotientValues[1] == -1)
+    assert(iLeftRemainderValues[0] == 3 && iLeftRemainderValues[1] == -4)
+
+    /* Broadcasting reaches divmod through the same path as the other binary
+       operations: a 2x3 grid against a length-3 row. */
+    iGridValues[] = fillarray(1, 2, 3, 4, 5, 6)
+    iGridShape[] = fillarray(2, 3)
+    iGridFlat:CsnArr = csnfromarray(iGridValues)
+    iGrid:CsnArr = csnreshape(iGridFlat, iGridShape)
+    iRowValues[] = fillarray(2, 3, 4)
+    iRow:CsnArr = csnfromarray(iRowValues)
+
+    iGridQuotient:CsnArr, iGridRemainder:CsnArr csndivmod iGrid, iRow
+    iCell00[] = fillarray(0, 0)
+    iCell11[] = fillarray(1, 1)
+    iGridQuotient00 = csnget(iGridQuotient, iCell00)
+    iGridRemainder00 = csnget(iGridRemainder, iCell00)
+    iGridQuotient11 = csnget(iGridQuotient, iCell11)
+    iGridRemainder11 = csnget(iGridRemainder, iCell11)
+    assert(iGridQuotient00 == 0 && iGridRemainder00 == 1)
+    assert(iGridQuotient11 == 1 && iGridRemainder11 == 2)
+    assert(csnsize(iGridQuotient) == 6 && csnsize(iGridRemainder) == 6)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -931,6 +1044,7 @@ i 2 0.02 0.01
 i 3 0.04 0.01
 i 4 0.06 0.01
 i 5 0.08 0.01
+i 6 0.10 0.01
 e
 </CsScore>
 
@@ -966,5 +1080,7 @@ e
 ; csndiag csnmovmean csnmovmean.in csnmovstd csnmovstd.in csnmovvar csnmovvar.in csnreal
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
+; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
+; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh
 ; @covers-end
 </CsoundSynthesizer>
