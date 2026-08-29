@@ -38,6 +38,7 @@ find_path(CSOUND_INCLUDE_DIR
         /usr/local/include/csound
         /usr/include/csound
         /opt/homebrew/include/csound
+        $ENV{HOME}/Library/Frameworks/CsoundLib64.framework/Headers
         /Library/Frameworks/CsoundLib64.framework/Headers
         /Applications/Csound/CsoundLib64.framework/Headers
     PATH_SUFFIXES include include/csound)
@@ -68,6 +69,30 @@ if(NOT EXISTS "${CSOUND_INCLUDE_DIR}/version.h")
     endif()
 endif()
 
+# Csound 7 changed CS_CREATE_VARIABLE_FUNC from (cs, typeArg, ctx) to
+# (cs, type, typeArg, ctx). Both signatures are still in the wild, so pick the
+# one the headers in use declare instead of guessing.
+include(CheckCSourceCompiles)
+set(CMAKE_REQUIRED_INCLUDES ${CSOUND_INCLUDE_DIR} ${CSOUND_EXTRA_INCLUDE_DIRS})
+set(CMAKE_REQUIRED_DEFINITIONS -DCSOUNDAPI7 -DCS_API_VERSION_MAJOR=7)
+if(USE_DOUBLE)
+    list(APPEND CMAKE_REQUIRED_DEFINITIONS -DUSE_DOUBLE)
+endif()
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    set(CMAKE_REQUIRED_FLAGS "-Werror=incompatible-pointer-types")
+endif()
+check_c_source_compiles("
+#include <csdl.h>
+static struct csvariable *probe(void *cs, const struct cstype *type,
+                                const void *typeArg, struct insds *ctx) {
+    (void) cs; (void) type; (void) typeArg; (void) ctx; return NULL;
+}
+int main(void) { CS_CREATE_VARIABLE_FUNC f = probe; (void) f; return 0; }
+" CSNUM_CS_TYPE_ARG_4ARG)
+unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_REQUIRED_DEFINITIONS)
+unset(CMAKE_REQUIRED_FLAGS)
+
 # --- plugin install dir (matches csound-plugins layout) --------------------
 if(APPLE)
     set(PLUGIN_INSTALL_DIR "$ENV{HOME}/Library/csound/${APIVERSION}/plugins64")
@@ -87,6 +112,9 @@ function(make_plugin pluginlib srcs)
     endif()
     target_include_directories(${pluginlib} PRIVATE ${CSOUND_INCLUDE_DIR} ${CSOUND_EXTRA_INCLUDE_DIRS})
     target_compile_definitions(${pluginlib} PRIVATE CSOUNDAPI7 CS_API_VERSION_MAJOR=7)
+    if(CSNUM_CS_TYPE_ARG_4ARG)
+        target_compile_definitions(${pluginlib} PRIVATE CS_TYPE_ARG_4ARG)
+    endif()
     if(USE_DOUBLE)
         target_compile_definitions(${pluginlib} PRIVATE USE_DOUBLE)
     endif()

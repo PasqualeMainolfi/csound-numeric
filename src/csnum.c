@@ -151,6 +151,10 @@ static bool IS_VALID_LENGTH(double length) {
     return isfinite(length) && trunc(length) == length && length >= 0.0 && length <= (double) CSN_MAX_ELEMS;
 }
 
+static bool IS_VALID_ZERO_ONE(double value) {
+    return isfinite(value) && trunc(value) == value && (value == 0.0 || value == 1.0);
+}
+
 static bool IS_VALID_VALUE(double value) {
     return isfinite(value) && !isnan(value);
 }
@@ -16977,6 +16981,94 @@ done:
     return res;
 }
 
+int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    if (reg == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: the csnum array registry is not available");
+    }
+
+    uint32_t source_handle = (uint32_t) p->source_handle->id;
+
+    if (!IS_VALID_ZERO_ONE((double) *p->resize)) {
+        return csound->InitError(csound, "[csnarray] Resize param must be 0 = do not resize or 1 = resize");
+    }
+
+    uint32_t resize = (uint32_t) *p->resize;
+
+    /* FTFind maps both 0 and -1 to the global sine table, so an unchecked
+       number here would silently overwrite the sine every oscillator reads. */
+    int32_t fno = (int32_t) MYFLT2LRND(*p->ftable);
+    if (fno <= 0) {
+        return csound->InitError(csound, "[csnarray] Invalid ftable number %d: it must be greater than 0", fno);
+    }
+
+    FUNC *ftable = NULL;
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    CSN_ARRAY *source_arr = slot->array;
+    if (source_arr->itype == CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] csntoftable requires real array");
+        goto done;
+    }
+
+    size_t size = source_arr->size;
+    if (size == 0) {
+        res = csound->InitError(csound, "[csnarray] Array %u is empty: there is nothing to write into ftable %d", source_handle, fno);
+        goto done;
+    }
+    if (size > (size_t) INT32_MAX) {
+        res = csound->InitError(csound, "[csnarray] Array %u has %zu points: too many for an ftable", source_handle, size);
+        goto done;
+    }
+
+    if (resize == 0) {
+        ftable = csound->FTFind(csound, p->ftable);
+        if (ftable == NULL) {
+            res = NOTOK;
+            goto done;
+        }
+
+        if ((size_t) ftable->flen < size) {
+            res = csound->InitError(csound, "[csnarray] Ftable %d holds %u points but the array has %zu: the ftable length must be equal or greater", fno, (uint32_t) ftable->flen, size);
+            goto done;
+        }
+    } else {
+        if (csound->FTAlloc(csound, fno, (int32_t) size) != 0) {
+            res = csound->InitError(csound, "[csnarray] Cannot size ftable %d to %zu points", fno, size);
+            goto done;
+        }
+
+        ftable = csound->FTFind(csound, p->ftable);
+        if (ftable == NULL) {
+            res = NOTOK;
+            goto done;
+        }
+        ftable->gen01args.sample_rate = ftable->sr;
+    }
+
+    for (size_t i = 0; i < size; i++) {
+        ftable->ftable[i] = (MYFLT) source_arr->data[i];
+    }
+
+    /* The guard point past flen is allocated but never initialised. Write it
+       only when the array reaches the end of the table, wrapping to the first
+       point the way the cyclic gens do; a shorter array leaves the tail, and
+       the guard that belongs to it, untouched. */
+    if ((size_t) ftable->flen == size) {
+        ftable->ftable[size] = ftable->ftable[0];
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
@@ -17126,6 +17218,7 @@ static OENTRY localops[] = {
     { "csndivmod.hs.k",        S(CSN_DIVMOD_HS),              0, ":CsnArr;:CsnArr;",    ":CsnArr;k",              (SUBR) csnarray_divmod_hs_k_init,            (SUBR) csnarray_divmod_hs_k,            (SUBR) csnarray_divmod_deinit,          NULL, 0 },
     { "csndivmod.sh.k",        S(CSN_DIVMOD_SH),              0, ":CsnArr;:CsnArr;",    "k:CsnArr;",              (SUBR) csnarray_divmod_sh_k_init,            (SUBR) csnarray_divmod_sh_k,            (SUBR) csnarray_divmod_deinit,          NULL, 0 },
     { "csnfromftable",         S(CSN_FROM_FTABLE),            0, ":CsnArr;",             "i",                     (SUBR) from_ftable_to_csnarray,              NULL,                                   (SUBR) csnarray_from_ftable_deinit,     NULL, 0 },
+    { "csntoftable",           S(CSN_TO_FTABLE),              0, "",                     ":CsnArr;io",            (SUBR) from_csnarray_to_ftable,              NULL,                                   NULL,                                   NULL, 0 },
     // ---
     // REAL AND COMPLEX
     { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",    "i[]o",                           (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },

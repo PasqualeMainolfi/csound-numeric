@@ -1049,12 +1049,47 @@ instr 6
     iTableAfterSet[] = csntoarray(iTable)
     iTableSourceCell = table(0, 1)
     assert(iTableAfterSet[0] == 999 && iTableSourceCell == 10)
+
+    /* csntoftable with resize = 0 keeps the declared table length, so a shorter
+       array overwrites the head and leaves the tail as the score wrote it. */
+    iShortValues[] = fillarray(11, 22, 33, 44)
+    iShort:CsnArr = csnfromarray(iShortValues)
+    csntoftable iShort, 2
+    iShortHead0 = table(0, 2)
+    iShortHead3 = table(3, 2)
+    iShortTail4 = table(4, 2)
+    assert(iShortHead0 == 11 && iShortHead3 == 44)
+    assert(iShortTail4 == 500)
+
+    /* An array that fills the table exactly also writes the guard point, which
+       wraps to the first value: tablei half a point past the end reads it. */
+    iExactValues[] = fillarray(10, 20, 30, 40)
+    iExact:CsnArr = csnfromarray(iExactValues)
+    csntoftable iExact, 3
+    iExactGuardBlend = tablei(3.5, 3)
+    assert(iExactGuardBlend == 25)
+
+    /* resize = 1 sizes the table from the array; ftable 90 is not in the score,
+       so this creates it. */
+    iGrownValues[] = fillarray(1, 2, 3, 4, 5)
+    iGrown:CsnArr = csnfromarray(iGrownValues)
+    csntoftable iGrown, 90, 1
+    iGrownLen = ftlen(90)
+    iGrown0 = table(0, 90)
+    iGrown4 = table(4, 90)
+    iGrownGuardBlend = tablei(4.5, 90)
+    assert(iGrownLen == 5)
+    assert(iGrown0 == 1 && iGrown4 == 5)
+    assert(iGrownGuardBlend == 3)
 endin
 </CsInstruments>
 
 <CsScore>
 ; instr 6 reads this table; -2 keeps the values unscaled
 f 1 0 8 -2 10 20 30 40 50 60 70 80
+; instr 6 writes into these two
+f 2 0 8 -2 100 200 300 400 500 600 700 800
+f 3 0 4 -2 0 0 0 0
 i 1 0 0.01
 i 2 0.02 0.01
 i 3 0.04 0.01
@@ -1097,6 +1132,6 @@ e
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
-; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable
+; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable
 ; @covers-end
 </CsoundSynthesizer>
