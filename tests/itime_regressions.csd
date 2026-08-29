@@ -1135,6 +1135,110 @@ instr 6
     assert(iFlatDims == 1 && iFlatSize == 3)
     assert(iFlatValues[0] == 0 && iFlatValues[2] == 12)
     assert(abs(iFlatValues[1] - 6) < 1e-12)
+
+    /* csnhead keeps a prefix of a 1-D array; the length must be shorter than
+       the array, so an equal length is refused. */
+    iRampValues6[] = fillarray(0, 1, 2, 3, 4, 5)
+    iRamp6:CsnArr = csnfromarray(iRampValues6)
+    iHead:CsnArr = csnhead(iRamp6, 3)
+    iHeadValues[] = csntoarray(iHead)
+    iHeadDims = csndims(iHead)
+    iHeadSize = csnsize(iHead)
+    assert(iHeadDims == 1 && iHeadSize == 3)
+    assert(iHeadValues[0] == 0 && iHeadValues[1] == 1 && iHeadValues[2] == 2)
+
+    /* Two doubles per element: a complex prefix must carry the imaginary
+       halves along, not stop halfway through the buffer. */
+    iShape4[] = fillarray(4)
+    Filler:Complex = init(3, 7, 0)
+    iComplexSource:CsnArr = csnfull(iShape4, Filler)
+    iComplexHead:CsnArr = csnhead(iComplexSource, 2)
+    iCell0[] = fillarray(0)
+    iCell1[] = fillarray(1)
+    Head0:Complex = csnget(iComplexHead, iCell0)
+    Head1:Complex = csnget(iComplexHead, iCell1)
+    iHead0Real = real(Head0)
+    iHead0Imag = imag(Head0)
+    iHead1Real = real(Head1)
+    iHead1Imag = imag(Head1)
+    assert(iHead0Real == 3 && iHead0Imag == 7)
+    assert(iHead1Real == 3 && iHead1Imag == 7)
+
+    /* csntruncate shortens one axis, or every axis when none is named. */
+    iGridValues2[] = fillarray(0, 1, 2, 10, 11, 12)
+    iGridShape2[] = fillarray(2, 3)
+    iGrid2:CsnArr = csnreshape(csnfromarray(iGridValues2), iGridShape2)
+
+    iTruncAxis1:CsnArr = csntruncate(iGrid2, 2, 1)
+    iTruncAxis1Shape[] = csnshape(iTruncAxis1)
+    iTruncAxis1Values[][] = csntoarray(iTruncAxis1)
+    assert(iTruncAxis1Shape[0] == 2 && iTruncAxis1Shape[1] == 2)
+    assert(iTruncAxis1Values[0][0] == 0 && iTruncAxis1Values[0][1] == 1)
+    assert(iTruncAxis1Values[1][0] == 10 && iTruncAxis1Values[1][1] == 11)
+
+    iTruncAxis0:CsnArr = csntruncate(iGrid2, 1, 0)
+    iTruncAxis0Shape[] = csnshape(iTruncAxis0)
+    iTruncAxis0Values[][] = csntoarray(iTruncAxis0)
+    assert(iTruncAxis0Shape[0] == 1 && iTruncAxis0Shape[1] == 3)
+    assert(iTruncAxis0Values[0][0] == 0 && iTruncAxis0Values[0][2] == 2)
+
+    iTruncAll:CsnArr = csntruncate(iGrid2, 1)
+    iTruncAllShape[] = csnshape(iTruncAll)
+    iTruncAllValues[][] = csntoarray(iTruncAll)
+    assert(iTruncAllShape[0] == 1 && iTruncAllShape[1] == 1)
+    assert(iTruncAllValues[0][0] == 0)
+
+    /* The in-place form rewrites the source instead of publishing a new one. */
+    iGridCopy:CsnArr = csnreshape(csnfromarray(iGridValues2), iGridShape2)
+    csntruncate iGridCopy, 2, 1
+    iGridCopyShape[] = csnshape(iGridCopy)
+    iGridCopyValues[][] = csntoarray(iGridCopy)
+    iGridCopySize = csnsize(iGridCopy)
+    assert(iGridCopySize == 4)
+    assert(iGridCopyShape[0] == 2 && iGridCopyShape[1] == 2)
+    assert(iGridCopyValues[0][0] == 0 && iGridCopyValues[0][1] == 1)
+    assert(iGridCopyValues[1][0] == 10 && iGridCopyValues[1][1] == 11)
+
+    /* csnresize keeps the elements it can and zero-fills the rest. */
+    iResizeSource:CsnArr = csnfromarray(array(1, 2, 3, 4))
+    iShapeTo8[] = fillarray(8)
+    iShapeTo2[] = fillarray(2)
+    iShapeTo6[] = fillarray(6)
+
+    iGrown:CsnArr = csnresize(iResizeSource, iShapeTo8)
+    iGrownValues2[] = csntoarray(iGrown)
+    iGrownSize = csnsize(iGrown)
+    assert(iGrownSize == 8)
+    assert(iGrownValues2[0] == 1 && iGrownValues2[3] == 4)
+    assert(iGrownValues2[4] == 0 && iGrownValues2[7] == 0)
+
+    iShrunk:CsnArr = csnresize(iResizeSource, iShapeTo2)
+    iShrunkValues[] = csntoarray(iShrunk)
+    iShrunkSize = csnsize(iShrunk)
+    assert(iShrunkSize == 2)
+    assert(iShrunkValues[0] == 1 && iShrunkValues[1] == 2)
+
+    /* In place, and then back up again: the second growth stays inside the
+       capacity the first one allocated, and must still read as zeros rather
+       than as whatever the larger layout left behind. */
+    iResizeInPlace:CsnArr = csnfromarray(array(1, 2, 3, 4))
+    csnresize iResizeInPlace, iShapeTo8
+    iInPlaceGrown[] = csntoarray(iResizeInPlace)
+    assert(iInPlaceGrown[3] == 4 && iInPlaceGrown[4] == 0 && iInPlaceGrown[7] == 0)
+
+    csnresize iResizeInPlace, iShapeTo2
+    iInPlaceShrunk[] = csntoarray(iResizeInPlace)
+    iInPlaceShrunkSize = csnsize(iResizeInPlace)
+    assert(iInPlaceShrunkSize == 2)
+    assert(iInPlaceShrunk[0] == 1 && iInPlaceShrunk[1] == 2)
+
+    csnresize iResizeInPlace, iShapeTo6
+    iInPlaceRegrown[] = csntoarray(iResizeInPlace)
+    iInPlaceRegrownSize = csnsize(iResizeInPlace)
+    assert(iInPlaceRegrownSize == 6)
+    assert(iInPlaceRegrown[0] == 1 && iInPlaceRegrown[1] == 2)
+    assert(iInPlaceRegrown[2] == 0 && iInPlaceRegrown[3] == 0)
+    assert(iInPlaceRegrown[4] == 0 && iInPlaceRegrown[5] == 0)
 endin
 </CsInstruments>
 
@@ -1186,6 +1290,7 @@ e
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
-; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample
+; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
+; csntruncate csntruncate.in csnresize csnresize.in
 ; @covers-end
 </CsoundSynthesizer>

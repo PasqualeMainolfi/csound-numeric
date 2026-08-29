@@ -277,6 +277,14 @@ typedef enum {
     REMAP_EXTRAPOLATE_RIGHT
 } CSN_INTERVAL_BOUNDS_MODE;
 
+typedef enum {
+    CSN_RESIZE_ARR = 0,
+    CSN_RESIZE_IN_ARR,
+    CSN_TRUNCATE_ARR,
+    CSN_TRUNCATE_IN_ARR,
+    CSN_HEAD_ARR
+} CSN_RESIZE_MODE;
+
 typedef struct {
     void *scratch;
     size_t scratch_capacity;
@@ -1353,6 +1361,7 @@ typedef struct {
     MYFLT *mode;
     MYFLT *bounds;
     MYFLT *fill;
+    MYFLT *trig;
     // private
     double fill_value;
     CSN_INTERP_MODE imode;
@@ -1377,6 +1386,7 @@ typedef struct {
     MYFLT *bounds;
     MYFLT *fill;
     MYFLT *axis;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
     double fill_value;
@@ -1400,6 +1410,7 @@ typedef struct {
     MYFLT *bounds;
     MYFLT *fill;
     MYFLT *axis;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
     double fill_value;
@@ -1413,6 +1424,59 @@ typedef struct {
     CSN_SCRATCH y_data_scratch;
 } CSN_RESAMPLE;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *length;
+    MYFLT *arg_a; // trig for head
+                  // axis for truncate
+    MYFLT *arg_b; // trig for truncate
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_TRUNCATE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *length;
+    MYFLT *axis;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    K_DATA k_data;
+    bool is_published;
+} CSN_TRUNCATE_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    ARRAYDAT *new_shape;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_RESIZE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    ARRAYDAT *new_shape;
+    MYFLT *trig;
+    // private;
+    K_DATA k_data;
+    bool is_published;
+} CSN_RESIZE_IN;
 
 // i-rate
 
@@ -1455,6 +1519,11 @@ int32_t csnarray_roll(CSOUND *csound, CSN_FLIP_ROLL *p);
 int32_t csnarray_roll_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
 int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p);
 int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
+int32_t csnarray_truncate(CSOUND *csound, CSN_TRUNCATE *p);
+int32_t csnarray_truncate_in(CSOUND *csound, CSN_TRUNCATE_IN *p);
+int32_t csnarray_resize(CSOUND *csound, CSN_RESIZE *p);
+int32_t csnarray_resize_in(CSOUND *csound, CSN_RESIZE_IN *p);
+int32_t csnarray_head(CSOUND *csound, CSN_TRUNCATE *p);
 
 // INDEXING
 int32_t csnarray_get(CSOUND *csound, CSN_GET *p);
@@ -1708,6 +1777,11 @@ int32_t csnarray_roll_k(CSOUND *csound, CSN_FLIP_ROLL *p);
 int32_t csnarray_roll_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
 int32_t csnarray_rollaxis_k(CSOUND *csound, CSN_FLIP_ROLL *p);
 int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p);
+int32_t csnarray_truncate_k(CSOUND *csound, CSN_TRUNCATE *p);
+int32_t csnarray_truncate_in_k(CSOUND *csound, CSN_TRUNCATE_IN *p);
+int32_t csnarray_resize_k(CSOUND *csound, CSN_RESIZE *p);
+int32_t csnarray_resize_in_k(CSOUND *csound, CSN_RESIZE_IN *p);
+int32_t csnarray_head_k(CSOUND *csound, CSN_TRUNCATE *p);
 
 // INDEXING
 int32_t csnarray_get_k(CSOUND *csound, CSN_GET *p);
