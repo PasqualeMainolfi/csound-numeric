@@ -53,8 +53,6 @@
     } while (0)
 
 
-
-
 typedef enum {
     INVALID_HANDLE = 0,
     VALID_HANDLE

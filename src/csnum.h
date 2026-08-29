@@ -9,6 +9,26 @@
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
 #define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
 #define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
+#define DEFAULT_TEMPORARY_BUFFER_SIZE 512
+
+#define CHECK_REGISTRY(csound, h, reg)                                                       \
+    do {                                                                                     \
+        if ((reg) == NULL) {                                                                 \
+            if ((h) == NULL) {                                                               \
+                return (csound)->InitError(                                                  \
+                    (csound),                                                                \
+                    "[csnarray] Internal error: the csnum array registry is not available"   \
+                );                                                                           \
+            } else {                                                                         \
+                return (csound)->PerfError(                                                  \
+                    (csound),                                                                \
+                    (h),                                                                     \
+                    "[csnarray] Internal error: the csnum array registry is not available"   \
+                );                                                                           \
+            }                                                                                \
+        }                                                                                    \
+    } while (0)
+
 #define CHECK_KTRIG(trig)                         \
     do {                                          \
         if ((double) *(trig) == 0.0) return OK;   \
@@ -30,7 +50,7 @@ do {                                                                 \
     if ((reg) == NULL || (handle) == 0) {                            \
         return (csound)->PerfError(                                  \
             (csound),                                                \
-            (h),                                                    \
+            (h),                                                     \
             "[csnarray] k-rate output slot was not initialized"      \
         );                                                           \
     }                                                                \
@@ -231,6 +251,36 @@ typedef enum {
     W_BLACKMAN,
     W_KAISER
 } CSN_WINDOW_MODE;
+
+typedef enum {
+    REMAP_LINEAR   = 0,
+    REMAP_NEAREST  = 1,
+    REMAP_PREVIOUS = 2,
+    REMAP_NEXT     = 3,
+    REMAP_CUBIC    = 4
+} CSN_INTERP_MODE;
+
+typedef enum {
+    REMAP_ERROR       = 0,
+    REMAP_CLAMP       = 1,
+    REMAP_FILL        = 2,
+    REMAP_EXTRAPOLATE = 3
+} CSN_INTERP_BOUNDS_MODE;
+
+typedef enum {
+    REMAP_VALID = 0,
+    REMAP_NOT_VALID,
+    REMAP_CLAMP_LEFT,
+    REMAP_CLAMP_RIGHT,
+    REMAP_FILL_VALUE,
+    REMAP_EXTRAPOLATE_LEFT,
+    REMAP_EXTRAPOLATE_RIGHT
+} CSN_INTERVAL_BOUNDS_MODE;
+
+typedef struct {
+    void *scratch;
+    size_t scratch_capacity;
+} CSN_SCRATCH;
 
 typedef struct {
     double re;
@@ -456,8 +506,7 @@ typedef struct {
                          // optional axes for transpose
     // private
     K_DATA k_data;
-    double *scratch;
-    size_t scratch_capacity;
+    CSN_SCRATCH scratch;
 } CSN_RESHAPE_IN;
 
 typedef struct {
@@ -484,8 +533,7 @@ typedef struct {
     MYFLT *param_b; // null for flip
                     // axis for rollaxis
     K_DATA k_data;
-    double *scratch;
-    size_t scratch_capacity;
+    CSN_SCRATCH scratch;
 } CSN_FLIP_ROLL_IN;
 
 typedef struct {
@@ -816,8 +864,7 @@ typedef struct {
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
-    ARRAY_ELEMENT *buffer;
-    size_t buffer_capacity;
+    CSN_SCRATCH scratch;
 } CSN_ARGWHERE;
 
 typedef struct {
@@ -831,8 +878,7 @@ typedef struct {
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
-    ARRAY_ELEMENT *buffer;
-    size_t buffer_capacity;
+    CSN_SCRATCH scratch;
 } CSN_COMPARE;
 
 /* The count family returns how many elements matched, never an array, so its
@@ -862,8 +908,7 @@ typedef struct {
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
-    double *scratch;
-    size_t scratch_capacity;
+    CSN_SCRATCH scratch;
 } CSN_REDUCTION;
 
 /* Reducing over every axis collapses to one number. Splitting this out of
@@ -879,8 +924,7 @@ typedef struct {
     MYFLT *trig;
     // private
     K_DATA k_data;
-    double *scratch;
-    size_t scratch_capacity;
+    CSN_SCRATCH scratch;
 } CSN_REDUCTION_SCALAR;
 
 /* The .c and .c.k overloads share the output and input types, so rate alone
@@ -977,12 +1021,6 @@ typedef struct {
     CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOPCOMPLEX_HS;
-
-
-typedef struct {
-    void *scratch;
-    size_t scratch_capacity;
-} CSN_SCRATCH;
 
 typedef struct {
     OPDS h;
@@ -1101,8 +1139,7 @@ typedef struct {
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
-    double *scratch;
-    size_t scratch_capacity;
+    CSN_SCRATCH scratch;
 } CSN_NORM_REDUCTION;
 
 typedef struct {
@@ -1129,8 +1166,7 @@ typedef struct {
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
-    double *median_buffer;
-    size_t median_buffer_capacity;
+    CSN_SCRATCH scratch;
 } CSN_MOVSTATS;
 
 typedef struct {
@@ -1142,8 +1178,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
-    double *median_buffer;
-    size_t median_buffer_capacity;
+    CSN_SCRATCH scratch;
 } CSN_MOVSTATS_IN;
 
 typedef struct {
@@ -1191,8 +1226,7 @@ typedef struct {
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
-    double *buffer;
-    size_t buffer_capacity;
+    CSN_SCRATCH scratch;
 } CSN_PERCQUANT_AX;
 
 typedef struct {
@@ -1205,8 +1239,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
-    double *buffer;
-    size_t buffer_capacity;
+    CSN_SCRATCH scratch;
 } CSN_PERCQUANT;
 
 typedef struct {
@@ -1290,6 +1323,96 @@ typedef struct {
     K_DATA k_data;
     bool is_published;
 } CSN_DIVMOD_SH;
+
+typedef struct{
+   double x0;
+   double x1;
+   double y0;
+   double y1;
+   int32_t index;
+   CSN_INTERVAL_BOUNDS_MODE bmode;
+} CSN_LERP_INTERVAL;
+
+/* cubic Hermite coefficients of a single PCHIP segment, relative to x0 */
+typedef struct {
+    double x0;
+    double a;
+    double b;
+    double c;
+    double d;
+} CSN_PCHIP_SEGMENT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *y;
+    // inputs
+    MYFLT *x;
+    CSNREF *data_handle_x;
+    CSNREF *data_handle_y;
+    MYFLT *mode;
+    MYFLT *bounds;
+    MYFLT *fill;
+    // private
+    double fill_value;
+    CSN_INTERP_MODE imode;
+    CSN_INTERP_BOUNDS_MODE ibounds;
+    CSN_REGISTRY *registry;
+    ARRAY_VERSION prev_x_data_version;
+    ARRAY_VERSION prev_y_data_version;
+    double prev_x;
+    double prev_y;
+    bool is_published;
+} CSN_REMAP_SCALAR;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    CSNREF *data_handle_x;
+    CSNREF *data_handle_y;
+    MYFLT *mode;
+    MYFLT *bounds;
+    MYFLT *fill;
+    MYFLT *axis;
+    // private
+    CSN_ARRAY *array;
+    double fill_value;
+    CSN_INTERP_MODE imode;
+    CSN_INTERP_BOUNDS_MODE ibounds;
+    K_DATA k_data;
+    ARRAY_VERSION prev_x_source_version;
+    ARRAY_VERSION prev_x_data_version;
+    ARRAY_VERSION prev_y_data_version;
+    bool is_published;
+} CSN_REMAP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *new_length;
+    MYFLT *mode;
+    MYFLT *bounds;
+    MYFLT *fill;
+    MYFLT *axis;
+    // private
+    CSN_ARRAY *array;
+    double fill_value;
+    CSN_INTERP_MODE imode;
+    CSN_INTERP_BOUNDS_MODE ibounds;
+    K_DATA k_data;
+    ARRAY_VERSION prev_x_source_version;
+    bool is_published;
+    CSN_SCRATCH x_source_scratch;
+    CSN_SCRATCH x_data_scratch;
+    CSN_SCRATCH y_data_scratch;
+} CSN_RESAMPLE;
+
 
 // i-rate
 
@@ -1499,6 +1622,8 @@ int32_t csnarray_project(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reject(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reflect(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_cross(CSOUND *csound, CSN_BINOP_HH *p); // only 1-D with size = 3
+int32_t csnarray_remap_scalar(CSOUND *csound, CSN_REMAP_SCALAR *p); // only 1-D
+int32_t csnarray_resample(CSOUND *csound, CSN_RESAMPLE *p);
 
 // NUMERIC ANALYSIS
 int32_t csnarray_diff(CSOUND *csound, CSN_UNARYOP_AX *p);
@@ -1750,6 +1875,9 @@ int32_t csnarray_project_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reject_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_reflect_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_cross_k(CSOUND *csound, CSN_BINOP_HH *p); // only 1-D with size = 3
+int32_t csnarray_remap_k(CSOUND *csound, CSN_REMAP *p); // only 1-D
+int32_t csnarray_remap_scalar_k(CSOUND *csound, CSN_REMAP_SCALAR *p); // only 1-D
+int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p); // only 1-D
 
 // NUMERIC ANALYSIS
 int32_t csnarray_diff_k(CSOUND *csound, CSN_UNARYOP_AX *p);

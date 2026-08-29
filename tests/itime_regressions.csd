@@ -1081,6 +1081,60 @@ instr 6
     assert(iGrownLen == 5)
     assert(iGrown0 == 1 && iGrown4 == 5)
     assert(iGrownGuardBlend == 3)
+
+    /* csnresample lays new_length query points over the whole source extent,
+       so the endpoints are always kept and a same-length pass is the identity.
+       4 -> 7 halves the step of a ramp; 4 -> 2 keeps only the two ends. */
+    iRampValues[] = fillarray(0, 10, 20, 30)
+    iRamp:CsnArr = csnfromarray(iRampValues)
+
+    iResampledUp:CsnArr = csnresample(iRamp, 7, 0, 1)
+    iUpValues[] = csntoarray(iResampledUp)
+    iUpSize = csnsize(iResampledUp)
+    assert(iUpSize == 7)
+    assert(iUpValues[0] == 0 && iUpValues[6] == 30)
+    assert(abs(iUpValues[1] - 5) < 1e-12 && abs(iUpValues[3] - 15) < 1e-12)
+
+    iResampledDown:CsnArr = csnresample(iRamp, 2, 0, 1)
+    iDownValues[] = csntoarray(iResampledDown)
+    assert(iDownValues[0] == 0 && iDownValues[1] == 30)
+
+    /* One output point has no span to divide and takes the first sample. */
+    iResampledOne:CsnArr = csnresample(iRamp, 1, 0, 1)
+    iOneValues[] = csntoarray(iResampledOne)
+    iOneDims = csndims(iResampledOne)
+    iOneSize = csnsize(iResampledOne)
+    assert(iOneDims == 1 && iOneSize == 1)
+    assert(iOneValues[0] == 0)
+
+    /* Along an axis every slice is resampled on its own and the other extents
+       are kept; along axis 0 those slices are strided. */
+    iGridValues[] = fillarray(0, 1, 2, 10, 11, 12)
+    iGridShape[] = fillarray(2, 3)
+    iGridSource:CsnArr = csnreshape(csnfromarray(iGridValues), iGridShape)
+
+    iResampledAxis0:CsnArr = csnresample(iGridSource, 3, 0, 1, 0, 0)
+    iAxis0Shape[] = csnshape(iResampledAxis0)
+    iAxis0Values[][] = csntoarray(iResampledAxis0)
+    assert(iAxis0Shape[0] == 3 && iAxis0Shape[1] == 3)
+    assert(iAxis0Values[0][0] == 0 && iAxis0Values[2][2] == 12)
+    assert(abs(iAxis0Values[1][0] - 5) < 1e-12 && abs(iAxis0Values[1][2] - 7) < 1e-12)
+
+    iResampledAxis1:CsnArr = csnresample(iGridSource, 5, 0, 1, 0, 1)
+    iAxis1Shape[] = csnshape(iResampledAxis1)
+    iAxis1Values[][] = csntoarray(iResampledAxis1)
+    assert(iAxis1Shape[0] == 2 && iAxis1Shape[1] == 5)
+    assert(abs(iAxis1Values[0][1] - 0.5) < 1e-12)
+    assert(abs(iAxis1Values[1][3] - 11.5) < 1e-12)
+
+    /* The default axis flattens, which collapses the result to one dimension. */
+    iResampledFlat:CsnArr = csnresample(iGridSource, 3, 0, 1)
+    iFlatValues[] = csntoarray(iResampledFlat)
+    iFlatDims = csndims(iResampledFlat)
+    iFlatSize = csnsize(iResampledFlat)
+    assert(iFlatDims == 1 && iFlatSize == 3)
+    assert(iFlatValues[0] == 0 && iFlatValues[2] == 12)
+    assert(abs(iFlatValues[1] - 6) < 1e-12)
 endin
 </CsInstruments>
 
@@ -1132,6 +1186,6 @@ e
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
-; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable
+; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample
 ; @covers-end
 </CsoundSynthesizer>

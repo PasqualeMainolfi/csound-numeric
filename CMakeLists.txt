@@ -283,6 +283,26 @@ if(BUILD_TESTING)
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_version_cache_regression.csd")
+        add_test(
+            NAME csnum_krate_interp_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_interp_regression.csd")
+        # Both failures are reported from under the registry mutex, so a wedged
+        # lock shows up as a hung test rather than a wrong value: the marker is
+        # only reached if the notes aborted and the registry stayed usable.
+        add_test(
+            NAME csnum_krate_interp_error_recovery
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_interp_error_recovery.csd")
+        set_tests_properties(csnum_krate_interp_error_recovery PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum registry alive after the interp and resample failures"
+            TIMEOUT 60)
     endif()
 endif()
 endif()
