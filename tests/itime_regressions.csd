@@ -1240,6 +1240,51 @@ instr 6
     assert(iInPlaceRegrown[2] == 0 && iInPlaceRegrown[3] == 0)
     assert(iInPlaceRegrown[4] == 0 && iInPlaceRegrown[5] == 0)
 endin
+
+; csnsave writes an array to a .csn file and csnload reads it back. The
+; round-trip is the contract: shape, element type and every value survive it.
+; Both real and complex are covered, because the payload of a complex array is
+; two doubles per element and a header that got that factor wrong would still
+; produce a plausible file.
+instr 7
+    iShape6[] = fillarray(6)
+    iShape23[] = fillarray(2, 3)
+
+    ; 1-D real
+    iFlat:CsnArr = csnfromarray(array(1, 2, 3, 4, 5, 6))
+    csnsave iFlat, "csnum_itime_flat.csn"
+    iFlatBack:CsnArr = csnload("csnum_itime_flat.csn")
+    iFlatValues[] = csntoarray(iFlatBack)
+    iFlatSize = csnsize(iFlatBack)
+    assert(iFlatSize == 6)
+    assert(iFlatValues[0] == 1 && iFlatValues[5] == 6)
+
+    ; 2-D real: the shape has to come back, not just the element count
+    iGrid:CsnArr = csnreshape(csnfromarray(array(10, 11, 12, 20, 21, 22)), iShape23)
+    csnsave iGrid, "csnum_itime_grid.csn"
+    iGridBack:CsnArr = csnload("csnum_itime_grid.csn")
+    iGridValues[][] = csntoarray(iGridBack)
+    iGridSize = csnsize(iGridBack)
+    assert(iGridSize == 6)
+    assert(iGridValues[0][0] == 10 && iGridValues[0][2] == 12)
+    assert(iGridValues[1][0] == 20 && iGridValues[1][2] == 22)
+
+    ; complex: two doubles per element on the way out and back
+    Filler:Complex = init(3, -4, 0)
+    iComplex:CsnArr = csnfull(iShape6, Filler)
+    csnsave iComplex, "csnum_itime_complex.csn"
+    iComplexBack:CsnArr = csnload("csnum_itime_complex.csn")
+    iComplexReal:CsnArr = csnreal(iComplexBack)
+    iComplexImag:CsnArr = csnimag(iComplexBack)
+    iReParts[] = csntoarray(iComplexReal)
+    iImParts[] = csntoarray(iComplexImag)
+    iComplexSize = csnsize(iComplexBack)
+    iComplexType = csntype(iComplexBack)
+    assert(iComplexSize == 6)
+    assert(iComplexType == 1)
+    assert(iReParts[0] == 3 && iReParts[5] == 3)
+    assert(iImParts[0] == -4 && iImParts[5] == -4)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -1254,6 +1299,7 @@ i 3 0.04 0.01
 i 4 0.06 0.01
 i 5 0.08 0.01
 i 6 0.10 0.01
+i 7 0.12 0.01
 e
 </CsScore>
 
@@ -1291,6 +1337,6 @@ e
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
-; csntruncate csntruncate.in csnresize csnresize.in
+; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload
 ; @covers-end
 </CsoundSynthesizer>

@@ -6,7 +6,8 @@ if(BUILD_CSNUM_OPCODES)
 
     set(CSNUM_SOURCES
         src/csnum.c
-        src/csnregistry.c)
+        src/csnregistry.c
+        src/csnfile.c)
 
     make_plugin(csnum "${CSNUM_SOURCES}")
 

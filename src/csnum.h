@@ -1478,9 +1478,41 @@ typedef struct {
     bool is_published;
 } CSN_RESIZE_IN;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    STRINGDAT *path;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    ARRAY_VERSION prev_source_version;
+    CSN_SCRATCH scratch;
+    uint32_t prev_array_id;
+    bool is_published;
+} CSN_SAVE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    STRINGDAT *path;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer_scratch;
+    CSN_SCRATCH path_scratch;
+    bool is_published;
+} CSN_LOAD;
+
+
 // i-rate
 
 int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p);
+int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p);
+int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p);
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -1743,6 +1775,10 @@ int32_t csnarray_blackman(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_kaiser(CSOUND *csound, CSN_WINDOW *p);
 
 // k-rate
+
+int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p);
+int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p);
+
 // CREATION
 int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_zeros_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);
