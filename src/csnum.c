@@ -719,15 +719,9 @@ int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p) {
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array(csound, p->shape, &ndim, shape);
-    if (res != OK) {
-        return res;
-    }
-
+    if (res != OK) return res;
     res = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, itype);
-    if (res != OK) {
-        return res;
-    }
-
+    if (res != OK) return res;
     reset_empty_csnarray(p->array, ndim, shape, itype);
     return OK;
 }
