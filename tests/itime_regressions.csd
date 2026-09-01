@@ -268,13 +268,19 @@ instr 2
     ; Generators and clipping.
     iRandom:CsnArr = csnrand(iShape4, -2, 2)
     iArange:CsnArr = csnarange(0, 4, 1)
+    iArangeFractional:CsnArr = csnarange(0, 1, 0.25)
+    iArangeDescending:CsnArr = csnarange(10, 6, -2)
     iLinspace:CsnArr = csnlinspace(0, 1, 3)
     iGeomspace:CsnArr = csngeomspace(1, 16, 5)
     assert(csnsize(iRandom) == 4)
     iArangeValues[] = csntoarray(iArange)
+    iArangeFractionalValues[] = csntoarray(iArangeFractional)
+    iArangeDescendingValues[] = csntoarray(iArangeDescending)
     iLinspaceValues[] = csntoarray(iLinspace)
     iGeomspaceValues[] = csntoarray(iGeomspace)
     assert(iArangeValues[0] == 0 && iArangeValues[1] == 1 && iArangeValues[2] == 2 && iArangeValues[3] == 3)
+    assert(iArangeFractionalValues[0] == 0 && iArangeFractionalValues[1] == 0.25 && iArangeFractionalValues[2] == 0.5 && iArangeFractionalValues[3] == 0.75)
+    assert(iArangeDescendingValues[0] == 10 && iArangeDescendingValues[1] == 8)
     assert(iLinspaceValues[0] == 0 && iLinspaceValues[1] == 0.5 && iLinspaceValues[2] == 1)
     assert(abs(iGeomspaceValues[0] - 1) < 1e-12 && abs(iGeomspaceValues[1] - 2) < 1e-12 && abs(iGeomspaceValues[2] - 4) < 1e-12 && abs(iGeomspaceValues[3] - 8) < 1e-12 && abs(iGeomspaceValues[4] - 16) < 1e-12)
 
@@ -418,6 +424,15 @@ instr 2
     csnmovmin(iMovMinIn, 3, -1)
     csnmovmax(iMovMaxIn, 3, -1)
     assert(csnsize(iMovMedianIn) == 5 && csnsize(iMovMinIn) == 5 && csnsize(iMovMaxIn) == 5)
+    iMovMedianValues[] = csntoarray(iMovMedian)
+    iMovMinValues[] = csntoarray(iMovMin)
+    iMovMaxValues[] = csntoarray(iMovMax)
+    iMovMedianInValues[] = csntoarray(iMovMedianIn)
+    iMovMinInValues[] = csntoarray(iMovMinIn)
+    iMovMaxInValues[] = csntoarray(iMovMaxIn)
+    assert(iMovMedianInValues[1] == iMovMedianValues[1])
+    assert(iMovMinInValues[2] == iMovMinValues[2])
+    assert(iMovMaxInValues[3] == iMovMaxValues[3])
 endin
 
 instr 3
@@ -808,6 +823,9 @@ instr 4
 
     ; Every unary numerical signature, on inputs inside its real domain.
     iAbs:CsnArr = csnabs(iValuesArr)
+    iComplexAbs:CsnArr = csnabs(iComplexValues)
+    iComplexAbsValues[] = csntoarray(iComplexAbs)
+    assert(iComplexAbsValues[0] == 1 && iComplexAbsValues[1] == 2 && iComplexAbsValues[2] == 4)
     iExp:CsnArr = csnexp(iDomain)
     iSqrt:CsnArr = csnsqrt(iValuesArr)
     iCbrt:CsnArr = csncbrt(iValuesArr)
@@ -890,6 +908,15 @@ instr 4
     csnmovvar(iMovVarIn, 2, -1)
     assert(csnsize(iMovMean) == 3 && csnsize(iMovStd) == 3 && csnsize(iMovVar) == 3)
     assert(csnsize(iMovMeanIn) == 3 && csnsize(iMovStdIn) == 3 && csnsize(iMovVarIn) == 3)
+    iMovMeanValues[] = csntoarray(iMovMean)
+    iMovStdValues[] = csntoarray(iMovStd)
+    iMovVarValues[] = csntoarray(iMovVar)
+    iMovMeanInValues[] = csntoarray(iMovMeanIn)
+    iMovStdInValues[] = csntoarray(iMovStdIn)
+    iMovVarInValues[] = csntoarray(iMovVarIn)
+    assert(abs(iMovMeanInValues[2] - iMovMeanValues[2]) < 1e-12)
+    assert(abs(iMovStdInValues[1] - iMovStdValues[1]) < 1e-12)
+    assert(abs(iMovVarInValues[1] - iMovVarValues[1]) < 1e-12)
 endin
 
 instr 5
@@ -973,7 +1000,8 @@ instr 6
 
     assert(abs(iHanningValues[1] - 0.188255099070633) < 1e-12 && abs(iHanningValues[5] - 0.611260466978157) < 1e-12)
     assert(abs(iHammingValues[1] - 0.253194691144983) < 1e-12 && abs(iHammingValues[5] - 0.642359629619905) < 1e-12)
-    assert(abs(iBartlettValues[1] - 0.285714285714286) < 1e-12 && abs(iBartlettValues[5] - 0.571428571428571) < 1e-12)
+    assert(abs(iBartlettValues[1] - 0.285714285714286) < 1e-12 && abs(iBartlettValues[3] - 0.857142857142857) < 1e-12)
+    assert(abs(iBartlettValues[4] - 0.857142857142857) < 1e-12 && abs(iBartlettValues[5] - 0.571428571428571) < 1e-12)
     assert(abs(iBlackmanValues[1] - 0.090453424354128) < 1e-12 && abs(iBlackmanValues[5] - 0.459182957545964) < 1e-12)
     assert(abs(iKaiserValues[1] - 0.367669606379961) < 1e-7 && abs(iKaiserValues[5] - 0.718780790355119) < 1e-7)
 
@@ -1337,6 +1365,6 @@ e
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
-; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload
+; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint
 ; @covers-end
 </CsoundSynthesizer>

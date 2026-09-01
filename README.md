@@ -134,19 +134,50 @@ empty operand yields the other one, and `csnsum` over an empty array is 0 rather
 than an error. The item type is an i-argument, so an array can also be declared
 empty *and* complex from the start with `csnempty(cap, 1)`.
 
+### Printing arrays
+
+`csnprint` writes the shape, element type and values directly to Csound's message
+stream. Values use five significant digits and nested arrays follow NumPy's
+bracket and indentation style:
+
+```csound
+values:i[] = fillarray(1.234567, 2, 3, 4)
+shape:i[]  = fillarray(2, 2)
+mat:CsnArr = csnreshape(csnfromarray(values), shape)
+csnprint(mat)
+```
+
+```text
+CsnArr(shape=(2, 2), dtype=float64)
+[[1.2346 2]
+ [3 4]]
+```
+
+Arrays with more than 1000 elements are summarized with their first and last
+three entries along every long dimension. The k-rate form,
+`csnprint(handle, trig)`, prints on a non-zero trigger and emits nothing when the
+trigger is zero. See the full [csnprint reference](doc/csnprint.md).
+
 ---
 
 ## What is covered
 
 Grouped by what they do, rather than listed one by one. The full list, with a
 one-line description and the rates each opcode supports, is in
-[`OPS_INDEX.md`](OPS_INDEX.md).
+[`OPS_INDEX.md`](OPS_INDEX.md); one page per opcode, with every overload, the
+meaning of each argument and a runnable example, is under
+[`doc/`](doc/README.md). The examples are also standalone `.csd` files in
+[`example/`](example), and all of them run:
+
+```sh
+csound --opcode-dir=build example/csnsort.csd
+```
 
 - **Creation**: empty / zeros / ones / full / identity, `csnlike` to build one
   shaped like an array you already have, `arange`, `linspace`, `logspace`,
   `geomspace`, seeded random arrays.
-- **Conversion and lifetime**: to and from Csound arrays and function tables,
-  copy, free, type and shape queries.
+- **Conversion, lifetime and inspection**: to and from Csound arrays and
+  function tables, copy, free, type and shape queries, and NumPy-style printing.
 - **Shape and layout**: reshape, flatten, transpose, flip, roll, pad, truncate,
   head, resize, concat, insert, remove, push, pop.
 - **Indexing**: element get/set, slices, gathers, and the index-returning
@@ -182,10 +213,12 @@ one-line description and the rates each opcode supports, is in
   `Norm:CsnArr = csnnormalize(data)` leaves the source alone.
 - **Rate overloads.** The i-rate and k-rate forms share a name; Csound picks the
   overload from the rate of the arguments you pass.
-- **Trigger.** k-rate forms take an optional trailing trigger. A zero trigger
-  skips the pass entirely and republishes the previous result. `csnsave` and
-  `csnload` are the exception: there is no previous result to republish, so a
-  zero trigger simply does not touch the disk.
+- **Trigger.** Most k-rate forms take an optional trailing trigger. A zero
+  trigger skips the pass entirely and republishes the previous result. Where
+  the trigger is the only k-rate argument, as in `csnprint`, it is required so
+  Csound can distinguish the performance overload from the init-time one.
+  `csnprint`, `csnsave` and `csnload` have no previous computed result to
+  republish, so a zero trigger simply performs no side effect.
 
 ---
 

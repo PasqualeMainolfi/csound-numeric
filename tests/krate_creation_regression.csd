@@ -15,6 +15,8 @@ Like@global:CsnArr = csnlike(Zeros, 0)
 ZerosAlias@global:CsnArr = csnzeros(array(1))
 OnesAlias@global:CsnArr = csnones(array(1))
 LikeAlias@global:CsnArr = csnzeros(array(1))
+Arange@global:CsnArr = csnzeros(array(1))
+Bartlett@global:CsnArr = csnzeros(array(1))
 
 /* itype is an i-argument, so a handle keeps its element type for the whole
    note. The complex constructors get their own slots instead. */
@@ -27,6 +29,11 @@ instr 1
     kElapsed = timeinsts()
     kShape[0] = (kElapsed < 0.04 ? 2 : 3)
     kFill = (kElapsed < 0.025 ? 5 : 7)
+    kStart = 0
+    kStop = 1
+    kStep = 0.25
+    kLength = 8
+    kTrig = 1
 
     Zeros = csnzeros(kShape, 0)
     Ones = csnones(kShape, 0)
@@ -35,6 +42,8 @@ instr 1
     ZerosC = csnzeros(kShape, 1)
     OnesC = csnones(kShape, 1)
     LikeC = csnlike(ZerosC, kFill)
+    Arange = csnarange(kStart, kStop, kStep, kTrig)
+    Bartlett = csnbartlett(kLength)
 endin
 
 instr 2
@@ -43,6 +52,14 @@ instr 2
     assert(csnget(Zeros, iIndex0) == 0)
     assert(csnget(Ones, iIndex0) == 1)
     assert(csnget(Like, iIndex0) == 5)
+
+    iIndex1[] = array(1)
+    iIndex3[] = array(3)
+    iIndex4[] = array(4)
+    assert(csnsize(Arange) == 4)
+    assert(csnget(Arange, iIndex1) == 0.25 && csnget(Arange, iIndex3) == 0.75)
+    assert(abs(csnget(Bartlett, iIndex3) - 0.857142857142857) < 1e-12)
+    assert(abs(csnget(Bartlett, iIndex4) - 0.857142857142857) < 1e-12)
 
     ZerosAlias = Zeros
     OnesAlias = Ones

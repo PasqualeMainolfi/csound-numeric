@@ -2,6 +2,7 @@
 #define __CSN_FILE
 
 #include "csnregistry.h"
+#include <stddef.h>
 #include <stdint.h>
 
 #define CSN_FILE_EXT ".csn"
@@ -9,6 +10,7 @@
 #define CSN_FILE_VERSION_MAJOR 1
 #define CSN_FILE_VERSION_MINOR 0
 #define CSN_ERROR_MESSAGE_SIZE 128
+
 
 typedef enum {
     CSN_FILE_NO_ERROR = 0,
@@ -33,7 +35,6 @@ typedef enum {
     CSN_DTYPE_C128
 } CSN_DTYPE;
 
-
 typedef struct {
     uint8_t magic[4];             // 4 bytes
     uint16_t major;               // 2 bytes
@@ -49,5 +50,18 @@ CSN_FILE_ERROR_CODE csnfile_save_array_to_file(CSN_ARRAY *arr, const char *path)
 CSN_FILE_ERROR_CODE csnfile_load_array_from_file(CSOUND *csound, CSN_FILE_HEADER *header, double **data, size_t *data_capacity, const char *path);
 void csnfile_dispatch_error(const char **error_message, CSN_FILE_ERROR_CODE error_code);
 
+
+#define CSN_PRINT_BUFFER_INITIAL_CAPACITY 4096
+#define CSN_PRINT_THRESHOLD 1000
+#define CSN_PRINT_EDGE_ITEMS 3
+#define CSN_PRINT_SUMMARIZE_SIMBOL "..."
+
+typedef struct {
+    char *data;
+    size_t length;
+    size_t capacity;
+} CSN_PRINT_BUFFER;
+
+int32_t csnfile_show_array(CSOUND *csound, CSN_PRINT_BUFFER *buffer, const CSN_ARRAY *arr);
 
 #endif

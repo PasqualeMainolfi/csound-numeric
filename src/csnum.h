@@ -4,6 +4,7 @@
 #include <csdl.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "csnfile.h"
 #include "csnregistry.h"
 
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
@@ -1187,6 +1188,11 @@ typedef struct {
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH scratch;
+    /* A window reaches back over elements this pass has already rewritten, so
+       the filter cannot read the array it is writing. This holds the untouched
+       source for the duration of one call; scratch above is the median sort
+       buffer and serves a different purpose. */
+    CSN_SCRATCH src_scratch;
 } CSN_MOVSTATS_IN;
 
 typedef struct {
@@ -1507,12 +1513,23 @@ typedef struct {
     bool is_published;
 } CSN_LOAD;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    CSN_PRINT_BUFFER pbuffer;
+    CSN_REGISTRY *registry;
+} CSN_SHOW;
+
 
 // i-rate
 
 int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p);
 int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p);
 int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p);
+int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p);
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -1778,6 +1795,7 @@ int32_t csnarray_kaiser(CSOUND *csound, CSN_WINDOW *p);
 
 int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p);
 int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p);
+int32_t csnarray_show_k(CSOUND *csound, CSN_SHOW *p);
 
 // CREATION
 int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);

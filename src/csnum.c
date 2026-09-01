@@ -1885,11 +1885,14 @@ static int32_t spaced_space_body(CSOUND *csound, OPDS *perf_h, double step_num, 
     return OK;
 }
 
-static void spaced_space_assign_value(CSN_ARRAY *array, uint32_t usize, uint32_t arange_step, double start, double stop, double base, double ratio, CSN_SPACED_SPACE_MODE mode) {
+/* arange_step stays a double all the way down: a fractional step would floor to
+   zero and a negative one would wrap if this took an unsigned integer, while
+   the element count above is already computed in double. */
+static void spaced_space_assign_value(CSN_ARRAY *array, uint32_t usize, double arange_step, double start, double stop, double base, double ratio, CSN_SPACED_SPACE_MODE mode) {
     switch (mode) {
         case CSN_ARANGE:
             for (uint32_t i = 0; i < usize; i++) {
-                array->data[i] =  (double) start + (i * arange_step);
+                array->data[i] =  start + ((double) i * arange_step);
             }
             break;
         case CSN_LINSPACE:
@@ -10782,6 +10785,10 @@ static int32_t unaryop_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_arr
     return OK;
 }
 
+/* itype is the *source's* element type, because it selects how each element is
+   read out of source_arr. It is not always the destination's: csnabs over a
+   complex array writes a real result, so passing the output type here would
+   walk the interleaved source one double at a time. */
 static void unaryop_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, ITEM_TYPE itype, CSN_UNARY_MODE mode) {
     for (size_t i = 0; i < source_arr->size; i++) {
         double a = 0.0;
@@ -10997,7 +11004,7 @@ static int32_t csnarray_unaryop_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNARY
     }
 
     CSN_ARRAY *arr = p->array;
-    unaryop_assign_value(source_arr, arr, new_itype, mode);
+    unaryop_assign_value(source_arr, arr, source_arr->itype, mode);
     SET_KDATA_BEGIN(p, reg);
     p->k_data.prev_size = arr->size;
 
@@ -11042,7 +11049,7 @@ static int32_t csnarray_unaryop_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNA
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, new_shape, logical_size, new_itype, err);
     if (res != OK) goto done;
 
-    unaryop_assign_value(source_arr, arr, new_itype, mode);
+    unaryop_assign_value(source_arr, arr, source_arr->itype, mode);
     SET_KDATA_END(p, new_shape, source_arr->ndim, new_itype);
     p->k_data.prev_size = arr->size;
 
@@ -14161,6 +14168,23 @@ static int32_t dispatch_movstats(double *dst, double *src, size_t size, uint32_t
     return OK;
 }
 
+static int32_t ensure_movstats_source_copy(CSOUND *csound, OPDS *perf_h, CSN_SCRATCH *scratch, const CSN_ARRAY *source_arr) {
+    size_t required = source_arr->size * (size_t) source_arr->itype;
+    if (scratch->scratch != NULL && scratch->scratch_capacity >= required) {
+        return OK;
+    }
+
+    size_t new_capacity = required > 0 ? required * 2 : 1;
+    double *src_copy = csound->ReAlloc(csound, scratch->scratch, sizeof(double) * new_capacity);
+    if (src_copy == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Memory allocation failed");
+    }
+
+    scratch->scratch = src_copy;
+    scratch->scratch_capacity = new_capacity;
+    return OK;
+}
+
 static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, MYFLT *in_axis, int32_t *out_axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
@@ -14201,10 +14225,16 @@ static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg,
     return OK;
 }
 
-static int32_t movstats_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, double *median_buffer, int32_t axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
+/* src_copy holds the source as it was before this call, laid out exactly like
+   source_arr->data so the same strides and offsets address both. Writing back
+   into the source is only safe against that copy: every window reaches over
+   elements the pass has already replaced. */
+static int32_t movstats_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, double *src_copy, double *median_buffer, int32_t axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
     ITEM_TYPE itype = source_arr->itype;
+    memcpy(src_copy, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+
     if (axis == -1) {
-        if (dispatch_movstats(source_arr->data, source_arr->data, source_arr->size, 1, winsize, median_buffer, mode, itype) != OK) {
+        if (dispatch_movstats(source_arr->data, src_copy, source_arr->size, 1, winsize, median_buffer, mode, itype) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Division by zero");
         };
         return OK;
@@ -14234,7 +14264,7 @@ static int32_t movstats_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY 
         }
 
         size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-        if (dispatch_movstats(source_arr->data + src_base * itype, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, median_buffer, mode, itype) != OK) {
+        if (dispatch_movstats(source_arr->data + src_base * itype, src_copy + src_base * itype, source_shape[axis], src_stride, winsize, median_buffer, mode, itype) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Division by zero");
         };
     }
@@ -14247,6 +14277,7 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
+    CSN_SCRATCH src_scratch = {0};
 
     uint32_t source_handle = p->source_handle->id;
     size_t winsize = (size_t) *p->winsize;
@@ -14266,10 +14297,14 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
     res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
     if (res != OK) goto done;
 
-    res = movstats_in_assign_value(csound, NULL, source_arr, median_buffer, axis, winsize, mode);
+    res = ensure_movstats_source_copy(csound, NULL, &src_scratch, source_arr);
+    if (res != OK) goto done;
+
+    res = movstats_in_assign_value(csound, NULL, source_arr, src_scratch.scratch, median_buffer, axis, winsize, mode);
     if (res == OK) update_array_data_version(&source_arr->version);
 
 done:
+    deinit_scratch(csound, &src_scratch);
     if (median_buffer != NULL) {
         csound->Free(csound, median_buffer);
     }
@@ -14278,9 +14313,8 @@ done:
 }
 
 static int32_t csnarray_movstats_in_k_deinit(CSOUND *csound, CSN_MOVSTATS_IN *p) {
-    if (p->scratch.scratch != NULL) {
-        csound->Free(csound, p->scratch.scratch);
-    }
+    deinit_scratch(csound, &p->scratch);
+    deinit_scratch(csound, &p->src_scratch);
     return OK;
 }
 
@@ -14296,6 +14330,8 @@ static int32_t csnarray_movstats_in_k_init_helper(CSOUND *csound, CSN_MOVSTATS_I
 
     p->scratch.scratch = NULL;
     p->scratch.scratch_capacity = 0;
+    p->src_scratch.scratch = NULL;
+    p->src_scratch.scratch_capacity = 0;
     if (mode == CSN_MOVMEDIAN) {
         /* The window is a k-argument, so it still reads 0 here; the perf pass
            grows the buffer on demand and only needs a seed it can realloc. */
@@ -14319,8 +14355,16 @@ static int32_t csnarray_movstats_in_k_init_helper(CSOUND *csound, CSN_MOVSTATS_I
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = -1;
     res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
+    if (res != OK) goto done;
 
+    res = ensure_movstats_source_copy(csound, NULL, &p->src_scratch, source_arr);
+
+done:
     csound->UnlockMutex(reg->mutex);
+    if (res != OK) {
+        deinit_scratch(csound, &p->scratch);
+        deinit_scratch(csound, &p->src_scratch);
+    }
     return res;
 }
 
@@ -14356,7 +14400,10 @@ static int32_t csnarray_movstats_in_k_helper(CSOUND *csound, CSN_MOVSTATS_IN *p,
     res = movstats_in_body(csound, &p->h, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
     if (res != OK) goto done;
 
-    res = movstats_in_assign_value(csound, &p->h, source_arr, p->scratch.scratch, axis, winsize, mode);
+    res = ensure_movstats_source_copy(csound, &p->h, &p->src_scratch, source_arr);
+    if (res != OK) goto done;
+
+    res = movstats_in_assign_value(csound, &p->h, source_arr, p->src_scratch.scratch, p->scratch.scratch, axis, winsize, mode);
     if (res == OK) update_array_data_version(&source_arr->version);
 
 done:
@@ -15991,7 +16038,11 @@ static int32_t window_function_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_
                     value = 0.54 - 0.46 * cos(2.0 * M_PI * fac);
                     break;
                 case W_BARTLETT:
-                    value = (n <= wsize / 2) ? 2.0 * fac : 2.0 - 2.0 * fac;
+                    /* The peak is where fac reaches 0.5, not where n reaches
+                       wsize/2: for an even wsize the integer midpoint sits past
+                       half of the 0..1 sweep and the rising branch would take
+                       it above 1. */
+                    value = (fac <= 0.5) ? 2.0 * fac : 2.0 - 2.0 * fac;
                     break;
                 case W_BLACKMAN:
                     value = 0.42 - 0.5 * cos(2.0 * M_PI * fac) + 0.08 * cos(4.0 * M_PI * fac);
@@ -16129,7 +16180,11 @@ static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDO
                     value = 0.54 - 0.46 * cos(2.0 * M_PI * fac);
                     break;
                 case W_BARTLETT:
-                    value = (n <= wsize / 2) ? 2.0 * fac : 2.0 - 2.0 * fac;
+                    /* The peak is where fac reaches 0.5, not where n reaches
+                       wsize/2: for an even wsize the integer midpoint sits past
+                       half of the 0..1 sweep and the rising branch would take
+                       it above 1. */
+                    value = (fac <= 0.5) ? 2.0 * fac : 2.0 - 2.0 * fac;
                     break;
                 case W_BLACKMAN:
                     value = 0.42 - 0.5 * cos(2.0 * M_PI * fac) + 0.08 * cos(4.0 * M_PI * fac);
@@ -18796,6 +18851,93 @@ done:
     return res;
 }
 
+int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = (uint32_t) p->source_handle->id;
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    }
+    CSN_ARRAY *arr = slot->array;
+    CSN_PRINT_BUFFER pbuffer = {0};
+    char *data = csound->Malloc(csound, CSN_PRINT_BUFFER_INITIAL_CAPACITY);
+    if (data == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    }
+    pbuffer.data = data;
+    pbuffer.length = 0;
+    pbuffer.capacity = CSN_PRINT_BUFFER_INITIAL_CAPACITY;
+
+    int32_t res = csnfile_show_array(csound, &pbuffer, arr);
+    if (res == OK) {
+        csound->Message(csound, "%s", pbuffer.data);
+    }
+    csound->Free(csound, pbuffer.data);
+
+    if (res != OK) {
+        return csound->InitError(csound, "[csnarray] Internal error: wrong print buffer allocation");
+    }
+    return res;
+}
+
+static int32_t csnarray_show_k_deinit(CSOUND *csound, CSN_SHOW *p) {
+    if (p->pbuffer.data != NULL) {
+        csound->Free(csound, p->pbuffer.data);
+        p->pbuffer.data = NULL;
+        p->pbuffer.length = 0;
+        p->pbuffer.capacity = 0;
+    }
+
+    return OK;
+}
+
+static int32_t csnarray_show_k_init(CSOUND *csound, CSN_SHOW *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    p->pbuffer.data = NULL;
+    p->pbuffer.length = 0;
+    p->pbuffer.capacity = 0;
+
+    char *data = csound->Malloc(csound, CSN_PRINT_BUFFER_INITIAL_CAPACITY);
+    if (data == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    }
+
+    p->pbuffer.data = data;
+    p->pbuffer.length = 0;
+    p->pbuffer.capacity = CSN_PRINT_BUFFER_INITIAL_CAPACITY;
+    p->registry = reg;
+
+    return OK;
+}
+
+int32_t csnarray_show_k(CSOUND *csound, CSN_SHOW *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    CHECK_KTRIG(p->trig);
+
+    uint32_t source_handle = (uint32_t) p->source_handle->id;
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    }
+
+    CSN_ARRAY *arr = slot->array;
+
+    if (csnfile_show_array(csound, &p->pbuffer, arr) != OK) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: wrong print buffer allocation");
+    }
+
+    csound->Message(csound, "%s", p->pbuffer.data);
+    return OK;
+}
+
+
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
@@ -19294,6 +19436,8 @@ static OENTRY localops[] = {
     { "csnresize.in.k",        S(CSN_RESIZE_IN),              0, "",                     ":CsnArr;k[]J",                  (SUBR) csnarray_resize_in_k_init,            (SUBR) csnarray_resize_in_k,            NULL,                                   NULL, 0 },
     { "csnhead",               S(CSN_TRUNCATE),               0, ":CsnArr;",             ":CsnArr;i",                     (SUBR) csnarray_head,                        NULL,                                   (SUBR) csnarray_truncate_deinit,        NULL, 0 },
     { "csnhead.k",             S(CSN_TRUNCATE),               0, ":CsnArr;",             ":CsnArr;kP",                    (SUBR) csnarray_head_k_init,                 (SUBR) csnarray_head_k,                 (SUBR) csnarray_truncate_deinit,        NULL, 0 },
+    { "csnprint",              S(CSN_SHOW),                   0, "",                     ":CsnArr;",                      (SUBR) csnarray_show,                        NULL,                                   NULL,                                   NULL, 0 },
+    { "csnprint.k",            S(CSN_SHOW),                   0, "",                     ":CsnArr;k",                     (SUBR) csnarray_show_k_init,                 (SUBR) csnarray_show_k,                 (SUBR) csnarray_show_k_deinit,          NULL, 0 },
     // ---
 };
 

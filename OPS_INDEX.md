@@ -11,9 +11,11 @@ are marked `complex only`, since a real input has nothing for them to do.
 Conventions that apply throughout: an optional axis argument defaults to `-1`,
 meaning the array is read flat; opcodes that publish a new handle usually have
 an in-place sibling under the same name that writes back into its source and
-returns nothing; k-rate forms take an optional trailing trigger, and a zero
-trigger republishes the previous result instead of recomputing. See the README
-for the handle model and the k-rate versioning.
+returns nothing; most k-rate forms take an optional trailing trigger, and a zero
+trigger republishes the previous result instead of recomputing. A trigger that
+is the only k-rate argument is required to select the performance overload;
+side-effecting opcodes simply do nothing when it is zero. See the README for the
+handle model and the k-rate versioning.
 
 ## Creation
 
@@ -43,6 +45,7 @@ for the handle model and the k-rate versioning.
 - **csnsize** - number of elements (i, k — real, complex)
 - **csnshape** - extents, one per dimension (i, k — real, complex)
 - **csnisempty** - 1 when the array holds no element (i, k — real, complex)
+- **csnprint** - prints shape, dtype and values in a NumPy-style layout (i, k — real, complex)
 
 ## Persistence
 

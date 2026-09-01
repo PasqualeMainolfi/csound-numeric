@@ -141,6 +141,13 @@ if(BUILD_TESTING)
     find_program(CSOUND_EXECUTABLE NAMES csound)
     if(CSOUND_EXECUTABLE)
         add_test(
+            NAME csnum_printing_regression
+            COMMAND "${CMAKE_COMMAND}"
+                -DCSOUND_EXECUTABLE=${CSOUND_EXECUTABLE}
+                -DOPCODE_DIR=$<TARGET_FILE_DIR:csnum>
+                -DCSD_FILE=${CMAKE_CURRENT_SOURCE_DIR}/tests/printing_regression.csd
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_printing.cmake)
+        add_test(
             NAME csnum_itime_regressions
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

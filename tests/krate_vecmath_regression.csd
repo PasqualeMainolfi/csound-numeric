@@ -49,6 +49,7 @@ FlatQuad@global:CsnArr = csnfromarray(giQuad)
 Square@global:CsnArr = csnreshape(FlatQuad, giShape22)
 ComplexQuad@global:CsnArr = csntocomplex(FlatQuad)
 ComplexSquare@global:CsnArr = csnreshape(ComplexQuad, giShape22)
+ComplexAbsolute@global:CsnArr = csnabs(ComplexQuad)
 
 MovMedian@global:CsnArr = csnmovmedian(Seq, 3)
 MovMin@global:CsnArr = csnmovmin(Seq, 3)
@@ -76,6 +77,7 @@ Promoted@global:CsnArr = csntocomplex(Quad)
 
 /* In-place moving filter, never triggered: must keep the original sequence. */
 MovGated@global:CsnArr = csnfromarray(giSeq)
+MovMeanIn@global:CsnArr = csnfromarray(giSeq)
 
 Sorted@global:CsnArr = csnsort(V, -1)
 Argsorted@global:CsnArr = csnargsort(V, -1)
@@ -138,6 +140,7 @@ instr 1
     CumSum = csncumsum(V, kAllAxes, kTrig)
     CumProd = csncumprod(V, kAllAxes, kTrig)
     Absolute = csnabs(Signed, kTrig)
+    ComplexAbsolute = csnabs(ComplexQuad, kTrig)
     Floored = csnfloor(Signed, kTrig)
     Ceiled = csnceil(Signed, kTrig)
     Signs = csnsign(Signed, kTrig)
@@ -155,6 +158,8 @@ instr 1
     MovMean = csnmovmean(Seq, kWindow, kAllAxes, kTrig)
     MovVar = csnmovvar(Seq, kWindow, kAllAxes, kTrig)
     csnmovmedian(MovGated, kWindow, kAllAxes, kOff)
+    kOnce = (timeinstk() == 2 ? 1 : 0)
+    csnmovmean(MovMeanIn, kWindow, kAllAxes, kOnce)
 
     kSliceAxis = 0
     kSliceStart = 1
@@ -235,6 +240,9 @@ instr 2
     assert(iAbs0 == 2.5 && iFloor0 == -3 && iCeil0 == -2)
     assert(iSign0 == -1 && iNot0 == 0)
     assert(csnsize(Absolute) == 4)
+    iComplexAbs1 = csnget(ComplexAbsolute, i1)
+    iComplexAbs3 = csnget(ComplexAbsolute, i3)
+    assert(iComplexAbs1 == 2 && iComplexAbs3 == 4)
 
     /* Norms: unit vector along a, and the per-row norms of the matrix. */
     iNorm0 = csnget(Normalized, i0)
@@ -284,6 +292,12 @@ instr 2
     /* Gated off: the in-place filter must not have touched the sequence. */
     iGated1 = csnget(MovGated, i1)
     assert(iGated1 == 5)
+
+    /* One triggered in-place pass must read the untouched source throughout. */
+    iMovMeanIn1 = csnget(MovMeanIn, i1)
+    iMovMeanIn3 = csnget(MovMeanIn, i3)
+    assert(iMovMeanIn1 > 2.66 && iMovMeanIn1 < 2.67)
+    assert(iMovMeanIn3 == 3)
 
     /* csndiag both ways: a vector becomes the diagonal of a square matrix, a
        matrix gives its diagonal back. */
