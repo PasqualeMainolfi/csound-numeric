@@ -324,6 +324,35 @@ if(BUILD_TESTING)
         set_tests_properties(csnum_krate_interp_error_recovery PROPERTIES
             PASS_REGULAR_EXPRESSION "csnum registry alive after the interp and resample failures"
             TIMEOUT 60)
+        add_test(
+            NAME csnum_audio_bridge_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_bridge_regression.csd")
+        add_test(
+            NAME csnum_audio_frame_ola_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_frame_ola_regression.csd")
+        # The realtime lock refuses a reallocation with a performance error, and
+        # the unit-test runner counts one of those as a failed assertion. Score
+        # this one on its marker instead: a failed assert stops the note before
+        # the marker prints, and the refusal comes from under the registry
+        # mutex, so a wedged lock hangs the test rather than passing it.
+        add_test(
+            NAME csnum_audio_rtlock_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_rtlock_regression.csd")
+        set_tests_properties(csnum_audio_rtlock_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum registry alive after the realtime-lock refusal"
+            TIMEOUT 60)
     endif()
 endif()
 endif()

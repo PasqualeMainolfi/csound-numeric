@@ -202,6 +202,11 @@ csound --opcode-dir=build example/csnsort.csd
 - **Windows**: Hann, Hamming, Bartlett, Blackman, Kaiser.
 - **Persistence**: `csnsave` and `csnload` write an array to a `.csn` file and
   read it back, shape and element type included.
+- **Audio bridge**: `csnfromaudio` / `csntoaudio` move one control period between
+  an audio signal and an array, `csnpack` / `csnunpack` do the same for a whole
+  `a[]` as a `channels x ksmps` matrix, and `csnsnap` / `csnstream` slice a stream
+  into overlapping frames of a size independent of `ksmps` and overlap-add them
+  back. Arrays on an audio path refuse to reallocate during performance.
 
 ### Conventions shared by the whole suite
 

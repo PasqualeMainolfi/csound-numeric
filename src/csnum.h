@@ -95,7 +95,6 @@ do {                                                                 \
     } while (0)
 
 
-
 typedef enum {
     GREATER_THAN = 0,
     LESS_THAN,
@@ -344,8 +343,6 @@ typedef struct {
     CSN_REGISTRY *registry;
     CSN_DIVMOD_K_STATE prev_divmod_state;
 } K_DATA;
-
-
 
 typedef struct {
     OPDS h;
@@ -1529,7 +1526,6 @@ typedef struct {
     CSN_REGISTRY *registry;
 } CSN_SHOW;
 
-
 typedef struct {
     OPDS h;
     // outputs
@@ -1547,6 +1543,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     MYFLT *source_sig;
+    MYFLT *rt_lock;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1568,6 +1565,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *source_sig;
+    MYFLT *rt_lock;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1594,6 +1592,7 @@ typedef struct {
     MYFLT *source_sig;
     MYFLT *frame_size;
     MYFLT *hop_size;
+    MYFLT *rt_lock;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1615,11 +1614,9 @@ typedef struct {
     CSN_SCRATCH buffer;
     size_t fsize;
     size_t hsize;
-    /* One frame is folded in per new generation, not per k-pass: the producer
-       republishes only every hop samples, and re-adding the same frame on
-       every pass would multiply its energy. */
     uint32_t prev_handle;
     ARRAY_VERSION prev_version;
+    size_t phase;
 } CSN_OLA_AUDIO;
 
 

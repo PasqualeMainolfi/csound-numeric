@@ -218,3 +218,19 @@ previous result — it simply does not touch the disk.
 - **csnbartlett** - Bartlett (triangular) window (i, k — real only)
 - **csnblackman** - Blackman window (i, k — real only)
 - **csnkaiser** - Kaiser window with a beta parameter (i, k — real only)
+
+## Audio bridge
+
+Performance-time only, on the audio path. The frame size in `csnsnap` and
+`csnstream` is independent of `ksmps`; their hop must be at least `ksmps`, since
+one handle can publish one frame per control period. The optional trailing `irt`
+defaults to 1 and marks the array as a realtime path, forbidding reallocation
+during performance for it and everything derived from it; 0 lifts the
+restriction for the derived arrays.
+
+- **csnfromaudio** - one control period of an audio signal into an array (a — real only)
+- **csntoaudio** - an array of ksmps elements back out as audio (a — real only)
+- **csnpack** - an array of audio signals into one channels x ksmps array (a — real only)
+- **csnunpack** - that array back into one signal per channel (a — real only)
+- **csnsnap** - slices a stream into overlapping frames of a chosen size (a — real only)
+- **csnstream** - overlap-adds frames back into a continuous signal (a — real only)

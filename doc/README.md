@@ -217,3 +217,17 @@ support of each opcode.
 - [csnbartlett](csnbartlett.md) - Bartlett (triangular) window
 - [csnblackman](csnblackman.md) - Blackman window
 - [csnkaiser](csnkaiser.md) - Kaiser window with a beta parameter
+
+## Audio bridge
+
+These run at performance time on the audio path. Their arrays are marked as
+realtime by default, which means neither they nor anything derived from them may
+reallocate during performance; pass `irt = 0` at the source to lift that where a
+chain is being harvested for analysis rather than sent back out.
+
+- [csnfromaudio](csnfromaudio.md) - one control period of an audio signal into an array
+- [csntoaudio](csntoaudio.md) - an array of ksmps elements back out as audio
+- [csnpack](csnpack.md) - an array of audio signals into one channels x ksmps array
+- [csnunpack](csnunpack.md) - that array back into one signal per channel
+- [csnsnap](csnsnap.md) - slices a stream into overlapping frames of a chosen size
+- [csnstream](csnstream.md) - overlap-adds frames back into a continuous signal

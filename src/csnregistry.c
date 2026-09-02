@@ -238,17 +238,22 @@ int32_t update_slot_array_locked(
     size_t strides[CSN_MAX_DIMS] = {0};
     compute_strides(shape, strides, ndim);
 
+    CSN_SLOT *slot = get_slot(registry, handle);
+    if (slot == NULL) {
+        *err = "Output slot is no longer active";
+        return NOTOK;
+    }
+
+    // for safe but unreachble for now
+    if (slot->rt_locked) {
+        *err = "[csnarray] Array is on a realtime audio path and cannot be reallocated at perf time (pass irt=0 to the source opcode if this chain is not realtime)";
+        return NOTOK;
+    }
+
     size_t bytes = sizeof(double) * capacity * (size_t) itype;
     double *new_data = csound->Calloc(csound, bytes);
     if (new_data == NULL) {
         *err = "Memory allocation failed";
-        return NOTOK;
-    }
-
-    CSN_SLOT *slot = get_slot(registry, handle);
-    if (slot == NULL) {
-        csound->Free(csound, new_data);
-        *err = "Output slot is no longer active";
         return NOTOK;
     }
 
@@ -383,6 +388,7 @@ int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, ui
 
     slot->state = ACTIVE_SLOT;
     slot->array = array;
+    slot->rt_locked = false;
     registry->active_count++;
     return OK;
 }

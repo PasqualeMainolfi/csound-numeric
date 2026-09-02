@@ -103,6 +103,7 @@ typedef struct {
     CSN_ARRAY *array;
     uint32_t gen_id;
     CSN_SLOT_STATE state;
+    bool rt_locked; // perf-time path: no realloc at perf time (propagate to all derivates)
 } CSN_SLOT;
 
 typedef struct {

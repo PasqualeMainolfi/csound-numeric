@@ -14,6 +14,14 @@
 #include "arrays.h"
 
 
+
+static const char *get_out_name(OPDS *h) {
+    if (h == NULL || h->optext == NULL) return "?";
+    const ARGLST *out = h->optext->t.outlist;
+    if (out == NULL || out->count < 1 || out->arg[0] == NULL) return "?";
+    return out->arg[0];
+}
+
 static void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch) {
     if (scratch->scratch != NULL) csound->Free(csound, scratch->scratch);
     scratch->scratch = NULL;
@@ -267,6 +275,9 @@ static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destinat
 
     bool request_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, shape);
     if (SHOULD_SLOT_BE_UPDATED(request_changed, *destination, itype, requested_size)) {
+        if (slot->rt_locked) {
+            return csn_locked_perf_error(csound, h,  "[csnarray] '%s' (array %u) is on a realtime audio path and cannot be reallocated at perf time; pass irt=0 to the source opcode if this chain is not realtime", get_out_name(h), req_owned_handle);
+        }
         int32_t res = update_slot_array_locked(csound, k_data->registry, req_owned_handle, ndim, shape, itype, destination, &err);
         if (res != OK) {
             return csn_locked_perf_error(csound, h, "[csnarray] Could not update k-rate output slot: %s", err != NULL ? err : "unknown error");
@@ -677,6 +688,11 @@ int32_t create_csnarray_locked(
     if (activate_slot(csound, reg, slot, ndim, shape, handle, itype) != OK) {
         *err = "Slot activation failed";
         return NOTOK;
+    }
+
+    for (uint32_t i = 0; i < protect_count; i++) {
+        CSN_SLOT *src = get_slot(reg, protect[i]);
+        if (src != NULL && src->rt_locked) { slot->rt_locked = true; }
     }
 
     *p_array = slot->array;
@@ -18944,12 +18960,20 @@ static int32_t csnarray_from_audio_init(CSOUND *csound, CSN_FROM_AUDIO *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
+    if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
+        return csound->InitError(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
+    }
+
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = CS_KSMPS;
 
     int32_t res = create_csnarray_init(csound, &p->h, 1U, shape, &p->array, p->handle, CSN_REAL);
     if (res != OK) return res;
+
     csound->LockMutex(reg->mutex);
+    bool is_locked = (*p->rt_lock != 0.0);
+    CSN_SLOT *slot = get_slot(reg, p->handle->id);
+    if (slot != NULL) slot->rt_locked = is_locked;
     fill_csnarray(p->array, 0.0);
     SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
     csound->UnlockMutex(reg->mutex);
@@ -19074,6 +19098,10 @@ int32_t csnarray_pack_audio_init(CSOUND *csound, CSN_PACK_AUDIO *p) {
         return csound->InitError(csound, "[csnarray] Empty audio array");
     }
 
+    if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
+        return csound->InitError(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
+    }
+
     uint32_t nchnls = (uint32_t) p->source_sig->sizes[0];
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -19082,7 +19110,11 @@ int32_t csnarray_pack_audio_init(CSOUND *csound, CSN_PACK_AUDIO *p) {
 
     int32_t res = create_csnarray_init(csound, &p->h, 2U, shape, &p->array, p->handle, CSN_REAL);
     if (res != OK) return res;
+
     csound->LockMutex(reg->mutex);
+    bool is_locked = (*p->rt_lock != 0.0);
+    CSN_SLOT *slot = get_slot(reg, p->handle->id);
+    if (slot != NULL) slot->rt_locked = is_locked;
     fill_csnarray(p->array, 0.0);
     SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 2U, CSN_REAL, p->handle->id);
     p->prev_nchnls = nchnls;
@@ -19214,6 +19246,10 @@ static int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
+    if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
+        return csound->InitError(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
+    }
+
     int32_t res = OK;
     const char *err = NULL;
 
@@ -19266,6 +19302,9 @@ static int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
         goto done;
     }
 
+    bool is_locked = (*p->rt_lock != 0.0);
+    CSN_SLOT *slot = get_slot(reg, p->handle->id);
+    if (slot != NULL) slot->rt_locked = is_locked;
     fill_csnarray(p->array, 0.0);
     SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
 
@@ -19356,9 +19395,6 @@ static int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
         goto done;
     }
 
-    /* The frame length is not an argument: it comes from the array the
-       producer publishes, resolved once here so the accumulator can be sized
-       at init and never reallocated during performance. */
     CSN_ARRAY *frame = slot->array;
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size == 0) {
         res = csound->InitError(csound, "[csnarray] Invalid csn-audio frame: expected a non-empty 1-D real array");
@@ -19373,9 +19409,6 @@ static int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
         goto done;
     }
 
-    /* The live span runs from the read cursor to the far end of the newest
-       frame. The write cursor leads the read cursor by at most one hop, so the
-       span never exceeds hop + fsize, and hop <= fsize was just enforced. */
     size_t buffer_cap = p->fsize * 2;
     double *buffer_temp = csound->Calloc(csound, sizeof(double) * buffer_cap);
     if (buffer_temp == NULL) {
@@ -19390,11 +19423,10 @@ static int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
     p->buffer.writer = 0;
     p->buffer.sample_count = 0;
 
-    /* A zero handle never matches a live one, so the first pass always counts
-       the frame it finds as new. */
-    p->prev_handle = 0;
-    memset(&p->prev_version, 0, sizeof(p->prev_version));
+    p->prev_handle = source_handle;
+    set_array_version(&frame->version, &p->prev_version);
 
+    p->phase = 0;
     *p->is_ready = FL(0.0);
     p->registry = reg;
 
@@ -19434,12 +19466,14 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
     }
 
-    /* The producer republishes only once every hop samples. Folding the array
-       in on every k-pass instead would add the same frame hop/ksmps times. */
     bool is_same_version = is_same_array_data_version(&frame->version, &p->prev_version);
-    bool has_new_frame = p->prev_handle != source_handle || !is_same_version;
+    bool is_same = p->prev_handle == source_handle && is_same_version;
 
-    if (has_new_frame) {
+    p->phase += nsamples;
+    bool is_consumed = p->phase >= hsize;
+    if (is_consumed) p->phase -= hsize;
+
+    if (is_consumed && !is_same) {
         for (size_t i = 0; i < fsize; i++) {
             acc[(buffer->writer + i) % capacity] += frame->data[i];
         }
@@ -19480,12 +19514,12 @@ static OENTRY localops[] = {
     { "csnsave.k",             S(CSN_SAVE),                   0, "",                    ":CsnArr;Sk",                     (SUBR) csnarray_save_k_init,                 (SUBR) csnarray_save_k,                 (SUBR) csnarray_save_k_deinit,          NULL, 0 },
     { "csnload.k",             S(CSN_LOAD),                   0, ":CsnArr;",            "Sk",                             (SUBR) csnarray_load_k_init,                 (SUBR) csnarray_load_k,                 (SUBR) csnarray_load_deinit,            NULL, 0 },
     // REAL-ONLY
-    { "csnfromaudio",          S(CSN_FROM_AUDIO),             0, ":CsnArr;",            "a",                              (SUBR) csnarray_from_audio_init,             (SUBR) csnarray_from_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },
+    { "csnfromaudio",          S(CSN_FROM_AUDIO),             0, ":CsnArr;",            "ap",                             (SUBR) csnarray_from_audio_init,             (SUBR) csnarray_from_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },
     { "csntoaudio",            S(CSN_TO_AUDIO),               0, "a",                   ":CsnArr;",                       (SUBR) csnarray_to_audio_init,               (SUBR) csnarray_to_audio,               NULL,                                   NULL, 0 },
-    { "csnpack",               S(CSN_PACK_AUDIO),             0, ":CsnArr;",            "a[]",                            (SUBR) csnarray_pack_audio_init,             (SUBR) csnarray_pack_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },
+    { "csnpack",               S(CSN_PACK_AUDIO),             0, ":CsnArr;",            "a[]p",                           (SUBR) csnarray_pack_audio_init,             (SUBR) csnarray_pack_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },
     { "csnunpack",             S(CSN_UNPACK_AUDIO),           0, "a[]",                 ":CsnArr;",                       (SUBR) csnarray_unpack_audio_init,           (SUBR) csnarray_unpack_audio,           NULL,                                   NULL, 0 },
-    { "csnsnapshot",           S(CSN_FRAME_AUDIO),            0, ":CsnArr;k",           "aio",                            (SUBR) csnarray_frame_audio_init,            (SUBR) csnarray_frame_audio,            (SUBR) csnarray_frame_audio_deinit,     NULL, 0 },
-    { "csnola",                S(CSN_OLA_AUDIO),              0, "ak",                  ":CsnArr;i",                      (SUBR) csnarray_ola_audio_init,              (SUBR) csnarray_ola_audio,              (SUBR) csnarray_ola_audio_deinit,       NULL, 0 },
+    { "csnsnap",               S(CSN_FRAME_AUDIO),            0, ":CsnArr;k",           "aiop",                           (SUBR) csnarray_frame_audio_init,            (SUBR) csnarray_frame_audio,            (SUBR) csnarray_frame_audio_deinit,     NULL, 0 },
+    { "csnstream",             S(CSN_OLA_AUDIO),              0, "ak",                  ":CsnArr;i",                      (SUBR) csnarray_ola_audio_init,              (SUBR) csnarray_ola_audio,              (SUBR) csnarray_ola_audio_deinit,       NULL, 0 },
     { "csnrand",               S(CSN_ARR_RND_INIT),           0, ":CsnArr;",            "i[]ii",                          (SUBR) create_random_csnarray,               NULL,                                   (SUBR) create_csnarray_random_deinit,   NULL, 0 },
     { "csnrand.k",             S(CSN_ARR_RND_INIT),           0, ":CsnArr;",            "k[]kkP",                         (SUBR) create_random_csnarray_k_init,        (SUBR) create_random_csnarray_k,        (SUBR) create_csnarray_random_deinit,   NULL, 0 },
     { "csnarange",             S(CSN_SPACED_SPACE),           0, ":CsnArr;",            "iii",                            (SUBR) csnarray_arange,                      NULL,                                   (SUBR) csnarray_space_spaced_deinit,    NULL, 0 },

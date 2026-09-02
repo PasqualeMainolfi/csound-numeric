@@ -19,7 +19,12 @@ foreach(line IN LISTS source_lines)
         # is an optional P still runs at k-rate and does not belong in the
         # i-time inventory. The lowercase j/o/p/v are the i-rate counterparts
         # and stay out of this set.
-        if(output_signature MATCHES "[kJOPV]" OR input_signature MATCHES "[kJOPV]")
+        #
+        # A lowercase a is an audio argument, which puts the opcode on the
+        # performance path just as surely as a k does. No :CsnArr; or :Complex;
+        # type name contains a lowercase a, so matching the bare letter picks
+        # out the audio bridge and nothing else.
+        if(output_signature MATCHES "[kJOPVa]" OR input_signature MATCHES "[kJOPVa]")
             continue()
         endif()
         list(APPEND registered "${name}")
