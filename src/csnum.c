@@ -276,7 +276,7 @@ static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destinat
     bool request_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, shape);
     if (SHOULD_SLOT_BE_UPDATED(request_changed, *destination, itype, requested_size)) {
         if (slot->rt_locked) {
-            return csn_locked_perf_error(csound, h,  "[csnarray] '%s' (array %u) is on a realtime audio path and cannot be reallocated at perf time; pass irt=0 to the source opcode if this chain is not realtime", get_out_name(h), req_owned_handle);
+            return csn_locked_perf_error(csound, h,  "[csnarray] '%s' (array %u) is on a real-time path and cannot be reallocated at perf time; clear the mark with csnrtlock, or pass irt=0 at the audio source it descends from", get_out_name(h), req_owned_handle);
         }
         int32_t res = update_slot_array_locked(csound, k_data->registry, req_owned_handle, ndim, shape, itype, destination, &err);
         if (res != OK) {
@@ -19503,6 +19503,29 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
     return OK;
 }
 
+int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
+        return csound->InitError(csound, "[csnarray] rtlock param must be 0/1");
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    }
+    slot->rt_locked = (*p->rt_lock) != 0.0;
+
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
@@ -19513,6 +19536,7 @@ static OENTRY localops[] = {
     { "csnload",               S(CSN_LOAD),                   0, ":CsnArr;",            "S",                              (SUBR) csnarray_load,                        NULL,                                   (SUBR) csnarray_load_deinit,            NULL, 0 },
     { "csnsave.k",             S(CSN_SAVE),                   0, "",                    ":CsnArr;Sk",                     (SUBR) csnarray_save_k_init,                 (SUBR) csnarray_save_k,                 (SUBR) csnarray_save_k_deinit,          NULL, 0 },
     { "csnload.k",             S(CSN_LOAD),                   0, ":CsnArr;",            "Sk",                             (SUBR) csnarray_load_k_init,                 (SUBR) csnarray_load_k,                 (SUBR) csnarray_load_deinit,            NULL, 0 },
+    { "csnrtlock",             S(CSN_RTLOCK),                 0, "",                    ":CsnArr;i",                      (SUBR) csnarray_set_rtlock,                  NULL,                                   NULL,                                   NULL, 0 },
     // REAL-ONLY
     { "csnfromaudio",          S(CSN_FROM_AUDIO),             0, ":CsnArr;",            "ap",                             (SUBR) csnarray_from_audio_init,             (SUBR) csnarray_from_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },
     { "csntoaudio",            S(CSN_TO_AUDIO),               0, "a",                   ":CsnArr;",                       (SUBR) csnarray_to_audio_init,               (SUBR) csnarray_to_audio,               NULL,                                   NULL, 0 },

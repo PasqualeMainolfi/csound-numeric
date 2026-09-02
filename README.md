@@ -8,11 +8,14 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a NumPy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, interpolation and resampling, about 150 opcodes across some 490
+primitives, interpolation and resampling, about 158 opcodes across some 499
 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
-signal generation, no file I/O, no GUI.
+signal generation and no GUI. Two doors lead out of that: `csnsave` / `csnload`
+persist an array to disk, and the audio bridge moves blocks of samples between
+Csound's audio signals and csnum arrays, so an analysis chain can be written
+with array operations and sent back out as sound.
 
 Arrays hold either **real** values (one double per element) or **complex** values
 (two doubles per element). Both are first class: creation, conversion, indexing,
@@ -92,8 +95,10 @@ back:i[]    = csntoarray(data) // handle -> Csound array
 ```
 
 `csnfromarray` / `csnfromftable` are the way in, `csntoarray` / `csntoftable` the
-way out. Everything in between passes handles, so a chain of twenty operations
-copies data zero times more than the operations themselves require.
+way out; on the audio path the pairs are `csnfromaudio` / `csntoaudio` and
+`csnpack` / `csnunpack`. Everything in between passes handles, so a chain of
+twenty operations copies data zero times more than the operations themselves
+require.
 
 A handle's array is released when the opcode instance that produced it is
 deallocated. Handles declared `@global` outlive their note, that is what makes
@@ -224,6 +229,15 @@ csound --opcode-dir=build example/csnsort.csd
   Csound can distinguish the performance overload from the init-time one.
   `csnprint`, `csnsave` and `csnload` have no previous computed result to
   republish, so a zero trigger simply performs no side effect.
+- **Realtime paths.** The opcodes that bring audio in take an optional trailing
+  `irt`, 1 by default. It marks the array they publish as belonging to a
+  realtime path, and the mark travels to every array derived from it. A marked
+  array refuses to reallocate during performance and names the variable in the
+  error, because a malloc on the audio thread is what a dropout sounds like.
+  Pass `irt = 0` where the frames are being harvested for analysis rather than
+  sent back out. `csnrtlock` sets the same mark on any handle, for chains that
+  run under a deadline without touching audio. It runs at init, so it reaches
+  only the arrays created after it in the orchestra.
 
 ---
 
@@ -266,6 +280,17 @@ Three details make this safe rather than merely fast:
 
 Scratch buffers are per-opcode-instance and grow geometrically, so a k-rate pass
 allocates nothing in steady state.
+
+One limit is worth stating plainly, because it is easy to read the counters as
+promising more than they do. A bumped data version means **a producer wrote this
+slot on that pass**, not that the contents differ from the pass before. A k-rate
+producer republishes its output every pass it runs, so anything downstream that
+tries to answer "has a new value arrived?" from the version alone will hear yes
+on every pass as soon as a single k-rate opcode sits in between. That is fine
+for skipping work, which is what the counters are for — a false "changed" costs
+a recomputation and nothing else. It is not enough for an opcode that must act
+exactly once per arrival: `csnstream` counts hops on a phase accumulator of its
+own and uses the version only to notice a producer that has stopped.
 
 ---
 
@@ -312,6 +337,93 @@ instr 1
     n:k          = csnsize(table)
 endin
 ```
+
+---
+
+## Audio
+
+Six opcodes connect the array vocabulary to Csound's audio signals. They run at
+performance time, but an a-rate opcode's perf function is called once per control
+period, not once per sample, so they cost what a k-rate opcode costs.
+
+`csnfromaudio` captures one control period into an array of `ksmps` elements and
+`csntoaudio` sends one back out. In between, the whole suite applies:
+
+```csound
+instr 1
+    gain:k       = 0.5
+    sig:a        = oscili(0.5, 440)
+    block:CsnArr = csnfromaudio(sig)
+    out:a        = csntoaudio(csnmul(block, gain))
+endin
+```
+
+`csntoaudio` checks the element count, not the shape, so an array reshaped to a
+matrix comes back out without an intervening flatten. For multichannel material
+`csnpack` folds a whole `a[]` into one `channels x ksmps` array and `csnunpack`
+takes it apart again — an `a[]` stores each channel as a whole `ksmps`-long
+block, so the pair is a transpose of layout, not a copy of samples.
+
+### Frames independent of ksmps
+
+`csnsnap` slices the stream into frames of a size you choose and publishes one
+every `ihop` samples, raising a ready flag on the control period where that
+happens. `csnstream` overlap-adds them back:
+
+```csound
+instr 1
+    sig:a               = oscili(0.5, 440)
+    frame:CsnArr, new:k = csnsnap(sig, 1024, 256)
+    ; ... analysis on frame, gated on new ...
+    out:a, ready:k      = csnstream(frame, 256)
+endin
+```
+
+The hop must be at least `ksmps`: one handle names one array, so at most one
+frame can be published per control period, and a smaller hop would overwrite a
+frame before any consumer could read it. It is refused at init rather than
+silently dropping frames. The default hop is the frame size, which gives
+contiguous frames with no overlap.
+
+`csnstream` folds in one frame per hop of output, counted on a phase accumulator
+of its own, so any number of k-rate opcodes may sit between the two ends without
+changing the result. With a rectangular window and `ihop` equal to the frame
+length the reconstruction is exact; at 50% overlap every sample is covered twice,
+so a real chain applies a window whose overlapped copies sum to one.
+
+### Nothing allocates on the audio thread
+
+An array published by `csnfromaudio`, `csnpack` or `csnsnap` is marked as a
+realtime path, and the mark travels to everything derived from it. A marked
+array refuses to reallocate during performance and names the variable that would
+have done it:
+
+```
+'B' (array 4098) is on a realtime audio path and cannot be reallocated at perf
+time; pass irt=0 to the source opcode if this chain is not realtime
+```
+
+That refusal only fires where a shape genuinely changes at k-rate. A chain whose
+shapes are settled at init — the ordinary case, since `csnfromaudio` fixes its
+shape at `ksmps` and every derived opcode sizes its output from its source at
+init — allocates once per note and never again. Where the frames are being
+harvested for analysis rather than sent back out to audio, `irt = 0` at the
+source lifts the restriction for the derived arrays.
+
+The same guarantee is available away from audio. Array work that drives a synth
+at k-rate has the same intolerance for an allocation and no audio opcode to
+inherit the mark from, so `csnrtlock` sets it on any handle:
+
+```csound
+src:CsnArr    = csnzeros(shape)
+csnrtlock src, 1
+padded:CsnArr = csnpad(src, grow, grow, fill, trig)   ; inherits the mark
+```
+
+`csnrtlock` runs at init, so it reaches the arrays created after it and no
+others — put it immediately after the array it protects, before anything reads
+it. For the same reason clearing the mark is not retroactive: arrays already
+derived keep the copy they took.
 
 ---
 

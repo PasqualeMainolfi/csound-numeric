@@ -246,7 +246,7 @@ int32_t update_slot_array_locked(
 
     // for safe but unreachble for now
     if (slot->rt_locked) {
-        *err = "[csnarray] Array is on a realtime audio path and cannot be reallocated at perf time (pass irt=0 to the source opcode if this chain is not realtime)";
+        *err = "[csnarray] Array is on a real-time path and cannot be reallocated at perf time (clear the mark with csnrtlock, or pass irt=0 at the audio source it descends from)";
         return NOTOK;
     }
 

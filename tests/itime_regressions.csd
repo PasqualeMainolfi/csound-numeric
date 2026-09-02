@@ -1313,6 +1313,26 @@ instr 7
     assert(iReParts[0] == 3 && iReParts[5] == 3)
     assert(iImParts[0] == -4 && iImParts[5] == -4)
 endin
+
+; csnrtlock marks a handle as belonging to a real-time path, so neither it nor
+; anything derived from it afterwards may reallocate during performance. Here
+; only the marking itself is exercised: it runs at init, takes no output, and
+; must leave the handle otherwise untouched. The refusal it arms is a
+; performance error, which lives in tests/audio_rtlock_regression.csd because
+; csound's unit-test runner counts one of those as a failed assertion.
+instr 8
+    iMarked:CsnArr = csnfromarray(array(1, 2, 3, 4))
+    csnrtlock iMarked, 1
+    iSizeAfter = csnsize(iMarked)
+    iValues[] = csntoarray(iMarked)
+    assert(iSizeAfter == 4)
+    assert(iValues[0] == 1 && iValues[3] == 4)
+
+    ; clearing the mark is legal and equally inert on the data
+    csnrtlock iMarked, 0
+    iSizeCleared = csnsize(iMarked)
+    assert(iSizeCleared == 4)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -1328,6 +1348,7 @@ i 4 0.06 0.01
 i 5 0.08 0.01
 i 6 0.10 0.01
 i 7 0.12 0.01
+i 8 0.14 0.01
 e
 </CsScore>
 
@@ -1365,6 +1386,6 @@ e
 ; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
-; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint
+; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
 ; @covers-end
 </CsoundSynthesizer>

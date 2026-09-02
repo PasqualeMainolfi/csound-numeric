@@ -224,9 +224,11 @@ previous result — it simply does not touch the disk.
 Performance-time only, on the audio path. The frame size in `csnsnap` and
 `csnstream` is independent of `ksmps`; their hop must be at least `ksmps`, since
 one handle can publish one frame per control period. The optional trailing `irt`
-defaults to 1 and marks the array as a realtime path, forbidding reallocation
+defaults to 1 and marks the array as a real-time path, forbidding reallocation
 during performance for it and everything derived from it; 0 lifts the
-restriction for the derived arrays.
+restriction for the derived arrays. `csnrtlock` sets the same mark on any
+handle, for chains that run under a deadline without touching audio; it runs at
+init, so it only reaches arrays created after it.
 
 - **csnfromaudio** - one control period of an audio signal into an array (a — real only)
 - **csntoaudio** - an array of ksmps elements back out as audio (a — real only)
@@ -234,3 +236,4 @@ restriction for the derived arrays.
 - **csnunpack** - that array back into one signal per channel (a — real only)
 - **csnsnap** - slices a stream into overlapping frames of a chosen size (a — real only)
 - **csnstream** - overlap-adds frames back into a continuous signal (a — real only)
+- **csnrtlock** - marks any handle as a real-time path, or clears the mark (i — real, complex)

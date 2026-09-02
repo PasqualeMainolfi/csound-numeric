@@ -1619,6 +1619,12 @@ typedef struct {
     size_t phase;
 } CSN_OLA_AUDIO;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *rt_lock;
+} CSN_RTLOCK;
 
 // a-rate
 
@@ -1635,6 +1641,7 @@ int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p);
 int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p);
 int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p);
 int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p);
+int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p);
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);

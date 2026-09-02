@@ -231,3 +231,4 @@ chain is being harvested for analysis rather than sent back out.
 - [csnunpack](csnunpack.md) - that array back into one signal per channel
 - [csnsnap](csnsnap.md) - slices a stream into overlapping frames of a chosen size
 - [csnstream](csnstream.md) - overlap-adds frames back into a continuous signal
+- [csnrtlock](csnrtlock.md) - marks any handle as a real-time path, or clears the mark
