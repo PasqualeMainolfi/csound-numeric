@@ -289,6 +289,10 @@ typedef enum {
 typedef struct {
     void *scratch;
     size_t scratch_capacity;
+    size_t reader;
+    size_t writer;
+    size_t current_size;
+    size_t sample_count;
 } CSN_SCRATCH;
 
 typedef struct {
@@ -340,6 +344,8 @@ typedef struct {
     CSN_REGISTRY *registry;
     CSN_DIVMOD_K_STATE prev_divmod_state;
 } K_DATA;
+
+
 
 typedef struct {
     OPDS h;
@@ -1523,6 +1529,108 @@ typedef struct {
     CSN_REGISTRY *registry;
 } CSN_SHOW;
 
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    void *source_sig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+} CSN_AUDIO_BRIDGE_COMMON;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *source_sig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+} CSN_FROM_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *sig;
+    // inputs
+    CSNREF *source_handle;
+    // private
+    CSN_REGISTRY *registry;
+} CSN_TO_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    ARRAYDAT *source_sig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    uint32_t prev_nchnls;
+} CSN_PACK_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    ARRAYDAT *sig;
+    // inputs
+    CSNREF *source_handle;
+    // private
+    CSN_REGISTRY *registry;
+    uint32_t prev_nchnls;
+} CSN_UNPACK_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    MYFLT *is_ready;
+    // inputs
+    MYFLT *source_sig;
+    MYFLT *frame_size;
+    MYFLT *hop_size;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    size_t fsize;
+    size_t hsize;
+} CSN_FRAME_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *sig;
+    MYFLT *is_ready;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *hop_size;
+    // private
+    CSN_REGISTRY *registry;
+    CSN_SCRATCH buffer;
+    size_t fsize;
+    size_t hsize;
+    /* One frame is folded in per new generation, not per k-pass: the producer
+       republishes only every hop samples, and re-adding the same frame on
+       every pass would multiply its energy. */
+    uint32_t prev_handle;
+    ARRAY_VERSION prev_version;
+} CSN_OLA_AUDIO;
+
+
+// a-rate
+
+int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p);
+int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p);
+int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p);
+int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p);
+int32_t csnarray_frame_audio(CSOUND *csound, CSN_FRAME_AUDIO *p);
+int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p);
 
 // i-rate
 
