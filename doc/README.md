@@ -82,6 +82,10 @@ support of each opcode.
 - [csngetslice](csngetslice.md) - extracts a strided slice along an axis
 - [csnsetslice](csnsetslice.md) - writes into a strided slice along an axis
 - [csntake](csntake.md) - picks one index along an axis, dropping that axis
+- [csnwhere](csnwhere.md) - picks from two arrays element by element, driven by a mask
+- [csnputmask](csnputmask.md) - the same choice made in place, the array being its own mask
+- [csncompress](csncompress.md) - keeps the entries a 1-D mask marks, along an axis or flat
+- [csnselect](csnselect.md) - keeps the elements a mask marks, as a flat array
 - [csnargwhere](csnargwhere.md) - coordinates of the elements matching a value array
 - [csnargnonzero](csnargnonzero.md) - coordinates of the non-zero elements
 - [csnargisnan](csnargisnan.md) - coordinates of the NaN elements
@@ -96,6 +100,8 @@ support of each opcode.
 - [csnlog](csnlog.md) - logarithm in an arbitrary base
 - [csndivmod](csndivmod.md) - quotient and remainder in one pass, as two arrays
 - [csnhypot](csnhypot.md) - hypotenuse of two arrays, elementwise
+- [csnminimum](csnminimum.md) - elementwise minimum of two arrays, or of an array and a scalar
+- [csnmaximum](csnmaximum.md) - elementwise maximum of two arrays, or of an array and a scalar
 - [csnclip](csnclip.md) - clamps every element between two bounds
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
@@ -125,6 +131,7 @@ support of each opcode.
 
 - [csndegtorad](csndegtorad.md) - degrees to radians
 - [csnradtodeg](csnradtodeg.md) - radians to degrees
+- [csnatan2](csnatan2.md) - two-argument arctangent, quadrant aware
 - [csnwrap](csnwrap.md) - wraps values into one period
 - [csnunwrap](csnunwrap.md) - removes the jumps left by wrapping, along an axis
 
@@ -136,6 +143,9 @@ support of each opcode.
 - [csnle](csnle.md) - elementwise less or equal, as a 0/1 array
 - [csneq](csneq.md) - elementwise equality, as a 0/1 array
 - [csnne](csnne.md) - elementwise inequality, as a 0/1 array
+- [csnisnan](csnisnan.md) - 1 where an element is NaN, otherwise 0
+- [csnisinf](csnisinf.md) - 1 where an element is positive or negative infinity, otherwise 0
+- [csnisfin](csnisfin.md) - 1 where an element is finite, otherwise 0
 - [csnlogicand](csnlogicand.md) - logical and of two arrays, or of an array and a scalar
 - [csnlogicor](csnlogicor.md) - logical or of two arrays, or of an array and a scalar
 - [csnlogicnot](csnlogicnot.md) - logical negation
@@ -154,6 +164,7 @@ support of each opcode.
 - [csnmin](csnmin.md) - smallest element
 - [csnmax](csnmax.md) - largest element
 - [csnmedian](csnmedian.md) - median
+- [csnrms](csnrms.md) - root mean square, over everything or along an axis
 - [csnstd](csnstd.md) - standard deviation
 - [csnvar](csnvar.md) - variance
 - [csnpercentile](csnpercentile.md) - percentile, from 0 to 100

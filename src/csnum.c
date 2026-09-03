@@ -104,6 +104,39 @@ static inline void PUBLISH_DERIVED_RESULT(K_DATA *k_data, uint32_t source_handle
     if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
 }
 
+/* The elementwise families (unary, compare, the binops) reach here with one or
+   two array operands plus at most two scalar parameters, and they compare the
+   whole ARRAY_VERSION rather than only its data counter: they broadcast and
+   they follow the source layout, so a source that changed shape alone changes
+   the result too. Pass 0/NULL for the second operand on the one-operand forms.
+
+   The self-alias case is deliberately never reused. These opcodes allow
+   X = csnmul(X, 0.99) at k-rate, where each pass is meant to fold the result
+   back into its own input; recognizing "the source has not moved" there would
+   freeze the accumulator after the first pass. */
+static inline bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b) {
+    uint32_t owned = k_data->owned_handle;
+    if (owned != 0 && (handle_a == owned || handle_b == owned)) return false;
+    if (k_data->prev_source_handle != handle_a || handle_a == 0) return false;
+    if (k_data->prev_source_handle_b != handle_b) return false;
+    if (!is_same_array_version(&arr_a->version, &k_data->prev_source_version)) return false;
+    if (arr_b != NULL && !is_same_array_version(&arr_b->version, &k_data->prev_source_version_b)) return false;
+    if (k_data->prev_scalar_param != scalar_a || k_data->prev_scalar_param_b != scalar_b) return false;
+    if (out_arr == NULL) return true;
+    return is_same_array_version(&out_arr->version, &k_data->prev_output_version);
+}
+
+/* Records what the result was derived from, so the next pass can recognize it. */
+static inline void PUBLISH_ELEMENTWISE(K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b) {
+    k_data->prev_source_handle = handle_a;
+    k_data->prev_source_handle_b = handle_b;
+    k_data->prev_scalar_param = scalar_a;
+    k_data->prev_scalar_param_b = scalar_b;
+    set_array_version(&k_data->prev_source_version, &arr_a->version);
+    if (arr_b != NULL) set_array_version(&k_data->prev_source_version_b, &arr_b->version);
+    if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
+}
+
 static int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, uint32_t source_handle, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed) {
     /* The scratch lives in the caller's opcode struct; these keep the buffer
        and its capacity moving together. */
@@ -420,6 +453,12 @@ static int32_t csnarray_clip_deinit(CSOUND *csound, CSN_CLIP *p) {
 static int32_t csnarray_argwhere_deinit(CSOUND *csound, CSN_ARGWHERE *p) {
     deinit_scratch(csound, &p->scratch);
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+static int32_t csnarray_where_deinit(CSOUND *csound, void *p) {
+    CSN_WHERE_COMMON *ptr = (CSN_WHERE_COMMON *) p;
+    deinit_scratch(csound, &ptr->scratch);
+    return csnarray_deinit_by_handle(csound, &ptr->handle->id, &ptr->array, &ptr->h);
 }
 
 static int32_t csnarray_compare_deinit(CSOUND *csound, CSN_COMPARE *p) {
@@ -2521,6 +2560,12 @@ int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p) {
 
     const char *err = NULL;
     CSN_ARRAY *output = NULL;
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source, 0, NULL, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &output, &p->k_data, NULL, ndim, shape, requested_size, itype, err);
     if (res != OK) goto done;
     p->array = output;
@@ -2528,6 +2573,7 @@ int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p) {
     memcpy(output->data, source->data, sizeof(double) * requested_size * itype);
 
     SET_KDATA_END(p, shape, ndim, itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source, 0, NULL, output, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(p->k_data.registry->mutex);
@@ -2750,6 +2796,14 @@ int32_t csnarray_transpose_k(CSOUND *csound, CSN_RESHAPE *p) {
 
     ITEM_TYPE itype = source_arr->itype;
     CSN_ARRAY *dst = NULL;
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL
+        && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, 0.0, 0.0)
+        && memcmp(p->k_data.prev_axes, axes, sizeof(uint32_t) * ndim) == 0) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, ndim, shape, source_arr->size, itype, err);
     if (res != OK) goto done;
     p->array = dst;
@@ -2757,6 +2811,9 @@ int32_t csnarray_transpose_k(CSOUND *csound, CSN_RESHAPE *p) {
     transpose_data_assign(source_arr->data, dst->data, source_arr->size, ndim, shape, source_arr->strides, axes, source_arr->itype);
 
     SET_KDATA_END(p, shape, ndim, itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, dst, 0.0, 0.0);
+    memset(p->k_data.prev_axes, 0, sizeof(p->k_data.prev_axes));
+    memcpy(p->k_data.prev_axes, axes, sizeof(uint32_t) * ndim);
 
 done:
     csound->UnlockMutex(p->k_data.registry->mutex);
@@ -3127,11 +3184,18 @@ int32_t csnarray_flip_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     int32_t axis_flip = (int32_t) axis_value;
 
     CSN_ARRAY *dst = p->array;
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, reuse_slot->array, axis_value, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, ndim, arr->shape, arr->size, arr->itype, err);
     if (res != OK) goto done;
 
     flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip);
     SET_KDATA_END(p, arr->shape, ndim, arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, axis_value, 0.0);
     /* Through the int32_t, because the all-axes marker is -1 and converting
        that from a double straight into an unsigned is undefined. */
     p->k_data.prev_axis = (uint32_t) axis_flip;
@@ -3438,12 +3502,19 @@ int32_t csnarray_roll_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     ITEM_TYPE itype = arr->itype;
     CSN_ARRAY *dst = p->array;
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, reuse_slot->array, shift_value, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, ndim, arr->shape, arr->size, itype, err);
     if (res != OK) goto done;
 
     roll_assign_value(arr, dst, NULL, shift);
 
     SET_KDATA_END(p, arr->shape, ndim, itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, shift_value, 0.0);
     p->k_data.prev_roll_shift = shift;
 
 done:
@@ -3674,11 +3745,18 @@ int32_t csnarray_rollaxis_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     int32_t axis_roll = (int32_t) axis_value;
 
     CSN_ARRAY *dst = p->array;
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, reuse_slot->array, shift_value, axis_value)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, ndim, arr->shape, arr->size, arr->itype, err);
     if (res != OK) goto done;
 
     rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll);
     SET_KDATA_END(p, arr->shape, ndim, arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, shift_value, axis_value);
     p->k_data.prev_axis = axis_roll;
     p->k_data.prev_roll_shift = shift;
 
@@ -4228,6 +4306,12 @@ int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
     size_t logical_size = arr->size == 0 ? 0 : output_size;
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, reuse_slot->array, (double) axis, (double) index)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, out_ndim, shape, logical_size, itype, err);
     if (res != OK) goto done;
 
@@ -4235,6 +4319,7 @@ int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
     SET_KDATA_END(p, shape, out_ndim, itype);
     p->k_data.prev_axis = axis;
     p->k_data.prev_index = index;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, (double) axis, (double) index);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5651,11 +5736,18 @@ int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p) {
     size_t logical_size = new_shape[0] == 0 ? 0 : requested_size;
 
     CSN_ARRAY *arr = p->array;
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 1U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     concat_flat_assign_value(source_arr, data_arr, arr);
     SET_KDATA_END(p, new_shape, 1U, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5859,11 +5951,18 @@ int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     size_t logical_size = requested_size;
 
     CSN_ARRAY *arr = p->array;
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, reuse_slot->array, (double) axis, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     concat_block_assign_value(source_arr, data_arr, arr, axis);
     SET_KDATA_END(p, new_shape, arr->ndim, arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, arr, (double) axis, 0.0);
     p->k_data.prev_size = arr->size;
 
 done:
@@ -6156,11 +6255,22 @@ int32_t csnarray_pad_k(CSOUND *csound, CSN_PAD *p) {
 
     /* Every cell of the padded shape is written below, so the logical size is
        the physical one even when the source is logically empty. */
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL
+        && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, (double) *p->value, (double) axis)
+        && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, new_shape, requested_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     pad_assign_value(source_arr, arr, (double) *p->value, NULL, axis, before);
     SET_KDATA_END(p, new_shape, arr->ndim, arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) *p->value, (double) axis);
+    p->k_data.prev_index = before;
+    p->k_data.prev_roll_shift = (int32_t) after;
     p->k_data.prev_size = arr->size;
 
 done:
@@ -6204,11 +6314,26 @@ int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p) {
     }
 
     CSN_ARRAY *arr = p->array;
+    double fill_re = 0.0, fill_im = 0.0;
+    complexdat_to_rect(p->value, &fill_re, &fill_im);
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL
+        && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, fill_re, fill_im)
+        && (int32_t) p->k_data.prev_axis == axis
+        && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, new_shape, requested_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     pad_assign_value(source_arr, arr, 0.0, p->value, axis, before);
     SET_KDATA_END(p, new_shape, arr->ndim, arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, fill_re, fill_im);
+    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_index = before;
+    p->k_data.prev_roll_shift = (int32_t) after;
     p->k_data.prev_size = arr->size;
 
 done:
@@ -6483,7 +6608,15 @@ int32_t csnarray_pad_in_k(CSOUND *csound, CSN_PAD_IN *p) {
     res = pad_body(csound, &p->h, reg, &source_arr, p->source_handle->id, in_axis, p->before, p->after, &axis, &before, &after, new_shape, CSN_REAL);
     if (res != OK) goto done;
 
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, (double) *p->value, (double) axis)
+        && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) {
+        goto done;
+    }
+
     res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, (double) *p->value, NULL, axis, before);
+    PUBLISH_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, (double) *p->value, (double) axis);
+    p->k_data.prev_index = before;
+    p->k_data.prev_roll_shift = (int32_t) after;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6502,7 +6635,6 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
     double trig = p->INOCOUNT > 5 ? (double) *p->arg_b : (double) *p->arg_a;
 
     if (trig == 0.0) return OK;
-
     int32_t res = OK;
 
     csound->LockMutex(reg->mutex);
@@ -6515,7 +6647,17 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
     res = pad_body(csound, &p->h, reg, &source_arr, p->source_handle->id, in_axis, p->before, p->after, &axis, &before, &after, new_shape, CSN_COMPLEX);
     if (res != OK) goto done;
 
+    double fill_re = 0.0, fill_im = 0.0;
+    complexdat_to_rect(p->value, &fill_re, &fill_im);
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, fill_re, fill_im)
+        && (int32_t) p->k_data.prev_axis == axis
+        && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) { goto done; }
+
     res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, 0.0, p->value, axis, before);
+    PUBLISH_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, fill_re, fill_im);
+    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_index = before;
+    p->k_data.prev_roll_shift = (int32_t) after;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6655,6 +6797,12 @@ int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p) {
     res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, source_arr->shape, source_arr->itype);
     if (res != OK) goto done;
 
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, (double) *p->min, (double) *p->max)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, source_arr->shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
     p->array = arr;
@@ -6667,6 +6815,7 @@ int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p) {
     (void) clip_value((double) *p->min, (double) *p->max, p->array);
 
     SET_KDATA_END(p, source_arr->shape, source_arr->ndim, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) *p->min, (double) *p->max);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6733,9 +6882,15 @@ int32_t csnarray_clip_in_k(CSOUND *csound, CSN_CLIP_IN *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
     }
 
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, (double) *p->min, (double) *p->max)) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
+    }
+
     if (clip_value((double) *p->min, (double) *p->max, source_arr)) {
         update_array_data_version(&source_arr->version);
     }
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, (double) *p->min, (double) *p->max);
 
     csound->UnlockMutex(reg->mutex);
     return res;
@@ -6757,6 +6912,8 @@ static inline bool compare_match(double value, double cmp_value, CSN_COMPARE_MOD
         case NOT_EQUAL:     return value != cmp_value;
         case NONZERO:       return value != 0.0;
         case IS_NAN:        return isnan(value) != 0;
+        case IS_FIN:        return isfinite(value) != 0;
+        case IS_INF:        return isinf(value) != 0;
     }
     return false;
 }
@@ -6838,7 +6995,6 @@ static void argwhere_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, CS
     }
 }
 
-
 int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -6869,7 +7025,6 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-
     argwhere_assign_value(source_arr, data_arr, arr);
 
 done:
@@ -6963,12 +7118,19 @@ int32_t csnarray_argwhere_k(CSOUND *csound, CSN_ARGWHERE *p) {
 
     CSN_ARRAY *arr = NULL;
     size_t logical_size = count == 0 ? 0 : req_size;
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
     argwhere_assign_value(source_arr, data_arr, arr);
     p->array = arr;
 
     SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7119,11 +7281,18 @@ static int32_t csnarray_argselect_k_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_
 
     CSN_ARRAY *arr = NULL;
     size_t logical_size = count == 0 ? 0 : req_size;
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     p->array = arr;
     argselect_assign_value(source_arr, arr, mode);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
     SET_KDATA_END(p, new_shape, 2U, CSN_REAL);
 
@@ -7146,6 +7315,134 @@ int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p) {
 
 int32_t csnarray_argisnan_k(CSOUND *csound, CSN_ARGWHERE *p) {
     return csnarray_argselect_k_helper(csound, p, IS_NAN);
+}
+
+static void mask_select_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPARE_MODE mode) {
+    for (size_t i = 0; i < source_arr->size; i++) {
+        arr->data[i] = compare_match(source_arr->data[i], 0.0, mode) ? 1.0 : 0.0;
+    }
+}
+
+static int32_t mask_select_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPARE_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    const uint32_t protect[1] = { source_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    set_csnarray_layout(arr, source_arr->ndim, source_arr->shape, source_arr->size, CSN_REAL);
+    mask_select_assign_value(source_arr, arr, mode);
+    update_array_data_version(&arr->version);
+    SET_KDATA_BEGIN(p, reg);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t mask_select_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPARE_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+        goto done;
+    }
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
+        goto done;
+    }
+
+    res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, source_arr->shape, CSN_REAL);
+    if (res != OK) goto done;
+
+    CSN_SLOT *out_slot = get_slot(reg, owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = owned_handle;
+        goto done;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, source_arr->ndim, source_arr->shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, source_arr->shape, logical_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    mask_select_assign_value(source_arr, arr, mode);
+
+    SET_KDATA_END(p, source_arr->shape, source_arr->ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_isnan(CSOUND *csound, CSN_UNARYOP *p) {
+    return mask_select_helper(csound, p, IS_NAN);
+}
+
+int32_t csnarray_isnan_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return mask_select_k_helper(csound, p, IS_NAN);
+}
+
+int32_t csnarray_isinf(CSOUND *csound, CSN_UNARYOP *p) {
+    return mask_select_helper(csound, p, IS_INF);
+}
+
+int32_t csnarray_isinf_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return mask_select_k_helper(csound, p, IS_INF);
+}
+
+int32_t csnarray_isfin(CSOUND *csound, CSN_UNARYOP *p) {
+    return mask_select_helper(csound, p, IS_FIN);
+}
+
+int32_t csnarray_isfin_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return mask_select_k_helper(csound, p, IS_FIN);
 }
 
 static int compare_double_from_array_elem(const void *a, const void *b) {
@@ -7360,6 +7657,12 @@ int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p) {
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = count == 0 ? 0 : req_size;
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
@@ -7375,6 +7678,7 @@ int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p) {
     }
 
     SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7550,6 +7854,12 @@ int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p) {
 
     CSN_ARRAY *arr = NULL;
     size_t logical_size = count == 0 ? 0 : req_size;
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 1U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
     p->array = arr;
@@ -7559,6 +7869,7 @@ int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p) {
     }
 
     SET_KDATA_END(p, new_shape, 1U, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7695,6 +8006,12 @@ static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COM
     res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, new_shape, source_arr->itype);
     if (res != OK) goto done;
 
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, cmp_value, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     CSN_ARRAY *arr = NULL;
     size_t logical_size = source_arr->size == 0 ? 0 : req_size;
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, new_shape, logical_size, source_arr->itype, err);
@@ -7710,6 +8027,7 @@ static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COM
     }
 
     SET_KDATA_END(p, new_shape, source_arr->ndim, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, cmp_value, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -7831,11 +8149,18 @@ static int32_t csnarray_compare_count_k_helper(CSOUND *csound, CSN_COUNT *p, CSN
         return csound->PerfError(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
     }
 
+    double cmp_key = mode == EQUAL ? (double) *p->arg_a : 0.0;
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, cmp_key, 0.0)) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
+    }
+
     size_t count = (mode == NONZERO || mode == IS_NAN)
         ? count_elements_from_value(source_arr, 0.0, mode)
-        : count_elements_from_value(source_arr, (double) *p->arg_a, mode);
+        : count_elements_from_value(source_arr, cmp_key, mode);
 
     *p->value = (MYFLT) count;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, cmp_key, 0.0);
 
     csound->UnlockMutex(reg->mutex);
     return res;
@@ -7870,6 +8195,7 @@ static void init_value_for_reduction(double *value, CSN_REDUCTION_MODE mode) {
         case RED_SUM:
         case RED_MEAN:
         case RED_SUB:
+        case RED_RMS:
             *value = 0.0;
             break;
         case RED_PROD:
@@ -7922,6 +8248,9 @@ static void dispatch_value_for_reduction(double *value, const double x, CSN_REDU
             break;
         case RED_ANY:
             if (x != 0.0) *value = 1.0;
+            break;
+        case RED_RMS:
+            *value += x * x;
             break;
         default:
             break;
@@ -8205,7 +8534,10 @@ static void accumulate_reduction_axis_helper(double *value, CSN_ARRAY *out_arr, 
        out_arr has one axis fewer, so out_arr->shape[axis] is a different
        extent entirely, and reads past the rank when axis is the last one. */
     (void) out_arr;
-    if (mode == RED_MEAN) *value /= (double) source_arr->shape[axis];
+    if (mode == RED_MEAN || mode == RED_RMS) {
+        double mean = *value / (double) source_arr->shape[axis];
+        *value = mode == RED_RMS ? sqrt(mean) : mean;
+    }
 }
 
 static void accumulate_reductioncomp_axis_helper(CSN_COMPLEXDAT *c, CSN_ARRAY *out_arr, const CSN_ARRAY *source_arr, uint32_t *src_coords, const uint32_t *dst_coords, CSN_REDUCTION_MODE mode, uint32_t axis) {
@@ -8238,7 +8570,10 @@ static void accumulate_reduction_scalar_helper(double *value, const CSN_ARRAY *s
         dispatch_value_for_reduction(value, source_arr->data[i], mode, i);
     }
 
-    if (mode == RED_MEAN) *value /= (double) source_arr->size;
+    if (mode == RED_MEAN || mode == RED_RMS) {
+        double mean = *value / (double) source_arr->size;
+        *value = mode == RED_RMS ? sqrt(mean) : mean;
+    }
 }
 
 static void accumulate_reductioncomp_scalar_helper(CSN_COMPLEXDAT *value, const CSN_ARRAY *source_arr, CSN_REDUCTION_MODE mode) {
@@ -8277,6 +8612,10 @@ static int32_t accumulate_reduction_body(CSOUND *csound, OPDS *perf_h, CSN_REGIS
         if (source_arr->itype == CSN_COMPLEX) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Ordering is undefined for complex arrays, so this reduction is not available");
         }
+    }
+
+    if (source_arr->itype == CSN_COMPLEX && mode == RED_RMS) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Rms is defined for real array only");
     }
 
     if (*out_axis == -1) {
@@ -8450,6 +8789,16 @@ static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *
     res = accumulate_reduction_body(csound, h, reg, source_handle, out_handle, &source_arr, axis_value, &axis, mode, out_value, out_complex_value);
     if (res != OK) goto done;
 
+    /* The axis forms answer from their own slot, the scalar ones from the
+       MYFLT they wrote last time; either way nothing has to be walked again
+       while the source and the axis hold still. */
+    CSN_SLOT *out_slot = out_handle != NULL ? get_slot(reg, k_data->owned_handle) : NULL;
+    if ((out_handle == NULL || out_slot != NULL)
+        && CAN_REUSE_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, out_slot != NULL ? out_slot->array : NULL, axis_value, 0.0)) {
+        if (out_handle != NULL) out_handle->id = k_data->owned_handle;
+        goto done;
+    }
+
     uint32_t new_dim = source_arr->ndim - 1;
     if (axis != -1) {
         uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -8480,6 +8829,7 @@ static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *
     }
 
     k_data->prev_itype = source_arr->itype;
+    PUBLISH_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, arr, axis_value, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -8730,6 +9080,30 @@ int32_t csnarray_any_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_ANY, &p->k_data, p->trig);
 }
 
+int32_t csnarray_rms(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_RMS);
+}
+
+static int32_t csnarray_rms_k_init(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_RMS, &p->k_data);
+}
+
+int32_t csnarray_rms_k(CSOUND *csound, CSN_REDUCTION *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, (double) *p->axis, p->handle, &p->array, NULL, NULL, RED_RMS, &p->k_data, p->trig);
+}
+
+int32_t csnarray_rms_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_RMS);
+}
+
+static int32_t csnarray_rms_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k_init_helper(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_RMS, &p->k_data);
+}
+
+int32_t csnarray_rms_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
+    return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_RMS, &p->k_data, p->trig);
+}
+
 static int compare_double(const void *a, const void *b) {
     double x_value = *(const double *) a;
     double y_value = *(const double *) b;
@@ -8939,6 +9313,14 @@ static int32_t csnarray_stdvar_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = 0;
     res = stdvar_body(csound, h, reg, &source_arr, source_handle, out_handle, &axis_value, &axis);
+    if (res != OK) goto done;
+
+    CSN_SLOT *reuse_slot = out_handle != NULL ? get_slot(reg, k_data->owned_handle) : NULL;
+    if ((out_handle == NULL || reuse_slot != NULL)
+        && CAN_REUSE_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, reuse_slot != NULL ? reuse_slot->array : NULL, axis_value, 0.0)) {
+        if (out_handle != NULL) out_handle->id = k_data->owned_handle;
+        goto done;
+    }
 
     CSN_ARRAY *arr = NULL;
     if (axis != -1) {
@@ -8972,6 +9354,7 @@ static int32_t csnarray_stdvar_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref
     }
 
     k_data->prev_itype = source_arr->itype;
+    PUBLISH_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, arr, axis_value, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -9330,11 +9713,18 @@ static int32_t argminmax_k_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTIO
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, (double) axis, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode);
     SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) axis, 0.0);
     p->k_data.prev_size = arr->size;
 
 done:
@@ -9837,6 +10227,15 @@ static int32_t binop_hh_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_ARR
             case CSN_HYPOT_HH:
                 arr->data[i] = sqrt(a * a + b * b);
                 break;
+            case CSN_MINIMUM_HH:
+                arr->data[i] = fmin(a, b);
+                break;
+            case CSN_MAXIMUM_HH:
+                arr->data[i] = fmax(a, b);
+                break;
+            case CSN_ATAN2_HH:
+                arr->data[i] = atan2(a, b);
+                break;
             default:
                 break;
         }
@@ -9890,6 +10289,16 @@ static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BIN
 
     if ((source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) && mode == CSN_HYPOT_HH) {
         res = csound->InitError(csound, "[csnarray] Hypot supports real array only");
+        goto done;
+    }
+
+    if ((source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) && (mode == CSN_MINIMUM_HH || mode == CSN_MAXIMUM_HH)) {
+        res = csound->InitError(csound, "[csnarray] Minimum/Maximum supports real array only");
+        goto done;
+    }
+
+    if ((source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) && mode == CSN_ATAN2_HH) {
+        res = csound->InitError(csound, "[csnarray] atan2 supports real array only");
         goto done;
     }
 
@@ -9950,6 +10359,16 @@ static int32_t csnarray_binop_hh_k_init_helper(CSOUND *csound, CSN_BINOP_HH *p, 
 
     if ((source_arr_a->itype == CSN_COMPLEX || source_slot_b->array->itype == CSN_COMPLEX) && mode == CSN_HYPOT_HH) {
         res = csound->InitError(csound, "[csnarray] Hypot supports real array only");
+        goto done;
+    }
+
+    if ((source_arr_a->itype == CSN_COMPLEX || source_slot_b->array->itype == CSN_COMPLEX) && (mode == CSN_MINIMUM_HH || mode == CSN_MAXIMUM_HH)) {
+        res = csound->InitError(csound, "[csnarray] Minimum/Maximum supports real array only");
+        goto done;
+    }
+
+    if ((source_arr_a->itype == CSN_COMPLEX || source_slot_b->array->itype == CSN_COMPLEX) && mode == CSN_ATAN2_HH) {
+        res = csound->InitError(csound, "[csnarray] atan2 supports real array only");
         goto done;
     }
 
@@ -10018,8 +10437,18 @@ static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_B
     }
 
     if ((source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) && mode == CSN_HYPOT_HH) {
-        res = csound->InitError(csound, "[csnarray] Hypot supports real array only");
-        goto done;
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Hypot supports real array only");
+    }
+
+    if ((source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) && (mode == CSN_MINIMUM_HH || mode == CSN_MAXIMUM_HH)) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Minimum/Maximum supports real array only");
+    }
+
+    if ((source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) && mode == CSN_ATAN2_HH) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] atan2 supports real array only");
     }
 
     bool type_mode = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX;
@@ -10050,6 +10479,12 @@ static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_B
         }
     }
 
+    CSN_SLOT *out_slot = get_slot(reg, owned);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = owned;
+        goto done;
+    }
+
     /* The slot the i-time pass registered is republished in place: allocating a
        new array here would register a fresh handle on every control period. */
     CSN_ARRAY *arr = NULL;
@@ -10061,6 +10496,7 @@ static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_B
     if (res != OK) goto done;
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     p->k_data.prev_size = arr->size;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -10083,6 +10519,14 @@ static int32_t binop_hs_sh_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg,
 
     if (source_arr->itype == CSN_COMPLEX && mode == CSN_HYPOT_HS) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Hypot supports real array only");
+    }
+
+    if (source_arr->itype == CSN_COMPLEX && (mode == CSN_MINIMUM_HS || mode == CSN_MAXIMUM_HS)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Minimum/Maximum supports real array only");
+    }
+
+    if (source_arr->itype == CSN_COMPLEX && (mode == CSN_ATAN2_HS || mode == CSN_ATAN2_SH)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] atan2 supports real array only");
     }
 
     if (complex_arg != NULL && (mode == CSN_LOGICAL_AND_HS || mode == CSN_LOGICAL_OR_HS)) {
@@ -10247,6 +10691,18 @@ static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const MYFL
             case CSN_HYPOT_HS:
                 arr->data[i] = (double) sqrt(a * a + real_scalar * real_scalar);
                 break;
+            case CSN_MINIMUM_HS:
+                arr->data[i] = (double) fmin(a, real_scalar);
+                break;
+            case CSN_MAXIMUM_HS:
+                arr->data[i] = (double) fmax(a, real_scalar);
+                break;
+            case CSN_ATAN2_HS:
+                arr->data[i] = atan2(a, real_scalar);
+                break;
+            case CSN_ATAN2_SH:
+                arr->data[i] = atan2(real_scalar, a);
+                break;
             default:
                 break;
         }
@@ -10352,6 +10808,20 @@ static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
+    /* The scalar parameter belongs to the reuse key just as much as the array:
+       the complex forms carry two components, the real ones only the first. */
+    double scalar_key = scalar_arg != NULL ? (double) *scalar_arg : 0.0;
+    double scalar_key_im = 0.0;
+    if (complex_arg != NULL) {
+        complexdat_to_rect(complex_arg, &scalar_key, &scalar_key_im);
+    }
+
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, scalar_key, scalar_key_im)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     /* The scalar forms keep the source layout, so X = csnmul(X, k) needs no
        alias check: the request always matches the destination already. */
     CSN_ARRAY *arr = NULL;
@@ -10365,6 +10835,7 @@ static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p
 
     SET_KDATA_END(p, new_shape, source_arr->ndim, source_arr->itype);
     p->k_data.prev_size = arr->size;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, scalar_key, scalar_key_im);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -10779,6 +11250,89 @@ int32_t csnarray_hypot_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
     return csnarray_binop_hs_sh_k_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, p->trig, CSN_HYPOT_HS);
 }
 
+int32_t csnarray_minimum_hh(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_helper(csound, p, CSN_MINIMUM_HH);
+}
+
+int32_t csnarray_minimum_hs(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_MINIMUM_HS);
+}
+
+static int32_t csnarray_minimum_hh_k_init(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_k_init_helper(csound, p, CSN_MINIMUM_HH);
+}
+
+int32_t csnarray_minimum_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_k_helper(csound, p, CSN_MINIMUM_HH);
+}
+
+static int32_t csnarray_minimum_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_MINIMUM_HS);
+}
+
+int32_t csnarray_minimum_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_k_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, p->trig, CSN_MINIMUM_HS);
+}
+
+int32_t csnarray_maximum_hh(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_helper(csound, p, CSN_MAXIMUM_HH);
+}
+
+int32_t csnarray_maximum_hs(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_MAXIMUM_HS);
+}
+
+static int32_t csnarray_maximum_hh_k_init(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_k_init_helper(csound, p, CSN_MAXIMUM_HH);
+}
+
+int32_t csnarray_maximum_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_k_helper(csound, p, CSN_MAXIMUM_HH);
+}
+
+static int32_t csnarray_maximum_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_MAXIMUM_HS);
+}
+
+int32_t csnarray_maximum_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_k_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, p->trig, CSN_MAXIMUM_HS);
+}
+
+int32_t csnarray_atan2_hh(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_helper(csound, p, CSN_ATAN2_HH);
+}
+
+static int32_t csnarray_atan2_hh_k_init(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_k_init_helper(csound, p, CSN_ATAN2_HH);
+}
+
+int32_t csnarray_atan2_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
+    return csnarray_binop_hh_k_helper(csound, p, CSN_ATAN2_HH);
+}
+
+int32_t csnarray_atan2_hs(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_ATAN2_HS);
+}
+
+static int32_t csnarray_atan2_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_ATAN2_HS);
+}
+
+int32_t csnarray_atan2_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    return csnarray_binop_hs_sh_k_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, p->trig, CSN_ATAN2_HS);
+}
+
+int32_t csnarray_atan2_sh(CSOUND *csound, CSN_BINOP_SH *p) {
+    return csnarray_binop_hs_sh_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_ATAN2_SH);
+}
+
+static int32_t csnarray_atan2_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_ATAN2_SH);
+}
+
+int32_t csnarray_atan2_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
+    return csnarray_binop_hs_sh_k_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, p->trig, CSN_ATAN2_SH);
+}
 
 static int32_t unaryop_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_array, CSN_REGISTRY *reg, uint32_t source_handle, ITEM_TYPE *new_itype, uint32_t *new_shape, CSN_UNARY_MODE mode) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
@@ -11066,12 +11620,19 @@ static int32_t csnarray_unaryop_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNA
     res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, new_shape, new_itype);
     if (res != OK) goto done;
 
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, new_shape, logical_size, new_itype, err);
     if (res != OK) goto done;
 
     unaryop_assign_value(source_arr, arr, source_arr->itype, mode);
     SET_KDATA_END(p, new_shape, source_arr->ndim, new_itype);
     p->k_data.prev_size = arr->size;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -11688,6 +12249,12 @@ static int32_t csnarray_vec_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     CSN_ARRAY *arr = p->array;
     ITEM_TYPE out_itype = (mode == CSN_PAIR_DISTANCE) ? CSN_REAL : source_arr_a->itype;
     size_t logical_size = (source_arr_a->size == 0 || source_arr_b->size == 0) ? 0 : requested_size;
@@ -11699,6 +12266,7 @@ static int32_t csnarray_vec_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_
 
     SET_KDATA_END(p, new_shape, new_ndim, out_itype);
     p->k_data.prev_size = arr->size;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -11821,7 +12389,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_scalar_helper_k_impl(CSOUND *csound, CSNREF *ref_a, CSNREF *ref_b, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode, double dist_order, OPDS *perf_h, CSN_REGISTRY *registry, const MYFLT *trig) {
+static int32_t csnarray_scalar_helper_k_impl(CSOUND *csound, CSNREF *ref_a, CSNREF *ref_b, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode, double dist_order, OPDS *perf_h, CSN_REGISTRY *registry, const MYFLT *trig, K_DATA *k_data) {
     CSN_REGISTRY *reg = registry;
     if (registry == NULL) {
         return csound->PerfError(csound, perf_h, "[csnarray] Internal error: the csnum array registry is not available");
@@ -11853,7 +12421,12 @@ static int32_t csnarray_scalar_helper_k_impl(CSOUND *csound, CSNREF *ref_a, CSNR
     res = scalar_helper_impl_check(csound, perf_h, source_arr_a, source_arr_b, dist_order, out_value, out_complex, mode);
     if (res != OK) goto done;
 
+    if (CAN_REUSE_ELEMENTWISE(k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, NULL, dist_order, 0.0)) {
+        goto done;
+    }
+
     scalar_helper_assign_value(source_arr_a, source_arr_b, dist_order, out_value, out_complex, mode);
+    PUBLISH_ELEMENTWISE(k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, NULL, dist_order, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -11865,7 +12438,7 @@ static int32_t csnarray_scalar_helper(CSOUND *csound, CSN_BINOP_HH_SCALAR *p, CS
 }
 
 static int32_t csnarray_scalar_helper_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p, CSN_VECOP_MODE mode, double dist_order, const MYFLT *trig) {
-    return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, p->value, NULL, mode, dist_order, &p->h, p->registry, trig);
+    return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, p->value, NULL, mode, dist_order, &p->h, p->registry, trig, &p->k_data);
 }
 
 int32_t csnarray_dotcomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p) {
@@ -11873,7 +12446,7 @@ int32_t csnarray_dotcomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p) {
 }
 
 int32_t csnarray_dotcomp_scalar_k(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p) {
-    return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, NULL, p->value, CSN_DOT_SCALAR, 0.0, &p->h, p->registry, p->trig);
+    return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, NULL, p->value, CSN_DOT_SCALAR, 0.0, &p->h, p->registry, p->trig, &p->k_data);
 }
 
 int32_t csnarray_innercomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p) {
@@ -11881,7 +12454,7 @@ int32_t csnarray_innercomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p)
 }
 
 int32_t csnarray_innercomp_scalar_k(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p) {
-    return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, NULL, p->value, CSN_INNER_SCALAR, 0.0, &p->h, p->registry, p->trig);
+    return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, NULL, p->value, CSN_INNER_SCALAR, 0.0, &p->h, p->registry, p->trig, &p->k_data);
 }
 
 int32_t csnarray_dot_scalar(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
@@ -12214,11 +12787,18 @@ int32_t csnarray_norm_k(CSOUND *csound, CSN_NORM_REDUCTION *p) {
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, (double) axis, order)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
     norm_assign_value(source_arr, arr, p->scratch.scratch, axis, run, itype, order);
     SET_KDATA_END(p, new_shape, new_ndim, itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) axis, order);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -12291,7 +12871,10 @@ int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
     }
 
     CSN_ARRAY *source_arr = slot->array;
-    *p->value = (MYFLT) norm_from_scratch(source_arr->data, source_arr->size, order, source_arr->itype);
+    if (!CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle_a, source_arr, 0, NULL, NULL, order, 0.0)) {
+        *p->value = (MYFLT) norm_from_scratch(source_arr->data, source_arr->size, order, source_arr->itype);
+        PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr, 0, NULL, NULL, order, 0.0);
+    }
     p->registry = reg;
 
     csound->UnlockMutex(reg->mutex);
@@ -12780,6 +13363,13 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_r
     if (res != OK) goto done;
 
 
+    CSN_SLOT *out_slot = out_handle != NULL ? get_slot(reg, k_data->owned_handle) : NULL;
+    if ((out_handle == NULL || out_slot != NULL)
+        && CAN_REUSE_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, out_slot != NULL ? out_slot->array : NULL, axis_value, order)) {
+        if (out_handle != NULL) out_handle->id = k_data->owned_handle;
+        goto done;
+    }
+
     CSN_ARRAY *arr = source_arr;
     if (out_handle != NULL) {
         size_t requested_size = 0;
@@ -12816,6 +13406,7 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_r
     if (out_handle != NULL) {
         out_handle->id = k_data->owned_handle;
     }
+    PUBLISH_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, out_handle != NULL ? arr : NULL, axis_value, order);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -13215,6 +13806,12 @@ int32_t csnarray_matmul_k(CSOUND *csound, CSN_BINOP_HH *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, out_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     CSN_ARRAY *arr = p->array;
     size_t logical_size = (source_arr_a->size == 0 && source_arr_b->size == 0) ? 0 : requested_size;
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, box.new_dim, box.new_shape, logical_size, itype, err);
@@ -13222,6 +13819,7 @@ int32_t csnarray_matmul_k(CSOUND *csound, CSN_BINOP_HH *p) {
 
     matmul_assign_value(source_arr_a, source_arr_b, arr, &box);
     SET_KDATA_END(p, box.new_shape, box.new_dim, itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -13337,6 +13935,11 @@ int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
 
     CSN_ARRAY *source_arr_a = slot_a->array;
     CSN_ARRAY *source_arr_b = slot_b->array;
+
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, NULL, 0.0, 0.0)) {
+        goto done;
+    }
+
     uint32_t *source_shape_a = source_arr_a->shape;
     uint32_t *source_shape_b = source_arr_b->shape;
     size_t source_dim_a = source_arr_a->ndim;
@@ -13383,6 +13986,7 @@ int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     double theta = acos(c);
 
     *p->value = (MYFLT) theta;
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, NULL, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -13447,7 +14051,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry, MYFLT *trig) {
+static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry, MYFLT *trig, K_DATA *k_data) {
     CSN_REGISTRY *reg = *registry;
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -13471,6 +14075,11 @@ static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_r
     if (dim != 2) {
         csound->UnlockMutex(reg->mutex);
         return csound->PerfError(csound, perf_h, "[csnarray] Trace needs a 2-D matrix, got %u-D", dim);
+    }
+
+    if (CAN_REUSE_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, NULL, 0.0, 0.0)) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
     }
 
     uint32_t coords[2] = { 0, 0 };
@@ -13499,6 +14108,7 @@ static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_r
         }
         *out_value = (MYFLT) sum.re;
     }
+    PUBLISH_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, NULL, 0.0, 0.0);
 
     csound->UnlockMutex(reg->mutex);
     return res;
@@ -13509,7 +14119,7 @@ int32_t csnarray_trace(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
 }
 
 int32_t csnarray_trace_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
-    return csnarray_trace_impl_k(csound, &p->h, p->source_handle, p->value, NULL, &p->registry, p->trig);
+    return csnarray_trace_impl_k(csound, &p->h, p->source_handle, p->value, NULL, &p->registry, p->trig, &p->k_data);
 }
 
 int32_t csnarray_tracecomp(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p) {
@@ -13517,7 +14127,7 @@ int32_t csnarray_tracecomp(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p) {
 }
 
 int32_t csnarray_tracecomp_k(CSOUND *csound, CSN_UNARYOPCOMPLEX_SCALAR *p) {
-    return csnarray_trace_impl_k(csound, &p->h, p->source_handle, NULL, p->value, &p->registry, p->trig);
+    return csnarray_trace_impl_k(csound, &p->h, p->source_handle, NULL, p->value, &p->registry, p->trig, &p->k_data);
 }
 
 static int32_t diag_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle) {
@@ -13636,11 +14246,18 @@ int32_t csnarray_diag_k(CSOUND *csound, CSN_UNARYOP *p) {
 
     CSN_ARRAY *arr = p->array;
     size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
+    CSN_SLOT *reuse_slot = get_slot(p->k_data.registry, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
     diag_assign_value(source_arr, arr, new_dim, new_shape);
     SET_KDATA_END(p, new_shape, new_dim, source_arr->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -14420,11 +15037,18 @@ static int32_t csnarray_movstats_in_k_helper(CSOUND *csound, CSN_MOVSTATS_IN *p,
     res = movstats_in_body(csound, &p->h, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
     if (res != OK) goto done;
 
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, (double) winsize, (double) axis)) {
+        goto done;
+    }
+
     res = ensure_movstats_source_copy(csound, &p->h, &p->src_scratch, source_arr);
     if (res != OK) goto done;
 
     res = movstats_in_assign_value(csound, &p->h, source_arr, p->src_scratch.scratch, p->scratch.scratch, axis, winsize, mode);
-    if (res == OK) update_array_data_version(&source_arr->version);
+    if (res == OK) {
+        update_array_data_version(&source_arr->version);
+        PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, (double) winsize, (double) axis);
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -14694,12 +15318,19 @@ static int32_t csnarray_complop_unary_k_helper(CSOUND *csound, CSN_UNARYOP *p, C
         if (res != OK) goto done;
     }
 
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, out_itype, err);
     if (res != OK) goto done;
     p->array = arr;
 
     complop_unary_assign_value(source_arr, arr, mode);
     SET_KDATA_END(p, new_shape, new_dim, out_itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -15014,6 +15645,12 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
         if (res != OK) goto done;
     }
 
+    CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, period, discount) && (int32_t) p->k_data.prev_axis == axis) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
@@ -15021,6 +15658,8 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
     if (res != OK) goto done;
 
     SET_KDATA_END(p, new_shape, new_dim, itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, period, discount);
+    p->k_data.prev_axis = (uint32_t) axis;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -15126,9 +15765,16 @@ static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_C
     if (res != OK) goto done;
 
 
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, period, discount)
+        && (int32_t) p->k_data.prev_axis == axis) {
+        goto done;
+    }
+
     res = angle_in_assign_value(csound, &p->h, source_arr, period, discount, axis, mode);
     if (res != OK) goto done;
     update_array_data_version(&source_arr->version);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, period, discount);
+    p->k_data.prev_axis = (uint32_t) axis;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -15374,12 +16020,19 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
         if (res != OK) goto done;
     }
 
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
     if (arr->data != source_arr->data) {
         copy_assign_value(source_arr, arr, reverse, itype);
     }
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -15505,6 +16158,13 @@ int32_t csnarray_unaryop_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_UNAR
         return csound->PerfError(csound, &p->h, "[csnarray] Angle conversion requires real arrays");
     }
 
+    /* Not idempotent: reversing twice undoes it and a second conversion scales
+       again, so a pass must run exactly once per write by someone else. */
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, 0.0, 0.0)) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
+    }
+
     switch (mode) {
         case CSN_REVERSE:
             for (size_t i = 0; i < source_arr->size / 2U; i++) {
@@ -15532,6 +16192,7 @@ int32_t csnarray_unaryop_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_UNAR
             break;
     }
     if (source_arr->size >= 1U) update_array_data_version(&source_arr->version);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, 0.0, 0.0);
 
     csound->UnlockMutex(reg->mutex);
     return res;
@@ -19526,6 +20187,812 @@ int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p) {
     return OK;
 }
 
+static int32_t where_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **true_array, CSN_ARRAY **false_array, double *false_scalar, CSNREF *shandle, CSNREF *thandle, CSNREF *fhandle) {
+    uint32_t source_handle = shandle->id;
+    uint32_t true_handle = thandle->id;
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    CSN_SLOT *true_slot = get_slot(reg, true_handle);
+    if (true_slot == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) true_handle);
+    }
+    CSN_ARRAY *true_arr = true_slot->array;
+    bool is_same_first_shape = memcmp(source_arr->shape, true_arr->shape, sizeof(true_arr->shape)) == 0;
+    if (!is_same_first_shape || source_arr->ndim != true_arr->ndim) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] source array and true array replacement must have same shape and dim");
+    }
+
+    CSN_ARRAY *false_arr = NULL;
+    if (fhandle != NULL) {
+        uint32_t false_handle = fhandle->id;
+        CSN_SLOT *false_slot = get_slot(reg, false_handle);
+        if (false_slot == NULL) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", false_handle);
+        }
+        false_arr = false_slot->array;
+        bool is_same_shape = memcmp(true_arr->shape, false_arr->shape, sizeof(true_arr->shape)) == 0;
+        if (!is_same_shape || true_arr->ndim != false_arr->ndim) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] true array and false array replacement must have same shape and dim");
+        }
+    }
+
+    if (source_arr->itype != CSN_REAL || true_arr->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] This operation is not implemented for complex arrays");
+    }
+
+    if (false_arr != NULL && false_arr->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] This operation is not implemented for complex arrays");
+    }
+
+    if (false_scalar != NULL && !IS_VALID_VALUE(*false_scalar)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid false scalar to put");
+    }
+
+    *source_array = source_slot->array;
+    *true_array = true_slot->array;
+    if (false_arr != NULL) *false_array = false_arr;
+    return OK;
+}
+
+static int32_t csnarray_where_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *true_arr = NULL;
+    CSN_ARRAY *false_arr = NULL;
+    res = where_body(csound, NULL, reg, &source_arr, &true_arr, &false_arr, false_scalar, source_handle, true_handle, false_handle);
+    if (res != OK) goto done;
+
+    uint32_t new_dim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    uint32_t fhandle = false_handle == NULL ? 0 : false_handle->id;
+    uint32_t n_protect = false_handle == NULL ? 2 : 3;
+    uint32_t protect[3] = { source_handle->id, true_handle->id, fhandle };
+    if (create_csnarray_locked(csound, reg, h, new_dim, new_shape, p_array, handle, protect, n_protect, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = *p_array;
+    size_t size = arr->size;
+    for (size_t i = 0; i < size; i++) {
+        double mask_value = source_arr->data[i];
+        if (false_scalar != NULL) {
+            arr->data[i] = mask_value == 0.0 ? *false_scalar : true_arr->data[i];
+        } else {
+            arr->data[i] = mask_value == 0.0 ? false_arr->data[i] : true_arr->data[i];
+        }
+    }
+    *p_array = arr;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_where_hh(CSOUND *csound, CSN_WHERE_HH *p) {
+    return csnarray_where_helper(csound, &p->h, p->source_handle, p->source_handle_true, p->source_handle_false, &p->array, p->handle, NULL);
+}
+
+int32_t csnarray_where_hs(CSOUND *csound, CSN_WHERE_HS *p) {
+    double scalar_false = (double) *p->source_scalar_false;
+    return csnarray_where_helper(csound, &p->h, p->source_handle, p->source_handle_true, NULL, &p->array, p->handle, &scalar_false);
+}
+
+static int32_t csnarray_where_k_init_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar, K_DATA *k_data, bool *is_published) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *true_arr = NULL;
+    CSN_ARRAY *false_arr = NULL;
+    res = where_body(csound, NULL, reg, &source_arr, &true_arr, &false_arr, false_scalar, source_handle, true_handle, false_handle);
+    if (res != OK) goto done;
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    uint32_t fhandle = false_handle == NULL ? 0 : false_handle->id;
+    uint32_t n_protect = false_handle == NULL ? 2 : 3;
+    uint32_t protect[3] = { source_handle->id, true_handle->id, fhandle };
+    if (create_csnarray_locked(csound, reg, h, source_ndim, source_shape, p_array, handle, protect, n_protect, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    reset_empty_csnarray(*p_array, source_ndim, source_shape, CSN_REAL);
+
+    memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+    memcpy(k_data->prev_shape, source_shape, sizeof(k_data->prev_shape));
+    k_data->prev_ndim = source_ndim;
+    k_data->prev_itype = CSN_REAL;
+    k_data->owned_handle = handle->id;
+    k_data->registry = reg;
+    set_array_version(&k_data->prev_output_version, &(*p_array)->version);
+    *is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_where_k_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar, K_DATA *k_data, bool *is_published, CSN_WHERE_VERSION_K_STATE *versions, const MYFLT *trig) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REG_HANDLE(csound, h, reg, k_data->owned_handle);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, h, k_data, source_handle->id, true_handle->id);
+    if (res != OK) return res;
+    if (false_handle != NULL) {
+        res = CHECK_SELF_ALIAS(csound, h, k_data, false_handle->id, 0);
+        if (res != OK) return res;
+    }
+
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *true_arr = NULL;
+    CSN_ARRAY *false_arr = NULL;
+    res = where_body(csound, h, reg, &source_arr, &true_arr, &false_arr, false_scalar, source_handle, true_handle, false_handle);
+    if (res != OK) goto done;
+
+    if (*is_published) {
+        bool is_same_source_version = is_same_array_version(&versions->prev_a_version, &source_arr->version);
+        bool is_same_true_version = is_same_array_version(&versions->prev_b_version, &true_arr->version);
+        bool is_same_false = false;
+        if (false_handle == NULL && false_scalar != NULL) {
+            is_same_false = k_data->prev_scalar_param == *false_scalar;
+        } else {
+            is_same_false = is_same_array_version(&versions->prev_c_version, &false_arr->version);
+        }
+
+        CSN_SLOT *out_slot = get_slot(reg, k_data->owned_handle);
+        bool is_same_result = out_slot != NULL && is_same_array_version(&k_data->prev_output_version, &out_slot->array->version);
+
+        if (is_same_source_version && is_same_true_version && is_same_false && is_same_result) {
+            handle->id = k_data->owned_handle;
+            goto done;
+        }
+    }
+
+    uint32_t source_ndim = source_arr->ndim;
+    uint32_t *source_shape = source_arr->shape;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, source_ndim, source_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, h, &arr, k_data, NULL, source_ndim, source_shape, logical_size, CSN_REAL, err);
+    if (res != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
+    }
+
+    size_t size = arr->size;
+    for (size_t i = 0; i < size; i++) {
+        double mask_value = source_arr->data[i];
+        if (false_scalar != NULL) {
+            arr->data[i] = mask_value == 0.0 ? *false_scalar : true_arr->data[i];
+        } else {
+            arr->data[i] = mask_value == 0.0 ? false_arr->data[i] : true_arr->data[i];
+        }
+    }
+    update_array_data_version(&arr->version);
+    *p_array = arr;
+
+    memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
+    memcpy(k_data->prev_shape, source_shape, sizeof(k_data->prev_shape));
+    k_data->prev_ndim = source_ndim;
+    handle->id = k_data->owned_handle;
+    set_array_version(&k_data->prev_output_version, &(*p_array)->version);
+    set_array_version(&versions->prev_a_version, &source_arr->version);
+    set_array_version(&versions->prev_b_version, &true_arr->version);
+    if (false_handle != NULL) {
+        set_array_version(&versions->prev_c_version, &false_arr->version);
+    } else {
+        k_data->prev_scalar_param = *false_scalar;
+    }
+    *is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_where_hh_k_init(CSOUND *csound, CSN_WHERE_HH *p) {
+    return csnarray_where_k_init_helper(csound, &p->h, p->source_handle, p->source_handle_true, p->source_handle_false, &p->array, p->handle, NULL, &p->k_data, &p->is_published);
+}
+
+static int32_t csnarray_where_hs_k_init(CSOUND *csound, CSN_WHERE_HS *p) {
+    double scalar_false = (double) *p->source_scalar_false;
+    return csnarray_where_k_init_helper(csound, &p->h, p->source_handle, p->source_handle_true, NULL, &p->array, p->handle, &scalar_false, &p->k_data, &p->is_published);
+}
+
+int32_t csnarray_where_hh_k(CSOUND *csound, CSN_WHERE_HH *p) {
+    return csnarray_where_k_helper(csound, &p->h, p->source_handle, p->source_handle_true, p->source_handle_false, &p->array, p->handle, NULL, &p->k_data, &p->is_published, &p->versions, p->trig);
+}
+
+int32_t csnarray_where_hs_k(CSOUND *csound, CSN_WHERE_HS *p) {
+    double scalar_false = (double) *p->source_scalar_false;
+    return csnarray_where_k_helper(csound, &p->h, p->source_handle, p->source_handle_true, NULL, &p->array, p->handle, &scalar_false, &p->k_data, &p->is_published, &p->versions, p->trig);
+}
+
+static int32_t csnarray_where_in_helper(CSOUND *csound, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *true_arr = NULL;
+    CSN_ARRAY *false_arr = NULL;
+    int32_t res = where_body(csound, NULL, reg, &source_arr, &true_arr, &false_arr, false_scalar, source_handle, true_handle, false_handle);
+    if (res != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
+    }
+
+    size_t size = source_arr->size;
+    for (size_t i = 0; i < size; i++) {
+        double mask_value = source_arr->data[i];
+        if (false_scalar != NULL) {
+            source_arr->data[i] = mask_value == 0.0 ? *false_scalar : true_arr->data[i];
+        } else {
+            source_arr->data[i] = mask_value == 0.0 ? false_arr->data[i] : true_arr->data[i];
+        }
+    }
+    update_array_data_version(&source_arr->version);
+
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
+
+int32_t csnarray_where_in_hh(CSOUND *csound, CSN_WHERE_HH_IN *p) {
+    return csnarray_where_in_helper(csound, p->source_handle, p->source_handle_true, p->source_handle_false, NULL);
+}
+
+int32_t csnarray_where_in_hs(CSOUND *csound, CSN_WHERE_HS_IN *p) {
+    double scalar_false = (double) *p->source_scalar_false;
+    return csnarray_where_in_helper(csound, p->source_handle, p->source_handle_true, NULL, &scalar_false);
+}
+
+static int32_t csnarray_where_k_in_init_helper(CSOUND *csound, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar, CSN_REGISTRY **registry, bool *is_published) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *true_arr = NULL;
+    CSN_ARRAY *false_arr = NULL;
+    int32_t res = where_body(csound, NULL, reg, &source_arr, &true_arr, &false_arr, false_scalar, source_handle, true_handle, false_handle);
+    if (res != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return res;
+    }
+    *registry = reg;
+    *is_published = false;
+
+    csound->UnlockMutex(reg->mutex);
+    return OK;
+}
+
+static int32_t csnarray_where_k_in_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar, CSN_REGISTRY *registry, bool *is_published, CSN_WHERE_VERSION_K_STATE *versions, const MYFLT *trig, double *prev_scalar_false) {
+    CSN_REGISTRY *reg = registry;
+    CHECK_REGISTRY(csound, h, reg);
+
+    int32_t res = OK;
+    CHECK_KTRIG(trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *true_arr = NULL;
+    CSN_ARRAY *false_arr = NULL;
+    res = where_body(csound, h, reg, &source_arr, &true_arr, &false_arr, false_scalar, source_handle, true_handle, false_handle);
+    if (res != OK) goto done;
+
+    if (*is_published) {
+        bool is_same_source_version = is_same_array_version(&versions->prev_a_version, &source_arr->version);
+        bool is_same_true_version = is_same_array_version(&versions->prev_b_version, &true_arr->version);
+        bool is_same_false = false;
+        if (false_handle == NULL && false_scalar != NULL) {
+            is_same_false = *prev_scalar_false == *false_scalar;
+        } else {
+            is_same_false = is_same_array_version(&versions->prev_c_version, &false_arr->version);
+        }
+
+        if (is_same_source_version && is_same_true_version && is_same_false) {
+            goto done;
+        }
+    }
+
+    size_t size = source_arr->size;
+    for (size_t i = 0; i < size; i++) {
+        double mask_value = source_arr->data[i];
+        if (false_scalar != NULL) {
+            source_arr->data[i] = mask_value == 0.0 ? *false_scalar : true_arr->data[i];
+        } else {
+            source_arr->data[i] = mask_value == 0.0 ? false_arr->data[i] : true_arr->data[i];
+        }
+    }
+    update_array_data_version(&source_arr->version);
+
+    set_array_version(&versions->prev_a_version, &source_arr->version);
+    set_array_version(&versions->prev_b_version, &true_arr->version);
+    if (false_handle != NULL) {
+        set_array_version(&versions->prev_c_version, &false_arr->version);
+    } else {
+        *prev_scalar_false = *false_scalar;
+    }
+    *is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_where_in_hh_k_init(CSOUND *csound, CSN_WHERE_HH_IN *p) {
+    return csnarray_where_k_in_init_helper(csound, p->source_handle, p->source_handle_true, p->source_handle_false, NULL, &p->registry, &p->is_published);
+}
+
+int32_t csnarray_where_in_hs_k_init(CSOUND *csound, CSN_WHERE_HS_IN *p) {
+    double scalar_false = (double) *p->source_scalar_false;
+    return csnarray_where_k_in_init_helper(csound, p->source_handle, p->source_handle_true, NULL, &scalar_false, &p->registry, &p->is_published);
+}
+
+int32_t csnarray_where_in_hh_k(CSOUND *csound, CSN_WHERE_HH_IN *p) {
+    return csnarray_where_k_in_helper(csound, &p->h, p->source_handle, p->source_handle_true, p->source_handle_false, NULL, p->registry, &p->is_published, &p->versions, p->trig, &p->prev_scalar_false);
+}
+
+int32_t csnarray_where_in_hs_k(CSOUND *csound, CSN_WHERE_HS_IN *p) {
+    double scalar_false = (double) *p->source_scalar_false;
+    return csnarray_where_k_in_helper(csound, &p->h, p->source_handle, p->source_handle_true, NULL, &scalar_false, p->registry, &p->is_published, &p->versions, p->trig, &p->prev_scalar_false);
+}
+
+static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **mask, CSNREF *shandle, CSNREF *mhandle, const MYFLT *axis_in, int32_t *axis_out) {
+    uint32_t source_handle = shandle->id;
+    uint32_t mask_handle = mhandle->id;
+
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
+    }
+    CSN_ARRAY *source_arr = source_slot->array;
+    uint32_t *source_shape = source_arr->shape;
+    uint32_t source_ndim = source_arr->ndim;
+
+    CSN_SLOT *mask_slot = get_slot(reg, mask_handle);
+    if (mask_slot == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", mask_handle);
+    }
+    CSN_ARRAY *mask_arr = mask_slot->array;
+    if (mask_arr->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Mask must be real-array");
+    }
+
+    double axis_value = (double) *axis_in;
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid axis value");
+    }
+    int32_t axis = (int32_t) axis_value;
+
+    uint32_t axis_length = axis == -1 ? (uint32_t) source_arr->size : source_arr->shape[axis];
+    if (mask_arr->ndim != 1U || mask_arr->shape[0] > axis_length) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Mask must be 1-D and no longer than the selected axis");
+    }
+    *axis_out = axis;
+
+    *source_array = source_slot->array;
+    *mask = mask_slot->array;
+    return OK;
+}
+
+static void compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
+    if (axis_out == -1) {
+        for (size_t i = 0; i < count_true; i++) {
+            size_t index = indexes[i];
+            if (itype == CSN_REAL) {
+                arr->data[i] = source_arr->data[index];
+            } else {
+                arr->data[i * 2] = source_arr->data[index * 2];
+                arr->data[i * 2 + 1] = source_arr->data[index * 2 + 1];
+            }
+        }
+    } else {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+        for (size_t i = 0; i < dst_size; i++) {
+            from_linear_to_coords(dst_coords, arr->shape, i, ndim);
+            memcpy(src_coords, dst_coords, sizeof(dst_coords));
+            src_coords[axis_out] = indexes[dst_coords[axis_out]];
+            size_t src_off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+            if (itype == CSN_REAL) {
+                arr->data[i] = source_arr->data[src_off];
+            } else {
+                arr->data[i * 2] = source_arr->data[src_off * 2];
+                arr->data[i * 2 + 1] = source_arr->data[src_off * 2 + 1];
+            }
+        }
+    }
+}
+
+int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    CSNREF *source_handle = p->source_handle;
+    CSNREF *mask_handle = p->source_handle_true;
+    const MYFLT *axis_in = p->source_scalar_false;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    uint32_t *indexes = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *mask_arr = NULL;
+    int32_t axis_out = -1;
+    res = compress_body(csound, NULL, reg, &source_arr, &mask_arr, source_handle, mask_handle, axis_in, &axis_out);
+    if (res != OK) goto done;
+
+    indexes = csound->Calloc(csound, sizeof(uint32_t) * mask_arr->size);
+    if (indexes == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+    uint32_t count_true = 0;
+    for (uint32_t i = 0; i < mask_arr->size; i++) {
+        if (mask_arr->data[i] != 0.0) indexes[count_true++] = i;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    uint32_t new_dim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+
+    if (axis_out == -1) {
+        new_dim = 1U;
+        new_shape[0] = count_true;
+    } else {
+        memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+        new_shape[axis_out] = count_true;
+    }
+
+    uint32_t protect[2] = { source_handle->id, mask_handle->id };
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 2U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    size_t size = p->array->size;
+    compress_assign_value(p->array, source_arr, count_true, size, indexes, axis_out, new_dim, itype);
+    update_array_data_version(&p->array->version);
+
+done:
+    if (indexes != NULL) csound->Free(csound, indexes);
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_compress_k_init(CSOUND *csound, CSN_WHERE_HS *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    uint32_t *indexes = csound->Calloc(csound, sizeof(uint32_t) * DEFAULT_TEMPORARY_BUFFER_SIZE);
+    if (indexes == NULL) {
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    }
+    p->scratch.scratch = indexes;
+    p->scratch.scratch_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
+
+    csound->LockMutex(reg->mutex);
+    uint32_t new_dim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = 1U;
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    reset_empty_csnarray(p->array, new_dim, new_shape, CSN_REAL);
+    SET_KDATA_BEGIN(p, reg);
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    CSNREF *source_handle = p->source_handle;
+    CSNREF *mask_handle = p->source_handle_true;
+    const MYFLT *axis_in = p->source_scalar_false;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle->id, mask_handle->id);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *mask_arr = NULL;
+    int32_t axis_out = -1;
+    res = compress_body(csound, &p->h, reg, &source_arr, &mask_arr, source_handle, mask_handle, axis_in, &axis_out);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->versions.prev_a_version, &source_arr->version);
+        bool is_same_mask = is_same_array_version(&p->versions.prev_b_version, &mask_arr->version);
+        bool is_same_axis = p->k_data.prev_axis == axis_out;
+
+        bool is_same_result = false;
+        CSN_SLOT *slot = get_slot(reg, owned_handle);
+        if (slot != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
+        }
+
+        if (is_same_source && is_same_mask && is_same_axis && is_same_result) {
+            p->handle->id = p->k_data.owned_handle;
+            goto done;
+        }
+    }
+
+    if (mask_arr->size > p->scratch.scratch_capacity) {
+        size_t cap = mask_arr->size == 0 ? 1 : mask_arr->size * 2;
+        uint32_t *indexes = csound->ReAlloc(csound, p->scratch.scratch, sizeof(uint32_t) * cap);
+        if (indexes == NULL) {
+            csound->UnlockMutex(reg->mutex);
+            return csound->PerfError(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
+        }
+
+        p->scratch.scratch = indexes;
+        p->scratch.scratch_capacity = cap;
+    }
+
+    uint32_t *indexes_temp = (uint32_t *) p->scratch.scratch;
+    uint32_t count_true = 0;
+    for (uint32_t i = 0; i < mask_arr->size; i++) {
+        if (mask_arr->data[i] != 0.0) indexes_temp[count_true++] = i;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    uint32_t new_dim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+
+    if (axis_out == -1) {
+        new_dim = 1U;
+        new_shape[0] = count_true;
+    } else {
+        memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+        new_shape[axis_out] = count_true;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_dim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = (source_arr->size == 0 || mask_arr->size == 0) ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    compress_assign_value(p->array, source_arr, count_true, p->array->size, indexes_temp, axis_out, new_dim, itype);
+    SET_KDATA_END(p, new_shape, new_dim, itype);
+    p->k_data.prev_axis = axis_out;
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->versions.prev_a_version, &source_arr->version);
+    set_array_version(&p->versions.prev_b_version, &mask_arr->version);
+    p->scratch.scratch = indexes_temp;
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+static int32_t select_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_array, CSN_ARRAY **mask_array, CSN_REGISTRY *reg, uint32_t source_handle, uint32_t mask_handle) {
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    }
+    CSN_ARRAY *source_arr = slot->array;
+
+    CSN_SLOT *mask_slot = get_slot(reg, mask_handle);
+    if (mask_slot == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", mask_handle);
+    }
+    CSN_ARRAY *mask_arr = mask_slot->array;
+
+    if (mask_arr->ndim != source_arr->ndim || memcmp(mask_arr->shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS) != 0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] select operation requires source and mask array with same dimension and shape");
+    }
+
+    if (mask_arr->itype == CSN_COMPLEX) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] select operation requires real-array mask");
+    }
+
+    *source_array = source_arr;
+    *mask_array = mask_arr;
+    return OK;
+}
+
+static void select_assign_value(CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, CSN_ARRAY *mask_arr) {
+    for (size_t i = 0, j = 0; i < source_arr->size; i++) {
+        if (mask_arr->data[i] != 0.0) {
+            if (source_arr->itype == CSN_REAL) {
+                out_arr->data[j] = source_arr->data[i];
+            } else {
+                out_arr->data[j * 2] = source_arr->data[i * 2];
+                out_arr->data[j * 2 + 1] = source_arr->data[i * 2 + 1];
+            }
+            j++;
+        }
+    }
+}
+
+int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t mask_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *mask_arr = NULL;
+    res = select_body(csound, NULL, &source_arr, &mask_arr, reg, source_handle, mask_handle);
+    if (res != OK) goto done;
+
+    uint32_t count_true = 0;
+    for (uint32_t i = 0; i < mask_arr->size; i++) {
+        if (mask_arr->data[i] != 0.0) count_true++;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    uint32_t new_dim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = count_true;
+
+    uint32_t protect[2] = { source_handle, mask_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, protect, 2U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    select_assign_value(p->array, source_arr, mask_arr);
+    update_array_data_version(&p->array->version);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_select_k_init(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = 1U;
+    int32_t res = create_csnarray_init(csound, &p->h, 1U, new_shape, &p->array, p->handle, CSN_REAL);
+    if (res != OK) return res;
+
+    csound->LockMutex(reg->mutex);
+    reset_empty_csnarray(p->array, 1U, new_shape, CSN_REAL);
+    csound->UnlockMutex(reg->mutex);
+
+    SET_KDATA_BEGIN(p, reg);
+    p->is_published = false;
+
+    return OK;
+}
+
+int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t mask_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *mask_arr = NULL;
+    res = select_body(csound, &p->h, &source_arr, &mask_arr, reg, source_handle, mask_handle);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        bool is_same_result = false;
+        CSN_SLOT *res_slot = get_slot(reg, p->k_data.owned_handle);
+        if (res_slot != NULL) {
+            is_same_result = is_same_array_data_version(&p->k_data.prev_output_version, &res_slot->array->version);
+        }
+        bool is_same_source = is_same_array_version(&p->versions.prev_a_version, &source_arr->version);
+        bool is_same_mask = is_same_array_version(&p->versions.prev_b_version, &mask_arr->version);
+        if (is_same_source && is_same_mask && is_same_result) {
+            p->handle->id = p->k_data.owned_handle;
+            goto done;
+        }
+    }
+
+    uint32_t count_true = 0;
+    for (uint32_t i = 0; i < mask_arr->size; i++) {
+        if (mask_arr->data[i] != 0.0) count_true++;
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    uint32_t new_dim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = count_true;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_dim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = (mask_arr->size == 0 || source_arr->size == 0) ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    select_assign_value(p->array, source_arr, mask_arr);
+    update_array_data_version(&p->array->version);
+
+    SET_KDATA_END(p, new_shape, new_dim, itype);
+    p->is_published = true;
+    set_array_version(&p->versions.prev_a_version, &source_arr->version);
+    set_array_version(&p->versions.prev_b_version, &mask_arr->version);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
@@ -19692,6 +21159,38 @@ static OENTRY localops[] = {
     { "csninterp.s.k",         S(CSN_REMAP_SCALAR),           0, "k",                    "k:CsnArr;:CsnArr;iioP",         (SUBR) csnarray_remap_scalar_k_init,         (SUBR) csnarray_remap_scalar_k,         NULL,                                   NULL, 0 },
     { "csnresample",           S(CSN_RESAMPLE),               0, ":CsnArr;",             ":CsnArr;iiioj",                 (SUBR) csnarray_resample,                    NULL,                                   (SUBR) csnarray_resample_deinit,        NULL, 0 },
     { "csnresample.k",         S(CSN_RESAMPLE),               0, ":CsnArr;",             ":CsnArr;kiioJP",                (SUBR) csnarray_resample_k_init,             (SUBR) csnarray_resample_k,             (SUBR) csnarray_resample_deinit,        NULL, 0 },
+    { "csnwhere.hh",           S(CSN_WHERE_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;:CsnArr;",      (SUBR) csnarray_where_hh,                    NULL,                                   (SUBR) csnarray_where_deinit,           NULL, 0 },
+    { "csnwhere.hs",           S(CSN_WHERE_HS),               0, ":CsnArr;",             ":CsnArr;:CsnArr;i",             (SUBR) csnarray_where_hs,                    NULL,                                   (SUBR) csnarray_where_deinit,           NULL, 0 },
+    { "csnwhere.hh.k",         S(CSN_WHERE_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;:CsnArr;P",     (SUBR) csnarray_where_hh_k_init,             (SUBR) csnarray_where_hh_k,             (SUBR) csnarray_where_deinit,           NULL, 0 },
+    { "csnwhere.hs.k",         S(CSN_WHERE_HS),               0, ":CsnArr;",             ":CsnArr;:CsnArr;kP",            (SUBR) csnarray_where_hs_k_init,             (SUBR) csnarray_where_hs_k,             (SUBR) csnarray_where_deinit,           NULL, 0 },
+    { "csnputmask.hh",         S(CSN_WHERE_HH_IN),            0, "",                     ":CsnArr;:CsnArr;:CsnArr;",      (SUBR) csnarray_where_in_hh,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnputmask.hs",         S(CSN_WHERE_HS_IN),            0, "",                     ":CsnArr;:CsnArr;i",             (SUBR) csnarray_where_in_hs,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnputmask.hh.k",       S(CSN_WHERE_HH_IN),            0, "",                     ":CsnArr;:CsnArr;:CsnArr;P",     (SUBR) csnarray_where_in_hh_k_init,          (SUBR) csnarray_where_in_hh_k,          NULL,                                   NULL, 0 },
+    { "csnputmask.hs.k",       S(CSN_WHERE_HS_IN),            0, "",                     ":CsnArr;:CsnArr;kP",            (SUBR) csnarray_where_in_hs_k_init,          (SUBR) csnarray_where_in_hs_k,          NULL,                                   NULL, 0 },
+    { "csnminimum.hh",         S(CSN_BINOP_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_minimum_hh,                  NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnminimum.hh.k",       S(CSN_BINOP_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_minimum_hh_k_init,           (SUBR) csnarray_minimum_hh_k,           (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnminimum.hs",         S(CSN_BINOP_HS),               0, ":CsnArr;",             ":CsnArr;i",                     (SUBR) csnarray_minimum_hs,                  NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnminimum.hs.k",       S(CSN_BINOP_HS),               0, ":CsnArr;",             ":CsnArr;kP",                    (SUBR) csnarray_minimum_hs_k_init,           (SUBR) csnarray_minimum_hs_k,           (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmaximum.hh",         S(CSN_BINOP_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_maximum_hh,                  NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmaximum.hh.k",       S(CSN_BINOP_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_maximum_hh_k_init,           (SUBR) csnarray_maximum_hh_k,           (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmaximum.hs",         S(CSN_BINOP_HS),               0, ":CsnArr;",             ":CsnArr;i",                     (SUBR) csnarray_maximum_hs,                  NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnmaximum.hs.k",       S(CSN_BINOP_HS),               0, ":CsnArr;",             ":CsnArr;kP",                    (SUBR) csnarray_maximum_hs_k_init,           (SUBR) csnarray_maximum_hs_k,           (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnatan2.hh",           S(CSN_BINOP_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_atan2_hh,                    NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnatan2.hh.k",         S(CSN_BINOP_HH),               0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_atan2_hh_k_init,             (SUBR) csnarray_atan2_hh_k,             (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnatan2.hs",           S(CSN_BINOP_HS),               0, ":CsnArr;",             ":CsnArr;i",                     (SUBR) csnarray_atan2_hs,                    NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnatan2.hs.k",         S(CSN_BINOP_HS),               0, ":CsnArr;",             ":CsnArr;kP",                    (SUBR) csnarray_atan2_hs_k_init,             (SUBR) csnarray_atan2_hs_k,             (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnatan2.sh",           S(CSN_BINOP_SH),               0, ":CsnArr;",             "i:CsnArr;",                     (SUBR) csnarray_atan2_sh,                    NULL,                                   (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnatan2.sh.k",         S(CSN_BINOP_SH),               0, ":CsnArr;",             "k:CsnArr;P",                    (SUBR) csnarray_atan2_sh_k_init,             (SUBR) csnarray_atan2_sh_k,             (SUBR) csnarray_opbin_deinit,           NULL, 0 },
+    { "csnrms",                S(CSN_REDUCTION_SCALAR),       0, "i",                    ":CsnArr;",                      (SUBR) csnarray_rms_all,                     NULL,                                   NULL,                                   NULL, 0 },
+    { "csnrms.ax",             S(CSN_REDUCTION),              0, ":CsnArr;",             ":CsnArr;i",                     (SUBR) csnarray_rms,                         NULL,                                   (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnrms.k",              S(CSN_REDUCTION_SCALAR),       0, "k",                    ":CsnArr;P",                     (SUBR) csnarray_rms_all_k_init,              (SUBR) csnarray_rms_all_k,              NULL,                                   NULL, 0 },
+    { "csnrms.ax.k",           S(CSN_REDUCTION),              0, ":CsnArr;",             ":CsnArr;kP",                    (SUBR) csnarray_rms_k_init,                  (SUBR) csnarray_rms_k,                  (SUBR) csnarray_reduction_deinit,       NULL, 0 },
+    { "csnisnan",              S(CSN_UNARYOP),                0, ":CsnArr;",             ":CsnArr;",                      (SUBR) csnarray_isnan,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnisnan.k",            S(CSN_UNARYOP),                0, ":CsnArr;",             ":CsnArr;P",                     (SUBR) csnarray_isnan,                       (SUBR) csnarray_isnan_k,                (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnisinf",              S(CSN_UNARYOP),                0, ":CsnArr;",             ":CsnArr;",                      (SUBR) csnarray_isinf,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnisinf.k",            S(CSN_UNARYOP),                0, ":CsnArr;",             ":CsnArr;P",                     (SUBR) csnarray_isinf,                       (SUBR) csnarray_isinf_k,                (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnisfin",              S(CSN_UNARYOP),                0, ":CsnArr;",             ":CsnArr;",                      (SUBR) csnarray_isfin,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnisfin.k",            S(CSN_UNARYOP),                0, ":CsnArr;",             ":CsnArr;P",                     (SUBR) csnarray_isfin,                       (SUBR) csnarray_isfin_k,                (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     // ---
     // REAL AND COMPLEX
     { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",             "i[]o",                          (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },
@@ -20033,6 +21532,10 @@ static OENTRY localops[] = {
     { "csnhead.k",             S(CSN_TRUNCATE),               0, ":CsnArr;",             ":CsnArr;kP",                    (SUBR) csnarray_head_k_init,                 (SUBR) csnarray_head_k,                 (SUBR) csnarray_truncate_deinit,        NULL, 0 },
     { "csnprint",              S(CSN_SHOW),                   0, "",                     ":CsnArr;",                      (SUBR) csnarray_show,                        NULL,                                   NULL,                                   NULL, 0 },
     { "csnprint.k",            S(CSN_SHOW),                   0, "",                     ":CsnArr;k",                     (SUBR) csnarray_show_k_init,                 (SUBR) csnarray_show_k,                 (SUBR) csnarray_show_k_deinit,          NULL, 0 },
+    { "csncompress",           S(CSN_WHERE_HS),               0, ":CsnArr;",             ":CsnArr;:CsnArr;j",             (SUBR) csnarray_compress,                    NULL,                                   (SUBR) csnarray_where_deinit,           NULL, 0 },
+    { "csncompress.k",         S(CSN_WHERE_HS),               0, ":CsnArr;",             ":CsnArr;:CsnArr;JP",            (SUBR) csnarray_compress_k_init,             (SUBR) csnarray_compress_k,             (SUBR) csnarray_where_deinit,           NULL, 0 },
+    { "csnselect",             S(CSN_ARGWHERE),               0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_select,                      NULL,                                   (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
+    { "csnselect.k",           S(CSN_ARGWHERE),               0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_select_k_init,               (SUBR) csnarray_select_k,               (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     // ---
 };
 

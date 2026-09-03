@@ -86,6 +86,41 @@ instr 1
     assert(iEqValues[0] == 0 && iEqValues[1] == 0 && iEqValues[2] == 1 && iEqValues[3] == 0)
     assert(iNeValues[0] == 1 && iNeValues[1] == 1 && iNeValues[2] == 0 && iNeValues[3] == 1)
 
+    ; Classification masks preserve the source shape and distinguish finite,
+    ; infinite and NaN values. Both signs of infinity belong to csnisinf.
+    iPosInf = exp(1000)
+    iNotANumber = sqrt(-1)
+    iSpecialValues[][] = init(2, 3)
+    iSpecialValues[0][0] = 1
+    iSpecialValues[0][1] = iPosInf
+    iSpecialValues[0][2] = -iPosInf
+    iSpecialValues[1][0] = iNotANumber
+    iSpecialValues[1][1] = 0
+    iSpecialValues[1][2] = -2
+    iSpecial:CsnArr = csnfromarray(iSpecialValues)
+    iIsNaN:CsnArr = csnisnan(iSpecial)
+    iIsInf:CsnArr = csnisinf(iSpecial)
+    iIsFin:CsnArr = csnisfin(iSpecial)
+    iIsNaNValues[][] = csntoarray(iIsNaN)
+    iIsInfValues[][] = csntoarray(iIsInf)
+    iIsFinValues[][] = csntoarray(iIsFin)
+    assert(csndims(iIsNaN) == 2 && csndims(iIsInf) == 2 && csndims(iIsFin) == 2)
+    assert(iIsNaNValues[0][0] == 0 && iIsNaNValues[0][1] == 0 && iIsNaNValues[0][2] == 0)
+    assert(iIsNaNValues[1][0] == 1 && iIsNaNValues[1][1] == 0 && iIsNaNValues[1][2] == 0)
+    assert(iIsInfValues[0][0] == 0 && iIsInfValues[0][1] == 1 && iIsInfValues[0][2] == 1)
+    assert(iIsInfValues[1][0] == 0 && iIsInfValues[1][1] == 0 && iIsInfValues[1][2] == 0)
+    assert(iIsFinValues[0][0] == 1 && iIsFinValues[0][1] == 0 && iIsFinValues[0][2] == 0)
+    assert(iIsFinValues[1][0] == 0 && iIsFinValues[1][1] == 1 && iIsFinValues[1][2] == 1)
+
+    ; A reserved-but-logically-empty source stays empty: its physical extent
+    ; must not turn into four mask elements.
+    iReservedShape[] = fillarray(4)
+    iReservedEmpty:CsnArr = csnempty(iReservedShape)
+    iEmptyNaN:CsnArr = csnisnan(iReservedEmpty)
+    iEmptyInf:CsnArr = csnisinf(iReservedEmpty)
+    iEmptyFin:CsnArr = csnisfin(iReservedEmpty)
+    assert(csnsize(iEmptyNaN) == 0 && csnsize(iEmptyInf) == 0 && csnsize(iEmptyFin) == 0)
+
     ; ------------------------------------------------------------------
     ; Logical overloads: handle-handle, handle-scalar, scalar-handle, not.
     ; ------------------------------------------------------------------
@@ -1333,6 +1368,210 @@ instr 8
     iSizeCleared = csnsize(iMarked)
     assert(iSizeCleared == 4)
 endin
+
+instr 9
+    iI0[] = fillarray(0)
+    iI1[] = fillarray(1)
+    iI2[] = fillarray(2)
+    iI3[] = fillarray(3)
+
+    ; ------------------------------------------------------------------
+    ; Mask selection: csnwhere picks per element, csnputmask does the same
+    ; in place, csncompress keeps only the entries the mask marks.
+    ; ------------------------------------------------------------------
+    iMask:CsnArr = csnfromarray(array(1, 0, 1, 0))
+    iTrue:CsnArr = csnfromarray(array(10, 20, 30, 40))
+    iFalse:CsnArr = csnfromarray(array(-1, -2, -3, -4))
+
+    iWhereHH:CsnArr = csnwhere(iMask, iTrue, iFalse)
+    iWhereHH0 = csnget(iWhereHH, iI0)
+    iWhereHH1 = csnget(iWhereHH, iI1)
+    iWhereHH3 = csnget(iWhereHH, iI3)
+    assert(iWhereHH0 == 10 && iWhereHH1 == -2 && iWhereHH3 == -4)
+
+    iWhereHS:CsnArr = csnwhere(iMask, iTrue, -9)
+    iWhereHS1 = csnget(iWhereHS, iI1)
+    iWhereHS2 = csnget(iWhereHS, iI2)
+    assert(iWhereHS1 == -9 && iWhereHS2 == 30)
+
+    ; putmask reads the mask out of the array it is about to overwrite
+    iPutHH:CsnArr = csnfromarray(array(1, 0, 1, 0))
+    csnputmask iPutHH, iTrue, iFalse
+    iPutHH0 = csnget(iPutHH, iI0)
+    iPutHH1 = csnget(iPutHH, iI1)
+    assert(iPutHH0 == 10 && iPutHH1 == -2)
+
+    iPutHS:CsnArr = csnfromarray(array(1, 0, 1, 0))
+    csnputmask iPutHS, iTrue, -9
+    iPutHS0 = csnget(iPutHS, iI0)
+    iPutHS1 = csnget(iPutHS, iI1)
+    assert(iPutHS0 == 10 && iPutHS1 == -9)
+
+    ; compress drops the unmarked entries along the axis; -1 flattens first
+    iKeep:CsnArr = csnfromarray(array(1, 0, 1, 1))
+    iCompAx:CsnArr = csncompress(iTrue, iKeep, 0)
+    iCompSize = csnsize(iCompAx)
+    iComp0 = csnget(iCompAx, iI0)
+    iComp1 = csnget(iCompAx, iI1)
+    iComp2 = csnget(iCompAx, iI2)
+    assert(iCompSize == 3)
+    assert(iComp0 == 10 && iComp1 == 30 && iComp2 == 40)
+
+    ; a mask shorter than the axis truncates the result, as numpy does
+    iShort:CsnArr = csnfromarray(array(1, 0))
+    iCompShort:CsnArr = csncompress(iTrue, iShort)
+    iCompShortSize = csnsize(iCompShort)
+    iCompShort0 = csnget(iCompShort, iI0)
+    assert(iCompShortSize == 1 && iCompShort0 == 10)
+
+    ; ------------------------------------------------------------------
+    ; Element-wise extrema and the two-argument arctangent.
+    ; ------------------------------------------------------------------
+    iA:CsnArr = csnfromarray(array(1, 5, -3, 8))
+    iB:CsnArr = csnfromarray(array(4, 2, 0, 8))
+
+    iMinHH:CsnArr = csnminimum(iA, iB)
+    iMinHH0 = csnget(iMinHH, iI0)
+    iMinHH1 = csnget(iMinHH, iI1)
+    iMinHH2 = csnget(iMinHH, iI2)
+    assert(iMinHH0 == 1 && iMinHH1 == 2 && iMinHH2 == -3)
+
+    iMaxHH:CsnArr = csnmaximum(iA, iB)
+    iMaxHH0 = csnget(iMaxHH, iI0)
+    iMaxHH1 = csnget(iMaxHH, iI1)
+    iMaxHH2 = csnget(iMaxHH, iI2)
+    assert(iMaxHH0 == 4 && iMaxHH1 == 5 && iMaxHH2 == 0)
+
+    iMinHS:CsnArr = csnminimum(iA, 2)
+    iMinHS1 = csnget(iMinHS, iI1)
+    iMinHS3 = csnget(iMinHS, iI3)
+    assert(iMinHS1 == 2 && iMinHS3 == 2)
+
+    iMaxHS:CsnArr = csnmaximum(iA, 2)
+    iMaxHS0 = csnget(iMaxHS, iI0)
+    iMaxHS2 = csnget(iMaxHS, iI2)
+    assert(iMaxHS0 == 2 && iMaxHS2 == 2)
+
+    ; csnatan2(y, x) follows numpy's argument order, and unlike atan(y/x) it
+    ; is defined when either operand is zero.
+    iY:CsnArr = csnfromarray(array(1, 1, 0))
+    iX:CsnArr = csnfromarray(array(1, -1, 1))
+
+    iAtan2HH:CsnArr = csnatan2(iY, iX)
+    iAtan2HH0 = csnget(iAtan2HH, iI0)
+    iAtan2HH1 = csnget(iAtan2HH, iI1)
+    iAtan2HH2 = csnget(iAtan2HH, iI2)
+    assert(abs(iAtan2HH0 - 0.78539816339744831) < 1e-12)
+    assert(abs(iAtan2HH1 - 2.35619449019234492) < 1e-12)
+    assert(iAtan2HH2 == 0)
+
+    iAtan2HS:CsnArr = csnatan2(iY, 2)
+    iAtan2HS0 = csnget(iAtan2HS, iI0)
+    assert(abs(iAtan2HS0 - 0.46364760900080615) < 1e-12)
+
+    ; the scalar-first form is not the same angle: atan2(2, 1) != atan2(1, 2)
+    iAtan2SH:CsnArr = csnatan2(2, iY)
+    iAtan2SH0 = csnget(iAtan2SH, iI0)
+    assert(abs(iAtan2SH0 - 1.10714871779409050) < 1e-12)
+endin
+
+instr 10
+    iI0[] = fillarray(0)
+    iI1[] = fillarray(1)
+    iI2[] = fillarray(2)
+
+    ; ------------------------------------------------------------------
+    ; Root mean square, over everything and along one axis. The divisor is
+    ; the extent of the folded axis on the source, not on the result: the
+    ; result has one axis fewer, so it no longer carries that length.
+    ; ------------------------------------------------------------------
+    iPair:CsnArr = csnfromarray(array(3, 4))
+    iRmsAll = csnrms(iPair)
+    assert(abs(iRmsAll - 3.53553390593273762) < 1e-12)
+
+    iShape[] = fillarray(2, 3)
+    iFlat:CsnArr = csnfromarray(array(1, 2, 3, 4, 5, 6))
+    iMat:CsnArr = csnreshape(iFlat, iShape)
+
+    ; axis 1 folds three elements per row: sqrt((1+4+9)/3), sqrt((16+25+36)/3)
+    iRmsRow:CsnArr = csnrms(iMat, 1)
+    iRmsRowSize = csnsize(iRmsRow)
+    iRmsRow0 = csnget(iRmsRow, iI0)
+    iRmsRow1 = csnget(iRmsRow, iI1)
+    assert(iRmsRowSize == 2)
+    assert(abs(iRmsRow0 - 2.16024689946929116) < 1e-12)
+    assert(abs(iRmsRow1 - 5.0662280511902216) < 1e-12)
+
+    ; axis 0 folds two elements per column, so the divisor changes with it
+    iRmsCol:CsnArr = csnrms(iMat, 0)
+    iRmsColSize = csnsize(iRmsCol)
+    iRmsCol0 = csnget(iRmsCol, iI0)
+    iRmsCol2 = csnget(iRmsCol, iI2)
+    assert(iRmsColSize == 3)
+    assert(abs(iRmsCol0 - 2.91547594742265023) < 1e-12)
+    assert(abs(iRmsCol2 - 4.74341649025257016) < 1e-12)
+
+    ; a constant array has its own magnitude as rms, whatever the length
+    iConst:CsnArr = csnfromarray(array(-2, -2, -2, -2))
+    iRmsConst = csnrms(iConst)
+    assert(abs(iRmsConst - 2) < 1e-12)
+endin
+
+instr 11
+    iI0[] = fillarray(0)
+    iI1[] = fillarray(1)
+    iI2[] = fillarray(2)
+
+    ; ------------------------------------------------------------------
+    ; csnselect gathers the marked elements into a flat array. The mask
+    ; matches the source shape; the result never does, being as long as
+    ; the number of marks.
+    ; ------------------------------------------------------------------
+    iSrc:CsnArr = csnfromarray(array(10, 20, 30, 40))
+    iMask:CsnArr = csnfromarray(array(0, 1, 1, 0))
+
+    iKept:CsnArr = csnselect(iSrc, iMask)
+    iKeptSize = csnsize(iKept)
+    iKept0 = csnget(iKept, iI0)
+    iKept1 = csnget(iKept, iI1)
+    assert(iKeptSize == 2)
+    assert(iKept0 == 20 && iKept1 == 30)
+
+    ; a mask that keeps the last element too: the gather must reach the end
+    iTail:CsnArr = csnfromarray(array(1, 1, 0, 1))
+    iThree:CsnArr = csnselect(iSrc, iTail)
+    iThreeSize = csnsize(iThree)
+    iThree2 = csnget(iThree, iI2)
+    assert(iThreeSize == 3)
+    assert(iThree2 == 40)
+
+    ; a 2-D source with a 2-D mask flattens to the marked elements
+    iShape[] = fillarray(2, 3)
+    iFlat:CsnArr = csnfromarray(array(1, 2, 3, 4, 5, 6))
+    iMat:CsnArr = csnreshape(iFlat, iShape)
+    iCornerFlat:CsnArr = csnfromarray(array(1, 0, 0, 0, 0, 1))
+    iCorners:CsnArr = csnreshape(iCornerFlat, iShape)
+    iPicked:CsnArr = csnselect(iMat, iCorners)
+    iPickedDims = csndims(iPicked)
+    iPicked0 = csnget(iPicked, iI0)
+    iPicked1 = csnget(iPicked, iI1)
+    assert(iPickedDims == 1)
+    assert(iPicked0 == 1 && iPicked1 == 6)
+
+    ; a complex source keeps both lanes of every element it copies
+    iCx:CsnArr = csntocomplex(iSrc)
+    iCxKept:CsnArr = csnselect(iCx, iMask)
+    CxFirst:Complex = csnget(iCxKept, iI0)
+    iCxRe = real(CxFirst)
+    iCxIm = imag(CxFirst)
+    assert(iCxRe == 20 && iCxIm == 0)
+
+    ; nothing marked: an empty result, not an error
+    iNone:CsnArr = csnfromarray(array(0, 0, 0, 0))
+    iEmpty:CsnArr = csnselect(iSrc, iNone)
+    iEmptySize = csnsize(iEmpty)
+    assert(iEmptySize == 0)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -1349,6 +1588,9 @@ i 5 0.08 0.01
 i 6 0.10 0.01
 i 7 0.12 0.01
 i 8 0.14 0.01
+i 9 0.16 0.01
+i 10 0.18 0.01
+i 11 0.20 0.01
 e
 </CsScore>
 
@@ -1357,7 +1599,7 @@ e
 ; with src/csnum.c and rejects dotted opcode calls in executable Csound code.
 ; @covers-begin
 ; csnrand csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnargwhere
-; csnargnonzero csnargisnan csnargunique csnunique csngt csnlt csnne csnge
+; csnargnonzero csnargisnan csnargunique csnunique csngt csnlt csnne csnge csnisnan csnisinf csnisfin
 ; csnle csneq csncnteq csncntnz csncntnan csnmin csnmax csnmedian
 ; csnmin.ax csnmax.ax csnmedian.ax csnargmin csnargmax csnfloor csnceil csnround
 ; csnproject csnreject csncross csngrad csnmovmedian csnmovmedian.in csnmovmin csnmovmin.in
@@ -1387,5 +1629,7 @@ e
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
 ; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
+; csnwhere.hh csnwhere.hs csnputmask.hh csnputmask.hs csncompress csnminimum.hh csnminimum.hs csnmaximum.hh
+; csnmaximum.hs csnatan2.hh csnatan2.hs csnatan2.sh csnrms csnrms.ax csnselect
 ; @covers-end
 </CsoundSynthesizer>

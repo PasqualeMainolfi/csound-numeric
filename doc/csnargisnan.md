@@ -84,6 +84,7 @@ i 1 0 0.1
 
 ## See also
 
+* [csnisnan](csnisnan.md)
 * [csncntnan](csncntnan.md)
 * [csnargnonzero](csnargnonzero.md)
 * [csnargwhere](csnargwhere.md)

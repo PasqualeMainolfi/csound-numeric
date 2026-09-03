@@ -444,7 +444,17 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
    CSN_ARRAY_FIRST_VERSION and never reach CSN_ARRAY_NULL_VERSION again: if
    they started at zero too, a consumer's first pass would compare equal and
    skip the very computation that fills its buffer. */
+/* Never reset and never reused, so no two arrays in a run share a uid. The
+   registry mutex serializes every perf-time creation and init is single
+   threaded, which is what lets a plain counter stand in for an atomic. A clock
+   reading would not do: array creation runs at some six thousand arrays per
+   millisecond, so any wall-clock stamp would hand the same value to thousands
+   of them. At this rate the counter takes on the order of a hundred thousand
+   years to wrap. */
+static uint64_t csn_array_uid_counter = 0;
+
 void init_array_version(ARRAY_VERSION *version) {
+    version->array_uid = ++csn_array_uid_counter;
     version->data_version = CSN_ARRAY_FIRST_VERSION;
     version->shape_version = CSN_ARRAY_FIRST_VERSION;
     version->ndim_version = CSN_ARRAY_FIRST_VERSION;
@@ -474,17 +484,20 @@ void update_array_version(ARRAY_VERSION *version) {
 }
 
 bool is_same_array_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
-    return version_a->data_version == version_b->data_version
+    return version_a->array_uid == version_b->array_uid
+        && version_a->data_version == version_b->data_version
         && version_a->shape_version == version_b->shape_version
         && version_a->ndim_version == version_b->ndim_version
         && version_a->itype_version == version_b->itype_version;
 }
 
 bool is_same_array_data_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
-    return version_a->data_version == version_b->data_version;
+    return version_a->array_uid == version_b->array_uid
+        && version_a->data_version == version_b->data_version;
 }
 
 void set_array_version(ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
+    version_a->array_uid = version_b->array_uid;
     version_a->data_version = version_b->data_version;
     version_a->shape_version = version_b->shape_version;
     version_a->ndim_version = version_b->ndim_version;

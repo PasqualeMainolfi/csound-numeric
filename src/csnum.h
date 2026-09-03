@@ -103,9 +103,9 @@ typedef enum {
     GREATER_EQUAL,
     LESS_EQUAL,
     NONZERO,
-    /* No comparison can select a NaN — ordered ones and EQUAL are false, and
-       NOT_EQUAL is true for everything. This mode is the only way to find them. */
-    IS_NAN
+    IS_NAN,
+    IS_INF,
+    IS_FIN
 } CSN_COMPARE_MODE;
 
 typedef enum {
@@ -121,7 +121,8 @@ typedef enum {
     RED_STD,
     RED_VAR,
     RED_ALL,
-    RED_ANY
+    RED_ANY,
+    RED_RMS
 } CSN_REDUCTION_MODE;
 
 typedef enum {
@@ -150,7 +151,14 @@ typedef enum {
     CSN_LOGICAL_AND_SH,
     CSN_LOGICAL_OR_SH,
     CSN_HYPOT_HH,
-    CSN_HYPOT_HS
+    CSN_HYPOT_HS,
+    CSN_MINIMUM_HH,
+    CSN_MAXIMUM_HH,
+    CSN_MINIMUM_HS,
+    CSN_MAXIMUM_HS,
+    CSN_ATAN2_HH,
+    CSN_ATAN2_HS,
+    CSN_ATAN2_SH
 } CSN_BINOP_MODE;
 
 typedef enum {
@@ -312,6 +320,12 @@ typedef struct {
 } CSN_DIVMOD_K_STATE;
 
 typedef struct {
+    ARRAY_VERSION prev_a_version;
+    ARRAY_VERSION prev_b_version;
+    ARRAY_VERSION prev_c_version;
+} CSN_WHERE_VERSION_K_STATE;
+
+typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
     uint32_t prev_axes[CSN_MAX_DIMS];
     uint32_t prev_axis;
@@ -322,23 +336,12 @@ typedef struct {
     ITEM_TYPE prev_itype;
     uint32_t owned_handle;
     uint32_t owned_data_handle;
-    /* What this opcode last computed from, so a pass can be skipped when the
-       source has not moved since. The handle is part of the key: a released
-       slot is recycled under a new gen_id, and the array that replaces it
-       starts counting from CSN_ARRAY_FIRST_VERSION, so a version alone would
-       compare equal against a completely different array. Csound zeroes the
-       opcode struct, which leaves the cache at CSN_ARRAY_NULL_VERSION and
-       forces the first pass to compute. */
     uint32_t prev_source_handle;
-    /* A k-rate scalar the result depends on and that has no other slot here —
-       the quantile of csnpercentile, the window of the moving statistics. It
-       belongs to the reuse key alongside the source version. */
+    uint32_t prev_source_handle_b;
     double prev_scalar_param;
+    double prev_scalar_param_b;
     ARRAY_VERSION prev_source_version;
-    /* The generation this opcode left its own output slot at. An unchanged
-       source is not enough to reuse a result: the in-place opcodes rewrite
-       arrays they do not own, and this opcode's output is a legitimate target
-       for one of them. */
+    ARRAY_VERSION prev_source_version_b;
     ARRAY_VERSION prev_output_version;
     CSN_REGISTRY *registry;
     CSN_DIVMOD_K_STATE prev_divmod_state;
@@ -821,6 +824,7 @@ typedef struct {
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
+    K_DATA k_data;
 } CSN_PAD_IN;
 
 typedef struct {
@@ -838,6 +842,7 @@ typedef struct {
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
+    K_DATA k_data;
 } CSN_PADCOMPLEX_IN;
 
 typedef struct {
@@ -863,6 +868,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_CLIP_IN;
 
 typedef struct {
@@ -872,12 +878,93 @@ typedef struct {
     // inputs
     CSNREF *source_handle; // array source
     CSNREF *data_handle;   // array of values (source array will compared with data_handle)
+                           // mask in csnselect
     MYFLT *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
+    CSN_WHERE_VERSION_K_STATE versions;
+    bool is_published;
 } CSN_ARGWHERE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle; // mask
+    CSNREF *source_handle_true;
+    void *source_handle_false;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH scratch;
+} CSN_WHERE_COMMON;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle; // mask
+    CSNREF *source_handle_true;
+    CSNREF *source_handle_false;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH scratch;
+    CSN_WHERE_VERSION_K_STATE versions;
+    bool is_published;
+} CSN_WHERE_HH;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    CSNREF *source_handle_true; // mask
+    MYFLT *source_scalar_false; // scalar in where_hs
+                                // axis in compress (-1 return flatten, >= 0 reduce dim)
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH scratch;
+    CSN_WHERE_VERSION_K_STATE versions;
+    bool is_published;
+} CSN_WHERE_HS;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle; // mask
+    CSNREF *source_handle_true;
+    CSNREF *source_handle_false;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    double prev_scalar_false;
+    CSN_WHERE_VERSION_K_STATE versions;
+    bool is_published;
+} CSN_WHERE_HH_IN;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle; // mask
+    CSNREF *source_handle_true;
+    MYFLT *source_scalar_false;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    double prev_scalar_false;
+    CSN_WHERE_VERSION_K_STATE versions;
+    bool is_published;
+} CSN_WHERE_HS_IN;
 
 typedef struct {
     OPDS h;
@@ -906,6 +993,7 @@ typedef struct {
     MYFLT *arg_b;     // trig only for cnteq
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_COUNT;
 
 /* Reducing along an axis drops that axis and yields an array. */
@@ -978,6 +1066,7 @@ typedef struct {
     MYFLT *arg_b; // trig for dist
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_BINOP_HH_SCALAR;
 
 typedef struct {
@@ -990,6 +1079,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_BINOPCOMPLEX_HH_SCALAR;
 
 /* The three binop structs share this prefix and tail, which is what lets one
@@ -1117,6 +1207,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_UNARYOP_SCALAR;
 
 typedef struct {
@@ -1128,6 +1219,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_UNARYOPCOMPLEX_SCALAR;
 
 typedef struct {
@@ -1137,6 +1229,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_UNARYOP_IN;
 
 typedef struct {
@@ -1164,6 +1257,7 @@ typedef struct {
     MYFLT *trig;
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_NORM_REDUCTION_SCALAR;
 
 typedef struct {
@@ -1196,6 +1290,7 @@ typedef struct {
        source for the duration of one call; scratch above is the median sort
        buffer and serves a different purpose. */
     CSN_SCRATCH src_scratch;
+    K_DATA k_data;
 } CSN_MOVSTATS_IN;
 
 typedef struct {
@@ -1229,6 +1324,7 @@ typedef struct {
     MYFLT *arg_d;  // trig in unwrap
     // private
     CSN_REGISTRY *registry;
+    K_DATA k_data;
 } CSN_ANGLE_IN;
 
 typedef struct {
@@ -1736,6 +1832,15 @@ int32_t csnarray_reverse_in(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_sort(CSOUND *csound, CSN_UNARYOP_AX *p);
 int32_t csnarray_sort_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
 int32_t csnarray_argsort(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_where_hh(CSOUND *csound, CSN_WHERE_HH *p);
+int32_t csnarray_where_hs(CSOUND *csound, CSN_WHERE_HS *p);
+int32_t csnarray_where_in_hh(CSOUND *csound, CSN_WHERE_HH_IN *p);
+int32_t csnarray_where_in_hs(CSOUND *csound, CSN_WHERE_HS_IN *p);
+int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p);
+int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p);
+int32_t csnarray_isnan(CSOUND *csound, CSN_UNARYOP *p); // return mask
+int32_t csnarray_isinf(CSOUND *csound, CSN_UNARYOP *p); // return mask
+int32_t csnarray_isfin(CSOUND *csound, CSN_UNARYOP *p); // return mask
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
@@ -1768,6 +1873,8 @@ int32_t csnarray_percentile(CSOUND *csound, CSN_PERCQUANT_AX *p);
 int32_t csnarray_quantile(CSOUND *csound, CSN_PERCQUANT_AX *p);
 int32_t csnarray_percentile_scalar(CSOUND *csound, CSN_PERCQUANT *p);
 int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p);
+int32_t csnarray_rms(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_rms_all(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 
 // ELEMENTS
 int32_t csnarray_add_hh(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1832,6 +1939,13 @@ int32_t csnarray_radtodeg_in(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_divmod_hh(CSOUND *csound, CSN_DIVMOD_HH *p);
 int32_t csnarray_divmod_hs(CSOUND *csound, CSN_DIVMOD_HS *p);
 int32_t csnarray_divmod_sh(CSOUND *csound, CSN_DIVMOD_SH *p);
+int32_t csnarray_minimum_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_maximum_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_minimum_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_maximum_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_atan2_hh(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_atan2_hs(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_atan2_sh(CSOUND *csound, CSN_BINOP_SH *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -1999,6 +2113,15 @@ int32_t csnarray_reverse_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_sort_k(CSOUND *csound, CSN_UNARYOP_AX *p);
 int32_t csnarray_sort_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
 int32_t csnarray_argsort_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_where_hh_k(CSOUND *csound, CSN_WHERE_HH *p);
+int32_t csnarray_where_hs_k(CSOUND *csound, CSN_WHERE_HS *p);
+int32_t csnarray_where_in_hh_k(CSOUND *csound, CSN_WHERE_HH_IN *p);
+int32_t csnarray_where_in_hs_k(CSOUND *csound, CSN_WHERE_HS_IN *p);
+int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p);
+int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p);
+int32_t csnarray_isnan_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
+int32_t csnarray_isinf_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
+int32_t csnarray_isfin_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
 
 // REDUCTION
 int32_t csnarray_sum_k(CSOUND *csound, CSN_REDUCTION *p);
@@ -2031,6 +2154,8 @@ int32_t csnarray_percentile_k(CSOUND *csound, CSN_PERCQUANT_AX *p);
 int32_t csnarray_quantile_k(CSOUND *csound, CSN_PERCQUANT_AX *p);
 int32_t csnarray_percentile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p);
 int32_t csnarray_quantile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p);
+int32_t csnarray_rms_k(CSOUND *csound, CSN_REDUCTION *p);
+int32_t csnarray_rms_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 
 // ELEMENTS
 int32_t csnarray_add_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
@@ -2095,6 +2220,13 @@ int32_t csnarray_radtodeg_in_k(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_divmod_hh_k(CSOUND *csound, CSN_DIVMOD_HH *p);
 int32_t csnarray_divmod_hs_k(CSOUND *csound, CSN_DIVMOD_HS *p);
 int32_t csnarray_divmod_sh_k(CSOUND *csound, CSN_DIVMOD_SH *p);
+int32_t csnarray_minimum_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_maximum_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_minimum_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_maximum_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_atan2_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
+int32_t csnarray_atan2_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnarray_atan2_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);

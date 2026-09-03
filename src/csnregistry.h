@@ -70,6 +70,17 @@ enum {
 };
 
 typedef struct {
+    /* Identity, not a counter: stamped once when the array is created and
+       never advanced. It rides inside the snapshot so that every consumer
+       comparing versions is also comparing *which* array it is looking at,
+       without having to remember the handle alongside. Two arrays that were
+       both just created carry identical counters; only this tells them apart.
+
+       Not to be confused with CSN_ARRAY.array_id, which is the handle: that
+       one is a slot index plus a 12-bit generation and comes back around, both
+       when a slot is recycled and when the generation wraps. This never
+       repeats within a run. */
+    uint64_t array_uid;
     uint64_t data_version;
     uint64_t shape_version;
     uint64_t ndim_version;
