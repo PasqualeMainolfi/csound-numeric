@@ -504,13 +504,24 @@ void set_array_version(ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b)
     version_a->itype_version = version_b->itype_version;
 }
 
-double pcg32_random(PCG32_STATE *rng) {
+static uint32_t pcg32_random_u32(PCG32_STATE *rng) {
     uint64_t oldstate = rng->state;
-    rng->state = oldstate * 6364136223846793005ULL + (rng->inc | 1);
-    uint32_t xorshifted = (uint32_t) (((oldstate >> 18u) ^ oldstate) >> 27u);
-    uint32_t rot = oldstate >> 59u;
-    uint32_t gen = (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
-    return (double) gen / 4294967296.0;
+    rng->state = oldstate * UINT64_C(6364136223846793005) + (rng->inc | UINT64_C(1));
+    uint32_t xorshifted = (uint32_t)(((oldstate >> 18u) ^ oldstate) >> 27u);
+    uint32_t rot = (uint32_t)(oldstate >> 59u);
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31u));
+}
+
+uint32_t pcg32_bounded_u32(PCG32_STATE *rng, uint32_t bound) {
+    uint32_t threshold = (uint32_t)(-bound) % bound;
+    for (;;) {
+        uint32_t r = pcg32_random_u32(rng);
+        if (r >= threshold) return r % bound;
+    }
+}
+
+double pcg32_random(PCG32_STATE *rng) {
+    return (double) pcg32_random_u32(rng) / 4294967296.0;
 }
 
 static void pcg32_seed(PCG32_STATE *rng, uint64_t seed, uint64_t sequence) {

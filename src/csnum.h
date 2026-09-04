@@ -11,6 +11,8 @@
 #define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
 #define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
+#define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
+#define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))
 
 #define CHECK_REGISTRY(csound, h, reg)                                                       \
     do {                                                                                     \
@@ -93,7 +95,6 @@ do {                                                                 \
         (p)->k_data.prev_ndim = (ndim);                                            \
         (p)->k_data.prev_itype = (itype);                                          \
     } while (0)
-
 
 typedef enum {
     GREATER_THAN = 0,
@@ -550,6 +551,20 @@ typedef struct {
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_FLIP_ROLL_IN;
+
+typedef struct {
+    OPDS h;
+    // ouputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *index;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_GET_ROWCOL;
 
 typedef struct {
     OPDS h;
@@ -1722,6 +1737,35 @@ typedef struct {
     MYFLT *rt_lock;
 } CSN_RTLOCK;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *axis;
+    void *source_handles[VARGMAX - 1];
+    // private
+    CSN_ARRAY *array;
+} CSN_STACK;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *trig;
+    MYFLT *axis;
+    void *source_handles[VARGMAX - 2];
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer_handles;
+    CSN_SCRATCH buffer_sources;
+    CSN_SCRATCH buffer_temp_sources;
+    int32_t nargs;
+    bool is_published;
+} CSN_STACK_K;
+
 // a-rate
 
 int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p);
@@ -1747,6 +1791,7 @@ int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
 int32_t create_full_csnarray(CSOUND *csound, CSN_FULL *p);
 int32_t create_fullcomp_csnarray(CSOUND *csound, CSN_FULLCOMPLEX *p);
 int32_t create_random_csnarray(CSOUND *csound, CSN_ARR_RND_INIT *p);
+int32_t create_randomint_csnarray(CSOUND *csound, CSN_ARR_RND_INIT *p);
 int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p);
@@ -1781,10 +1826,13 @@ int32_t csnarray_truncate_in(CSOUND *csound, CSN_TRUNCATE_IN *p);
 int32_t csnarray_resize(CSOUND *csound, CSN_RESIZE *p);
 int32_t csnarray_resize_in(CSOUND *csound, CSN_RESIZE_IN *p);
 int32_t csnarray_head(CSOUND *csound, CSN_TRUNCATE *p);
+int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p);
 
 // INDEXING
 int32_t csnarray_get(CSOUND *csound, CSN_GET *p);
 int32_t csnarray_get_complex(CSOUND *csound, CSN_GETCOMPLEX *p);
+int32_t csnarray_get_row(CSOUND *csound, CSN_GET_ROWCOL *p);
+int32_t csnarray_get_col(CSOUND *csound, CSN_GET_ROWCOL *p);
 int32_t csnarray_set(CSOUND *csound, CSN_SET *p);
 int32_t csnarray_set_complex(CSOUND *csound, CSN_SETCOMPLEX *p);
 int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p);
@@ -1946,6 +1994,7 @@ int32_t csnarray_maximum_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_atan2_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_sh(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_shuffle(CSOUND *csound, CSN_UNARYOP_IN *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -2031,6 +2080,7 @@ int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p);
 int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p);
 int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p);
 int32_t create_random_csnarray_k(CSOUND *csound, CSN_ARR_RND_INIT *p);
+int32_t create_randomint_csnarray_k(CSOUND *csound, CSN_ARR_RND_INIT *p);
 int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p);
@@ -2062,10 +2112,13 @@ int32_t csnarray_truncate_in_k(CSOUND *csound, CSN_TRUNCATE_IN *p);
 int32_t csnarray_resize_k(CSOUND *csound, CSN_RESIZE *p);
 int32_t csnarray_resize_in_k(CSOUND *csound, CSN_RESIZE_IN *p);
 int32_t csnarray_head_k(CSOUND *csound, CSN_TRUNCATE *p);
+int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p);
 
 // INDEXING
 int32_t csnarray_get_k(CSOUND *csound, CSN_GET *p);
 int32_t csnarray_get_complex_k(CSOUND *csound, CSN_GETCOMPLEX *p);
+int32_t csnarray_get_row_k(CSOUND *csound, CSN_GET_ROWCOL *p);
+int32_t csnarray_get_col_k(CSOUND *csound, CSN_GET_ROWCOL *p);
 int32_t csnarray_set_k(CSOUND *csound, CSN_SET *p);
 int32_t csnarray_set_complex_k(CSOUND *csound, CSN_SETCOMPLEX *p);
 int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p);
@@ -2227,6 +2280,7 @@ int32_t csnarray_maximum_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_atan2_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
+int32_t csnarray_shuffle_k(CSOUND *csound, CSN_UNARYOP_IN *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);

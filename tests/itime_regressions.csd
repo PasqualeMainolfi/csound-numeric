@@ -302,12 +302,18 @@ instr 2
 
     ; Generators and clipping.
     iRandom:CsnArr = csnrand(iShape4, -2, 2)
+    iNegativeIntegers:CsnArr = csnrandint(iShape4, -3, -1)
     iArange:CsnArr = csnarange(0, 4, 1)
     iArangeFractional:CsnArr = csnarange(0, 1, 0.25)
     iArangeDescending:CsnArr = csnarange(10, 6, -2)
     iLinspace:CsnArr = csnlinspace(0, 1, 3)
     iGeomspace:CsnArr = csngeomspace(1, 16, 5)
     assert(csnsize(iRandom) == 4)
+    iNegativeIntegerValues[] = csntoarray(iNegativeIntegers)
+    assert(iNegativeIntegerValues[0] >= -3 && iNegativeIntegerValues[0] < -1 && int(iNegativeIntegerValues[0]) == iNegativeIntegerValues[0])
+    assert(iNegativeIntegerValues[1] >= -3 && iNegativeIntegerValues[1] < -1 && int(iNegativeIntegerValues[1]) == iNegativeIntegerValues[1])
+    assert(iNegativeIntegerValues[2] >= -3 && iNegativeIntegerValues[2] < -1 && int(iNegativeIntegerValues[2]) == iNegativeIntegerValues[2])
+    assert(iNegativeIntegerValues[3] >= -3 && iNegativeIntegerValues[3] < -1 && int(iNegativeIntegerValues[3]) == iNegativeIntegerValues[3])
     iArangeValues[] = csntoarray(iArange)
     iArangeFractionalValues[] = csntoarray(iArangeFractional)
     iArangeDescendingValues[] = csntoarray(iArangeDescending)
@@ -335,6 +341,17 @@ instr 2
     iSeededC:CsnArr = csnrand(iShape4, 0, 1)
     iSeededCValues[] = csntoarray(iSeededC)
     assert(iSeededCValues[0] != iSeededAValues[0])
+
+    ; Shuffle changes the flat order in place without losing any element.
+    iShuffle:CsnArr = csnfromarray(array(1, 2, 3, 4, 5, 6, 7, 8))
+    csnseed 24680
+    csnshuffle(iShuffle)
+    iShuffledValues[] = csntoarray(iShuffle)
+    assert(iShuffledValues[0] != 1 || iShuffledValues[1] != 2 || iShuffledValues[2] != 3 || iShuffledValues[3] != 4 || iShuffledValues[4] != 5 || iShuffledValues[5] != 6 || iShuffledValues[6] != 7 || iShuffledValues[7] != 8)
+    iShuffleSorted:CsnArr = csnsort(iShuffle)
+    iShuffleSortedValues[] = csntoarray(iShuffleSorted)
+    assert(iShuffleSortedValues[0] == 1 && iShuffleSortedValues[1] == 2 && iShuffleSortedValues[2] == 3 && iShuffleSortedValues[3] == 4)
+    assert(iShuffleSortedValues[4] == 5 && iShuffleSortedValues[5] == 6 && iShuffleSortedValues[6] == 7 && iShuffleSortedValues[7] == 8)
 
     iClipSourceValues[] = fillarray(-2, -0.5, 0.5, 2)
     iClipSource:CsnArr = csnfromarray(iClipSourceValues)
@@ -532,6 +549,14 @@ instr 3
     assert(csnget(iZeros, iIndex01) == 0 && csnget(iOnes, iIndex01) == 1)
     assert(csnget(iFull, iIndex01) == 7 && csnget(iLike, iIndex01) == 3)
     assert(iToReal[0][0] == 1 && iToReal[1][1] == 4)
+    iRow1:CsnArr = csngetrow(iFromReal, 1)
+    iCol1:CsnArr = csngetcol(iFromReal, 1)
+    iRow1Values[] = csntoarray(iRow1)
+    iCol1Values[] = csntoarray(iCol1)
+    assert(csndims(iRow1) == 1 && csnsize(iRow1) == 2)
+    assert(csndims(iCol1) == 1 && csnsize(iCol1) == 2)
+    assert(iRow1Values[0] == 3 && iRow1Values[1] == 4)
+    assert(iCol1Values[0] == 2 && iCol1Values[1] == 4)
     assert(iToComplex0Real == 1 && iToComplex0Imag == 0)
     assert(iToComplex1Real == 3 && iToComplex1Imag == 0)
     assert(iFullComplexRealValues[0] == 1 && iFromComplexRealValues[1] == 3)
@@ -697,6 +722,13 @@ instr 3
     iConcatBlockShape[] = csnshape(iConcatBlock)
     assert(csnsize(iConcatFlat) == 8)
     assert(iConcatBlockShape[0] == 4 && iConcatBlockShape[1] == 2)
+
+    iStack:CsnArr = csnstack(0, iFromReal, iFull)
+    iStackShape[] = csnshape(iStack)
+    iStackIndex[] = fillarray(1, 0, 0)
+    assert(csndims(iStack) == 3 && csnsize(iStack) == 8)
+    assert(iStackShape[0] == 2 && iStackShape[1] == 2 && iStackShape[2] == 2)
+    assert(csnget(iStack, iStackIndex) == 7)
 
     ; Real and complex padding, with all-axes/one-axis and output/in-place forms.
     iPad:CsnArr = csnpad(iFromReal, 1, 1, -1)
@@ -1598,7 +1630,7 @@ e
 ; above.  tests/check_itime_signatures.cmake keeps it exactly synchronized
 ; with src/csnum.c and rejects dotted opcode calls in executable Csound code.
 ; @covers-begin
-; csnrand csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnargwhere
+; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnargwhere
 ; csnargnonzero csnargisnan csnargunique csnunique csngt csnlt csnne csnge csnisnan csnisinf csnisfin
 ; csnle csneq csncnteq csncntnz csncntnan csnmin csnmax csnmedian
 ; csnmin.ax csnmax.ax csnmedian.ax csnargmin csnargmax csnfloor csnceil csnround
@@ -1608,10 +1640,10 @@ e
 ; csnempty csnzeros csnones csnfull csnfull.c csnlike csnfromarray csnfromarray.c
 ; csntoarray csntoarray.c csnfree csndims csnsize csnisempty csnshape csnidentity
 ; csnreshape csnreshape.in csnflatten csnflatten.in csntranspose csntranspose.ax csntranspose.in csntranspose.ax.in
-; csnflip csnflip.in csnroll csnroll.in csnroll.ax csnroll.ax.in csnget csnget.c
+; csnflip csnflip.in csnroll csnroll.in csnroll.ax csnroll.ax.in csnget csnget.c csngetrow csngetcol
 ; csnset csnset.c csntake csntake.flat csntake.flat.c csngetslice csnsetslice csnpush
 ; csnpush.c csnpop csnpop.c csninsert.flat csninsert.flat.c csnremove.flat csnremove.flat.c csninsert.block
-; csnremove.block csnconcat.flat csnconcat.block csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
+; csnremove.block csnconcat.flat csnconcat.block csnstack csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

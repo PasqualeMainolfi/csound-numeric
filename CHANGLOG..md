@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.4] - 2026-09-04
+
+- Add random integer generation and in-place shuffling (*csnrandint*, *csnshuffle*)
+- Add 2-D row and column extraction (*csngetrow*, *csngetcol*)
+- Add stacking of two or more equal-shaped arrays along a new axis, including dynamic k-rate axis support (*csnstack*)
+- Fix real-time lock propagation for k-rate derived arrays (*csninterp*, *csnresample*, *csncompress*, *csnselect*)
+
 ## [0.0.3] - 2026-09-03
 
 - Add masking and selection operations (*csnwhere*, *csnputmask*, *csncompress*, *csnselect*)

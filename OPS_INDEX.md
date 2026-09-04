@@ -30,6 +30,7 @@ handle model and the k-rate versioning.
 - **csnlogspace** - n values evenly spaced on a logarithmic scale (i, k — real only)
 - **csngeomspace** - n values in geometric progression (i, k — real only)
 - **csnrand** - uniform random values in a range (i, k — real only)
+- **csnrandint** - uniform random integers in a half-open range (i, k — real only)
 - **csnseed** - seeds the random generator (i)
 
 ## Conversion, lifetime and queries
@@ -71,6 +72,7 @@ previous result — it simply does not touch the disk.
 - **csnhead** - keeps the first n elements of a 1-D array (i, k — real, complex)
 - **csnresize** - reshapes to any size, zero-filling what it grows (i, k — real, complex)
 - **csnconcat** - joins two arrays, flat or along an axis (i, k — real, complex)
+- **csnstack** - inserts a new axis and stacks two or more equal-shaped arrays (i, k — real, complex)
 - **csninsert** - inserts elements or a block at a position (i, k — real, complex)
 - **csnremove** - removes elements or a block at a position (i, k — real, complex)
 - **csnpush** - appends one element at the end (i, k — real, complex)
@@ -79,6 +81,8 @@ previous result — it simply does not touch the disk.
 ## Indexing and selection
 
 - **csnget** - reads one element by coordinates (i, k — real, complex)
+- **csngetrow** - extracts one row of a 2-D array as a vector (i, k — real, complex)
+- **csngetcol** - extracts one column of a 2-D array as a vector (i, k — real, complex)
 - **csnset** - writes one element by coordinates (i, k — real, complex)
 - **csngetslice** - extracts a strided slice along an axis (i, k — real, complex)
 - **csnsetslice** - writes into a strided slice along an axis (i, k — real, complex)
@@ -185,6 +189,7 @@ previous result — it simply does not touch the disk.
 
 ## Sorting and sets
 
+- **csnshuffle** - randomly permutes the flat element order in place (i, k — real only)
 - **csnsort** - sorts, over everything or along an axis (i, k — real only)
 - **csnargsort** - the coordinates that would sort the array (i, k — real only)
 - **csnunique** - the distinct values, in order (i, k — real only)

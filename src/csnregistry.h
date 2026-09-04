@@ -52,7 +52,6 @@
         }                                                                                  \
     } while (0)
 
-
 typedef enum {
     INVALID_HANDLE = 0,
     VALID_HANDLE
@@ -156,6 +155,7 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot);
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim);
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype);
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
+uint32_t pcg32_bounded_u32(PCG32_STATE *rng, uint32_t bound);
 double pcg32_random(PCG32_STATE *rng);
 void pcg32_random_init(PCG32_STATE *rng, uint64_t seed);
 

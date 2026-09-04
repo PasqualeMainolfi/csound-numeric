@@ -35,6 +35,7 @@ support of each opcode.
 - [csnlogspace](csnlogspace.md) - n values evenly spaced on a logarithmic scale
 - [csngeomspace](csngeomspace.md) - n values in geometric progression
 - [csnrand](csnrand.md) - uniform random values in a range
+- [csnrandint](csnrandint.md) - uniform random integers in a half-open range
 - [csnseed](csnseed.md) - seeds the random generator
 
 ## Conversion, lifetime and queries
@@ -70,6 +71,7 @@ support of each opcode.
 - [csnhead](csnhead.md) - keeps the first n elements of a 1-D array
 - [csnresize](csnresize.md) - reshapes to any size, zero-filling what it grows
 - [csnconcat](csnconcat.md) - joins two arrays, flat or along an axis
+- [csnstack](csnstack.md) - inserts a new axis and stacks two or more equal-shaped arrays
 - [csninsert](csninsert.md) - inserts elements or a block at a position
 - [csnremove](csnremove.md) - removes elements or a block at a position
 - [csnpush](csnpush.md) - appends one element at the end
@@ -78,6 +80,8 @@ support of each opcode.
 ## Indexing and selection
 
 - [csnget](csnget.md) - reads one element by coordinates
+- [csngetrow](csngetrow.md) - extracts one row of a 2-D array as a vector
+- [csngetcol](csngetcol.md) - extracts one column of a 2-D array as a vector
 - [csnset](csnset.md) - writes one element by coordinates
 - [csngetslice](csngetslice.md) - extracts a strided slice along an axis
 - [csnsetslice](csnsetslice.md) - writes into a strided slice along an axis
@@ -184,6 +188,7 @@ support of each opcode.
 
 ## Sorting and sets
 
+- [csnshuffle](csnshuffle.md) - randomly permutes the flat element order in place
 - [csnsort](csnsort.md) - sorts, over everything or along an axis
 - [csnargsort](csnargsort.md) - the coordinates that would sort the array
 - [csnunique](csnunique.md) - the distinct values, in order
