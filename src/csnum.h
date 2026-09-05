@@ -13,6 +13,13 @@
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
 #define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
 #define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))
+#define SET_ARRAY_KIND(csnarr, arr_kind)                                  \
+    do {                                                                  \
+        (csnarr)->kind = (arr_kind);                                      \
+        if ((arr_kind) == CSNSET) {                                       \
+            (csnarr)->set_data_version = (csnarr)->version.data_version;  \
+        }                                                                 \
+    } while (0)
 
 #define CHECK_REGISTRY(csound, h, reg)                                                       \
     do {                                                                                     \
@@ -293,6 +300,17 @@ typedef enum {
     CSN_TRUNCATE_IN_ARR,
     CSN_HEAD_ARR
 } CSN_RESIZE_MODE;
+
+typedef enum {
+    CSNSET_UNION = 0,
+    CSNSET_INTERSECT,
+    CSNSET_DIFF,
+    CSNSET_SYMDIFF,
+    CSNSET_SUBSET,
+    CSNSET_SUPERSET,
+    CSNSET_DISJOINT,
+    CSNSET_EQUAL,
+} CSNSET_OPS_MODE;
 
 typedef struct {
     void *scratch;
@@ -1765,6 +1783,127 @@ typedef struct {
     int32_t nargs;
     bool is_published;
 } CSN_STACK_K;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    bool is_published;
+} CSNSET_UNARYOP;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *arg_a; // trig in unlikeset_k
+                  // scalar in insert, remove
+    MYFLT *arg_b; // trig in insert and remove
+    // private
+    K_DATA k_data;
+    bool is_published;
+} CSNSET_UNARYOP_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *scalar;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    bool is_published;
+    bool prev_result;
+} CSNSET_BINARYOP_SCALAR;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    bool is_published;
+} CSNSET_BINARYOP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *result;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    ARRAY_VERSION prev_source_version_a;
+    ARRAY_VERSION prev_source_version_b;
+    CSN_SCRATCH buffer;
+    bool is_published;
+    double prev_result;
+} CSNSET_BINARYOP_PREDICATE;
+
+
+int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
+int compare_double(const void *a, const void *b);
+size_t get_and_count_unique_double(double *temp, size_t size);
+int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h);
+void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
+int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
+int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
+int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size);
+void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
+
+// set op
+
+int32_t csnarray_set_binaryop_deinit(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_set_binaryop_p_deinit(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_likeset_deinit(CSOUND *csound, CSNSET_UNARYOP *p);
+int32_t csnarray_likeset(CSOUND *csound, CSNSET_UNARYOP *p);
+int32_t csnarray_unlikeset(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setinsert(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setremove(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setcontains(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p);
+int32_t csnarray_setunion(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setintersect(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setdiff(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setsymdiff(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setissubset(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_setissuperset(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_setisdisjoint(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_setisequal(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+
+int32_t csnarray_likeset_k(CSOUND *csound, CSNSET_UNARYOP *p);
+int32_t csnarray_likeset_k_init(CSOUND *csound, CSNSET_UNARYOP *p);
+int32_t csnarray_unlikeset_k_init(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_unlikeset_k(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setinsertremove_k_init(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setinsert_k(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setremove_k(CSOUND *csound, CSNSET_UNARYOP_IN *p);
+int32_t csnarray_setcontains_k_init(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p);
+int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p);
+int32_t csnarray_setunion_k(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setintersect_k(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setdiff_k(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setsymdiff_k(CSOUND *csound, CSNSET_BINARYOP *p);
+int32_t csnarray_setissubset_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_setissuperset_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_setisdisjoint_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+int32_t csnarray_setisequal_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
+
 
 // a-rate
 

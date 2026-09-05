@@ -189,11 +189,29 @@ previous result — it simply does not touch the disk.
 
 ## Sorting and sets
 
+A set array is one-dimensional, real, sorted and duplicate-free. Only the set
+API preserves that invariant. Generic array operations do not; normalize their
+result with **csnlikeset** before using it as a set again. See
+[the set-array contract](doc/set-arrays.md).
+
 - **csnshuffle** - randomly permutes the flat element order in place (i, k — real only)
 - **csnsort** - sorts, over everything or along an axis (i, k — real only)
 - **csnargsort** - the coordinates that would sort the array (i, k — real only)
 - **csnunique** - the distinct values, in order (i, k — real only)
 - **csnargunique** - coordinates of the first occurrence of each value (i, k — real only)
+- **csnlikeset** - normalizes an array as a sorted, duplicate-free set (i, k — real only)
+- **csnunlikeset** - removes the set classification without changing the values (i, k — real only)
+- **csnsetinsert** - inserts a value while preserving the set invariant (i, k — real only)
+- **csnsetremove** - removes a value while preserving the set invariant (i, k — real only)
+- **csnsetcontains** - tests membership (i, k — real only)
+- **csnsetunion** - union of two sets (i, k — real only)
+- **csnsetintersect** - intersection of two sets (i, k — real only)
+- **csnsetdiff** - values in the first set but not the second (i, k — real only)
+- **csnsetsymdiff** - values belonging to exactly one set (i, k — real only)
+- **csnsetissubset** - tests whether the first set is a subset of the second (i, k — real only)
+- **csnsetissuperset** - tests whether the first set is a superset of the second (i, k — real only)
+- **csnsetisdisjoint** - tests whether two sets have no common value (i, k — real only)
+- **csnsetisequal** - tests whether two sets contain the same values (i, k — real only)
 
 ## Linear algebra and geometry
 

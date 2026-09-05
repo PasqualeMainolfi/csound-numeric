@@ -155,6 +155,21 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/itime_regressions.csd")
         add_test(
+            NAME csnum_set_operations_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/set_operations_regression.csd")
+        add_test(
+            NAME csnum_set_invariant_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/set_invariant_rejected.csd")
+        set_tests_properties(csnum_set_invariant_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "Set-array was modified outside the set API")
+        add_test(
             NAME csnum_krate_empty_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

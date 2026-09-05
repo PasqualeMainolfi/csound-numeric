@@ -68,6 +68,11 @@ enum {
     CSN_COMPLEX
 };
 
+typedef enum {
+    CSNARR = 0,
+    CSNSET,
+} CSN_ARRAY_KIND;
+
 typedef struct {
     /* Identity, not a counter: stamped once when the array is created and
        never advanced. It rides inside the snapshot so that every consumer
@@ -97,6 +102,11 @@ typedef struct {
     /* Emptiness is derived: size == 0. No flag to keep in sync. */
     ITEM_TYPE itype; // needed for complex
     ARRAY_VERSION version;
+    CSN_ARRAY_KIND kind;
+    /* Data generation at which the payload was last normalized as a set.
+       A generic in-place writer advances data_version and therefore makes the
+       CSNSET tag stale until csnlikeset normalizes the array again. */
+    uint64_t set_data_version;
 #ifdef CSN_VERSION_CROSSCHECK
     /* A byte-for-byte snapshot of the payload as of the generation named by
        shadow_data_version, so the cross-check build can catch a writer that

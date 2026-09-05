@@ -139,6 +139,20 @@ empty operand yields the other one, and `csnsum` over an empty array is 0 rather
 than an error. The item type is an i-argument, so an array can also be declared
 empty *and* complex from the start with `csnempty(cap, 1)`.
 
+### Set arrays and their invariant
+
+A set array is a one-dimensional real array kept in ascending, duplicate-free
+form. `csnlikeset` establishes that invariant; the set operations and the
+in-place `csnsetinsert` / `csnsetremove` operations preserve it.
+
+Generic array operations do **not** guarantee the set invariant. In particular,
+a generic in-place write or transformation may leave the values unsorted or
+duplicated. A later set operation rejects such an array rather than silently
+using binary search on invalid data. Pass the modified array through
+`csnlikeset` again to produce a normalized set. `csnunlikeset` instead removes
+the set classification when ordinary array semantics are intended. See
+[Set arrays and their invariant](doc/set-arrays.md) for the complete contract.
+
 ### Printing arrays
 
 `csnprint` writes the shape, element type and values directly to Csound's message
@@ -195,7 +209,8 @@ csound --opcode-dir=build example/csnsort.csd
 - **Reductions and statistics**: sum, prod, mean, min, max, median, variance,
   standard deviation, percentile, quantile, argmin/argmax, cumulative sums and
   products, differences, gradient, and moving-window statistics.
-- **Sorting and sets**: sort, argsort, unique, argunique.
+- **Sorting and sets**: sort, argsort, unique, argunique, set conversion,
+  membership, union, intersection, difference and set predicates.
 - **Linear algebra and geometry**: dot, inner, outer, matmul, trace, diagonal,
   norms, normalize, cross product, distances, angular distance, vector
   projection and rejection, reflection.

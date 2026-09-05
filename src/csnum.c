@@ -30,7 +30,7 @@ static const char *get_out_name(OPDS *h) {
     return out->arg[0];
 }
 
-static void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch) {
+void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch) {
     if (scratch->scratch != NULL) csound->Free(csound, scratch->scratch);
     scratch->scratch = NULL;
     scratch->scratch_capacity = 0;
@@ -85,7 +85,7 @@ static inline bool SOURCE_HAS_MOVED(const K_DATA *k_data, uint32_t source_handle
    own handiwork and leaves it alone. Both halves belong together — a bump
    without the record makes the opcode redo the work forever, a record without
    the bump hides the write from every other consumer. */
-static inline void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed) {
+void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed) {
     update_array_data_version(&arr->version);
     update_array_layout_version(&arr->version, shape_changed, ndim_changed, itype_changed);
     k_data->prev_source_handle = source_handle;
@@ -284,7 +284,7 @@ static inline void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const u
 
    Pass 0 for handle_b when the opcode takes a single input; the scalar
    reduction forms own no slot, and a zero owned_handle never matches. */
-static int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b) {
+int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b) {
     uint32_t owned = k_data->owned_handle;
     if (owned == 0) {
         return OK;
@@ -300,7 +300,7 @@ static int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, u
    reallocating only when the request or the buffer make it necessary. The
    caller holds the registry mutex; *destination is an output, so no caller has
    to seed it. */
-static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err) {
+int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err) {
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
         return csn_locked_perf_error(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
@@ -366,7 +366,7 @@ static inline int32_t handle_out_is_global(const OPDS *h) {
     return h->optext->t.outArgs->type == ARG_GLOBAL;
 }
 
-static int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h) {
+int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h) {
     if (*handle_id == 0) {
         return OK;
     }
@@ -3035,7 +3035,6 @@ static int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
         arr->strides[i] = strides[i];
     }
 
-    memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
     SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, arr->itype, source_handle);
     p->k_data.prev_size = arr->size;
     memset(p->k_data.prev_axes, 0, sizeof(p->k_data.prev_axes));
@@ -3120,7 +3119,6 @@ int32_t csnarray_transpose_in_k(CSOUND *csound, CSN_RESHAPE_IN *p) {
         arr->strides[i] = strides[i];
     }
 
-    memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
     SET_KDATA_NO_ID_END(p, arr->shape, ndim, itype);
     p->k_data.prev_size = arr->size;
     memset(p->k_data.prev_axes, 0, sizeof(p->k_data.prev_axes));
@@ -5019,7 +5017,7 @@ static int32_t push_check_body(CSOUND *csound, OPDS *perf_h, CSN_SLOT **slot, CS
     return OK;
 }
 
-static int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size) {
+int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size) {
     if (required_size > arr->capacity) {
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
         if (new_capacity < required_size) new_capacity = required_size;
@@ -7769,8 +7767,9 @@ static size_t count_unique(ARRAY_ELEMENT *temp, size_t size) {
     for (size_t i = 0; i < size; ++i) {
         /* Same equality the sort used, so NaNs collapse to one entry instead
            of surviving as duplicates: `NaN != NaN` would always be true. */
-        if (i == 0 || compare_double_from_array_elem(&temp[i], &temp[i - 1]) != 0)
+        if (i == 0 || compare_double_from_array_elem(&temp[i], &temp[i - 1]) != 0){
             temp[count++] = temp[i];
+        }
     }
     return count;
 }
@@ -9409,7 +9408,7 @@ int32_t csnarray_rms_all_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     return csnarray_accumulate_reduction_k(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, NULL, RED_RMS, &p->k_data, p->trig);
 }
 
-static int compare_double(const void *a, const void *b) {
+int compare_double(const void *a, const void *b) {
     double x_value = *(const double *) a;
     double y_value = *(const double *) b;
     if (isnan(x_value) && isnan(y_value)) return 0;
@@ -22357,6 +22356,33 @@ static OENTRY localops[] = {
     { "csnselect.k",           S(CSN_ARGWHERE),               0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_select_k_init,               (SUBR) csnarray_select_k,               (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     { "csnstack",              S(CSN_STACK),                  0, ":CsnArr;",             "i*",                            (SUBR) csnarray_stack,                       NULL,                                   (SUBR) csnarray_stack_deinit,           NULL, 0 },
     { "csnstack.k",            S(CSN_STACK_K),                0, ":CsnArr;",             "kk*",                           (SUBR) csnarray_stack_k_init,                (SUBR) csnarray_stack_k,                (SUBR) csnarray_stack_k_deinit,         NULL, 0 },
+    // set-operations
+    { "csnlikeset",            S(CSNSET_UNARYOP),             0, ":CsnArr;",             ":CsnArr;",                      (SUBR) csnarray_likeset,                     NULL,                                   (SUBR) csnarray_likeset_deinit,         NULL, 0 },
+    { "csnlikeset.k",          S(CSNSET_UNARYOP),             0, ":CsnArr;",             ":CsnArr;P",                     (SUBR) csnarray_likeset_k_init,              (SUBR) csnarray_likeset_k,              (SUBR) csnarray_likeset_deinit,         NULL, 0 },
+    { "csnunlikeset",          S(CSNSET_UNARYOP_IN),          0, "",                     ":CsnArr;",                      (SUBR) csnarray_unlikeset,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnunlikeset.k",        S(CSNSET_UNARYOP_IN),          0, "",                     ":CsnArr;P",                     (SUBR) csnarray_unlikeset_k_init,            (SUBR) csnarray_unlikeset_k,            NULL,                                   NULL, 0 },
+    { "csnsetinsert",          S(CSNSET_UNARYOP_IN),          0, "",                     ":CsnArr;i",                     (SUBR) csnarray_setinsert,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsetinsert.k",        S(CSNSET_UNARYOP_IN),          0, "",                     ":CsnArr;kP",                    (SUBR) csnarray_setinsertremove_k_init,      (SUBR) csnarray_setinsert_k,            NULL,                                   NULL, 0 },
+    { "csnsetremove",          S(CSNSET_UNARYOP_IN),          0, "",                     ":CsnArr;i",                     (SUBR) csnarray_setremove,                   NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsetremove.k",        S(CSNSET_UNARYOP_IN),          0, "",                     ":CsnArr;kP",                    (SUBR) csnarray_setinsertremove_k_init,      (SUBR) csnarray_setremove_k,            NULL,                                   NULL, 0 },
+    { "csnsetcontains",        S(CSNSET_BINARYOP_SCALAR),     0, "i",                    ":CsnArr;i",                     (SUBR) csnarray_setcontains,                 NULL,                                   NULL,                                   NULL, 0 },
+    { "csnsetcontains.k",      S(CSNSET_BINARYOP_SCALAR),     0, "k",                    ":CsnArr;kP",                    (SUBR) csnarray_setcontains_k_init,          (SUBR) csnarray_setcontains_k,          NULL,                                   NULL, 0 },
+    { "csnsetunion",           S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_setunion,                    NULL,                                   (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetunion.k",         S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setunion,                    (SUBR) csnarray_setunion_k,             (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetintersect",       S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_setintersect,                NULL,                                   (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetintersect.k",     S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setintersect,                (SUBR) csnarray_setintersect_k,         (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetdiff",            S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_setdiff,                     NULL,                                   (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetdiff.k",          S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setdiff,                     (SUBR) csnarray_setdiff_k,              (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetsymdiff",         S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;",              (SUBR) csnarray_setsymdiff,                  NULL,                                   (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetsymdiff.k",       S(CSNSET_BINARYOP),            0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setsymdiff,                  (SUBR) csnarray_setsymdiff_k,           (SUBR) csnarray_set_binaryop_deinit,    NULL, 0 },
+    { "csnsetissubset",        S(CSNSET_BINARYOP_PREDICATE),  0, "i",                    ":CsnArr;:CsnArr;",              (SUBR) csnarray_setissubset,                 NULL,                                   (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetissubset.k",      S(CSNSET_BINARYOP_PREDICATE),  0, "k",                    ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setissubset,                 (SUBR) csnarray_setissubset_k,          (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetissuperset",      S(CSNSET_BINARYOP_PREDICATE),  0, "i",                    ":CsnArr;:CsnArr;",              (SUBR) csnarray_setissuperset,               NULL,                                   (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetissuperset.k",    S(CSNSET_BINARYOP_PREDICATE),  0, "k",                    ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setissuperset,               (SUBR) csnarray_setissuperset_k,        (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetisdisjoint",      S(CSNSET_BINARYOP_PREDICATE),  0, "i",                    ":CsnArr;:CsnArr;",              (SUBR) csnarray_setisdisjoint,               NULL,                                   (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetisdisjoint.k",    S(CSNSET_BINARYOP_PREDICATE),  0, "k",                    ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setisdisjoint,               (SUBR) csnarray_setisdisjoint_k,        (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetisequal",         S(CSNSET_BINARYOP_PREDICATE),  0, "i",                    ":CsnArr;:CsnArr;",              (SUBR) csnarray_setisequal,                  NULL,                                   (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnsetisequal.k",       S(CSNSET_BINARYOP_PREDICATE),  0, "k",                    ":CsnArr;:CsnArr;P",             (SUBR) csnarray_setisequal,                  (SUBR) csnarray_setisequal_k,           (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
     // ---
 };
 

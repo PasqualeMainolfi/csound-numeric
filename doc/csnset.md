@@ -17,6 +17,11 @@ other way round.
 Writing bumps the array's data version, so every k-rate consumer downstream sees
 a new generation on its next pass and recomputes.
 
+`csnset` is a generic array operation and does not preserve the invariant of an
+array previously created by `csnlikeset`. After writing into a set array, pass
+it through `csnlikeset` again before using set membership, combination or
+predicate operations. See [Set arrays and their invariant](set-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -99,6 +104,7 @@ i 1 0 0.1
 * [csnget](csnget.md)
 * [csnsetslice](csnsetslice.md)
 * [csninsert](csninsert.md)
+* [Set arrays and their invariant](set-arrays.md)
 
 ## Credits
 

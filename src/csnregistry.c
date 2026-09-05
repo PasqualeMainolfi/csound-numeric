@@ -341,6 +341,8 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     array->size = array_length;
     array->ndim = ndim;
     array->array_id = array_id;
+    array->kind = CSNARR;
+    array->set_data_version = 0;
 
     /* init array version */
     init_array_version(&array->version);

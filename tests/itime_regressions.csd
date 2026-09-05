@@ -1663,5 +1663,7 @@ e
 ; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
 ; csnwhere.hh csnwhere.hs csnputmask.hh csnputmask.hs csncompress csnminimum.hh csnminimum.hs csnmaximum.hh
 ; csnmaximum.hs csnatan2.hh csnatan2.hs csnatan2.sh csnrms csnrms.ax csnselect
+; csnlikeset csnunlikeset csnsetinsert csnsetremove csnsetcontains csnsetunion csnsetintersect
+; csnsetdiff csnsetsymdiff csnsetissubset csnsetissuperset csnsetisdisjoint csnsetisequal
 ; @covers-end
 </CsoundSynthesizer>

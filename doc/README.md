@@ -188,6 +188,11 @@ support of each opcode.
 
 ## Sorting and sets
 
+Set operations require a one-dimensional real array in ascending,
+duplicate-free form. Only the set API guarantees this invariant; generic array
+operations do not. Use `csnlikeset` again after a generic modification. See
+[Set arrays and their invariant](set-arrays.md).
+
 - [csnshuffle](csnshuffle.md) - randomly permutes the flat element order in place
 - [csnsort](csnsort.md) - sorts, over everything or along an axis
 - [csnargsort](csnargsort.md) - the coordinates that would sort the array
