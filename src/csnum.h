@@ -1766,6 +1766,95 @@ typedef struct {
     bool is_published;
 } CSN_STACK_K;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *fft_size;
+    MYFLT *axis;
+    MYFLT *norm;
+    MYFLT *trig;
+    // private
+} CSN_FFT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_f;
+    CSNREF *handle_t;
+    CSNREF *handle_z;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *winsize;
+    MYFLT *hopsize;
+    MYFLT *sr;
+    MYFLT *window_type;
+    MYFLT *trig;
+    // private
+} CSN_STFT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_t;
+    CSNREF *handle_z;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *winsize;
+    MYFLT *hopsize;
+    MYFLT *sr;
+    MYFLT *window_type;
+    MYFLT *trig;
+    // private
+} CSN_ISTFT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *size;
+    MYFLT *arg_a; // sample spacing for fftfreq
+                  // axis for fftshift
+    MYFLT *trig;
+    // private
+} CSN_FFTTOOL;
+
+
+// fft
+
+int32_t csnarray_fft(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_rfft(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_ifft(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_irfft(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_stft(CSOUND *csound, CSN_STFT *p);
+int32_t csnarray_istft(CSOUND *csound, CSN_ISTFT *p);
+int32_t csnarray_fftfreq(CSOUND *csound, CSN_FFTTOOL *p);
+int32_t csnarray_rfftfreq(CSOUND *csound, CSN_FFTTOOL *p);
+int32_t csnarray_fftshift(CSOUND *csound, CSN_FFTTOOL *p);
+int32_t csnarray_ifftshift(CSOUND *csound, CSN_FFTTOOL *p);
+
+int32_t csnarray_fft_k(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_rfft_k(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_ifft_k(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_irfft_k(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_stft_k(CSOUND *csound, CSN_STFT *p);
+int32_t csnarray_istft_k(CSOUND *csound, CSN_ISTFT *p);
+int32_t csnarray_fftfreq_k(CSOUND *csound, CSN_FFTTOOL *p);
+int32_t csnarray_rfftfreq_k(CSOUND *csound, CSN_FFTTOOL *p);
+int32_t csnarray_fftshift_k(CSOUND *csound, CSN_FFTTOOL *p);
+int32_t csnarray_ifftshift_k(CSOUND *csound, CSN_FFTTOOL *p);
+
+int32_t csnarray_fft_a(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_rfft_a(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_ifft_a(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_irfft_a(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_stft_a(CSOUND *csound, CSN_STFT *p);
+int32_t csnarray_istft_a(CSOUND *csound, CSN_ISTFT *p);
+
+
 // a-rate
 
 int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p);
