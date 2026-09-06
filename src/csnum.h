@@ -294,6 +294,13 @@ typedef enum {
     CSN_HEAD_ARR
 } CSN_RESIZE_MODE;
 
+typedef enum {
+    CSNFFT = 0,
+    CSNRFFT,
+    CSNIFFT,
+    CSNIRFFT,
+} CSN_FFT_MODE;
+
 typedef struct {
     void *scratch;
     size_t scratch_capacity;
@@ -1771,12 +1778,42 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
+    MYFLT *signal; // a-rate
+    MYFLT *fft_size;
+    MYFLT *axis; // -1 last axis (as numpy)
+    // private
+    CSN_ARRAY *array;
+} CSN_FFT_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle_f;
+    CSNREF *handle_t;
+    CSNREF *handle_z;
+    // inputs
+    MYFLT *signal; // a-rate
+    MYFLT *winsize;
+    MYFLT *hopsize;
+    MYFLT *sr;
+    MYFLT *window_type;
+    // private
+} CSN_STFT_AUDIO;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
     CSNREF *source_handle;
     MYFLT *fft_size;
-    MYFLT *axis;
-    MYFLT *norm;
+    MYFLT *axis; // -1 last axis (as numpy)
     MYFLT *trig;
     // private
+    CSN_ARRAY *array;
+    CSN_SCRATCH buffer;
+    K_DATA k_data;
+    bool is_published;
 } CSN_FFT;
 
 typedef struct {
@@ -1823,7 +1860,19 @@ typedef struct {
 } CSN_FFTTOOL;
 
 
+int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
+bool IS_VALID_AXIS(double axis, uint32_t ndim);
+void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim);
+uint32_t from_coords_to_offset(uint32_t *coords, const size_t *strides, uint32_t ndim);
+CSN_COMPLEXDAT slice_get(const double *src, size_t i, size_t stride, ITEM_TYPE itype);
+void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z);
+void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype);
+void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
+int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h);
+
 // fft
+
+int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p);
 
 int32_t csnarray_fft(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_rfft(CSOUND *csound, CSN_FFT *p);
@@ -1847,12 +1896,9 @@ int32_t csnarray_rfftfreq_k(CSOUND *csound, CSN_FFTTOOL *p);
 int32_t csnarray_fftshift_k(CSOUND *csound, CSN_FFTTOOL *p);
 int32_t csnarray_ifftshift_k(CSOUND *csound, CSN_FFTTOOL *p);
 
-int32_t csnarray_fft_a(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_fft_a(CSOUND *csound, CSN_FFT_AUDIO *p);
 int32_t csnarray_rfft_a(CSOUND *csound, CSN_FFT *p);
-int32_t csnarray_ifft_a(CSOUND *csound, CSN_FFT *p);
-int32_t csnarray_irfft_a(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_stft_a(CSOUND *csound, CSN_STFT *p);
-int32_t csnarray_istft_a(CSOUND *csound, CSN_ISTFT *p);
 
 
 // a-rate

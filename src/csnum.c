@@ -30,7 +30,7 @@ static const char *get_out_name(OPDS *h) {
     return out->arg[0];
 }
 
-static void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch) {
+void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch) {
     if (scratch->scratch != NULL) csound->Free(csound, scratch->scratch);
     scratch->scratch = NULL;
     scratch->scratch_capacity = 0;
@@ -188,7 +188,7 @@ static int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_
     return OK;
 }
 
-static bool IS_VALID_AXIS(double axis, uint32_t ndim) {
+bool IS_VALID_AXIS(double axis, uint32_t ndim) {
     if (!isfinite(axis) || trunc(axis) != axis || axis < 0.0 || axis >= (double) ndim) {
         return false;
     }
@@ -245,7 +245,7 @@ static inline void fill_csnarray_complex(CSN_ARRAY *array, double re, double im)
 /* Staged through a local copy because shape may alias array->shape: callers
    that republish an array's own layout (a source that is also the destination)
    would otherwise read back the buffer the memset just cleared. */
-static inline void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype) {
+void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype) {
     uint32_t requested[CSN_MAX_DIMS] = {0};
     memcpy(requested, shape, sizeof(uint32_t) * ndim);
 
@@ -366,7 +366,7 @@ static inline int32_t handle_out_is_global(const OPDS *h) {
     return h->optext->t.outArgs->type == ARG_GLOBAL;
 }
 
-static int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h) {
+int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h) {
     if (*handle_id == 0) {
         return OK;
     }
@@ -627,14 +627,14 @@ static int32_t CHECK_SELF_ALIAS_CELL_LOCAL(CSOUND *csound, OPDS *h, const K_DATA
     return OK;
 }
 
-static void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim) {
+void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim) {
     for (uint32_t i = ndim; i-- > 0;) {
         coords[i] = (uint32_t) (linear % shape[i]);
         linear /= shape[i];
     }
 }
 
-static uint32_t from_coords_to_offset(uint32_t *coords, const size_t *strides, uint32_t ndim) {
+uint32_t from_coords_to_offset(uint32_t *coords, const size_t *strides, uint32_t ndim) {
     size_t src_offset = 0;
     for (uint32_t i = 0; i < ndim; ++i) {
         src_offset += (size_t) coords[i] * strides[i];
@@ -13186,13 +13186,13 @@ int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
     return res;
 }
 
-static inline CSN_COMPLEXDAT slice_get(const double *src, size_t i, size_t stride, ITEM_TYPE itype) {
+CSN_COMPLEXDAT slice_get(const double *src, size_t i, size_t stride, ITEM_TYPE itype) {
     size_t at = i * stride * itype;
     CSN_COMPLEXDAT z = { src[at], itype == CSN_COMPLEX ? src[at + 1] : 0.0 };
     return z;
 }
 
-static inline void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z) {
+void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z) {
     size_t at = i * stride * itype;
     dst[at] = z.re;
     if (itype == CSN_COMPLEX) dst[at + 1] = z.im;
@@ -22357,6 +22357,10 @@ static OENTRY localops[] = {
     { "csnselect.k",           S(CSN_ARGWHERE),               0, ":CsnArr;",             ":CsnArr;:CsnArr;P",             (SUBR) csnarray_select_k_init,               (SUBR) csnarray_select_k,               (SUBR) csnarray_argwhere_deinit,        NULL, 0 },
     { "csnstack",              S(CSN_STACK),                  0, ":CsnArr;",             "i*",                            (SUBR) csnarray_stack,                       NULL,                                   (SUBR) csnarray_stack_deinit,           NULL, 0 },
     { "csnstack.k",            S(CSN_STACK_K),                0, ":CsnArr;",             "kk*",                           (SUBR) csnarray_stack_k_init,                (SUBR) csnarray_stack_k,                (SUBR) csnarray_stack_k_deinit,         NULL, 0 },
+    { "csnfft",                S(CSN_FFT),                    0, ":CsnArr;",             ":CsnArr;ij",                    (SUBR) csnarray_fft,                         NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnrfft",               S(CSN_FFT),                    0, ":CsnArr;",             ":CsnArr;ij",                    (SUBR) csnarray_rfft,                        NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnifft",               S(CSN_FFT),                    0, ":CsnArr;",             ":CsnArr;ij",                    (SUBR) csnarray_ifft,                        NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnirfft",              S(CSN_FFT),                    0, ":CsnArr;",             ":CsnArr;ij",                    (SUBR) csnarray_irfft,                       NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
     // ---
 };
 
