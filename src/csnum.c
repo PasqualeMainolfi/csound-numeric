@@ -271,7 +271,7 @@ void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape,
 /* csnempty reserves the requested shape but exposes no logical elements yet.
    Shape describes the allocated/indexable layout; size is the number of
    elements currently present. */
-static inline void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype) {
+void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype) {
     set_csnarray_layout(array, ndim, requested_shape, 0, itype);
 }
 
@@ -300,7 +300,7 @@ static int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, u
    reallocating only when the request or the buffer make it necessary. The
    caller holds the registry mutex; *destination is an output, so no caller has
    to seed it. */
-static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err) {
+int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err) {
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
         return csn_locked_perf_error(csound, h, "[csnarray] Invalid shape or element count exceeds the configured limit");
@@ -321,7 +321,7 @@ static int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destinat
     bool request_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, shape);
     if (SHOULD_SLOT_BE_UPDATED(request_changed, *destination, itype, requested_size)) {
         if (slot->rt_locked) {
-            return csn_locked_perf_error(csound, h,  "[csnarray] '%s' (array %u) is on a real-time path and cannot be reallocated at perf time; clear the mark with csnrtlock, or pass irt=0 at the audio source it descends from", get_out_name(h), req_owned_handle);
+            return csn_locked_perf_error(csound, h,  "[csnarray] '%s' (array %u) is on a real-time path and cannot be reallocated at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", get_out_name(h), req_owned_handle);
         }
         int32_t res = update_slot_array_locked(csound, k_data->registry, req_owned_handle, ndim, shape, itype, destination, &err);
         if (res != OK) {
@@ -20539,27 +20539,58 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
     return OK;
 }
 
-int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
 
+
+static int32_t csnarray_set_rtlock_helper(CSOUND *csound, OPDS *perf_h, CSN_RTLOCK *p, bool lock) {
+    CSN_REGISTRY *reg = perf_h == NULL ? get_registry(csound) : p->registry;
+    CHECK_REGISTRY(csound, perf_h, reg);
+    if (perf_h != NULL) CHECK_KTRIG(p->trig);
     uint32_t source_handle = p->source_handle->id;
-
-    if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
-        return csound->InitError(csound, "[csnarray] rtlock param must be 0/1");
-    }
-
+    int32_t res = OK;
     csound->LockMutex(reg->mutex);
-
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
     }
-    slot->rt_locked = (*p->rt_lock) != 0.0;
+    slot->rt_locked = lock;
+    p->registry = reg;
 
+done:
     csound->UnlockMutex(reg->mutex);
-    return OK;
+    return res;
+}
+
+int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p) {
+    return csnarray_set_rtlock_helper(csound, NULL, p, true);
+}
+
+int32_t csnarray_set_rtunlock(CSOUND *csound, CSN_RTLOCK *p) {
+    return csnarray_set_rtlock_helper(csound, NULL, p, false);
+}
+
+static int32_t csnarray_set_rtlock_k_init_helper(CSOUND *csound, CSN_RTLOCK *p, bool lock) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    p->registry = reg;
+    if ((double) *p->trig == 0.0) return OK;
+    return csnarray_set_rtlock_helper(csound, NULL, p, lock);
+}
+
+int32_t csnarray_set_rtlock_k_init(CSOUND *csound, CSN_RTLOCK *p) {
+    return csnarray_set_rtlock_k_init_helper(csound, p, true);
+}
+
+int32_t csnarray_set_rtunlock_k_init(CSOUND *csound, CSN_RTLOCK *p) {
+    return csnarray_set_rtlock_k_init_helper(csound, p, false);
+}
+
+int32_t csnarray_set_rtlock_k(CSOUND *csound, CSN_RTLOCK *p) {
+    return csnarray_set_rtlock_helper(csound, &p->h, p, true);
+}
+
+int32_t csnarray_set_rtunlock_k(CSOUND *csound, CSN_RTLOCK *p) {
+    return csnarray_set_rtlock_helper(csound, &p->h, p, false);
 }
 
 static int32_t where_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **true_array, CSN_ARRAY **false_array, double *false_scalar, CSNREF *shandle, CSNREF *thandle, CSNREF *fhandle) {
@@ -21824,7 +21855,10 @@ static OENTRY localops[] = {
     { "csnload",               S(CSN_LOAD),                   0, ":CsnArr;",                 "S",                             (SUBR) csnarray_load,                        NULL,                                   (SUBR) csnarray_load_deinit,            NULL, 0 },
     { "csnsave.k",             S(CSN_SAVE),                   0, "",                         ":CsnArr;Sk",                    (SUBR) csnarray_save_k_init,                 (SUBR) csnarray_save_k,                 (SUBR) csnarray_save_k_deinit,          NULL, 0 },
     { "csnload.k",             S(CSN_LOAD),                   0, ":CsnArr;",                 "Sk",                            (SUBR) csnarray_load_k_init,                 (SUBR) csnarray_load_k,                 (SUBR) csnarray_load_deinit,            NULL, 0 },
-    { "csnrtlock",             S(CSN_RTLOCK),                 0, "",                         ":CsnArr;i",                     (SUBR) csnarray_set_rtlock,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnrtlock",             S(CSN_RTLOCK),                 0, "",                         ":CsnArr;",                      (SUBR) csnarray_set_rtlock,                  NULL,                                   NULL,                                   NULL, 0 },
+    { "csnrtunlock",           S(CSN_RTLOCK),                 0, "",                         ":CsnArr;",                      (SUBR) csnarray_set_rtunlock,                NULL,                                   NULL,                                   NULL, 0 },
+    { "csnrtlock.k",           S(CSN_RTLOCK),                 0, "",                         ":CsnArr;P",                     (SUBR) csnarray_set_rtlock_k_init,           (SUBR) csnarray_set_rtlock_k,           NULL,                                   NULL, 0 },
+    { "csnrtunlock.k",         S(CSN_RTLOCK),                 0, "",                         ":CsnArr;P",                     (SUBR) csnarray_set_rtunlock_k_init,         (SUBR) csnarray_set_rtunlock_k,         NULL,                                   NULL, 0 },
     // REAL-ONLY
     { "csnfromaudio",          S(CSN_FROM_AUDIO),             0, ":CsnArr;",                 "ap",                            (SUBR) csnarray_from_audio_init,             (SUBR) csnarray_from_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },
     { "csntoaudio",            S(CSN_TO_AUDIO),               0, "a",                        ":CsnArr;",                      (SUBR) csnarray_to_audio_init,               (SUBR) csnarray_to_audio,               NULL,                                   NULL, 0 },
@@ -22371,12 +22405,30 @@ static OENTRY localops[] = {
     { "csnrfft",               S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ij",                    (SUBR) csnarray_rfft,                        NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
     { "csnifft",               S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ij",                    (SUBR) csnarray_ifft,                        NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
     { "csnirfft",              S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ij",                    (SUBR) csnarray_irfft,                       NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnfft2",               S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;ii",                    (SUBR) csnarray_fft2,                        NULL,                                   (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnrfft2",              S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;ii",                    (SUBR) csnarray_rfft2,                       NULL,                                   (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnifft2",              S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;ii",                    (SUBR) csnarray_ifft2,                       NULL,                                   (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnirfft2",             S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;ii",                    (SUBR) csnarray_irfft2,                      NULL,                                   (SUBR) csnarray_fft2_deinit,            NULL, 0 },
     { "csnstft",               S(CSN_STFT),                   0, ":CsnArr;:CsnArr;:CsnArr;", ":CsnArr;iiip",                  (SUBR) csnarray_stft,                        NULL,                                   (SUBR) csnarray_stft_deinit,            NULL, 0 },
     { "csnistft",              S(CSN_ISTFT),                  0, ":CsnArr;:CsnArr;",         ":CsnArr;iiip",                  (SUBR) csnarray_istft,                       NULL,                                   (SUBR) csnarray_istft_deinit,           NULL, 0 },
     { "csnfftfreq",            S(CSN_FFTFREQ),                0, ":CsnArr;",                 "ii",                            (SUBR) csnarray_fftfreq,                     NULL,                                   (SUBR) csnarray_fftfreq_deinit,         NULL, 0 },
     { "csnrfftfreq",           S(CSN_FFTFREQ),                0, ":CsnArr;",                 "ii",                            (SUBR) csnarray_rfftfreq,                    NULL,                                   (SUBR) csnarray_fftfreq_deinit,         NULL, 0 },
     { "csnfftshift",           S(CSN_FFTSHIFT),               0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_fftshift,                    NULL,                                   (SUBR) csnarray_fftshift_deinit,        NULL, 0 },
     { "csnifftshift",          S(CSN_FFTSHIFT),               0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_ifftshift,                   NULL,                                   (SUBR) csnarray_fftshift_deinit,        NULL, 0 },
+    { "csnfft.k",              S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ijP",                   (SUBR) csnarray_fft,                         (SUBR) csnarray_fft_k,                  (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnrfft.k",             S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ijP",                   (SUBR) csnarray_rfft,                        (SUBR) csnarray_rfft_k,                 (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnifft.k",             S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ijP",                   (SUBR) csnarray_ifft,                        (SUBR) csnarray_ifft_k,                 (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnirfft.k",            S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ijP",                   (SUBR) csnarray_irfft,                       (SUBR) csnarray_irfft_k,                (SUBR) csnarray_fft_deinit,             NULL, 0 },
+    { "csnstft.k",             S(CSN_STFT),                   0, ":CsnArr;:CsnArr;:CsnArr;", ":CsnArr;iiipP",                 (SUBR) csnarray_stft,                        (SUBR) csnarray_stft_k,                 (SUBR) csnarray_stft_deinit,            NULL, 0 },
+    { "csnistft.k",            S(CSN_ISTFT),                  0, ":CsnArr;:CsnArr;",         ":CsnArr;iiipP",                 (SUBR) csnarray_istft,                       (SUBR) csnarray_istft_k,                (SUBR) csnarray_istft_deinit,           NULL, 0 },
+    { "csnfftfreq.k",          S(CSN_FFTFREQ),                0, ":CsnArr;",                 "kkP",                           (SUBR) csnarray_fftfreq_k_init,              (SUBR) csnarray_fftfreq_k,              (SUBR) csnarray_fftfreq_deinit,         NULL, 0 },
+    { "csnrfftfreq.k",         S(CSN_FFTFREQ),                0, ":CsnArr;",                 "kkP",                           (SUBR) csnarray_rfftfreq_k_init,             (SUBR) csnarray_rfftfreq_k,             (SUBR) csnarray_fftfreq_deinit,         NULL, 0 },
+    { "csnfftshift.k",         S(CSN_FFTSHIFT),               0, ":CsnArr;",                 ":CsnArr;JP",                    (SUBR) csnarray_fftshift_k_init,             (SUBR) csnarray_fftshift_k,             (SUBR) csnarray_fftshift_deinit,        NULL, 0 },
+    { "csnifftshift.k",        S(CSN_FFTSHIFT),               0, ":CsnArr;",                 ":CsnArr;JP",                    (SUBR) csnarray_ifftshift_k_init,            (SUBR) csnarray_ifftshift_k,            (SUBR) csnarray_fftshift_deinit,        NULL, 0 },
+    { "csnfft2.k",             S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_fft2,                        (SUBR) csnarray_fft2_k,                 (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnrfft2.k",            S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_rfft2,                       (SUBR) csnarray_rfft2_k,                (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnifft2.k",            S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_ifft2,                       (SUBR) csnarray_ifft2_k,                (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnirfft2.k",           S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_irfft2,                      (SUBR) csnarray_irfft2_k,               (SUBR) csnarray_fft2_deinit,            NULL, 0 },
     // ---
 };
 

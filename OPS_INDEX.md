@@ -222,6 +222,28 @@ previous result — it simply does not touch the disk.
 - **csntocomplex** - real array to complex, imaginary parts at zero (i, k — real only)
 - **csntoreal** - complex array to real, keeping the real parts (i, k — complex only)
 
+## Fourier analysis
+
+Transform lengths are fixed i-rate parameters and must be positive powers of
+two. The k-rate forms observe source changes while their trigger is non-zero; a
+zero trigger republishes the previous result. `csnfftfreq` and `csnrfftfreq` also
+accept k-rate lengths and do not require powers of two.
+
+- **csnfft** - full complex FFT along one axis (i, k — real, complex input; complex output)
+- **csnrfft** - one-sided FFT of a real array (i, k — real input; complex output)
+- **csnifft** - inverse full complex FFT (i, k — real, complex input; complex output)
+- **csnirfft** - real inverse of a one-sided spectrum (i, k — real, complex input; real output)
+- **csnfft2** - two-dimensional full complex FFT (i, k — real, complex input; complex output)
+- **csnrfft2** - two-dimensional real FFT with a one-sided last axis (i, k — real input; complex output)
+- **csnifft2** - two-dimensional inverse complex FFT (i, k — real, complex input; complex output)
+- **csnirfft2** - real inverse of a two-dimensional one-sided spectrum (i, k — real, complex input; real output)
+- **csnstft** - short-time Fourier transform and coordinates (i, k — real, complex input; complex frames)
+- **csnistft** - inverse STFT and sample coordinates (i, k — complex input; real or complex output)
+- **csnfftfreq** - coordinates for a full FFT spectrum (i, k — real output)
+- **csnrfftfreq** - coordinates for a one-sided real spectrum (i, k — real output)
+- **csnfftshift** - moves zero frequency to the centre of an axis (i, k — real, complex)
+- **csnifftshift** - restores native FFT ordering (i, k — real, complex)
+
 ## Interpolation and resampling
 
 - **csninterp** - maps values through a breakpoint table, five interpolation modes (i, k — real only)
@@ -243,8 +265,9 @@ one handle can publish one frame per control period. The optional trailing `irt`
 defaults to 1 and marks the array as a real-time path, forbidding reallocation
 during performance for it and everything derived from it; 0 lifts the
 restriction for the derived arrays. `csnrtlock` sets the same mark on any
-handle, for chains that run under a deadline without touching audio; it runs at
-init, so it only reaches arrays created after it.
+handle, for chains that run under a deadline without touching audio;
+`csnrtunlock` clears it on a selected branch. Both have init and triggered
+k-rate forms, and affect only arrays created from the handle after the change.
 
 - **csnfromaudio** - one control period of an audio signal into an array (a — real only)
 - **csntoaudio** - an array of ksmps elements back out as audio (a — real only)
@@ -252,4 +275,5 @@ init, so it only reaches arrays created after it.
 - **csnunpack** - that array back into one signal per channel (a — real only)
 - **csnsnap** - slices a stream into overlapping frames of a chosen size (a — real only)
 - **csnstream** - overlap-adds frames back into a continuous signal (a — real only)
-- **csnrtlock** - marks any handle as a real-time path, or clears the mark (i — real, complex)
+- **csnrtlock** - marks any handle as a real-time path (i, k — real, complex)
+- **csnrtunlock** - clears the real-time mark from one handle (i, k — real, complex)

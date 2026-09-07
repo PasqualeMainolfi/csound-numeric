@@ -49,6 +49,17 @@ int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...);
 #define CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, ...) \
     ((perf_h) != NULL ? csn_locked_perf_error((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
 
+#define CHECK_HANDLE(csound, h, handle)                              \
+do {                                                                 \
+    if ((handle) == 0) {                                             \
+        return (csound)->PerfError(                                  \
+            (csound),                                                \
+            (h),                                                     \
+            "[csnarray] k-rate output slot was not initialized"      \
+        );                                                           \
+    }                                                                \
+} while (0)
+
 #define CHECK_REG_HANDLE(csound, h, reg, handle)                     \
 do {                                                                 \
     if ((reg) == NULL || (handle) == 0) {                            \
@@ -70,7 +81,7 @@ do {                                                                 \
         (p)->k_data.registry = (reg);                                                        \
     } while (0)
 
-#define SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, itype, handle)                                                              \
+#define SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, itype, handle)                \
     do {                                                                           \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
         memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
@@ -80,6 +91,16 @@ do {                                                                 \
         (p)->k_data.registry = (reg);                                              \
     } while (0)
 
+#define SET_FROM_KDATA_WITH_ID_BEGIN(k_data, reg, shape, ndim, itype, handle)      \
+    do {                                                                           \
+        memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));               \
+        memcpy((k_data).prev_shape, (shape), sizeof((k_data).prev_shape));         \
+        (k_data).prev_ndim = (ndim);                                               \
+        (k_data).prev_itype = (itype);                                             \
+        (k_data).owned_handle = (handle);                                          \
+        (k_data).registry = (reg);                                                 \
+    } while (0)
+
 #define SET_KDATA_END(p, shape, ndim, itype)                                       \
     do {                                                                           \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
@@ -87,6 +108,15 @@ do {                                                                 \
         (p)->k_data.prev_ndim = (ndim);                                            \
         (p)->k_data.prev_itype = (itype);                                          \
         (p)->handle->id = (p)->k_data.owned_handle;                                \
+    } while (0)
+
+#define SET_FROM_KDATA_END_WITH_ID(k_data, handle_out, shape, ndim, itype)         \
+    do {                                                                           \
+        memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));               \
+        memcpy((k_data).prev_shape, (shape), sizeof((k_data).prev_shape));         \
+        (k_data).prev_ndim = (ndim);                                               \
+        (k_data).prev_itype = (itype);                                             \
+        (handle_out)->id = (k_data).owned_handle;                                  \
     } while (0)
 
 #define SET_KDATA_NO_ID_END(p, shape, ndim, itype)                                 \
@@ -1747,7 +1777,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *rt_lock;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_RTLOCK;
 
 typedef struct {
@@ -1787,7 +1819,7 @@ typedef struct {
     MYFLT *signal; // a-rate
     MYFLT *fft_size;
     MYFLT *axis; // -1 last axis (as numpy)
-    MYFLT *rtlock
+    MYFLT *rtlock;
     // private
     CSN_ARRAY *array;
 } CSN_FFT_AUDIO;
@@ -1809,6 +1841,16 @@ typedef struct {
 } CSN_STFT_AUDIO;
 
 typedef struct {
+    void *fft_setup;
+    size_t nfft;
+    size_t hopsize;
+    size_t buffer_out_size;
+    size_t buffer_work_size;
+    double sr;
+    CSN_FFT_MODE mode;
+} K_DATA_FFT;
+
+typedef struct {
     OPDS h;
     // outputs
     CSNREF *handle;
@@ -1821,8 +1863,29 @@ typedef struct {
     CSN_ARRAY *array;
     CSN_SCRATCH buffer;
     K_DATA k_data;
+    K_DATA_FFT k_data_fft;
     bool is_published;
 } CSN_FFT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *rows_fft_size;
+    MYFLT *cols_fft_size;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    CSN_ARRAY intermediate;
+    CSN_SCRATCH row_buffer;
+    CSN_SCRATCH col_buffer;
+    K_DATA k_data;
+    K_DATA_FFT k_data_row_fft;
+    K_DATA_FFT k_data_col_fft;
+    bool is_published;
+} CSN_FFT2;
 
 typedef struct {
     OPDS h;
@@ -1843,7 +1906,10 @@ typedef struct {
     CSN_ARRAY *array_z;
     CSN_SCRATCH buffer;
     CSN_SCRATCH window;
-    K_DATA k_data;
+    K_DATA k_data_f;
+    K_DATA k_data_t;
+    K_DATA k_data_z;
+    K_DATA_FFT k_data_fft;
     bool is_published;
 } CSN_STFT;
 
@@ -1865,7 +1931,9 @@ typedef struct {
     CSN_SCRATCH buffer;
     CSN_SCRATCH window;
     CSN_SCRATCH window_sum;
-    K_DATA k_data;
+    K_DATA k_data_t;
+    K_DATA k_data_x;
+    K_DATA_FFT k_data_fft;
     bool is_published;
 } CSN_ISTFT;
 
@@ -1908,10 +1976,13 @@ void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape,
 void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
 int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h);
 void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, double beta);
+void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
+int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
 
 // fft
 
 int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_fft2_deinit(CSOUND *csound, CSN_FFT2 *p);
 int32_t csnarray_stft_deinit(CSOUND *csound, CSN_STFT *p);
 int32_t csnarray_istft_deinit(CSOUND *csound, CSN_ISTFT *p);
 int32_t csnarray_fftfreq_deinit(CSOUND *csound, CSN_FFTFREQ *p);
@@ -1921,6 +1992,10 @@ int32_t csnarray_fft(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_rfft(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_ifft(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_irfft(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_fft2(CSOUND *csound, CSN_FFT2 *p);
+int32_t csnarray_rfft2(CSOUND *csound, CSN_FFT2 *p);
+int32_t csnarray_ifft2(CSOUND *csound, CSN_FFT2 *p);
+int32_t csnarray_irfft2(CSOUND *csound, CSN_FFT2 *p);
 int32_t csnarray_stft(CSOUND *csound, CSN_STFT *p);
 int32_t csnarray_istft(CSOUND *csound, CSN_ISTFT *p);
 int32_t csnarray_fftfreq(CSOUND *csound, CSN_FFTFREQ *p);
@@ -1932,10 +2007,18 @@ int32_t csnarray_fft_k(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_rfft_k(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_ifft_k(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_irfft_k(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_fft2_k(CSOUND *csound, CSN_FFT2 *p);
+int32_t csnarray_rfft2_k(CSOUND *csound, CSN_FFT2 *p);
+int32_t csnarray_ifft2_k(CSOUND *csound, CSN_FFT2 *p);
+int32_t csnarray_irfft2_k(CSOUND *csound, CSN_FFT2 *p);
 int32_t csnarray_stft_k(CSOUND *csound, CSN_STFT *p);
 int32_t csnarray_istft_k(CSOUND *csound, CSN_ISTFT *p);
+int32_t csnarray_fftfreq_k_init(CSOUND *csound, CSN_FFTFREQ *p);
+int32_t csnarray_rfftfreq_k_init(CSOUND *csound, CSN_FFTFREQ *p);
 int32_t csnarray_fftfreq_k(CSOUND *csound, CSN_FFTFREQ *p);
 int32_t csnarray_rfftfreq_k(CSOUND *csound, CSN_FFTFREQ *p);
+int32_t csnarray_fftshift_k_init(CSOUND *csound, CSN_FFTSHIFT *p);
+int32_t csnarray_ifftshift_k_init(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_fftshift_k(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_ifftshift_k(CSOUND *csound, CSN_FFTSHIFT *p);
 
@@ -1960,6 +2043,7 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p);
 int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p);
 int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p);
 int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p);
+int32_t csnarray_set_rtunlock(CSOUND *csound, CSN_RTLOCK *p);
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -2249,6 +2333,10 @@ int32_t csnarray_kaiser(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p);
 int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p);
 int32_t csnarray_show_k(CSOUND *csound, CSN_SHOW *p);
+int32_t csnarray_set_rtlock_k(CSOUND *csound, CSN_RTLOCK *p);
+int32_t csnarray_set_rtunlock_k(CSOUND *csound, CSN_RTLOCK *p);
+int32_t csnarray_set_rtlock_k_init(CSOUND *csound, CSN_RTLOCK *p);
+int32_t csnarray_set_rtunlock_k_init(CSOUND *csound, CSN_RTLOCK *p);
 
 // CREATION
 int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);

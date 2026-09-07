@@ -1389,14 +1389,14 @@ endin
 ; csound's unit-test runner counts one of those as a failed assertion.
 instr 8
     iMarked:CsnArr = csnfromarray(array(1, 2, 3, 4))
-    csnrtlock iMarked, 1
+    csnrtlock iMarked
     iSizeAfter = csnsize(iMarked)
     iValues[] = csntoarray(iMarked)
     assert(iSizeAfter == 4)
     assert(iValues[0] == 1 && iValues[3] == 4)
 
     ; clearing the mark is legal and equally inert on the data
-    csnrtlock iMarked, 0
+    csnrtunlock iMarked
     iSizeCleared = csnsize(iMarked)
     assert(iSizeCleared == 4)
 endin
@@ -1664,6 +1664,111 @@ instr 12
         i += 1
     od
 endin
+
+instr 13
+    ; ------------------------------------------------------------------
+    ; Two-dimensional transforms must compose both axes. A rectangular
+    ; matrix catches implementations that accidentally use the other axis'
+    ; length, while the known coefficients catch row-wise FFT masquerading
+    ; as FFT2. RFFT2 reduces only its last axis.
+    ; ------------------------------------------------------------------
+    iShape[] = fillarray(2, 4)
+    iFlat:CsnArr = csnfromarray(array(1, 2, 3, 4, 5, 6, 7, 8))
+    iReal:CsnArr = csnreshape(iFlat, iShape)
+    iComplex:CsnArr = csntocomplex(iReal)
+
+    iSpectrum:CsnArr = csnfft2(iComplex, 2, 4)
+    iI00[] = fillarray(0, 0)
+    iI01[] = fillarray(0, 1)
+    iI10[] = fillarray(1, 0)
+    C00:Complex = csnget(iSpectrum, iI00)
+    C01:Complex = csnget(iSpectrum, iI01)
+    C10:Complex = csnget(iSpectrum, iI10)
+    iC00Re = real(C00)
+    iC00Im = imag(C00)
+    iC01Re = real(C01)
+    iC01Im = imag(C01)
+    iC10Re = real(C10)
+    assert(abs(iC00Re - 36) < 1e-10)
+    assert(abs(iC00Im) < 1e-10)
+    assert(abs(iC01Re + 4) < 1e-10)
+    assert(abs(iC01Im - 4) < 1e-10)
+    assert(abs(iC10Re + 16) < 1e-10)
+
+    iComplexBack:CsnArr = csnifft2(iSpectrum, 2, 4)
+    i = 0
+    until i == 8 do
+        iIndex[] = fillarray(int(i / 4), i % 4)
+        Value:Complex = csnget(iComplexBack, iIndex)
+        iValueRe = real(Value)
+        iValueIm = imag(Value)
+        assert(abs(iValueRe - (i + 1)) < 1e-10)
+        assert(abs(iValueIm) < 1e-10)
+        i += 1
+    od
+
+    iRealSpectrum:CsnArr = csnrfft2(iReal, 2, 4)
+    iRealSpectrumShape[] = csnshape(iRealSpectrum)
+    assert(iRealSpectrumShape[0] == 2)
+    assert(iRealSpectrumShape[1] == 3)
+    R00:Complex = csnget(iRealSpectrum, iI00)
+    R10:Complex = csnget(iRealSpectrum, iI10)
+    iR00Re = real(R00)
+    iR10Re = real(R10)
+    assert(abs(iR00Re - 36) < 1e-10)
+    assert(abs(iR10Re + 16) < 1e-10)
+
+    iRealBack:CsnArr = csnirfft2(iRealSpectrum, 2, 4)
+    iRealBackValues[][] = csntoarray(iRealBack)
+    i = 0
+    until i == 8 do
+        assert(abs(iRealBackValues[int(i / 4)][i % 4] - (i + 1)) < 1e-10)
+        i += 1
+    od
+
+    ; With four rows, reducing the first axis would visibly produce the
+    ; wrong shape. The real transform must reduce only the last axis.
+    iTallShape[] = fillarray(4, 2)
+    iTall:CsnArr = csnreshape(iFlat, iTallShape)
+    iTallSpectrum:CsnArr = csnrfft2(iTall, 4, 2)
+    iTallSpectrumShape[] = csnshape(iTallSpectrum)
+    assert(iTallSpectrumShape[0] == 4)
+    assert(iTallSpectrumShape[1] == 2)
+    iTallBack:CsnArr = csnirfft2(iTallSpectrum, 4, 2)
+    iTallBackValues[][] = csntoarray(iTallBack)
+    i = 0
+    until i == 8 do
+        assert(abs(iTallBackValues[int(i / 2)][i % 2] - (i + 1)) < 1e-10)
+        i += 1
+    od
+
+    ; Frequency helpers and N-D shifts share the FFT conventions.
+    iFreq:CsnArr = csnfftfreq(8, 1 / 48000)
+    iRFreq:CsnArr = csnrfftfreq(8, 1 / 48000)
+    iI4[] = fillarray(4)
+    iFreq4 = csnget(iFreq, iI4)
+    iRFreq4 = csnget(iRFreq, iI4)
+    assert(csnsize(iFreq) == 8)
+    assert(csnsize(iRFreq) == 5)
+    assert(abs(iFreq4 + 24000) < 1e-8)
+    assert(abs(iRFreq4 - 24000) < 1e-8)
+
+    iShiftSource:CsnArr = csnfromarray(array(0, 1, 2, 3, 4))
+    iShifted:CsnArr = csnfftshift(iShiftSource, -1)
+    iUnshifted:CsnArr = csnifftshift(iShifted, -1)
+    iShiftedValues[] = csntoarray(iShifted)
+    iUnshiftedValues[] = csntoarray(iUnshifted)
+    assert(iShiftedValues[0] == 3 && iShiftedValues[1] == 4)
+    assert(iShiftedValues[2] == 0 && iShiftedValues[4] == 2)
+    i = 0
+    until i == 5 do
+        assert(iUnshiftedValues[i] == i)
+        i += 1
+    od
+
+    csnrtlock(iShiftSource)
+    csnrtunlock(iShiftSource)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -1684,6 +1789,7 @@ i 9 0.16 0.01
 i 10 0.18 0.01
 i 11 0.20 0.01
 i 12 0.22 0.01
+i 13 0.24 0.01
 e
 </CsScore>
 
@@ -1724,6 +1830,7 @@ e
 ; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
 ; csnwhere.hh csnwhere.hs csnputmask.hh csnputmask.hs csncompress csnminimum.hh csnminimum.hs csnmaximum.hh
 ; csnmaximum.hs csnatan2.hh csnatan2.hs csnatan2.sh csnrms csnrms.ax csnselect
-; csnfft csnrfft csnifft csnirfft csnstft csnistft
+; csnfft csnrfft csnifft csnirfft csnfft2 csnrfft2 csnifft2 csnirfft2 csnstft csnistft
+; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
 ; @covers-end
 </CsoundSynthesizer>

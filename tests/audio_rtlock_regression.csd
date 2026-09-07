@@ -78,6 +78,8 @@ gkInterpReached   init 0
 gkResampleReached init 0
 gkCompressReached init 0
 gkSelectReached   init 0
+gkRtUnlockReached init 0
+gkRtHeldReached   init 0
 
 RtInterpQuery@global:CsnArr = csnfromarray(array(0.5, 1.5))
 RtInterpX@global:CsnArr     = csnfromarray(array(0, 1, 2))
@@ -146,6 +148,42 @@ instr 9
     csnset RtSelectMask, iIndex, 1
 endin
 
+/* The source mark is inherited by the resampler output at init. Explicitly
+   clearing that derived mark must allow its later growth. This exercises the
+   new opcode against the same reallocation guard that rtlock enables. */
+RtUnlockSrc@global:CsnArr = csnfromarray(array(0, 10, 20, 30))
+RtUnlockOut@global:CsnArr = csnempty(array(0))
+
+instr 10
+    csnrtlock RtUnlockSrc, 1
+    kLength init 4
+    if timeinstk() >= 2 then
+        kLength = 5
+    endif
+    RtUnlockOut = csnresample(RtUnlockSrc, kLength, 0, 1)
+    csnrtunlock RtUnlockOut, 1
+    if timeinstk() == 12 then
+        gkRtUnlockReached = 1
+    endif
+endin
+
+/* A zero k-trigger must be inert at init as well as during performance. */
+RtHeldSrc@global:CsnArr = csnfromarray(array(0, 10, 20, 30))
+RtHeldOut@global:CsnArr = csnempty(array(0))
+
+instr 11
+    kZero init 0
+    csnrtlock RtHeldSrc, kZero
+    kLength init 4
+    if timeinstk() >= 2 then
+        kLength = 5
+    endif
+    RtHeldOut = csnresample(RtHeldSrc, kLength, 0, 1)
+    if timeinstk() == 12 then
+        gkRtHeldReached = 1
+    endif
+endin
+
 instr 100
     iLocked   = i(gkLockedReached)
     iUnlocked = i(gkUnlockedReached)
@@ -154,6 +192,8 @@ instr 100
     iResample = i(gkResampleReached)
     iCompress = i(gkCompressReached)
     iSelect   = i(gkSelectReached)
+    iRtUnlock = i(gkRtUnlockReached)
+    iRtHeld   = i(gkRtHeldReached)
 
     assert(iLocked == 0)
     assert(iUnlocked == 1)
@@ -162,7 +202,13 @@ instr 100
     assert(iResample == 0)
     assert(iCompress == 0)
     assert(iSelect == 0)
-    prints("csnum registry alive after the realtime-lock refusal\n")
+    assert(iRtUnlock == 1)
+    assert(iRtHeld == 1)
+    if iLocked == 0 && iUnlocked == 1 && iReshape == 1 \
+       && iInterp == 0 && iResample == 0 && iCompress == 0 && iSelect == 0 \
+       && iRtUnlock == 1 && iRtHeld == 1 then
+        prints("csnum registry alive after the realtime-lock refusal\n")
+    endif
 endin
 </CsInstruments>
 
@@ -176,7 +222,9 @@ i 6 0.5 0.02
 i 7 0.505 0
 i 8 0.6 0.02
 i 9 0.605 0
-i 100 0.7 0.01
+i 10 0.7 0.02
+i 11 0.8 0.02
+i 100 0.9 0.01
 e
 </CsScore>
 </CsoundSynthesizer>
