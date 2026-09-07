@@ -1604,6 +1604,66 @@ instr 11
     iEmptySize = csnsize(iEmpty)
     assert(iEmptySize == 0)
 endin
+
+instr 12
+    ; ------------------------------------------------------------------
+    ; FFT and STFT round trips. The STFT checks cover both the packed real
+    ; transform and the full complex transform, including their frequency
+    ; vectors. Hamming keeps the edge samples invertible without padding.
+    ; ------------------------------------------------------------------
+    iValues[] = fillarray(1, 2, 3, 4, 5, 6, 7, 8,
+                          9, 10, 11, 12, 13, 14, 15, 16)
+    iSource:CsnArr = csnfromarray(iValues)
+
+    iRealSpectrum:CsnArr = csnrfft(iSource, 16)
+    iRealBack:CsnArr = csnirfft(iRealSpectrum, 16)
+    iRealBackValues[] = csntoarray(iRealBack)
+
+    iComplexSource:CsnArr = csntocomplex(iSource)
+    iComplexSpectrum:CsnArr = csnfft(iComplexSource, 16)
+    iComplexBack:CsnArr = csnifft(iComplexSpectrum, 16)
+
+    i = 0
+    until i == 16 do
+        iIndex[] = fillarray(i)
+        assert(abs(iRealBackValues[i] - iValues[i]) < 1e-10)
+        Value:Complex = csnget(iComplexBack, iIndex)
+        iValueReal = real(Value)
+        iValueImag = imag(Value)
+        assert(abs(iValueReal - iValues[i]) < 1e-10)
+        assert(abs(iValueImag) < 1e-10)
+        i += 1
+    od
+
+    iRFreq:CsnArr, iRFramesT:CsnArr, iRFrames:CsnArr = csnstft(iSource, 8, 4, 48000, 2)
+    iRSamplesT:CsnArr, iRStftBack:CsnArr = csnistft(iRFrames, 8, 4, 48000, 2)
+    iRStftValues[] = csntoarray(iRStftBack)
+
+    iCFreq:CsnArr, iCFramesT:CsnArr, iCFrames:CsnArr = csnstft(iComplexSource, 8, 4, 48000, 2)
+    iCSamplesT:CsnArr, iCStftBack:CsnArr = csnistft(iCFrames, 8, 4, 48000, 2)
+
+    iI0[] = fillarray(0)
+    iI3[] = fillarray(3)
+    iI4[] = fillarray(4)
+    assert(csnsize(iRFreq) == 5)
+    assert(csnget(iRFreq, iI0) == 0)
+    assert(csnget(iRFreq, iI4) == 24000)
+    assert(csnsize(iCFreq) == 8)
+    assert(csnget(iCFreq, iI3) == 18000)
+    assert(csnget(iCFreq, iI4) == -24000)
+
+    i = 0
+    until i == 16 do
+        iIndex[] = fillarray(i)
+        assert(abs(iRStftValues[i] - iValues[i]) < 1e-10)
+        Value:Complex = csnget(iCStftBack, iIndex)
+        iValueReal = real(Value)
+        iValueImag = imag(Value)
+        assert(abs(iValueReal - iValues[i]) < 1e-10)
+        assert(abs(iValueImag) < 1e-10)
+        i += 1
+    od
+endin
 </CsInstruments>
 
 <CsScore>
@@ -1623,6 +1683,7 @@ i 8 0.14 0.01
 i 9 0.16 0.01
 i 10 0.18 0.01
 i 11 0.20 0.01
+i 12 0.22 0.01
 e
 </CsScore>
 
@@ -1663,5 +1724,6 @@ e
 ; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
 ; csnwhere.hh csnwhere.hs csnputmask.hh csnputmask.hs csncompress csnminimum.hh csnminimum.hs csnmaximum.hh
 ; csnmaximum.hs csnatan2.hh csnatan2.hs csnatan2.sh csnrms csnrms.ax csnselect
+; csnfft csnrfft csnifft csnirfft csnstft csnistft
 ; @covers-end
 </CsoundSynthesizer>
