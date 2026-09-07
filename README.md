@@ -8,7 +8,7 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a NumPy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, interpolation and resampling, about 158 opcodes across some 499
+primitives, interpolation and resampling, 189 opcodes across 576
 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
@@ -25,7 +25,7 @@ Operations with no meaning over the complex field, ordering comparisons,
 sorting, rounding, the window functions, interpolation, are real-only and say
 so when handed a complex array.
 
-There are **no external dependencies**. The plugin builds from two C11
+There are **no external dependencies**. The plugin builds from three C11
 translation units against the Csound plugin headers and the C standard library, 
 nothing else is linked in.
 
@@ -216,6 +216,8 @@ csound --opcode-dir=build example/csnsort.csd
   projection and rejection, reflection.
 - **Complex**: real / imaginary parts, angle, conjugate, conversion to and from
   real arrays.
+- **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
+  matrix, STFT/ISTFT, frequency-coordinate arrays, and FFT shift/unshift.
 - **Interpolation and resampling**: `csninterp` (linear, nearest, previous,
   next, monotone cubic PCHIP, with error / clamp / fill / extrapolate boundary
   policies) and `csnresample`.
@@ -251,8 +253,10 @@ csound --opcode-dir=build example/csnsort.csd
   error, because a malloc on the audio thread is what a dropout sounds like.
   Pass `irt = 0` where the frames are being harvested for analysis rather than
   sent back out. `csnrtlock` sets the same mark on any handle, for chains that
-  run under a deadline without touching audio. It runs at init, so it reaches
-  only the arrays created after it in the orchestra.
+  run under a deadline without touching audio; `csnrtunlock` clears it on a
+  selected branch. Both have init and triggered k-rate forms. The state is
+  inherited when a derived array is created, so changing a source does not
+  retroactively change existing descendants.
 
 ---
 
@@ -389,10 +393,15 @@ happens. `csnstream` overlap-adds them back:
 instr 1
     sig:a               = oscili(0.5, 440)
     frame:CsnArr, new:k = csnsnap(sig, 1024, 256)
-    ; ... analysis on frame, gated on new ...
+    spectrum:CsnArr     = csnrfft(frame, 1024, -1, new)
+    magnitude:CsnArr    = csnabs(spectrum, new)
     out:a, ready:k      = csnstream(frame, 256)
 endin
 ```
+
+Here `nfft` is the 1024-sample frame size, independent of `ksmps`. `csnsnap`
+marks the frame as a real-time path by default, and the FFT outputs inherit the
+mark; an extra `csnrtlock` call is not required.
 
 The hop must be at least `ksmps`: one handle names one array, so at most one
 frame can be published per control period, and a smaller hop would overwrite a
@@ -415,7 +424,8 @@ have done it:
 
 ```
 'B' (array 4098) is on a realtime audio path and cannot be reallocated at perf
-time; pass irt=0 to the source opcode if this chain is not realtime
+time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it
+descends from
 ```
 
 That refusal only fires where a shape genuinely changes at k-rate. A chain whose
@@ -431,14 +441,16 @@ inherit the mark from, so `csnrtlock` sets it on any handle:
 
 ```csound
 src:CsnArr    = csnzeros(shape)
-csnrtlock src, 1
+csnrtlock src
 padded:CsnArr = csnpad(src, grow, grow, fill, trig)   ; inherits the mark
 ```
 
-`csnrtlock` runs at init, so it reaches the arrays created after it and no
-others — put it immediately after the array it protects, before anything reads
-it. For the same reason clearing the mark is not retroactive: arrays already
-derived keep the copy they took.
+The i-time form affects arrays created after it and no others, so put it
+immediately after the array it protects, before anything reads it. A triggered
+k-rate form is also available. `csnrtunlock` clears the mark explicitly on one
+handle; neither locking nor unlocking is retroactive, so arrays already derived
+keep the state they inherited. In particular, `csnrtlock(handle, 0)` is an
+inactive k-rate trigger, not an unlock operation.
 
 ---
 

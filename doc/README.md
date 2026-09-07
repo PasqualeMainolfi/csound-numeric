@@ -226,6 +226,23 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csntocomplex](csntocomplex.md) - real array to complex, imaginary parts at zero
 - [csntoreal](csntoreal.md) - complex array to real, keeping the real parts
 
+## Fourier analysis
+
+- [csnfft](csnfft.md) - full complex FFT along one axis
+- [csnrfft](csnrfft.md) - one-sided FFT of a real array
+- [csnifft](csnifft.md) - inverse full complex FFT
+- [csnirfft](csnirfft.md) - real inverse of a one-sided spectrum
+- [csnfft2](csnfft2.md) - two-dimensional full complex FFT
+- [csnrfft2](csnrfft2.md) - two-dimensional real FFT with a one-sided last axis
+- [csnifft2](csnifft2.md) - two-dimensional inverse complex FFT
+- [csnirfft2](csnirfft2.md) - real inverse of a two-dimensional one-sided spectrum
+- [csnstft](csnstft.md) - short-time Fourier transform with frequency and time coordinates
+- [csnistft](csnistft.md) - inverse STFT with window-normalized overlap-add
+- [csnfftfreq](csnfftfreq.md) - coordinates for a full FFT spectrum
+- [csnrfftfreq](csnrfftfreq.md) - coordinates for a one-sided real spectrum
+- [csnfftshift](csnfftshift.md) - moves zero frequency to the centre of an axis
+- [csnifftshift](csnifftshift.md) - restores native FFT ordering
+
 ## Interpolation and resampling
 
 - [csninterp](csninterp.md) - maps values through a breakpoint table, five interpolation modes
@@ -252,4 +269,5 @@ chain is being harvested for analysis rather than sent back out.
 - [csnunpack](csnunpack.md) - that array back into one signal per channel
 - [csnsnap](csnsnap.md) - slices a stream into overlapping frames of a chosen size
 - [csnstream](csnstream.md) - overlap-adds frames back into a continuous signal
-- [csnrtlock](csnrtlock.md) - marks any handle as a real-time path, or clears the mark
+- [csnrtlock](csnrtlock.md) - marks any handle as a real-time path
+- [csnrtunlock](csnrtunlock.md) - clears the real-time mark from one handle
