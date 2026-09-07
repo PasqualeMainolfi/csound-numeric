@@ -34,6 +34,19 @@ layout changes that reuse the existing capacity remain allowed. The optional
 k-rate trigger applies the lock on every non-zero pass and is inert when zero,
 including at initialization.
 
+### Audio frames are already marked
+
+There is normally no explicit `csnrtlock` call in a `csnsnap` analysis chain:
+
+```csound
+frame:CsnArr, kready = csnsnap(asig, 1024, 256)
+spectrum:CsnArr = csnrfft(frame, 1024, -1, kready)
+```
+
+`csnsnap` uses `irt=1` by default, so `frame` is marked and `spectrum` inherits
+the mark when the FFT initializes. Use `csnrtlock` explicitly for sources that
+do not come from the audio bridge, as in the complete example below.
+
 ## Syntax
 
 ```csound

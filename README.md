@@ -378,10 +378,15 @@ happens. `csnstream` overlap-adds them back:
 instr 1
     sig:a               = oscili(0.5, 440)
     frame:CsnArr, new:k = csnsnap(sig, 1024, 256)
-    ; ... analysis on frame, gated on new ...
+    spectrum:CsnArr     = csnrfft(frame, 1024, -1, new)
+    magnitude:CsnArr    = csnabs(spectrum, new)
     out:a, ready:k      = csnstream(frame, 256)
 endin
 ```
+
+Here `nfft` is the 1024-sample frame size, independent of `ksmps`. `csnsnap`
+marks the frame as a real-time path by default, and the FFT outputs inherit the
+mark; an extra `csnrtlock` call is not required.
 
 The hop must be at least `ksmps`: one handle names one array, so at most one
 frame can be published per control period, and a smaller hop would overwrite a

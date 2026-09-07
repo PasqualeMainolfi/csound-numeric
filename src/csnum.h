@@ -1812,35 +1812,6 @@ typedef struct {
 } CSN_STACK_K;
 
 typedef struct {
-    OPDS h;
-    // outputs
-    CSNREF *handle;
-    // inputs
-    MYFLT *signal; // a-rate
-    MYFLT *fft_size;
-    MYFLT *axis; // -1 last axis (as numpy)
-    MYFLT *rtlock;
-    // private
-    CSN_ARRAY *array;
-} CSN_FFT_AUDIO;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    CSNREF *handle_f;
-    CSNREF *handle_t;
-    CSNREF *handle_z;
-    // inputs
-    MYFLT *signal; // a-rate
-    MYFLT *winsize;
-    MYFLT *hopsize;
-    MYFLT *sr;
-    MYFLT *window_type;
-    MYFLT *rtlock;
-    // private
-} CSN_STFT_AUDIO;
-
-typedef struct {
     void *fft_setup;
     size_t nfft;
     size_t hopsize;
@@ -2021,10 +1992,6 @@ int32_t csnarray_fftshift_k_init(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_ifftshift_k_init(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_fftshift_k(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_ifftshift_k(CSOUND *csound, CSN_FFTSHIFT *p);
-
-int32_t csnarray_fft_a(CSOUND *csound, CSN_FFT_AUDIO *p);
-int32_t csnarray_rfft_a(CSOUND *csound, CSN_FFT_AUDIO *p);
-int32_t csnarray_stft_a(CSOUND *csound, CSN_STFT_AUDIO *p);
 
 
 // a-rate

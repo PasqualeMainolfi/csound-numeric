@@ -347,8 +347,7 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     }
 
     CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL,
-                              new_ndim, new_shape, output_size, CSN_COMPLEX, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, new_ndim, new_shape, output_size, CSN_COMPLEX, err);
     if (res != OK) goto done;
     p->array = fft_buffer;
 
@@ -1088,8 +1087,7 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     uint32_t shape_z[CSN_MAX_DIMS] = {0};
     size_t out_size = 0;
     size_t work_size = 0;
-    stft_assign_layout(&out_size, &work_size, shape_f, shape_t, shape_z,
-                       source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, fft_mode);
+    stft_assign_layout(&out_size, &work_size, shape_f, shape_t, shape_z, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, fft_mode);
 
     size_t size_z = 0;
     if (get_array_size_from_shape(&size_z, 2U, shape_z) != OK) {
@@ -1100,14 +1098,11 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     CSN_ARRAY *array_f = NULL;
     CSN_ARRAY *array_t = NULL;
     CSN_ARRAY *array_z = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_f, &p->k_data_f, NULL,
-                              1U, shape_f, shape_f[0], CSN_REAL, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_f, &p->k_data_f, NULL, 1U, shape_f, shape_f[0], CSN_REAL, err);
     if (res != OK) goto done;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_t, &p->k_data_t, NULL,
-                              1U, shape_t, shape_t[0], CSN_REAL, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_t, &p->k_data_t, NULL, 1U, shape_t, shape_t[0], CSN_REAL, err);
     if (res != OK) goto done;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_z, &p->k_data_z, NULL,
-                              2U, shape_z, size_z, CSN_COMPLEX, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_z, &p->k_data_z, NULL, 2U, shape_z, size_z, CSN_COMPLEX, err);
     if (res != OK) goto done;
     p->array_f = array_f;
     p->array_t = array_t;
@@ -1117,9 +1112,7 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     const double *win_buffer = (const double *) p->window.scratch;
     get_fftfreqs(array_f, sr, (uint32_t) fft_size, fft_mode);
     get_timevec(array_t, sr, (double) fft_size, (double) overlap_size);
-    stft_assign_value(csound, fft_setup, array_z, source_arr, temp_buffer, win_buffer,
-                      (uint32_t) fft_size, (uint32_t) overlap_size,
-                      work_size, out_size, fft_mode);
+    stft_assign_value(csound, fft_setup, array_z, source_arr, temp_buffer, win_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, fft_mode);
 
     SET_FROM_KDATA_END_WITH_ID(p->k_data_f, p->handle_f, p->array_f->shape, p->array_f->ndim, CSN_REAL);
     SET_FROM_KDATA_END_WITH_ID(p->k_data_t, p->handle_t, p->array_t->shape, p->array_t->ndim, CSN_REAL);
@@ -1180,32 +1173,26 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
         }
     }
 
-    CSN_FFT_MODE ifft_mode = source_arr->shape[0] == (uint32_t) fft_size / 2U + 1U
-        ? CSNIRFFT : CSNIFFT;
+    CSN_FFT_MODE ifft_mode = source_arr->shape[0] == (uint32_t) fft_size / 2U + 1U ? CSNIRFFT : CSNIFFT;
     ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
     uint32_t shape_t[CSN_MAX_DIMS] = {0};
     uint32_t shape_x[CSN_MAX_DIMS] = {0};
     size_t out_size = 0;
     size_t work_size = 0;
-    res = istft_assign_layout(csound, &p->h, &out_size, &work_size,
-                              shape_t, shape_x, source_arr,
-                              (uint32_t) fft_size, (uint32_t) overlap_size, ifft_mode);
+    res = istft_assign_layout(csound, &p->h, &out_size, &work_size, shape_t, shape_x, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, ifft_mode);
     if (res != OK) goto done;
 
     CSN_ARRAY *array_t = NULL;
     CSN_ARRAY *array_x = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_t, &p->k_data_t, NULL,
-                              1U, shape_t, shape_t[0], CSN_REAL, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_t, &p->k_data_t, NULL, 1U, shape_t, shape_t[0], CSN_REAL, err);
     if (res != OK) goto done;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_x, &p->k_data_x, NULL,
-                              1U, shape_x, shape_x[0], otype, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_x, &p->k_data_x, NULL, 1U, shape_x, shape_x[0], otype, err);
     if (res != OK) goto done;
     p->array_t = array_t;
     p->array_x = array_x;
 
     if (p->window_sum.scratch_capacity < array_x->size) {
-        double *grown = csound->ReAlloc(csound, p->window_sum.scratch,
-                                        sizeof(double) * array_x->size);
+        double *grown = csound->ReAlloc(csound, p->window_sum.scratch, sizeof(double) * array_x->size);
         if (grown == NULL) {
             res = csn_locked_perf_error(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
             goto done;
@@ -1219,12 +1206,9 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     double *winsum_buffer = (double *) p->window_sum.scratch;
     memset(array_x->data, 0, sizeof(double) * array_x->size * (size_t) array_x->itype);
     memset(winsum_buffer, 0, sizeof(double) * array_x->size);
-    get_window_function_sum(winsum_buffer, win_buffer, source_arr->shape[1],
-                            (uint32_t) fft_size, (uint32_t) overlap_size);
+    get_window_function_sum(winsum_buffer, win_buffer, source_arr->shape[1], (uint32_t) fft_size, (uint32_t) overlap_size);
     get_timesamples(array_t, sr);
-    istft_assign_value(csound, ifft_setup, array_x, source_arr, temp_buffer,
-                       win_buffer, winsum_buffer, (uint32_t) fft_size,
-                       (uint32_t) overlap_size, work_size, out_size, ifft_mode);
+    istft_assign_value(csound, ifft_setup, array_x, source_arr, temp_buffer, win_buffer, winsum_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, ifft_mode);
 
     SET_FROM_KDATA_END_WITH_ID(p->k_data_t, p->handle_t, p->array_t->shape, p->array_t->ndim, CSN_REAL);
     SET_FROM_KDATA_END_WITH_ID(p->k_data_x, p->handle_x, p->array_x->shape, p->array_x->ndim, p->array_x->itype);
@@ -2096,15 +2080,13 @@ static int32_t csnarray_fft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE 
     }
 
     CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL,
-                              2U, new_shape, output_size, CSN_COMPLEX, NULL);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, 2U, new_shape, output_size, CSN_COMPLEX, NULL);
     if (res != OK) goto done;
     p->array = fft_buffer;
 
     MYFLT *col_temp_buffer = (MYFLT *) p->col_buffer.scratch;
     MYFLT *row_temp_buffer = (MYFLT *) p->row_buffer.scratch;
-    memset(p->intermediate.data, 0,
-           sizeof(double) * p->intermediate.size * (size_t) CSN_COMPLEX);
+    memset(p->intermediate.data, 0, sizeof(double) * p->intermediate.size * (size_t) CSN_COMPLEX);
     fft2_assign_value(csound, cols_fft_setup, &p->intermediate, source_arr, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
     fft2_assign_value(csound, NULL, fft_buffer, &p->intermediate, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNFFT);
 
@@ -2166,15 +2148,13 @@ static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE
 
     ITEM_TYPE otype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
     CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL,
-                              2U, new_shape, output_size, otype, NULL);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, 2U, new_shape, output_size, otype, NULL);
     if (res != OK) goto done;
     p->array = fft_buffer;
 
     MYFLT *col_temp_buffer = (MYFLT *) p->col_buffer.scratch;
     MYFLT *row_temp_buffer = (MYFLT *) p->row_buffer.scratch;
-    memset(p->intermediate.data, 0,
-           sizeof(double) * p->intermediate.size * (size_t) CSN_COMPLEX);
+    memset(p->intermediate.data, 0, sizeof(double) * p->intermediate.size * (size_t) CSN_COMPLEX);
     ifft2_assign_value(csound, NULL, &p->intermediate, source_arr, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNIFFT);
     ifft2_assign_value(csound, cols_fft_setup, fft_buffer, &p->intermediate, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
 

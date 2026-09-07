@@ -28,6 +28,23 @@ This constraint is also what keeps the ring buffer safe: with `ihop >= ksmps` an
 `ihop <= ifsize` the buffer is necessarily at least one frame plus one control
 period long, and the writer cannot overtake the reader within a period.
 
+### Feeding the FFT family
+
+`csnsnap` is the audio adapter for the array FFT opcodes. The FFT length is the
+frame size, not `ksmps`, and `kready` is passed directly to the transform so it
+runs once per completed frame:
+
+```csound
+frame:CsnArr, kready = csnsnap(asig, 1024, 256)
+spectrum:CsnArr = csnrfft(frame, 1024, -1, kready)
+magnitude:CsnArr = csnabs(spectrum, kready)
+```
+
+With the default `irt=1`, `frame` is already marked as a real-time path and the
+mark is inherited by `spectrum` and `magnitude`. Calling
+[csnrtlock](csnrtlock.md) again is unnecessary. Because all three shapes are
+fixed at initialization, the chain requires no performance-time reallocation.
+
 ## Syntax
 
 ```csound
@@ -103,6 +120,8 @@ i 1 0 0.01
 
 * [csnstream](csnstream.md)
 * [csnfromaudio](csnfromaudio.md)
+* [csnrfft](csnrfft.md)
+* [csnrtlock](csnrtlock.md)
 
 ## Credits
 
