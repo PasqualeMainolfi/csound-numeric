@@ -4,8 +4,12 @@
 </CsOptions>
 <CsInstruments>
 
+; -----------------------------------------------------------------------------
+; csnwhere.csd
+;
 ; A comparison builds the mask, csnwhere spends it: every element above the
 ; threshold keeps its value, the others are floored to a constant.
+; -----------------------------------------------------------------------------
 
 sr = 44100
 ksmps = 32
@@ -19,6 +23,7 @@ instr 1
     kept_out:i[]  = csntoarray(kept)
     prints("gated  = %g %g %g %g\n", kept_out[0], kept_out[1], kept_out[2], kept_out[3])
 
+    ; two arrays: pick from the loud one or the quiet one, position by position
     quiet:CsnArr  = csnmul(sig, 0.1)
     mixed:CsnArr  = csnwhere(gate, sig, quiet)
     mixed_out:i[] = csntoarray(mixed)

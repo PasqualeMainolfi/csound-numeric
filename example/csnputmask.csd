@@ -4,8 +4,12 @@
 </CsOptions>
 <CsInstruments>
 
-; The mask array is spent in place: its 1/0 pattern is replaced by the values
-; it selects, with no second handle allocated.
+; -----------------------------------------------------------------------------
+; csnputmask.csd
+;
+; The mask array is spent in place: the 1.0 and 0.0 pattern is replaced by the
+; values it was selecting, with no second handle allocated.
+; -----------------------------------------------------------------------------
 
 sr = 44100
 ksmps = 32
@@ -14,8 +18,8 @@ ksmps = 32
 instr 1
     sig:CsnArr    = csnfromarray(array(0.2, 0.9, 0.4, 1.6))
     gate:CsnArr   = csngt(sig, 0.5)
-    loud:CsnArr   = csnfromarray(array(1, 1, 1, 1))
 
+    loud:CsnArr   = csnfromarray(array(1, 1, 1, 1))
     csnputmask gate, loud, -1
 
     gate_out:i[]  = csntoarray(gate)

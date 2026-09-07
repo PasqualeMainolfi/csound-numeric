@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.0] - 2026-09-07
+
+- Add normalized set arrays and the complete set API (*csnlikeset*, *csnunlikeset*, *csnsetinsert*, *csnsetremove*, *csnsetcontains*, *csnsetunion*, *csnsetintersect*, *csnsetdiff*, *csnsetsymdiff*, *csnsetissubset*, *csnsetissuperset*, *csnsetisdisjoint*, *csnsetisequal*)
+- Add one- and two-dimensional Fourier transforms, STFT/ISTFT, frequency-coordinate arrays, and FFT shift operations (*csnfft*, *csnrfft*, *csnifft*, *csnirfft*, *csnfft2*, *csnrfft2*, *csnifft2*, *csnirfft2*, *csnstft*, *csnistft*, *csnfftfreq*, *csnrfftfreq*, *csnfftshift*, *csnifftshift*)
+- Add explicit real-time unlocking with *csnrtunlock* and triggered k-rate forms for *csnrtlock* and *csnrtunlock*
+- Fix k-rate Fourier output versioning and dynamic layouts, ISTFT overlap-add accumulation, and real-time lock propagation
+- Add opcode reference pages, runnable examples, and regression coverage for the new APIs
+
 ## [0.0.4] - 2026-09-04
 
 - Add random integer generation and in-place shuffling (*csnrandint*, *csnshuffle*)

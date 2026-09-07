@@ -198,6 +198,19 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnargsort](csnargsort.md) - the coordinates that would sort the array
 - [csnunique](csnunique.md) - the distinct values, in order
 - [csnargunique](csnargunique.md) - coordinates of the first occurrence of each value
+- [csnlikeset](csnlikeset.md) - normalizes an array as a sorted, duplicate-free set
+- [csnunlikeset](csnunlikeset.md) - removes the set classification without changing values
+- [csnsetinsert](csnsetinsert.md) - inserts a member while preserving the set invariant
+- [csnsetremove](csnsetremove.md) - removes a member while preserving the set invariant
+- [csnsetcontains](csnsetcontains.md) - tests membership
+- [csnsetunion](csnsetunion.md) - values belonging to either set
+- [csnsetintersect](csnsetintersect.md) - values common to both sets
+- [csnsetdiff](csnsetdiff.md) - values in the first set but not the second
+- [csnsetsymdiff](csnsetsymdiff.md) - values belonging to exactly one set
+- [csnsetissubset](csnsetissubset.md) - tests whether the first set is a subset
+- [csnsetissuperset](csnsetissuperset.md) - tests whether the first set is a superset
+- [csnsetisdisjoint](csnsetisdisjoint.md) - tests whether two sets share no value
+- [csnsetisequal](csnsetisequal.md) - tests whether two sets have the same members
 
 ## Linear algebra and geometry
 

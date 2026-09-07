@@ -1,14 +1,14 @@
-# csnum — NumPy-style array opcodes for Csound 7
+# csnum: numpy-style array opcodes for Csound 7
 
-**NOTE:** *csound-numeric is currently in the testing phase. 
-Bug reports, feedback, suggestions, and reports of unexpected behavior 
-are very welcome and greatly appreciated, as they help improve the 
-library and make it more stable and reliable.*  
+**NOTE:** *csound-numeric is currently in the testing phase.
+Bug reports, feedback, suggestions, and reports of unexpected behavior
+are very welcome and greatly appreciated, as they help improve the
+library and make it more stable and reliable.*
 
-`csnum` is a Csound 7 plugin that brings a NumPy-shaped array vocabulary into the
+`csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, interpolation and resampling, 189 opcodes across 576
+primitives, interpolation and resampling, 202 opcodes across 602
 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
@@ -25,8 +25,8 @@ Operations with no meaning over the complex field, ordering comparisons,
 sorting, rounding, the window functions, interpolation, are real-only and say
 so when handed a complex array.
 
-There are **no external dependencies**. The plugin builds from three C11
-translation units against the Csound plugin headers and the C standard library, 
+There are **no external dependencies**. The plugin builds from five C11
+translation units against the Csound plugin headers and the C standard library,
 nothing else is linked in.
 
 ---
@@ -153,10 +153,22 @@ using binary search on invalid data. Pass the modified array through
 the set classification when ordinary array semantics are intended. See
 [Set arrays and their invariant](doc/set-arrays.md) for the complete contract.
 
+```csound
+a:CsnArr = csnlikeset(csnfromarray(array(3, 1, 2, 2)))
+b:CsnArr = csnlikeset(csnfromarray(array(2, 4)))
+both:CsnArr = csnsetunion(a, b)       // [1, 2, 3, 4]
+csnsetinsert both, 5                  // [1, 2, 3, 4, 5]
+has3:i = csnsetcontains(both, 3)      // 1
+```
+
+The API also provides intersection, difference, symmetric difference, removal,
+and subset, superset, disjointness, and equality predicates. Each opcode has a
+runnable example in the [set-operation reference](doc/README.md#sorting-and-sets).
+
 ### Printing arrays
 
 `csnprint` writes the shape, element type and values directly to Csound's message
-stream. Values use five significant digits and nested arrays follow NumPy's
+stream. Values use five significant digits and nested arrays follow numpy's
 bracket and indentation style:
 
 ```csound
@@ -185,7 +197,9 @@ Grouped by what they do, rather than listed one by one. The full list, with a
 one-line description and the rates each opcode supports, is in
 [`OPS_INDEX.md`](OPS_INDEX.md); one page per opcode, with every overload, the
 meaning of each argument and a runnable example, is under
-[`doc/`](doc/README.md). The examples are also standalone `.csd` files in
+[`doc/`](doc/README.md). Coming from NumPy, the table in
+[NumPy correspondence](#numpy-correspondence) maps every opcode to the call it
+stands for. The examples are also standalone `.csd` files in
 [`example/`](example), and all of them run:
 
 ```sh
@@ -196,7 +210,7 @@ csound --opcode-dir=build example/csnsort.csd
   shaped like an array you already have, `arange`, `linspace`, `logspace`,
   `geomspace`, seeded random arrays.
 - **Conversion, lifetime and inspection**: to and from Csound arrays and
-  function tables, copy, free, type and shape queries, and NumPy-style printing.
+  function tables, copy, free, type and shape queries, and numpy-style printing.
 - **Shape and layout**: reshape, flatten, transpose, flip, roll, pad, truncate,
   head, resize, concat, insert, remove, push, pop.
 - **Indexing**: element get/set, slices, gathers, and the index-returning
@@ -257,6 +271,315 @@ csound --opcode-dir=build example/csnsort.csd
   selected branch. Both have init and triggered k-rate forms. The state is
   inherited when a derived array is created, so changing a source does not
   retroactively change existing descendants.
+
+---
+
+## NumPy correspondence
+
+The names follow NumPy wherever the operation is the same one. The table below
+maps every opcode to the NumPy call it stands for, family by family, so a
+function you already know can be found under its Csound name. The mapping is by
+*intent*, not by signature: csnum opcodes exchange handles, take their shape
+arguments as Csound i-arrays, and have no keyword arguments, so the NumPy column
+is what the opcode computes, not a transliteration of its call.
+
+Four differences apply throughout and are not repeated in every row:
+
+- **Axis.** The optional axis defaults to `-1`, meaning "read the whole array
+  flat". NumPy spells that `axis=None`; NumPy's own `-1` means the last axis.
+- **Booleans.** csnum has no boolean element type. The comparisons, the `is*`
+  predicates and the logical operations return a real array of `0` and `1` where
+  NumPy returns `bool_`, and any of them is accepted as a mask.
+- **Index results.** `csnargmin`, `csnargmax`, `csnargsort`, `csnargwhere` and
+  friends return **coordinates**, one row per result with one column per
+  dimension, where NumPy returns flat indices unless you call
+  `np.unravel_index`.
+- **Broadcasting.** There is none. Binary opcodes take two arrays of the same
+  shape, or an array and a scalar. `csnstack` likewise requires equal shapes.
+
+An em dash in the NumPy column means there is no NumPy counterpart; a `scipy.`
+entry means the operation lives outside NumPy proper.
+
+### Creation
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnempty` | `np.empty` | Reserves capacity: size is 0, not the reserved extent. `csnpush` fills it. |
+| `csnzeros` | `np.zeros` | |
+| `csnones` | `np.ones` | |
+| `csnfull` | `np.full` | |
+| `csnlike` | `np.full_like` | Also covers `zeros_like` / `ones_like` via the fill value. |
+| `csnidentity` | `np.identity` | |
+| `csnarange` | `np.arange` | |
+| `csnlinspace` | `np.linspace` | |
+| `csnlogspace` | `np.logspace` | |
+| `csngeomspace` | `np.geomspace` | |
+| `csnrand` | `np.random.uniform` | |
+| `csnrandint` | `np.random.randint` | |
+| `csnseed` | `np.random.seed` | |
+
+### Conversion, lifetime and queries
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnfromarray` | `np.array` | From a Csound `i[]` / `k[]`. |
+| `csntoarray` | `ndarray.tolist` | The only way back out to a Csound array. |
+| `csnfromftable` | — | Csound function table in. |
+| `csntoftable` | — | Csound function table out. |
+| `csncopy` | `np.copy` | |
+| `csnfree` | `del` | Explicit release; only needed for `@global` handles. |
+| `csntype` | `ndarray.dtype` | `0` real, `1` complex. |
+| `csndims` | `ndarray.ndim` | |
+| `csnsize` | `ndarray.size` | |
+| `csnshape` | `ndarray.shape` | |
+| `csnisempty` | `a.size == 0` | |
+| `csnprint` | `print(a)` | Same bracket and indentation layout, same 1000-element summarization. |
+
+### Persistence
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnsave` | `np.save` | Own `.csn` container, not `.npy`. |
+| `csnload` | `np.load` | |
+
+### Shape and layout
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnreshape` | `np.reshape` | |
+| `csnflatten` | `np.ravel` | |
+| `csntranspose` | `np.transpose` | Layout change, no copy. |
+| `csnflip` | `np.flip` | |
+| `csnroll` | `np.roll` | |
+| `csnreverse` | `a[::-1]` | Flat element order. |
+| `csnpad` | `np.pad` | Constant fill only. |
+| `csntruncate` | `a[:n]` | One axis or every axis. |
+| `csnhead` | `a[:n]` | 1-D only. |
+| `csnresize` | `ndarray.resize` | Zero-fills what it grows, like the method. `np.resize` repeats instead. |
+| `csnconcat` | `np.concatenate` | |
+| `csnstack` | `np.stack` | |
+| `csninsert` | `np.insert` | |
+| `csnremove` | `np.delete` | |
+| `csnpush` | `np.append` | In place, into reserved capacity. |
+| `csnpop` | `a[-1]` + `np.delete` | Returns the element and shortens the array. |
+
+### Indexing and selection
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnget` | `a[i, j]` | Coordinates come in as an i-array. |
+| `csnset` | `a[i, j] = v` | |
+| `csngetrow` | `a[i, :]` | |
+| `csngetcol` | `a[:, j]` | |
+| `csngetslice` | `a[start:stop:step]` | Along one axis. |
+| `csnsetslice` | `a[start:stop:step] = v` | |
+| `csntake` | `np.take` | Drops the indexed axis. |
+| `csnwhere` | `np.where` | |
+| `csnputmask` | `np.putmask` | |
+| `csncompress` | `np.compress` | |
+| `csnselect` | `np.extract` | `a[mask]`, flattened. |
+| `csnargwhere` | `np.argwhere(np.isin(a, v))` | Coordinates of the elements matching a value array. |
+| `csnargnonzero` | `np.argwhere(a)` | |
+| `csnargisnan` | `np.argwhere(np.isnan(a))` | |
+
+### Elementwise arithmetic
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnadd` | `np.add` | |
+| `csnsubtract` | `np.subtract` | |
+| `csnmul` | `np.multiply` | |
+| `csndiv` | `np.divide` | |
+| `csnpow` | `np.power` | |
+| `csnlog` | `np.log(a) / np.log(base)` | Arbitrary base in one call. |
+| `csndivmod` | `np.divmod` | Two handles out. |
+| `csnhypot` | `np.hypot` | |
+| `csnminimum` | `np.minimum` | |
+| `csnmaximum` | `np.maximum` | |
+| `csnclip` | `np.clip` | |
+| `csnabs` | `np.abs` | Magnitude for complex. |
+| `csnsign` | `np.sign` | |
+| `csnfloor` | `np.floor` | |
+| `csnceil` | `np.ceil` | |
+| `csnround` | `np.round` | |
+
+### Transcendental functions
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnexp` | `np.exp` | |
+| `csnsqrt` | `np.sqrt` | |
+| `csncbrt` | `np.cbrt` | |
+| `csnsin` `csncos` `csntan` | `np.sin` `np.cos` `np.tan` | |
+| `csnasin` `csnacos` `csnatan` | `np.arcsin` `np.arccos` `np.arctan` | |
+| `csnsinh` `csncosh` `csntanh` | `np.sinh` `np.cosh` `np.tanh` | |
+| `csnasinh` `csnacosh` `csnatanh` | `np.arcsinh` `np.arccosh` `np.arctanh` | |
+
+### Angles and phase
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csndegtorad` | `np.deg2rad` | |
+| `csnradtodeg` | `np.rad2deg` | |
+| `csnatan2` | `np.arctan2` | |
+| `csnwrap` | `np.mod` | Folds into one period centred on zero, `[-period/2, period/2)`. |
+| `csnunwrap` | `np.unwrap` | |
+
+### Comparison and logic
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csngt` | `np.greater` | 0/1 real array out. |
+| `csnlt` | `np.less` | |
+| `csnge` | `np.greater_equal` | |
+| `csnle` | `np.less_equal` | |
+| `csneq` | `np.equal` | |
+| `csnne` | `np.not_equal` | |
+| `csnisnan` | `np.isnan` | |
+| `csnisinf` | `np.isinf` | |
+| `csnisfin` | `np.isfinite` | |
+| `csnlogicand` | `np.logical_and` | |
+| `csnlogicor` | `np.logical_or` | |
+| `csnlogicnot` | `np.logical_not` | |
+| `csnall` | `np.all` | |
+| `csnany` | `np.any` | |
+| `csncnteq` | `np.count_nonzero(a == v)` | |
+| `csncntnz` | `np.count_nonzero` | |
+| `csncntnan` | `np.count_nonzero(np.isnan(a))` | |
+
+### Reductions and statistics
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnsum` | `np.sum` | |
+| `csnprod` | `np.prod` | |
+| `csnsub` | `np.subtract.reduce` | Every element subtracted from the first. |
+| `csnmean` | `np.mean` | |
+| `csnmin` | `np.min` | |
+| `csnmax` | `np.max` | |
+| `csnmedian` | `np.median` | |
+| `csnrms` | `np.sqrt(np.mean(a ** 2))` | |
+| `csnstd` | `np.std` | |
+| `csnvar` | `np.var` | |
+| `csnpercentile` | `np.percentile` | |
+| `csnquantile` | `np.quantile` | |
+| `csnargmin` | `np.argmin` | Coordinates, not a flat index. |
+| `csnargmax` | `np.argmax` | Coordinates, not a flat index. |
+| `csncumsum` | `np.cumsum` | |
+| `csncumprod` | `np.cumprod` | |
+| `csndiff` | `np.diff` | |
+| `csngrad` | `np.gradient` | |
+| `csnmovmean` | — | `pandas.Series.rolling(w).mean()`; in NumPy, `np.convolve` with a box. |
+| `csnmovmedian` | — | `rolling(w).median()`. |
+| `csnmovmin` | — | `rolling(w).min()`. |
+| `csnmovmax` | — | `rolling(w).max()`. |
+| `csnmovstd` | — | `rolling(w).std()`. |
+| `csnmovvar` | — | `rolling(w).var()`. |
+
+### Sorting and sets
+
+NumPy's set functions take any array and sort it on the way through. csnum
+splits that in two: `csnlikeset` normalizes once and marks the array, and the
+set operations then require the mark, so they can rely on binary search instead
+of re-sorting on every k-rate pass.
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnshuffle` | `np.random.shuffle` | In place. |
+| `csnsort` | `np.sort` | |
+| `csnargsort` | `np.argsort` | Coordinates. |
+| `csnunique` | `np.unique` | |
+| `csnargunique` | `np.unique(a, return_index=True)` | |
+| `csnlikeset` | `np.unique` | Plus the set mark the operations below require. |
+| `csnunlikeset` | — | Drops the mark, keeps the values. |
+| `csnsetinsert` | — | In place, invariant preserving. |
+| `csnsetremove` | — | In place, invariant preserving. |
+| `csnsetcontains` | `np.isin` | Single value. |
+| `csnsetunion` | `np.union1d` | |
+| `csnsetintersect` | `np.intersect1d` | |
+| `csnsetdiff` | `np.setdiff1d` | |
+| `csnsetsymdiff` | `np.setxor1d` | |
+| `csnsetissubset` | `np.isin(a, b).all()` | |
+| `csnsetissuperset` | `np.isin(b, a).all()` | |
+| `csnsetisdisjoint` | `np.intersect1d(a, b).size == 0` | |
+| `csnsetisequal` | `np.array_equal(a, b)` | On normalized sets. |
+
+### Linear algebra and geometry
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csndot` | `np.dot` | |
+| `csninner` | `np.inner` | |
+| `csnouter` | `np.outer` | |
+| `csnmatmul` | `np.matmul` | |
+| `csntrace` | `np.trace` | |
+| `csndiag` | `np.diag` | Both directions, as in NumPy. |
+| `csnnorm` | `np.linalg.norm` | |
+| `csnnormalize` | `a / np.linalg.norm(a, ord)` | Default order is the sum of magnitudes. |
+| `csncross` | `np.cross` | 3-element vectors. |
+| `csndist` | `np.linalg.norm(a - b, ord)` | Minkowski distance. |
+| `csnpairdist` | `np.abs(a - b)` | Elementwise, same shape. |
+| `csnangledist` | — | `arccos(dot(a, b) / (norm(a) * norm(b)))`. |
+| `csnproject` | — | `dot(a, b) / dot(b, b) * b`. |
+| `csnreject` | — | `a - project(a, b)`. |
+| `csnreflect` | — | `a - 2 * project(a, b)`. |
+
+### Complex arrays
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnreal` | `np.real` | |
+| `csnimag` | `np.imag` | |
+| `csnangle` | `np.angle` | |
+| `csnconj` | `np.conj` | |
+| `csntocomplex` | `a.astype(complex)` | |
+| `csntoreal` | `a.real` | Keeps the real parts. |
+
+### Fourier analysis
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnfft` | `np.fft.fft` | Length is a fixed i-rate power of two. |
+| `csnifft` | `np.fft.ifft` | |
+| `csnrfft` | `np.fft.rfft` | |
+| `csnirfft` | `np.fft.irfft` | |
+| `csnfft2` | `np.fft.fft2` | |
+| `csnifft2` | `np.fft.ifft2` | |
+| `csnrfft2` | `np.fft.rfft2` | |
+| `csnirfft2` | `np.fft.irfft2` | |
+| `csnfftfreq` | `np.fft.fftfreq` | |
+| `csnrfftfreq` | `np.fft.rfftfreq` | |
+| `csnfftshift` | `np.fft.fftshift` | |
+| `csnifftshift` | `np.fft.ifftshift` | |
+| `csnstft` | `scipy.signal.stft` | Frames and their coordinates. |
+| `csnistft` | `scipy.signal.istft` | |
+
+### Interpolation, resampling and windows
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csninterp` | `np.interp` | Linear matches; nearest / previous / next / PCHIP are `scipy.interpolate`. Boundary policy is explicit rather than a fill value. |
+| `csnresample` | `scipy.signal.resample` | Interpolating resample along one axis, not Fourier. |
+| `csnhanning` | `np.hanning` | |
+| `csnhamming` | `np.hamming` | |
+| `csnbartlett` | `np.bartlett` | |
+| `csnblackman` | `np.blackman` | |
+| `csnkaiser` | `np.kaiser` | |
+
+### No NumPy counterpart
+
+These exist because the arrays live inside a running orchestra, which is the one
+thing NumPy never has to deal with:
+
+| csnum | What it does |
+| --- | --- |
+| `csnfromaudio` / `csntoaudio` | One control period between an audio signal and an array. |
+| `csnpack` / `csnunpack` | A whole `a[]` as a `channels x ksmps` matrix, and back. |
+| `csnsnap` / `csnstream` | Frames of a size independent of `ksmps`, and their overlap-add. |
+| `csnrtlock` / `csnrtunlock` | Mark a handle as a realtime path, forbidding reallocation at perf time. |
+| `csnfromftable` / `csntoftable` | Csound function table in and out. |
+| `csnfree` | Explicit release of a `@global` handle. |
+| `csnunlikeset` | Drops the set classification. |
 
 ---
 

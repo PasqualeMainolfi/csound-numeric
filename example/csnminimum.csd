@@ -4,6 +4,12 @@
 </CsOptions>
 <CsInstruments>
 
+; -----------------------------------------------------------------------------
+; csnminimum.csd
+;
+; Elementwise against another array, then against a scalar ceiling.
+; -----------------------------------------------------------------------------
+
 sr = 44100
 ksmps = 32
 0dbfs = 1

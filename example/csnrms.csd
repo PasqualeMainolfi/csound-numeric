@@ -4,6 +4,13 @@
 </CsOptions>
 <CsInstruments>
 
+; -----------------------------------------------------------------------------
+; csnrms.csd
+;
+; The level of a block, then the same matrix reduced along both axes: the
+; divisor follows the axis being folded, so the two answers differ.
+; -----------------------------------------------------------------------------
+
 sr = 44100
 ksmps = 32
 0dbfs = 1
@@ -17,10 +24,12 @@ instr 1
     flat:CsnArr   = csnfromarray(array(1, 2, 3, 4, 5, 6))
     mat:CsnArr    = csnreshape(flat, shape)
 
+    ; axis 1: three elements per row, result is 2 values
     rows:CsnArr   = csnrms(mat, 1)
     rows_out:i[]  = csntoarray(rows)
     prints("per row  = %.4f %.4f\n", rows_out[0], rows_out[1])
 
+    ; axis 0: two elements per column, result is 3 values
     cols:CsnArr   = csnrms(mat, 0)
     cols_out:i[]  = csntoarray(cols)
     prints("per col  = %.4f %.4f %.4f\n", cols_out[0], cols_out[1], cols_out[2])

@@ -4,7 +4,12 @@
 </CsOptions>
 <CsInstruments>
 
-; Angles of four points, then the two scalar orders.
+; -----------------------------------------------------------------------------
+; csnatan2.csd
+;
+; Angles of four points, then the two scalar orders, which are not the same
+; angle: atan2(y, 2) is measured from the x axis, atan2(2, y) from the y axis.
+; -----------------------------------------------------------------------------
 
 sr = 44100
 ksmps = 32
