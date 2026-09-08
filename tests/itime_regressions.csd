@@ -1768,6 +1768,132 @@ instr 13
 
     csnrtlock(iShiftSource)
     csnrtunlock(iShiftSource)
+
+    ; ------------------------------------------------------------------
+    ; Convolution and correlation. Every expected value here is what NumPy
+    ; answers for the same operands: np.convolve / np.correlate for the 1-D
+    ; forms, scipy.signal.convolve / correlate for the N-D ones. The two
+    ; differ by a reversed, conjugated kernel, so the pair is checked
+    ; together on each mode rather than separately.
+    ; ------------------------------------------------------------------
+    iCcX:CsnArr = csnfromarray(array(1, 2, 3, 4, 5))
+    iCcH:CsnArr = csnfromarray(array(1, 0.5, 0.25))
+
+    iCcFull:CsnArr = csnconvolve1d(iCcX, iCcH, 0)
+    iCcFullValues[] = csntoarray(iCcFull)
+    assert(csnsize(iCcFull) == 7)
+    assert(abs(iCcFullValues[0] - 1) < 1e-12)
+    assert(abs(iCcFullValues[1] - 2.5) < 1e-12)
+    assert(abs(iCcFullValues[2] - 4.25) < 1e-12)
+    assert(abs(iCcFullValues[3] - 6) < 1e-12)
+    assert(abs(iCcFullValues[4] - 7.75) < 1e-12)
+    assert(abs(iCcFullValues[5] - 3.5) < 1e-12)
+    assert(abs(iCcFullValues[6] - 1.25) < 1e-12)
+
+    ; Correlation on the same operands: the kernel is read back to front.
+    iCrFull:CsnArr = csncorrelate1d(iCcX, iCcH, 0)
+    iCrFullValues[] = csntoarray(iCrFull)
+    assert(csnsize(iCrFull) == 7)
+    assert(abs(iCrFullValues[0] - 0.25) < 1e-12)
+    assert(abs(iCrFullValues[3] - 4.5) < 1e-12)
+    assert(abs(iCrFullValues[6] - 5) < 1e-12)
+
+    ; SAME keeps the source length, VALID only the fully overlapped part.
+    iCcSame:CsnArr = csnconvolve1d(iCcX, iCcH, 1)
+    iCcSameValues[] = csntoarray(iCcSame)
+    assert(csnsize(iCcSame) == 5)
+    assert(abs(iCcSameValues[0] - 2.5) < 1e-12)
+    assert(abs(iCcSameValues[4] - 3.5) < 1e-12)
+
+    iCcValid:CsnArr = csnconvolve1d(iCcX, iCcH, 2)
+    iCcValidValues[] = csntoarray(iCcValid)
+    assert(csnsize(iCcValid) == 3)
+    assert(abs(iCcValidValues[0] - 4.25) < 1e-12)
+    assert(abs(iCcValidValues[2] - 7.75) < 1e-12)
+
+    iCrValid:CsnArr = csncorrelate1d(iCcX, iCcH, 2)
+    iCrValidValues[] = csntoarray(iCrValid)
+    assert(csnsize(iCrValid) == 3)
+    assert(abs(iCrValidValues[0] - 2.75) < 1e-12)
+    assert(abs(iCrValidValues[2] - 6.25) < 1e-12)
+
+    ; Along an axis of a matrix: each lane is convolved on its own, and the
+    ; destination lane is the one the source lane came from. Getting that
+    ; mapping wrong leaves the other lanes at zero.
+    iCcMatShape[] = fillarray(2, 3)
+    iCcMat:CsnArr = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), iCcMatShape)
+    iCcOnes:CsnArr = csnfromarray(array(1, 1))
+
+    iCcAxis0:CsnArr = csnconvolve1d(iCcMat, iCcOnes, 0, 0)
+    iCcAxis0Shape[] = csnshape(iCcAxis0)
+    assert(iCcAxis0Shape[0] == 3 && iCcAxis0Shape[1] == 3)
+    iCcAxis0Values[][] = csntoarray(iCcAxis0)
+    assert(abs(iCcAxis0Values[0][0] - 1) < 1e-12)
+    assert(abs(iCcAxis0Values[0][2] - 3) < 1e-12)
+    assert(abs(iCcAxis0Values[1][0] - 5) < 1e-12)
+    assert(abs(iCcAxis0Values[1][2] - 9) < 1e-12)
+    assert(abs(iCcAxis0Values[2][0] - 4) < 1e-12)
+    assert(abs(iCcAxis0Values[2][2] - 6) < 1e-12)
+
+    iCcAxis1:CsnArr = csnconvolve1d(iCcMat, iCcOnes, 0, 1)
+    iCcAxis1Shape[] = csnshape(iCcAxis1)
+    assert(iCcAxis1Shape[0] == 2 && iCcAxis1Shape[1] == 4)
+    iCcAxis1Values[][] = csntoarray(iCcAxis1)
+    assert(abs(iCcAxis1Values[0][1] - 3) < 1e-12)
+    assert(abs(iCcAxis1Values[1][2] - 11) < 1e-12)
+
+    ; N-D: the kernel is shaped like the source and flips on every axis at
+    ; once, so convolution and correlation disagree in both directions.
+    iNdShape[] = fillarray(3, 3)
+    iNdKernelShape[] = fillarray(2, 2)
+    iNdX:CsnArr = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6, 7, 8, 9)), iNdShape)
+    iNdH:CsnArr = csnreshape(csnfromarray(array(1, 2, 3, 4)), iNdKernelShape)
+
+    iNdFull:CsnArr = csnconvolve(iNdX, iNdH, 0)
+    iNdFullShape[] = csnshape(iNdFull)
+    assert(iNdFullShape[0] == 4 && iNdFullShape[1] == 4)
+    iNdFullValues[][] = csntoarray(iNdFull)
+    assert(abs(iNdFullValues[0][0] - 1) < 1e-12)
+    assert(abs(iNdFullValues[1][1] - 23) < 1e-12)
+    assert(abs(iNdFullValues[2][2] - 63) < 1e-12)
+    assert(abs(iNdFullValues[3][3] - 36) < 1e-12)
+
+    iNdValid:CsnArr = csnconvolve(iNdX, iNdH, 2)
+    iNdValidShape[] = csnshape(iNdValid)
+    assert(iNdValidShape[0] == 2 && iNdValidShape[1] == 2)
+    iNdValidValues[][] = csntoarray(iNdValid)
+    assert(abs(iNdValidValues[0][0] - 23) < 1e-12)
+    assert(abs(iNdValidValues[1][1] - 63) < 1e-12)
+
+    iNdCorr:CsnArr = csncorrelate(iNdX, iNdH, 0)
+    iNdCorrValues[][] = csntoarray(iNdCorr)
+    assert(abs(iNdCorrValues[0][0] - 4) < 1e-12)
+    assert(abs(iNdCorrValues[1][1] - 37) < 1e-12)
+    assert(abs(iNdCorrValues[3][3] - 9) < 1e-12)
+
+    ; Complex operands: correlation conjugates the kernel, as NumPy's does.
+    JUnit:Complex = init(0, 1, 0)
+    iCcIndex0[] = fillarray(0)
+    iCcZRe:CsnArr = csnfromarray(array(3, 0, -1))
+    iCcZIm:CsnArr = csnfromarray(array(4, 2, 0))
+    iCcZ:CsnArr = csnadd(csntocomplex(iCcZRe), csnmul(csntocomplex(iCcZIm), JUnit))
+    iCcKRe:CsnArr = csnfromarray(array(1, 2))
+    iCcKIm:CsnArr = csnfromarray(array(1, -1))
+    iCcK:CsnArr = csnadd(csntocomplex(iCcKRe), csnmul(csntocomplex(iCcKIm), JUnit))
+
+    iCcZConv:CsnArr = csnconvolve1d(iCcZ, iCcK, 0)
+    CcConv0:Complex = csnget(iCcZConv, iCcIndex0)
+    iCcConv0Re = real(CcConv0)
+    iCcConv0Im = imag(CcConv0)
+    assert(abs(iCcConv0Re + 1) < 1e-12)
+    assert(abs(iCcConv0Im - 7) < 1e-12)
+
+    iCcZCorr:CsnArr = csncorrelate1d(iCcZ, iCcK, 0)
+    CcCorr0:Complex = csnget(iCcZCorr, iCcIndex0)
+    iCcCorr0Re = real(CcCorr0)
+    iCcCorr0Im = imag(CcCorr0)
+    assert(abs(iCcCorr0Re - 2) < 1e-12)
+    assert(abs(iCcCorr0Im - 11) < 1e-12)
 endin
 </CsInstruments>
 
@@ -1834,5 +1960,6 @@ e
 ; csnsetdiff csnsetsymdiff csnsetissubset csnsetissuperset csnsetisdisjoint csnsetisequal
 ; csnfft csnrfft csnifft csnirfft csnfft2 csnrfft2 csnifft2 csnirfft2 csnstft csnistft
 ; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
+; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
 ; @covers-end
 </CsoundSynthesizer>

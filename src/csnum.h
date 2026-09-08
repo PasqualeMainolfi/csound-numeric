@@ -13,7 +13,8 @@
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
 #define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
 #define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))
-#define NUMBER_OF_STFT_WINDWS 3
+#define NUMBER_OF_STFT_WINDOWS 3
+#define NUMBER_OF_EDGES_MODE 3
 
 #define SET_ARRAY_KIND(csnarr, arr_kind)                                  \
     do {                                                                  \
@@ -356,6 +357,17 @@ typedef enum {
     CSNIFFTSHIFT,
 } CSN_FFT_MODE;
 
+typedef enum {
+    EDGES_FULL = 0,
+    EDGES_SAME,
+    EDGES_VALID
+} CSN_EDGES_MODE;
+
+typedef enum {
+    CSN_CONVOLUTION = 0,
+    CSN_CORRELATION,
+} CSN_CORRCONV_MODE;
+
 typedef struct {
     void *scratch;
     size_t scratch_capacity;
@@ -391,7 +403,8 @@ typedef struct {
 typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
     uint32_t prev_axes[CSN_MAX_DIMS];
-    uint32_t prev_axis;
+    uint32_t prev_axis_u;
+    int32_t prev_axis_i;
     uint32_t prev_index;
     int32_t prev_roll_shift;
     size_t prev_size;
@@ -2027,6 +2040,26 @@ typedef struct {
     bool is_published;
 } CSN_FFTSHIFT;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+    MYFLT *arg_a; // mode for convolve1d and correlate1d
+                  // mode for convolve and correlate N-D
+    MYFLT *arg_b; // axis for convolve1d and correlate1d
+                  // trig for convolve and correlate N-D
+    MYFLT *arg_c; // trig for convolve1d and correlate1d
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_CORRCONV;
+
+
+
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
@@ -2045,7 +2078,8 @@ void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
 int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h);
 void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, double beta);
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
-
+void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
+void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
 // set op
 
@@ -2126,6 +2160,18 @@ int32_t csnarray_fftshift_k_init(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_ifftshift_k_init(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_fftshift_k(CSOUND *csound, CSN_FFTSHIFT *p);
 int32_t csnarray_ifftshift_k(CSOUND *csound, CSN_FFTSHIFT *p);
+
+int32_t csnarray_fftconvolve1d(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftcorrelate1d(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftconvolve(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftcorrelate(CSOUND *csound, CSN_CORRCONV *p);
+
+int32_t csnarray_fftcorrconv1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftcorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftcorrconv_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftconvolve_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftcorrelate_k(CSOUND *csound, CSN_CORRCONV *p);
 
 
 // a-rate
@@ -2358,6 +2404,11 @@ int32_t csnarray_atan2_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_atan2_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_shuffle(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p); // 1d convolution by axes
+int32_t csnarray_correlate1d(CSOUND *csound, CSN_CORRCONV *p); // 1d correlation by axes
+int32_t csnarray_convolve(CSOUND *csound, CSN_CORRCONV *p); // N-D convolution
+int32_t csnarray_correlate(CSOUND *csound, CSN_CORRCONV *p); // N-D correlation
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -2648,6 +2699,10 @@ int32_t csnarray_atan2_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_atan2_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_shuffle_k(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_convolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_correlate1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);

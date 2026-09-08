@@ -20,7 +20,7 @@ static inline bool IS_VALID_SR(double value) {
 }
 
 static inline bool IS_VALID_STFT_WIN(double value) {
-    return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 0.0 && value <= (double) NUMBER_OF_STFT_WINDWS;
+    return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 0.0 && value <= (double) NUMBER_OF_STFT_WINDOWS;
 }
 
 static bool IS_VALID_VALUE_GT_ZERO(double value) {
@@ -280,7 +280,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode
     p->k_data_fft.nfft = (size_t) fft_size;
     p->k_data_fft.buffer_out_size = out_size;
     p->k_data_fft.buffer_work_size = work_size;
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->is_published = false;
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -354,7 +354,7 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
     fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode);
 
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
     SET_KDATA_END(p, fft_buffer->shape, fft_buffer->ndim, CSN_COMPLEX);
@@ -426,7 +426,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mod
     p->k_data_fft.nfft = (size_t) fft_size;
     p->k_data_fft.buffer_out_size = out_size;
     p->k_data_fft.buffer_work_size = work_size;
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->is_published = false;
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -507,7 +507,7 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
     MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
     ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode);
 
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
     SET_KDATA_END(p, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
@@ -1553,7 +1553,7 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_axis = p->k_data.prev_axis == axis;
+        bool is_axis = p->k_data.prev_axis_u == axis;
         bool is_same_result = false;
         CSN_SLOT *res_slot = get_slot(reg, owned_handle);
         if (res_slot != NULL) {
@@ -1587,7 +1587,7 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
     SET_KDATA_END(p, new_shape, new_ndim, source_arr->itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->is_published = true;
 
 done:
@@ -2182,4 +2182,544 @@ int32_t csnarray_ifft2_k(CSOUND *csound, CSN_FFT2 *p) {
 
 int32_t csnarray_irfft2_k(CSOUND *csound, CSN_FFT2 *p) {
     return csnarray_ifft2_k_helper(csound, p, CSNIRFFT);
+}
+
+
+// CONVOLVE AND CORRELATE
+
+static int32_t IS_VALID_EDGES(double value) {
+    return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 0.0 && value < (double) NUMBER_OF_EDGES_MODE;
+}
+
+static void convolve_get_size_and_edges_offset(size_t *size_result, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis, CSN_EDGES_MODE mode) {
+    switch (mode) {
+        case EDGES_FULL:
+            *start_offset = 0;
+            *size_result = axis == -1 ? x->size + h->size - 1 : x->shape[axis] + h->size - 1;
+            break;
+        case EDGES_SAME:
+            *start_offset = (int64_t) ((h->size - 1) / 2);
+            *size_result = axis == -1 ? x->size : x->shape[axis];
+            break;
+        case EDGES_VALID:
+            *start_offset = (int64_t) (h->size - 1);
+            *size_result = axis == -1 ? x->size - h->size + 1 : x->shape[axis] - h->size + 1;
+            break;
+    }
+}
+
+static void convolve_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, CSN_EDGES_MODE mode) {
+    uint32_t ndim = x->ndim;
+    for (uint32_t axis = 0; axis < ndim; axis++) {
+        switch (mode) {
+            case EDGES_FULL:
+                start_offset[axis] = 0;
+                new_shape[axis] = x->shape[axis] + h->shape[axis] - 1;
+                break;
+            case EDGES_SAME:
+                start_offset[axis] = (int64_t) ((h->shape[axis] - 1) / 2);
+                new_shape[axis] = x->shape[axis];
+                break;
+            case EDGES_VALID:
+                start_offset[axis] = (int64_t) (h->shape[axis] - 1);
+                new_shape[axis] = x->shape[axis] - h->shape[axis] + 1;
+                break;
+        }
+    }
+}
+
+/* Everything the operands have to satisfy for the 1-D forms, in one place: the
+   init pass calls it with a NULL perf handle, the performance pass with its
+   own. Neither the axis nor the edges mode can move between the two, they are
+   i-rate, but the arrays behind the handles can: a k-rate producer may drop the
+   rank the axis was chosen for, shrink the source under the kernel, or grow the
+   kernel past the source. Re-checking every pass costs a handful of
+   comparisons and keeps the two paths from drifting apart. */
+static int32_t corrconv1d_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis, uint32_t edges_mode) {
+    if (h->ndim != 1U) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] convolve1d and correlate1d requires 1-D kernel");
+    }
+
+    if (axis != -1 && (uint32_t) axis >= x->ndim) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Axis %d is invalid for a %u-D array (valid axes: -1 for all axes (flatten), or finite integers 0..%u)", axis, x->ndim, x->ndim - 1);
+    }
+
+    /* A kernel with no taps is not an identity, it is an operation with nothing
+       to apply: SAME and VALID would both read their offset from h->size - 1
+       and wrap it, and VALID would answer longer than it was asked. */
+    if (h->size == 0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Kernel is empty: convolve1d and correlate1d need at least one tap");
+    }
+
+    size_t x_length = axis == -1 ? x->size : (size_t) x->shape[axis];
+    if (edges_mode == EDGES_VALID && x_length < h->size) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] VALID edges requires x size to be at least the kernel size");
+    }
+
+    return OK;
+}
+
+/* The same contract for the N-D forms, where the kernel is shaped like the
+   source rather than laid along one axis. */
+static int32_t corrconv_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN_ARRAY *h) {
+    if (h->ndim != x->ndim) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] convolve and correlate requires arrays with same dimension");
+    }
+
+    if (h->size == 0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Kernel is empty: convolve and correlate need at least one tap");
+    }
+
+    for (uint32_t i = 0; i < x->ndim; i++) {
+        if (x->shape[i] < h->shape[i]) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] convolve and correlate N-D requires every x axis length to be at least the kernel axis length");
+        }
+    }
+
+    return OK;
+}
+
+static void corrconv_loop(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, size_t src_base, size_t dst_base, size_t src_stride, size_t dst_stride, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
+    int64_t x_length = axis == -1 ? x->size : x->shape[axis];
+    for (uint32_t i = 0; i < out_size; i++) {
+        // direct -> output-side
+        CSN_COMPLEXDAT y_value = { .re = 0.0, .im = 0.0 };
+        for (uint32_t j = 0; j < h->size; j++) {
+            int64_t src_index = (int64_t) i + start_offset - (int64_t) j;
+            if (src_index >= 0 && src_index < x_length) {
+                size_t kernel_index = mode == CSN_CONVOLUTION ? (size_t) j : h->size - 1 - (size_t) j;
+                CSN_COMPLEXDAT x_value = slice_get(x->data + src_base * x->itype, (size_t) src_index, src_stride, x->itype);
+                CSN_COMPLEXDAT h_value = slice_get(h->data, kernel_index, 1U, h->itype);
+                h_value.im = mode == CSN_CONVOLUTION ? h_value.im : -h_value.im;
+                if (y->itype == CSN_COMPLEX) {
+                    CSN_COMPLEXDAT temp = { .re = 0.0, .im = 0.0 };
+                    complex_prod(&temp, x_value, h_value);
+                    complex_add(&y_value, y_value, temp);
+                } else {
+                    y_value.re += x_value.re * h_value.re;
+                }
+            }
+        }
+        slice_put(y->data + dst_base * y->itype, i, dst_stride, y->itype, y_value);
+    }
+}
+
+static void corrconv1d_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
+    if (axis == -1) {
+        corrconv_loop(y, x, h, 0, 0, 1U, 1U, out_size, start_offset, axis, mode);
+        return;
+    }
+
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < x->ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = x->shape[i];
+            slice_count *= x->shape[i];
+        }
+    }
+
+    size_t src_stride = x->strides[axis];
+    size_t dst_stride = y->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < x->ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, x->strides, x->ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, y->strides, y->ndim);
+        corrconv_loop(y, x, h, src_base, dst_base, src_stride, dst_stride, out_size, start_offset, axis, mode);
+    }
+}
+
+static void corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64_t *start_offset, CSN_CORRCONV_MODE mode) {
+    uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+    uint32_t knl_coords[CSN_MAX_DIMS] = {0};
+    uint32_t src_coords[CSN_MAX_DIMS] = {0};
+    for (size_t linear = 0; linear < y->size; ++linear) {
+        from_linear_to_coords(dst_coords, y->shape, linear, y->ndim);
+        CSN_COMPLEXDAT y_value = { .re = 0.0, .im = 0.0 };
+        for (size_t i = 0; i < h->size; i++) {
+            from_linear_to_coords(knl_coords, h->shape, i, h->ndim);
+            bool valid = true;
+            for (uint32_t d = 0; d < h->ndim; d++) {
+                int64_t coord = (int64_t) dst_coords[d] + start_offset[d] - (int64_t) knl_coords[d];
+                if (coord < 0 || coord >= (int64_t) x->shape[d]) {
+                    valid = false;
+                    break;
+                }
+                src_coords[d] = (uint32_t) coord;
+            }
+
+            if (!valid) continue;
+
+            size_t src_offset = from_coords_to_offset(src_coords, x->strides, x->ndim);
+            size_t knl_offset = i;
+
+            size_t knl_compute = mode == CSN_CONVOLUTION ? (size_t) knl_offset : h->size - 1 - knl_offset;
+            CSN_COMPLEXDAT x_value = slice_get(x->data, src_offset, 1U, x->itype);
+            CSN_COMPLEXDAT h_value = slice_get(h->data, knl_compute, 1U, h->itype);
+            h_value.im = mode == CSN_CONVOLUTION ? h_value.im : -h_value.im;
+            if (y->itype == CSN_COMPLEX) {
+                CSN_COMPLEXDAT temp = { .re = 0.0, .im = 0.0 };
+                complex_prod(&temp, x_value, h_value);
+                complex_add(&y_value, y_value, temp);
+            } else {
+                y_value.re += x_value.re * h_value.re;
+            }
+        }
+        slice_put(y->data, linear, 1U, y->itype, y_value);
+    }
+}
+
+static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    double edges_temp = (double) *p->arg_a;
+    double axis_value = (double) *p->arg_b;
+
+    if (!IS_VALID_EDGES(edges_temp)) {
+        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    }
+    uint32_t edges_mode = (uint32_t) edges_temp;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
+    if (slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
+    if (slot_b == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = slot_a->array;
+    CSN_ARRAY *source_arr_b = slot_b->array;
+    uint32_t source_ndim_a = source_arr_a->ndim;
+    uint32_t *source_shape_a = source_arr_a->shape;
+
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim_a)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes (flatten), or finite integers 0..%u)", axis_value, source_ndim_a, source_ndim_a - 1);
+        goto done;
+    }
+    int32_t axis = (int32_t) axis_value;
+
+    res = corrconv1d_validate(csound, NULL, source_arr_a, source_arr_b, axis, edges_mode);
+    if (res != OK) goto done;
+
+    size_t size_result = 0;
+    int64_t start_offset = 0;
+    convolve_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+
+    uint32_t new_ndim = axis == -1 ? 1U : source_ndim_a;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    if (axis == -1) {
+        new_shape[0] = size_result;
+    } else {
+        memcpy(new_shape, source_shape_a, sizeof(uint32_t) * CSN_MAX_DIMS);
+        new_shape[axis] = size_result;
+    }
+
+    ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
+    uint32_t protect[2] = { source_handle_a, source_handle_b };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    p->k_data.prev_axis_i = axis;
+    p->k_data.prev_index = edges_mode;
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+
+}
+
+int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv1d_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_correlate1d(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv1d_helper(csound, p, CSN_CORRELATION);
+}
+
+static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    uint32_t edges_mode = p->k_data.prev_index;
+    int32_t axis = p->k_data.prev_axis_i;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->arg_c);
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
+    if (slot_a == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
+    if (slot_b == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = slot_a->array;
+    CSN_ARRAY *source_arr_b = slot_b->array;
+    uint32_t source_ndim_a = source_arr_a->ndim;
+    uint32_t *source_shape_a = source_arr_a->shape;
+
+    res = corrconv1d_validate(csound, &p->h, source_arr_a, source_arr_b, axis, edges_mode);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        bool is_same_x = is_same_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
+        bool is_same_h = is_same_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
+        bool is_same_y = false;
+        CSN_SLOT *slot_y = get_slot(reg, owned_handle);
+        if (slot_y != NULL) {
+            is_same_y = is_same_array_version(&p->k_data.prev_output_version, &slot_y->array->version);
+        }
+
+        if (is_same_x && is_same_h && is_same_y) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    size_t size_result = 0;
+    int64_t start_offset = 0;
+    convolve_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+
+    uint32_t new_ndim = axis == -1 ? 1U : source_ndim_a;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    if (axis == -1) {
+        new_shape[0] = size_result;
+    } else {
+        memcpy(new_shape, source_shape_a, sizeof(uint32_t) * CSN_MAX_DIMS);
+        new_shape[axis] = size_result;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = (source_arr_a->size == 0 || source_arr_b->size == 0) ? 0 : req_size;
+    ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    SET_KDATA_END(p, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
+    set_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+
+}
+
+int32_t csnarray_convolve1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv1d_k_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_correlate1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv1d_k_helper(csound, p, CSN_CORRELATION);
+}
+
+static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    double edges_temp = (double) *p->arg_a;
+
+    if (!IS_VALID_EDGES(edges_temp)) {
+        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    }
+    uint32_t edges_mode = (uint32_t) edges_temp;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
+    if (slot_a == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
+    if (slot_b == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = slot_a->array;
+    CSN_ARRAY *source_arr_b = slot_b->array;
+
+    res = corrconv_validate(csound, NULL, source_arr_a, source_arr_b);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = source_arr_a->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    int64_t start_offset[CSN_MAX_DIMS] = {0};
+    convolve_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+
+    ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
+    uint32_t protect[2] = { source_handle_a, source_handle_b };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    p->k_data.prev_index = edges_mode;
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_convolve(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_correlate(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_helper(csound, p, CSN_CORRELATION);
+}
+
+static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    uint32_t edges_mode = p->k_data.prev_index;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->arg_b);
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
+    if (slot_a == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
+    if (slot_b == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_a = slot_a->array;
+    CSN_ARRAY *source_arr_b = slot_b->array;
+
+    res = corrconv_validate(csound, &p->h, source_arr_a, source_arr_b);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        bool is_same_x = is_same_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
+        bool is_same_h = is_same_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
+        bool is_same_y = false;
+        CSN_SLOT *slot_y = get_slot(reg, owned_handle);
+        if (slot_y != NULL) {
+            is_same_y = is_same_array_version(&p->k_data.prev_output_version, &slot_y->array->version);
+        }
+
+        if (is_same_x && is_same_h && is_same_y) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    uint32_t new_ndim = source_arr_a->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    int64_t start_offset[CSN_MAX_DIMS] = {0};
+    convolve_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+
+    ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = (source_arr_a->size == 0 || source_arr_b->size == 0) ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    SET_KDATA_END(p, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
+    set_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_k_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_k_helper(csound, p, CSN_CORRELATION);
 }

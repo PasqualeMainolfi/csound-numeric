@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.1.1] - 
+
 ## [0.1.0] - 2026-09-07
 
 - Add normalized set arrays and the complete set API (*csnlikeset*, *csnunlikeset*, *csnsetinsert*, *csnsetremove*, *csnsetcontains*, *csnsetunion*, *csnsetintersect*, *csnsetdiff*, *csnsetsymdiff*, *csnsetissubset*, *csnsetissuperset*, *csnsetisdisjoint*, *csnsetisequal*)

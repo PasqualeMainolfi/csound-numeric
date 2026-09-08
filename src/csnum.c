@@ -3211,7 +3211,7 @@ int32_t csnarray_flip(CSOUND *csound, CSN_FLIP_ROLL *p) {
     dst->size = arr->size;
     flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip);
     SET_KDATA_BEGIN(p, reg);
-    p->k_data.prev_axis = axis_flip;
+    p->k_data.prev_axis_u = axis_flip;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3261,7 +3261,7 @@ int32_t csnarray_flip_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, axis_value, 0.0);
     /* Through the int32_t, because the all-axes marker is -1 and converting
        that from a double straight into an unsigned is undefined. */
-    p->k_data.prev_axis = (uint32_t) axis_flip;
+    p->k_data.prev_axis_u = (uint32_t) axis_flip;
 
 done:
     csound->UnlockMutex(p->k_data.registry->mutex);
@@ -3365,7 +3365,7 @@ static int32_t csnarray_flip_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
     SET_KDATA_WITH_ID_BEGIN(p, reg, arr->shape, ndim, arr->itype, source_handle);
     p->k_data.prev_size = arr->size;
-    p->k_data.prev_axis = axis_flip;
+    p->k_data.prev_axis_u = axis_flip;
 
     /* The init already flipped, so it has to publish like any other pass:
        without this the first k-pass sees a cache it has never filled, decides
@@ -3402,7 +3402,7 @@ int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     }
     int32_t axis_flip = (int32_t) axis_value;
 
-    bool axis_changed = axis_flip != p->k_data.prev_axis;
+    bool axis_changed = axis_flip != p->k_data.prev_axis_u;
     res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, axis_changed);
     if (res != OK) {
         res = res == NOTOK ? OK : res;
@@ -3416,7 +3416,7 @@ int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
     SET_KDATA_NO_ID_END(p, arr->shape, ndim, itype);
     p->k_data.prev_size = arr->size;
-    p->k_data.prev_axis = axis_flip;
+    p->k_data.prev_axis_u = axis_flip;
 
     PUBLISH_INPLACE_WRITE(&p->k_data, source_handle, arr, false, false, false);
 
@@ -3766,7 +3766,7 @@ int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p) {
     rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll);
     SET_KDATA_BEGIN(p, reg);
     p->k_data.prev_roll_shift = shift;
-    p->k_data.prev_axis = axis_roll;
+    p->k_data.prev_axis_u = axis_roll;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3820,7 +3820,7 @@ int32_t csnarray_rollaxis_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll);
     SET_KDATA_END(p, arr->shape, ndim, arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, shift_value, axis_value);
-    p->k_data.prev_axis = axis_roll;
+    p->k_data.prev_axis_u = axis_roll;
     p->k_data.prev_roll_shift = shift;
 
 done:
@@ -3924,7 +3924,7 @@ static int32_t csnarray_rollaxis_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) 
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
     SET_KDATA_WITH_ID_BEGIN(p, reg, arr->shape, ndim, arr->itype, source_handle);
     p->k_data.prev_size = arr->size;
-    p->k_data.prev_axis = axis_roll;
+    p->k_data.prev_axis_u = axis_roll;
     p->k_data.prev_roll_shift = shift;
 
     PUBLISH_INPLACE_WRITE(&p->k_data, source_handle, arr, false, false, false);
@@ -3964,7 +3964,7 @@ int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     }
     int32_t axis_roll = (int32_t) axis_value;
 
-    bool is_changed = (shift != p->k_data.prev_roll_shift) || (axis_roll != p->k_data.prev_axis);
+    bool is_changed = (shift != p->k_data.prev_roll_shift) || (axis_roll != p->k_data.prev_axis_u);
     res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, arr->itype, is_changed);
     if (res != OK) {
         res = res == NOTOK ? OK : res;
@@ -3975,7 +3975,7 @@ int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     SET_KDATA_NO_ID_END(p, arr->shape, ndim, arr->itype);
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
     p->k_data.prev_size = arr->size;
-    p->k_data.prev_axis = axis_roll;
+    p->k_data.prev_axis_u = axis_roll;
     p->k_data.prev_roll_shift = shift;
 
     PUBLISH_INPLACE_WRITE(&p->k_data, source_handle, arr, false, false, false);
@@ -4569,7 +4569,7 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
        extent of the dropped axis. */
     take_assign_value(arr, dst, arr->ndim, out_ndim, axis, index);
     SET_KDATA_BEGIN(p, reg);
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->k_data.prev_index = index;
 
 done:
@@ -4620,7 +4620,7 @@ int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
 
     take_assign_value(arr, dst, ndim, out_ndim, axis, index);
     SET_KDATA_END(p, shape, out_ndim, itype);
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->k_data.prev_index = index;
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, (double) axis, (double) index);
 
@@ -6622,7 +6622,7 @@ int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p) {
     CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
     if (reuse_slot != NULL
         && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, reuse_slot->array, fill_re, fill_im)
-        && (int32_t) p->k_data.prev_axis == axis
+        && (int32_t) p->k_data.prev_axis_u == axis
         && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) {
         p->handle->id = p->k_data.owned_handle;
         goto done;
@@ -6634,7 +6634,7 @@ int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p) {
     pad_assign_value(source_arr, arr, 0.0, p->value, axis, before);
     SET_KDATA_END(p, new_shape, arr->ndim, arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, fill_re, fill_im);
-    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_axis_u = (uint32_t) axis;
     p->k_data.prev_index = before;
     p->k_data.prev_roll_shift = (int32_t) after;
     p->k_data.prev_size = arr->size;
@@ -6953,12 +6953,12 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
     double fill_re = 0.0, fill_im = 0.0;
     complexdat_to_rect(p->value, &fill_re, &fill_im);
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, fill_re, fill_im)
-        && (int32_t) p->k_data.prev_axis == axis
+        && (int32_t) p->k_data.prev_axis_u == axis
         && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) { goto done; }
 
     res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, 0.0, p->value, axis, before);
     PUBLISH_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, fill_re, fill_im);
-    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_axis_u = (uint32_t) axis;
     p->k_data.prev_index = before;
     p->k_data.prev_roll_shift = (int32_t) after;
 
@@ -8561,7 +8561,7 @@ static void dispatch_value_for_reduction(double *value, const double x, CSN_REDU
     };
 }
 
-static void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b) {
+void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b) {
     out->re =  a.re * b.re - a.im * b.im;
     out->im =  a.re * b.im + a.im * b.re;
 }
@@ -8571,7 +8571,7 @@ static void complex_scalar_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, double b)
     out->im =  a.im * b;
 }
 
-static void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b) {
+void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b) {
     out->re =  a.re + b.re;
     out->im =  a.im + b.im;
 }
@@ -10257,13 +10257,13 @@ int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double 
        one, and the axis is the same, and nothing has disturbed the result,
        last pass's answer is still the answer. */
     bool has_array_output = out_handle != NULL;
-    if (axis == (int32_t) k_data->prev_axis
+    if (axis == (int32_t) k_data->prev_axis_u
         && (!has_array_output || *out_array != NULL)
         && CAN_REUSE_LAST_RESULT(k_data, source_handle, source_arr, has_array_output ? *out_array : NULL)) {
         if (has_array_output) out_handle->id = k_data->owned_handle;
         goto done;
     }
-    k_data->prev_axis = (uint32_t) axis;
+    k_data->prev_axis_u = (uint32_t) axis;
 
     /* Median needs a sorted copy, so it cannot stream like the folds do. */
     memset(*scratch, 0, sizeof(double) * (*scratch_capacity));
@@ -14981,7 +14981,7 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
        source, the axis and the window have all held still and the result is
        still the one this opcode left behind. */
     if (p->array != NULL
-        && axis == (int32_t) p->k_data.prev_axis
+        && axis == (int32_t) p->k_data.prev_axis_u
         && (double) winsize == p->k_data.prev_scalar_param
         && CAN_REUSE_LAST_RESULT(&p->k_data, source_handle, source_arr, p->array)) {
         p->handle->id = p->k_data.owned_handle;
@@ -15000,7 +15000,7 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
     SET_KDATA_END(p, new_shape, new_dim, itype);
 
     p->array = arr;
-    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_axis_u = (uint32_t) axis;
     p->k_data.prev_scalar_param = (double) winsize;
     PUBLISH_DERIVED_RESULT(&p->k_data, source_handle, source_arr, arr);
 
@@ -15950,7 +15950,7 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
     }
 
     CSN_SLOT *out_slot = get_slot(reg, p->k_data.owned_handle);
-    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, period, discount) && (int32_t) p->k_data.prev_axis == axis) {
+    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, period, discount) && (int32_t) p->k_data.prev_axis_u == axis) {
         p->handle->id = p->k_data.owned_handle;
         goto done;
     }
@@ -15963,7 +15963,7 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
 
     SET_KDATA_END(p, new_shape, new_dim, itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, period, discount);
-    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_axis_u = (uint32_t) axis;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -16070,7 +16070,7 @@ static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_C
 
 
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, period, discount)
-        && (int32_t) p->k_data.prev_axis == axis) {
+        && (int32_t) p->k_data.prev_axis_u == axis) {
         goto done;
     }
 
@@ -16078,7 +16078,7 @@ static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_C
     if (res != OK) goto done;
     update_array_data_version(&source_arr->version);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, period, discount);
-    p->k_data.prev_axis = (uint32_t) axis;
+    p->k_data.prev_axis_u = (uint32_t) axis;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -16826,7 +16826,7 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *sr
        to remember anything in; the scalar form has no slot of its own and
        recomputes. */
     if (k_data != NULL && axis != -1 && *out_array != NULL
-        && axis == (int32_t) k_data->prev_axis
+        && axis == (int32_t) k_data->prev_axis_u
         && q == k_data->prev_scalar_param
         && CAN_REUSE_LAST_RESULT(k_data, source_handle, source_arr, *out_array)) {
         goto done;
@@ -16877,7 +16877,7 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *sr
         }
 
         if (k_data != NULL) {
-            k_data->prev_axis = (uint32_t) axis;
+            k_data->prev_axis_u = (uint32_t) axis;
             k_data->prev_scalar_param = q;
             PUBLISH_DERIVED_RESULT(k_data, source_handle, source_arr, arr);
         }
@@ -18444,7 +18444,7 @@ int32_t csnarray_remap_k(CSOUND *csound, CSN_REMAP *p) {
         is_same_source = is_same_array_version(&source_arr->version, &p->prev_x_source_version);
         is_same_x_data = is_same_array_version(&x_data->version, &p->prev_x_data_version);
         is_same_y_data = is_same_array_version(&y_data->version, &p->prev_y_data_version);
-        is_same_axis = axis == p->k_data.prev_axis;
+        is_same_axis = axis == p->k_data.prev_axis_u;
     }
 
     if (is_same_x_data && is_same_y_data && is_same_source && is_same_axis) {
@@ -18530,7 +18530,7 @@ int32_t csnarray_remap_k(CSOUND *csound, CSN_REMAP *p) {
     set_array_version(&p->prev_y_data_version, &y_data->version);
     SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
     p->is_published = true;
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -18889,7 +18889,7 @@ int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p) {
     bool is_same_length = false;
     if (p->is_published) {
         is_same_source = is_same_array_version(&source_arr->version, &p->prev_x_source_version);
-        is_same_axis = axis == (int32_t) p->k_data.prev_axis;
+        is_same_axis = axis == (int32_t) p->k_data.prev_axis_u;
         is_same_length = new_length == p->k_data.prev_size;
     }
 
@@ -18935,7 +18935,7 @@ int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p) {
     SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
     p->is_published = true;
     p->k_data.prev_size = new_length;
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -19380,7 +19380,7 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
     if (p->is_published) {
         bool is_same_version = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
         bool is_same_length = p->k_data.prev_size == new_length;
-        bool is_same_axis = (int32_t) p->k_data.prev_axis == axis;
+        bool is_same_axis = (int32_t) p->k_data.prev_axis_u == axis;
         if (is_same_version && is_same_length && is_same_axis) {
             p->handle->id = p->k_data.owned_handle;
             goto done;
@@ -19402,7 +19402,7 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
     truncate_assign_value(p->array, source_arr, new_shape, new_ndim, axis);
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->k_data.prev_size = new_length;
     p->is_published = true;
 
@@ -19465,7 +19465,7 @@ int32_t csnarray_truncate_in_k(CSOUND *csound, CSN_TRUNCATE_IN *p) {
     if (p->is_published) {
         bool is_same_version = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
         bool is_same_length = p->k_data.prev_size == new_length;
-        bool is_same_axis = (int32_t) p->k_data.prev_axis == axis;
+        bool is_same_axis = (int32_t) p->k_data.prev_axis_u == axis;
         if (is_same_version && is_same_length && is_same_axis) goto done;
     }
 
@@ -19477,7 +19477,7 @@ int32_t csnarray_truncate_in_k(CSOUND *csound, CSN_TRUNCATE_IN *p) {
        write instead of truncating again. */
     PUBLISH_INPLACE_WRITE(&p->k_data, source_handle, source_arr, false, false, false);
     p->k_data.prev_size = new_length;
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->is_published = true;
 
 done:
@@ -21183,7 +21183,7 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->versions.prev_a_version, &source_arr->version);
         bool is_same_mask = is_same_array_version(&p->versions.prev_b_version, &mask_arr->version);
-        bool is_same_axis = p->k_data.prev_axis == axis_out;
+        bool is_same_axis = p->k_data.prev_axis_u == axis_out;
 
         bool is_same_result = false;
         CSN_SLOT *slot = get_slot(reg, owned_handle);
@@ -21241,7 +21241,7 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
 
     compress_assign_value(p->array, source_arr, count_true, p->array->size, indexes_temp, axis_out, new_dim, itype);
     SET_KDATA_END(p, new_shape, new_dim, itype);
-    p->k_data.prev_axis = axis_out;
+    p->k_data.prev_axis_u = axis_out;
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->versions.prev_a_version, &source_arr->version);
     set_array_version(&p->versions.prev_b_version, &mask_arr->version);
@@ -21808,7 +21808,7 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
             is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
         }
 
-        bool is_same_axis = p->k_data.prev_axis == axis;
+        bool is_same_axis = p->k_data.prev_axis_u == axis;
         if (is_same_args_versions && is_same_result && is_same_axis) {
             p->handle->id = owned_handle;
             goto done;
@@ -21834,7 +21834,7 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
     stack_assign_value(p->array, axis, p->buffer_sources.scratch);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     SET_KDATA_END(p, new_shape, new_ndim, itype);
-    p->k_data.prev_axis = axis;
+    p->k_data.prev_axis_u = axis;
     p->is_published = true;
 
 done:
@@ -22456,6 +22456,22 @@ static OENTRY localops[] = {
     { "csnrfft2.k",            S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_rfft2,                       (SUBR) csnarray_rfft2_k,                (SUBR) csnarray_fft2_deinit,            NULL, 0 },
     { "csnifft2.k",            S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_ifft2,                       (SUBR) csnarray_ifft2_k,                (SUBR) csnarray_fft2_deinit,            NULL, 0 },
     { "csnirfft2.k",           S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_irfft2,                      (SUBR) csnarray_irfft2_k,               (SUBR) csnarray_fft2_deinit,            NULL, 0 },
+    { "csnconvolve1d",         S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_convolve1d,                  NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate1d",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_correlate1d,                 NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnconvolve1d.k",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_convolve1d,                  (SUBR) csnarray_convolve1d_k,           (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate1d.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_correlate1d,                 (SUBR) csnarray_correlate1d_k,          (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnconvolve",           S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_convolve,                    NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate",          S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_correlate,                   NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnconvolve.k",         S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_convolve,                    (SUBR) csnarray_convolve_k,             (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate.k",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_correlate,                   (SUBR) csnarray_correlate_k,            (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftconvolve1d",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_fftconvolve1d,               NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftcorrelate1d",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_fftcorrelate1d,              NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftconvolve1d.k",    S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_fftcorrconv1d_k_init,        (SUBR) csnarray_fftconvolve1d_k,        (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftcorrelate1d.k",   S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_fftcorrconv1d_k_init,        (SUBR) csnarray_fftcorrelate1d_k,       (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftconvolve",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftconvolve,                 NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftcorrelate",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftcorrelate,                NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftconvolve.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftcorrconv_k_init,          (SUBR) csnarray_fftconvolve_k,          (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    // { "csnfftcorrelate.k",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftcorrconv_k_init,          (SUBR) csnarray_fftcorrelate_k,         (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
     // ---
 };
 

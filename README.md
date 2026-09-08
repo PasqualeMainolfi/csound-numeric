@@ -8,7 +8,7 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, interpolation and resampling, 202 opcodes across 602
+primitives, convolution, interpolation and resampling, 206 opcodes across 610
 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
@@ -232,6 +232,9 @@ csound --opcode-dir=build example/csnsort.csd
   real arrays.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
   matrix, STFT/ISTFT, frequency-coordinate arrays, and FFT shift/unshift.
+- **Convolution and correlation**: direct convolution and cross-correlation,
+  with a 1-D kernel flat or along one axis, or with a kernel shaped like the
+  source, over NumPy's FULL / SAME / VALID spans.
 - **Interpolation and resampling**: `csninterp` (linear, nearest, previous,
   next, monotone cubic PCHIP, with error / clamp / fill / extrapolate boundary
   policies) and `csnresample`.
@@ -553,6 +556,20 @@ of re-sorting on every k-rate pass.
 | `csnifftshift` | `np.fft.ifftshift` | |
 | `csnstft` | `scipy.signal.stft` | Frames and their coordinates. |
 | `csnistft` | `scipy.signal.istft` | |
+
+### Convolution and correlation
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnconvolve1d` | `np.convolve` | Plus an axis: every lane along it is convolved on its own. |
+| `csncorrelate1d` | `np.correlate` | Same kernel conjugation as NumPy's. |
+| `csnconvolve` | `scipy.signal.convolve` | Kernel shaped like the source, flipped on every axis. |
+| `csncorrelate` | `scipy.signal.correlate` | The same, unflipped and conjugated. |
+
+The `edges` argument is NumPy's `mode` under another name: `0` FULL, `1` SAME,
+`2` VALID, with the same lengths. Unlike NumPy's, it is an i-rate argument on
+every overload, along with the axis, because the pair of them fixes the shape
+of the output and a k-rate pass must not have to reallocate.
 
 ### Interpolation, resampling and windows
 

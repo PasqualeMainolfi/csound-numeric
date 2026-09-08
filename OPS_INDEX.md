@@ -262,6 +262,19 @@ accept k-rate lengths and do not require powers of two.
 - **csnfftshift** - moves zero frequency to the centre of an axis (i, k — real, complex)
 - **csnifftshift** - restores native FFT ordering (i, k — real, complex)
 
+## Convolution and correlation
+
+The kernel is flipped for a convolution and read as it stands, conjugated, for
+a correlation; that is the whole difference between the two. The `edges`
+argument selects NumPy's three spans, `0` FULL, `1` SAME, `2` VALID, and both
+it and the axis are i-rate on every overload, since they fix the shape of the
+output. An empty kernel is refused.
+
+- **csnconvolve1d** - convolution with a 1-D kernel, flat or along one axis (i, k — real, complex)
+- **csncorrelate1d** - cross-correlation with a 1-D kernel, flat or along one axis (i, k — real, complex)
+- **csnconvolve** - N-D convolution with a kernel of the same rank (i, k — real, complex)
+- **csncorrelate** - N-D cross-correlation with a kernel of the same rank (i, k — real, complex)
+
 ## Interpolation and resampling
 
 - **csninterp** - maps values through a breakpoint table, five interpolation modes (i, k — real only)

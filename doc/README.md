@@ -256,6 +256,13 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnfftshift](csnfftshift.md) - moves zero frequency to the centre of an axis
 - [csnifftshift](csnifftshift.md) - restores native FFT ordering
 
+## Convolution and correlation
+
+- [csnconvolve1d](csnconvolve1d.md) - convolution with a 1-D kernel, flat or along one axis
+- [csncorrelate1d](csncorrelate1d.md) - cross-correlation with a 1-D kernel, flat or along one axis
+- [csnconvolve](csnconvolve.md) - N-D convolution with a kernel of the same rank
+- [csncorrelate](csncorrelate.md) - N-D cross-correlation with a kernel of the same rank
+
 ## Interpolation and resampling
 
 - [csninterp](csninterp.md) - maps values through a breakpoint table, five interpolation modes
