@@ -1,6 +1,11 @@
 # Changelog
 
-## [0.1.1] - 
+## [0.1.1] - 2026-09-09
+
+- Add direct convolution and cross-correlation over NumPy's FULL / SAME / VALID spans, with a 1-D kernel flat or along one axis and with a kernel shaped like the source (*csnconvolve1d*, *csncorrelate1d*, *csnconvolve*, *csncorrelate*)
+- Add the Fourier-transform counterparts of the same four, for the kernels long enough to make the transform pay (*csnfftconvolve1d*, *csnfftcorrelate1d*, *csnfftconvolve*, *csnfftcorrelate*)
+- Extend the real-time lock to buffers an opcode owns outside the registry, so a transform on a marked path refuses to reallocate at perf time as the direct forms do
+- Add opcode reference pages, runnable examples, and regression coverage for the new APIs
 
 ## [0.1.0] - 2026-09-07
 

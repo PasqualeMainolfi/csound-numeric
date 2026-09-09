@@ -5019,6 +5019,9 @@ static int32_t push_check_body(CSOUND *csound, OPDS *perf_h, CSN_SLOT **slot, CS
 
 int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size) {
     if (required_size > arr->capacity) {
+        if (arr->external_lock) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Memory reallocation not permitted with external lock applied");
+        }
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
         if (new_capacity < required_size) new_capacity = required_size;
         double *new_data = csound->ReAlloc(csound, arr->data, sizeof(double) * new_capacity * arr->itype);
@@ -6349,7 +6352,7 @@ static int32_t pad_body(
     return OK;
 }
 
-static void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before) {
+void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before) {
     bool is_complex = destination->itype == CSN_COMPLEX;
     /* Mirrors the extents pad_body derived: an empty source has nothing to
        copy, so every destination cell is padding. */
@@ -22427,6 +22430,14 @@ static OENTRY localops[] = {
     { "csnsetisdisjoint.k",    S(CSNSET_BINARYOP_PREDICATE),  0, "k",                    ":CsnArr;:CsnArr;P",                 (SUBR) csnarray_setisdisjoint,               (SUBR) csnarray_setisdisjoint_k,        (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
     { "csnsetisequal",         S(CSNSET_BINARYOP_PREDICATE),  0, "i",                    ":CsnArr;:CsnArr;",                  (SUBR) csnarray_setisequal,                  NULL,                                   (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
     { "csnsetisequal.k",       S(CSNSET_BINARYOP_PREDICATE),  0, "k",                    ":CsnArr;:CsnArr;P",                 (SUBR) csnarray_setisequal,                  (SUBR) csnarray_setisequal_k,           (SUBR) csnarray_set_binaryop_p_deinit,  NULL, 0 },
+    { "csnconvolve1d",         S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_convolve1d,                  NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate1d",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_correlate1d,                 NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnconvolve1d.k",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_convolve1d,                  (SUBR) csnarray_convolve1d_k,           (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate1d.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_correlate1d,                 (SUBR) csnarray_correlate1d_k,          (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnconvolve",           S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_convolve,                    NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate",          S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_correlate,                   NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnconvolve.k",         S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_convolve,                    (SUBR) csnarray_convolve_k,             (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csncorrelate.k",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_correlate,                   (SUBR) csnarray_correlate_k,            (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
     // fft
     { "csnfft",                S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ij",                    (SUBR) csnarray_fft,                         NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
     { "csnrfft",               S(CSN_FFT),                    0, ":CsnArr;",                 ":CsnArr;ij",                    (SUBR) csnarray_rfft,                        NULL,                                   (SUBR) csnarray_fft_deinit,             NULL, 0 },
@@ -22456,22 +22467,14 @@ static OENTRY localops[] = {
     { "csnrfft2.k",            S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_rfft2,                       (SUBR) csnarray_rfft2_k,                (SUBR) csnarray_fft2_deinit,            NULL, 0 },
     { "csnifft2.k",            S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_ifft2,                       (SUBR) csnarray_ifft2_k,                (SUBR) csnarray_fft2_deinit,            NULL, 0 },
     { "csnirfft2.k",           S(CSN_FFT2),                   0, ":CsnArr;",                 ":CsnArr;iiP",                   (SUBR) csnarray_irfft2,                      (SUBR) csnarray_irfft2_k,               (SUBR) csnarray_fft2_deinit,            NULL, 0 },
-    { "csnconvolve1d",         S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_convolve1d,                  NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csncorrelate1d",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_correlate1d,                 NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csnconvolve1d.k",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_convolve1d,                  (SUBR) csnarray_convolve1d_k,           (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csncorrelate1d.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_correlate1d,                 (SUBR) csnarray_correlate1d_k,          (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csnconvolve",           S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_convolve,                    NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csncorrelate",          S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_correlate,                   NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csnconvolve.k",         S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_convolve,                    (SUBR) csnarray_convolve_k,             (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    { "csncorrelate.k",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_correlate,                   (SUBR) csnarray_correlate_k,            (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftconvolve1d",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_fftconvolve1d,               NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftcorrelate1d",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_fftcorrelate1d,              NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftconvolve1d.k",    S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_fftcorrconv1d_k_init,        (SUBR) csnarray_fftconvolve1d_k,        (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftcorrelate1d.k",   S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_fftcorrconv1d_k_init,        (SUBR) csnarray_fftcorrelate1d_k,       (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftconvolve",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftconvolve,                 NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftcorrelate",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftcorrelate,                NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftconvolve.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftcorrconv_k_init,          (SUBR) csnarray_fftconvolve_k,          (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
-    // { "csnfftcorrelate.k",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftcorrconv_k_init,          (SUBR) csnarray_fftcorrelate_k,         (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftconvolve1d",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_fftconvolve1d,               NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftcorrelate1d",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oj",            (SUBR) csnarray_fftcorrelate1d,              NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftconvolve1d.k",    S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_fftconvolve1d,               (SUBR) csnarray_fftconvolve1d_k,        (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftcorrelate1d.k",   S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;ojP",           (SUBR) csnarray_fftcorrelate1d,              (SUBR) csnarray_fftcorrelate1d_k,       (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftconvolve",        S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftconvolve,                 NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftcorrelate",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftcorrelate,                NULL,                                   (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftconvolve.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftconvolve,                 (SUBR) csnarray_fftconvolve_k,          (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
+    { "csnfftcorrelate.k",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftcorrelate,                (SUBR) csnarray_fftcorrelate_k,         (SUBR) csnarray_corrconv_deinit,        NULL, 0 },
     // ---
 };
 

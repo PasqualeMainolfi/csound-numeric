@@ -262,6 +262,10 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csncorrelate1d](csncorrelate1d.md) - cross-correlation with a 1-D kernel, flat or along one axis
 - [csnconvolve](csnconvolve.md) - N-D convolution with a kernel of the same rank
 - [csncorrelate](csncorrelate.md) - N-D cross-correlation with a kernel of the same rank
+- [csnfftconvolve1d](csnfftconvolve1d.md) - the same convolution through Fourier transforms
+- [csnfftcorrelate1d](csnfftcorrelate1d.md) - the same cross-correlation through Fourier transforms
+- [csnfftconvolve](csnfftconvolve.md) - N-D convolution through Fourier transforms
+- [csnfftcorrelate](csnfftcorrelate.md) - N-D cross-correlation through Fourier transforms
 
 ## Interpolation and resampling
 

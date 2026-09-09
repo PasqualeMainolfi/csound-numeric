@@ -107,6 +107,7 @@ typedef struct {
        A generic in-place writer advances data_version and therefore makes the
        CSNSET tag stale until csnlikeset normalizes the array again. */
     uint64_t set_data_version;
+    bool external_lock;
 #ifdef CSN_VERSION_CROSSCHECK
     /* A byte-for-byte snapshot of the payload as of the generation named by
        shadow_data_version, so the cross-check build can catch a writer that

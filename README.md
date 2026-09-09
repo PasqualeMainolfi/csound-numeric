@@ -8,7 +8,7 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, convolution, interpolation and resampling, 206 opcodes across 610
+primitives, convolution, interpolation and resampling, 210 opcodes across 618
 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
@@ -232,9 +232,10 @@ csound --opcode-dir=build example/csnsort.csd
   real arrays.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
   matrix, STFT/ISTFT, frequency-coordinate arrays, and FFT shift/unshift.
-- **Convolution and correlation**: direct convolution and cross-correlation,
-  with a 1-D kernel flat or along one axis, or with a kernel shaped like the
-  source, over NumPy's FULL / SAME / VALID spans.
+- **Convolution and correlation**: convolution and cross-correlation, with a
+  1-D kernel flat or along one axis, or with a kernel shaped like the source,
+  over NumPy's FULL / SAME / VALID spans — computed directly, or through
+  Fourier transforms for the kernels long enough to make that pay.
 - **Interpolation and resampling**: `csninterp` (linear, nearest, previous,
   next, monotone cubic PCHIP, with error / clamp / fill / extrapolate boundary
   policies) and `csnresample`.
@@ -565,6 +566,16 @@ of re-sorting on every k-rate pass.
 | `csncorrelate1d` | `np.correlate` | Same kernel conjugation as NumPy's. |
 | `csnconvolve` | `scipy.signal.convolve` | Kernel shaped like the source, flipped on every axis. |
 | `csncorrelate` | `scipy.signal.correlate` | The same, unflipped and conjugated. |
+| `csnfftconvolve1d` | `scipy.signal.fftconvolve` | Plus an axis. |
+| `csnfftcorrelate1d` | `scipy.signal.correlate(..., method='fft')` | Plus an axis. |
+| `csnfftconvolve` | `scipy.signal.fftconvolve` | N-D, kernel shaped like the source. |
+| `csnfftcorrelate` | `scipy.signal.correlate(..., method='fft')` | N-D. |
+
+The `csnfft*` four are the same operations as the four above them, computed by
+padding to a power of two and multiplying in the spectrum: same arguments, same
+lengths, same answers to within rounding. SciPy picks between the two methods
+for you when you ask for `method='auto'`; here the choice is the opcode you
+call.
 
 The `edges` argument is NumPy's `mode` under another name: `0` FULL, `1` SAME,
 `2` VALID, with the same lengths. Unlike NumPy's, it is an i-rate argument on

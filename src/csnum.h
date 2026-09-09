@@ -2041,6 +2041,33 @@ typedef struct {
 } CSN_FFTSHIFT;
 
 typedef struct {
+    uint32_t x_shape_fft[CSN_MAX_DIMS];
+    uint32_t h_shape_fft[CSN_MAX_DIMS];
+    uint32_t shape_padded_x[CSN_MAX_DIMS];
+    uint32_t shape_padded_h[CSN_MAX_DIMS];
+    uint32_t ifft_shape[CSN_MAX_DIMS];
+    uint32_t padded_ndim;
+    uint32_t x_ndim;
+    uint32_t h_ndim;
+    size_t x_out_size;
+    size_t h_out_size;
+    size_t x_work_size;
+    size_t h_work_size;
+    /* One entry per axis. The 1-D forms transform a single axis and use slot
+       0; the N-D forms transform every axis in turn, each with its own length,
+       and the crop then reads one offset per axis. */
+    int64_t crop_offset[CSN_MAX_DIMS];
+    size_t fft_sizes[CSN_MAX_DIMS];
+    size_t axis_out_size[CSN_MAX_DIMS];
+    size_t axis_work_size[CSN_MAX_DIMS];
+    size_t ifft_axis_out_size[CSN_MAX_DIMS];
+    size_t ifft_axis_work_size[CSN_MAX_DIMS];
+    uint32_t ifft_ndim;
+    size_t ifft_out_size;
+    size_t ifft_work_size;
+} CSN_FFTCORRCONV_DATA;
+
+typedef struct {
     OPDS h;
     // outputs
     CSNREF *handle;
@@ -2054,10 +2081,22 @@ typedef struct {
     MYFLT *arg_c; // trig for convolve1d and correlate1d
     // private
     CSN_ARRAY *array;
+    K_DATA_FFT k_data_fft_x;
+    K_DATA_FFT k_data_fft_h;
+    K_DATA_FFT k_data_ifft;
+    CSN_SCRATCH buffer_x;
+    CSN_SCRATCH buffer_h;
+    CSN_SCRATCH buffer_ifft;
+    CSN_ARRAY fft_buffer_x;
+    CSN_ARRAY fft_buffer_h;
+    CSN_ARRAY ifft_buffer;
+    CSN_ARRAY ifft_out;
+    CSN_ARRAY x_padded;
+    CSN_ARRAY h_padded;
+    CSN_FFTCORRCONV_DATA fc;
     K_DATA k_data;
     bool is_published;
 } CSN_CORRCONV;
-
 
 
 
@@ -2080,6 +2119,7 @@ void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, doub
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
 void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
+void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
 
 // set op
 

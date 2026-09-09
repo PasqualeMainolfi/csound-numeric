@@ -7,8 +7,8 @@
 #include <string.h>
 
 
-static inline bool IS_POWER_OF_TWO(uint32_t n) {
-    return n != 0U && (n & (n - 1U)) == 0U;
+static inline bool IS_POWER_OF_TWO(size_t n) {
+    return n != 0 && (n & (n - 1)) == 0;
 }
 
 static inline bool IS_VALID_FFT_SIZE(double value) {
@@ -25,6 +25,13 @@ static inline bool IS_VALID_STFT_WIN(double value) {
 
 static bool IS_VALID_VALUE_GT_ZERO(double value) {
     return isfinite(value) && !isnan(value) && value > 0.0;
+}
+
+static inline size_t NEXT_POWER_OF_TWO(size_t n) {
+    if (n <= 1) return 1;
+    n--;
+    for (size_t shift = 1; shift < sizeof(size_t) * 8; shift <<= 1) n |= n >> shift;
+    return n + 1;
 }
 
 static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, const MYFLT *axis_in, uint32_t *axis_out, uint32_t source_handle, CSN_FFT_MODE mode) {
@@ -226,6 +233,61 @@ static void fft_assign_layout(size_t *out_size, size_t *work_size, uint32_t *new
         }
     }
     new_shape[axis] = (uint32_t) *out_size;
+}
+
+static void fft_assign_layout_at(size_t *out_size, size_t *work_size, uint32_t *new_shape, size_t *nfft, CSN_FFT_MODE mode, uint32_t axis) {
+    size_t temp_out_size = 0;
+    size_t temp_work_size = 0;
+    switch (mode) {
+        case CSNFFT:
+            temp_out_size = (size_t) nfft[axis];
+            temp_work_size = (size_t) nfft[axis] * 2;
+            break;
+        case CSNRFFT:
+            temp_out_size = (size_t) nfft[axis] / 2 + 1;
+            temp_work_size = (size_t) nfft[axis];
+            break;
+        case CSNIFFT:
+            temp_out_size = (size_t) nfft[axis];
+            temp_work_size = (size_t) nfft[axis] * 2U;
+            break;
+        case CSNIRFFT:
+            temp_out_size = (size_t) nfft[axis];
+            temp_work_size = (size_t) nfft[axis];
+            break;
+        default:
+            break;
+    }
+    out_size[axis] = temp_out_size;
+    work_size[axis] = temp_work_size;
+    new_shape[axis] = (uint32_t) temp_out_size;
+}
+
+static void fft_assign_flatten_layout(size_t *out_size, size_t *work_size, uint32_t *new_ndim, uint32_t *new_shape, CSN_ARRAY *source_arr, uint32_t nfft, CSN_FFT_MODE mode) {
+    *new_ndim = 1U;
+    if (work_size != NULL) {
+        switch (mode) {
+            case CSNFFT:
+                *out_size = (size_t) nfft;
+                *work_size = (size_t) nfft * 2;
+                break;
+            case CSNRFFT:
+                *out_size = (size_t) nfft / 2 + 1;
+                *work_size = (size_t) nfft;
+                break;
+            case CSNIFFT:
+                *out_size = (size_t) nfft;
+                *work_size = (size_t) nfft * 2U;
+                break;
+            case CSNIRFFT:
+                *out_size = (size_t) nfft;
+                *work_size = (size_t) nfft;
+                break;
+            default:
+                break;
+        }
+    }
+    new_shape[0] = (uint32_t) *out_size;
 }
 
 static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
@@ -2191,7 +2253,7 @@ static int32_t IS_VALID_EDGES(double value) {
     return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 0.0 && value < (double) NUMBER_OF_EDGES_MODE;
 }
 
-static void convolve_get_size_and_edges_offset(size_t *size_result, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis, CSN_EDGES_MODE mode) {
+static void corrconv_get_size_and_edges_offset(size_t *size_result, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis, CSN_EDGES_MODE mode) {
     switch (mode) {
         case EDGES_FULL:
             *start_offset = 0;
@@ -2208,7 +2270,24 @@ static void convolve_get_size_and_edges_offset(size_t *size_result, int64_t *sta
     }
 }
 
-static void convolve_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, CSN_EDGES_MODE mode) {
+static void fftcorrconv_get_edges_offset(int64_t *start_offset, size_t h_size, size_t fft_size, CSN_EDGES_MODE edges_mode, CSN_CORRCONV_MODE corrconv_mode) {
+    int64_t offset;
+    switch (edges_mode) {
+        case EDGES_FULL:
+            offset = 0;
+            break;
+        case EDGES_SAME:
+            offset = (int64_t) ((h_size - 1) / 2);
+            break;
+        case EDGES_VALID:
+            offset = (int64_t) (h_size - 1);
+            break;
+    }
+
+    *start_offset = corrconv_mode == CSN_CONVOLUTION ? offset : (int64_t) (((size_t) offset + fft_size - (h_size - 1)) % fft_size);
+}
+
+static void corrconv_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, CSN_EDGES_MODE mode) {
     uint32_t ndim = x->ndim;
     for (uint32_t axis = 0; axis < ndim; axis++) {
         switch (mode) {
@@ -2225,6 +2304,31 @@ static void convolve_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64
                 new_shape[axis] = x->shape[axis] - h->shape[axis] + 1;
                 break;
         }
+    }
+}
+
+static void fftcorrconv_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, CSN_EDGES_MODE edges_mode, CSN_CORRCONV_MODE corrconv_mode) {
+    uint32_t ndim = x->ndim;
+    for (uint32_t i = 0; i < ndim; i++) {
+        size_t fft_size_check = x->shape[i] + h->shape[i] - 1;
+        size_t fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
+        new_shape[i] = fft_size;
+    }
+
+    for (uint32_t axis = 0; axis < ndim; axis++) {
+        int64_t offset = 0;
+        switch (edges_mode) {
+            case EDGES_FULL:
+                offset = 0;
+                break;
+            case EDGES_SAME:
+                offset = (int64_t) ((h->shape[axis] - 1) / 2);
+                break;
+            case EDGES_VALID:
+                offset = (int64_t) (h->shape[axis] - 1);
+                break;
+        }
+        start_offset[axis] = corrconv_mode == CSN_CONVOLUTION ? offset : (int64_t) (((size_t) offset + new_shape[axis] - (h->shape[axis] - 1)) % new_shape[axis]);
     }
 }
 
@@ -2423,7 +2527,7 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
 
     size_t size_result = 0;
     int64_t start_offset = 0;
-    convolve_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+    corrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim_a;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -2455,8 +2559,26 @@ done:
 
 }
 
+/* Csound hands a deallocated instrument's opcode memory to the next note
+   without zeroing it, and an opcode inside a branch the new note does not take
+   is deinitialized all the same. A pointer left behind here would therefore be
+   freed a second time, so every buffer is cleared as it is released. */
+static void free_corrconv_array(CSOUND *csound, CSN_ARRAY *array) {
+    if (array->data != NULL) csound->Free(csound, array->data);
+    memset(array, 0, sizeof(CSN_ARRAY));
+}
+
 int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+     deinit_scratch(csound, &p->buffer_x);
+     deinit_scratch(csound, &p->buffer_h);
+     deinit_scratch(csound, &p->buffer_ifft);
+     free_corrconv_array(csound, &p->fft_buffer_x);
+     free_corrconv_array(csound, &p->fft_buffer_h);
+     free_corrconv_array(csound, &p->ifft_buffer);
+     free_corrconv_array(csound, &p->ifft_out);
+     free_corrconv_array(csound, &p->x_padded);
+     free_corrconv_array(csound, &p->h_padded);
+     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p) {
@@ -2523,7 +2645,7 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
 
     size_t size_result = 0;
     int64_t start_offset = 0;
-    convolve_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+    corrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim_a;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -2606,7 +2728,7 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     uint32_t new_ndim = source_arr_a->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     int64_t start_offset[CSN_MAX_DIMS] = {0};
-    convolve_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+    corrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
     uint32_t protect[2] = { source_handle_a, source_handle_b };
@@ -2689,7 +2811,7 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     uint32_t new_ndim = source_arr_a->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     int64_t start_offset[CSN_MAX_DIMS] = {0};
-    convolve_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+    corrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
     size_t req_size = 0;
@@ -2722,4 +2844,1099 @@ int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p) {
 
 int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p) {
     return csnarray_corrconv_k_helper(csound, p, CSN_CORRELATION);
+}
+
+static int32_t allocate_and_zero_pad_before(CSOUND *csound, OPDS *h, bool is_perf, CSN_ARRAY *dest, CSN_ARRAY *source, uint32_t new_ndim, uint32_t *new_shape, uint32_t axis, bool flat) {
+    if (is_perf) {
+        size_t req_size = 0;
+        if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        int32_t res = ensure_mutation_capacity(csound, h, dest, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(dest, new_ndim, new_shape, req_size, dest->itype);
+
+        if (flat) {
+            memcpy(dest->data, source->data, sizeof(double) * source->size * source->itype);
+            memset(dest->data + source->size * source->itype, 0, sizeof(double) * (req_size - source->size) * source->itype);
+            return OK;
+        }
+    } else {
+        int32_t res = allocate_array(csound, dest, new_ndim, new_shape, 0, source->itype);
+        if (res != OK) return res;
+
+        if (flat) {
+            memcpy(dest->data, source->data, sizeof(double) * source->size * source->itype);
+            return OK;
+        }
+    }
+
+    if (source->itype == CSN_COMPLEX) {
+        COMPLEXDAT value = { .real = 0.0, .imag = 0.0, .isPolar = 0 };
+        pad_assign_value(source, dest, 0.0, &value, axis, 0);
+    } else {
+        pad_assign_value(source, dest, 0.0, NULL, axis, 0);
+    }
+    return OK;
+}
+
+static int32_t allocate_and_zero_pad_before_ndims(CSOUND *csound, OPDS *h, bool is_perf, CSN_ARRAY *dest, CSN_ARRAY *source, uint32_t new_ndim, uint32_t *new_shape) {
+    if (is_perf) {
+        size_t req_size = 0;
+        if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        int32_t res = ensure_mutation_capacity(csound, h, dest, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(dest, new_ndim, new_shape, req_size, dest->itype);
+    } else {
+        int32_t res = allocate_array(csound, dest, new_ndim, new_shape, 0, source->itype);
+        if (res != OK) return res;
+    }
+
+    /* Every axis grows here, so every axis has to be padded in the same pass:
+       pad_assign_value bounds-checks the axis it is given and takes the others
+       straight from the destination coordinates, which on a destination larger
+       than the source reads past its extent. -1 pads them all. */
+    if (source->itype == CSN_COMPLEX) {
+        COMPLEXDAT value = { .real = 0.0, .imag = 0.0, .isPolar = 0 };
+        pad_assign_value(source, dest, 0.0, &value, -1, 0);
+    } else {
+        pad_assign_value(source, dest, 0.0, NULL, -1, 0);
+    }
+    return OK;
+}
+
+static void fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, int32_t axis, CSN_CORRCONV_MODE mode) {
+    uint32_t *source_shape = source_arr_a->shape;
+
+    if (axis == -1) {
+        for (uint32_t i = 0; i < source_shape[0]; i++) {
+            CSN_COMPLEXDAT a = { .re = source_arr_a->data[i * 2], .im = source_arr_a->data[i * 2 + 1] };
+            CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
+            if (mode == CSN_CORRELATION) b.im = -b.im;
+            CSN_COMPLEXDAT result = {0};
+            complex_prod(&result, a, b);
+            y->data[i * 2] = result.re;
+            y->data[i * 2 + 1] = result.im;
+        }
+        return;
+    }
+
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < source_arr_a->ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = source_arr_a->shape[i];
+            slice_count *= source_arr_a->shape[i];
+        }
+    }
+
+    size_t src_stride = source_arr_a->strides[axis];
+    size_t dst_stride = y->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < source_arr_a->ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, source_arr_a->strides, source_arr_a->ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, y->strides, source_arr_a->ndim);
+        for (uint32_t i = 0; i < source_shape[axis]; i++) {
+            CSN_COMPLEXDAT a = slice_get(source_arr_a->data + src_base * CSN_COMPLEX, i, src_stride, CSN_COMPLEX);
+            CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
+            if (mode == CSN_CORRELATION) b.im = -b.im;
+            CSN_COMPLEXDAT result = {0};
+            complex_prod(&result, a, b);
+            slice_put(y->data + dst_base * CSN_COMPLEX, i, dst_stride, CSN_COMPLEX, result);
+        }
+    }
+}
+
+/* Cuts the published result out of the padded inverse transform.
+
+   The transform is computed over fft_size points, the next power of two at or
+   above x + h - 1, so what comes back is the FULL answer followed by padding.
+   The edges mode is a window on that: a start offset, from
+   fftcorrconv_get_edges_offset, and a length, the one the direct forms
+   publish. The read wraps, because a correlation's negative lags sit at the
+   end of a circular buffer rather than before its start; for a convolution the
+   window never reaches the wrap and the modulo costs nothing. */
+static void fftcorrconv_crop(CSN_ARRAY *y, CSN_ARRAY *source_arr, size_t out_size, int64_t start_offset, size_t fft_size, int32_t axis) {
+    size_t start = (size_t) start_offset;
+
+    if (axis == -1) {
+        for (size_t i = 0; i < out_size; i++) {
+            size_t at = (start + i) % fft_size;
+            slice_put(y->data, i, 1U, y->itype, slice_get(source_arr->data, at, 1U, source_arr->itype));
+        }
+        return;
+    }
+
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = source_arr->shape[i];
+            slice_count *= source_arr->shape[i];
+        }
+    }
+
+    size_t src_stride = source_arr->strides[axis];
+    size_t dst_stride = y->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, y->strides, y->ndim);
+        for (size_t i = 0; i < out_size; i++) {
+            size_t at = (start + i) % fft_size;
+            CSN_COMPLEXDAT value = slice_get(source_arr->data + src_base * source_arr->itype, at, src_stride, source_arr->itype);
+            slice_put(y->data + dst_base * y->itype, i, dst_stride, y->itype, value);
+        }
+    }
+}
+
+/* The N-D spectra have the same shape and are both complex and contiguous, so
+   their product is one flat pass. Conjugating the kernel is what separates a
+   correlation from a convolution, exactly as in the 1-D form. */
+static void fftcorrconv_prod_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, CSN_CORRCONV_MODE mode) {
+    for (size_t i = 0; i < y->size; i++) {
+        CSN_COMPLEXDAT a = { .re = source_arr_a->data[i * 2], .im = source_arr_a->data[i * 2 + 1] };
+        CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
+        if (mode == CSN_CORRELATION) b.im = -b.im;
+        CSN_COMPLEXDAT result = {0};
+        complex_prod(&result, a, b);
+        y->data[i * 2] = result.re;
+        y->data[i * 2 + 1] = result.im;
+    }
+}
+
+/* The N-D crop: the same window the 1-D form applies, one offset and one
+   modulus per axis. Every axis wraps for a correlation and none of them does
+   for a convolution, so the modulo is written once and costs nothing in the
+   case that never reaches it. */
+static void fftcorrconv_crop_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr, const size_t *fft_sizes, const int64_t *start_offset) {
+    for (size_t linear = 0; linear < y->size; linear++) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, y->shape, linear, y->ndim);
+        for (uint32_t d = 0; d < y->ndim; d++) {
+            src_coords[d] = (uint32_t) (((size_t) dst_coords[d] + (size_t) start_offset[d]) % fft_sizes[d]);
+        }
+
+        size_t src_offset = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        slice_put(y->data, linear, 1U, y->itype, slice_get(source_arr->data, src_offset, 1U, source_arr->itype));
+    }
+}
+
+static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *p, CSN_ARRAY *source_x, CSN_ARRAY *source_h, size_t fft_size, CSN_FFT_MODE fft_mode, CSN_FFT_MODE ifft_mode, int32_t axis) {
+    if (axis != -1) {
+        fft_assign_layout(&p->fc.x_out_size, &p->fc.x_work_size, &p->fc.x_ndim, p->fc.x_shape_fft, source_x, fft_size, fft_mode, (uint32_t) axis);
+    } else {
+        fft_assign_flatten_layout(&p->fc.x_out_size, &p->fc.x_work_size, &p->fc.x_ndim, p->fc.x_shape_fft, source_x, fft_size, fft_mode);
+    }
+    fft_assign_layout(&p->fc.h_out_size, &p->fc.h_work_size, &p->fc.h_ndim, p->fc.h_shape_fft, source_h, fft_size, fft_mode, 0U);
+
+    uint32_t converted_axis = axis == -1 ? 0 : (uint32_t) axis;
+    p->fc.padded_ndim = axis == -1 ? 1U : source_x->ndim;
+    if (axis != -1) {
+        memcpy(p->fc.shape_padded_x, source_x->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+        p->fc.shape_padded_x[axis] = (uint32_t) fft_size;
+    } else {
+        p->fc.shape_padded_x[0] = (uint32_t) fft_size;
+    }
+    p->fc.shape_padded_h[0] = (uint32_t) fft_size;
+
+    bool is_perf = perf_h != NULL;
+    int32_t res;
+    size_t req_size = 0;
+    if (is_perf) {
+        if (get_array_size_from_shape(&req_size, p->fc.x_ndim, p->fc.x_shape_fft) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        int32_t res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_x, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->fft_buffer_x, p->fc.x_ndim, p->fc.x_shape_fft, req_size, p->fft_buffer_x.itype);
+
+        if (get_array_size_from_shape(&req_size, p->fc.h_ndim, p->fc.h_shape_fft) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_h, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->fft_buffer_h, p->fc.h_ndim, p->fc.h_shape_fft, req_size, p->fft_buffer_h.itype);
+
+        if (get_array_size_from_shape(&req_size, p->fc.x_ndim, p->fc.x_shape_fft) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_buffer, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->ifft_buffer, p->fc.x_ndim, p->fc.x_shape_fft, req_size, p->ifft_buffer.itype);
+
+        if (allocate_and_zero_pad_before(csound, &p->h, is_perf, &p->x_padded, source_x, p->fc.padded_ndim, p->fc.shape_padded_x, converted_axis, axis == -1) != OK
+            || allocate_and_zero_pad_before(csound, &p->h, is_perf, &p->h_padded, source_h, 1U, p->fc.shape_padded_h, 0, true) != OK) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+    } else {
+        if (allocate_and_zero_pad_before(csound, &p->h, is_perf, &p->x_padded, source_x, p->fc.padded_ndim, p->fc.shape_padded_x, converted_axis, axis == -1) != OK
+            || allocate_and_zero_pad_before(csound, &p->h, is_perf, &p->h_padded, source_h, 1U, p->fc.shape_padded_h, 0, true) != OK
+            || allocate_array(csound, &p->fft_buffer_x, p->fc.x_ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->fft_buffer_h, p->fc.h_ndim, p->fc.h_shape_fft, 0, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->ifft_buffer, p->fc.x_ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+    }
+
+    if (axis != -1) {
+        fft_assign_layout(&p->fc.ifft_out_size, &p->fc.ifft_work_size, &p->fc.ifft_ndim, p->fc.ifft_shape, &p->ifft_buffer, (uint32_t) fft_size, ifft_mode, (uint32_t) axis);
+    } else {
+        fft_assign_flatten_layout(&p->fc.ifft_out_size, &p->fc.ifft_work_size, &p->fc.ifft_ndim, p->fc.ifft_shape, &p->ifft_buffer, (uint32_t) fft_size, ifft_mode);
+    }
+
+    /* The inverse transform is written at its full padded length and the
+       published handle is a window on it, so it needs a destination of its
+       own rather than the output array. */
+
+    if (is_perf) {
+        if (get_array_size_from_shape(&req_size, p->fc.ifft_ndim, p->fc.ifft_shape) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_out, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->ifft_out, p->fc.ifft_ndim, p->fc.ifft_shape, req_size, p->ifft_out.itype);
+    } else {
+        ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+        if (allocate_array(csound, &p->ifft_out, p->fc.ifft_ndim, p->fc.ifft_shape, 0, otype) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+    }
+
+    MYFLT *temp_buffer_x = NULL;
+    MYFLT *temp_buffer_h = NULL;
+    MYFLT *temp_buffer_ifft = NULL;
+    if (is_perf) {
+        if (p->fc.x_work_size > p->buffer_x.scratch_capacity) {
+            temp_buffer_x = csound->ReAlloc(csound, p->buffer_x.scratch, sizeof(MYFLT) * p->fc.x_work_size * 2);
+            if (temp_buffer_x == NULL) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+            p->buffer_x.scratch = temp_buffer_x;
+            p->buffer_x.scratch_capacity = p->fc.x_work_size * 2;
+        }
+
+        if (p->fc.h_work_size > p->buffer_h.scratch_capacity) {
+            temp_buffer_h = csound->ReAlloc(csound, p->buffer_h.scratch, sizeof(MYFLT) * p->fc.h_work_size * 2);
+            if (temp_buffer_h == NULL) {
+                csound->Free(csound, temp_buffer_x);
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+            p->buffer_h.scratch = temp_buffer_h;
+            p->buffer_h.scratch_capacity = p->fc.h_work_size * 2;
+        }
+        if (p->fc.ifft_work_size > p->buffer_ifft.scratch_capacity) {
+            temp_buffer_ifft = csound->ReAlloc(csound, p->buffer_ifft.scratch, sizeof(MYFLT) * p->fc.ifft_work_size * 2);
+            if (temp_buffer_h == NULL) {
+                csound->Free(csound, temp_buffer_x);
+                csound->Free(csound, temp_buffer_h);
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+            p->buffer_ifft.scratch = temp_buffer_ifft;
+            p->buffer_ifft.scratch_capacity = p->fc.ifft_work_size * 2;
+        }
+    } else {
+        temp_buffer_x = csound->Calloc(csound, sizeof(MYFLT) * p->fc.x_work_size * 2);
+        if (temp_buffer_x == NULL) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+        temp_buffer_h = csound->Calloc(csound, sizeof(MYFLT) * p->fc.h_work_size * 2);
+        if (temp_buffer_h == NULL) {
+            csound->Free(csound, temp_buffer_x);
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+        temp_buffer_ifft = csound->Calloc(csound, sizeof(MYFLT) * p->fc.ifft_work_size * 2);
+        if (temp_buffer_ifft == NULL) {
+            csound->Free(csound, temp_buffer_x);
+            csound->Free(csound, temp_buffer_h);
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+        p->buffer_x.scratch = temp_buffer_x;
+        p->buffer_x.scratch_capacity = p->fc.x_work_size * 2;
+        p->buffer_h.scratch = temp_buffer_h;
+        p->buffer_h.scratch_capacity = p->fc.h_work_size * 2;
+        p->buffer_ifft.scratch = temp_buffer_ifft;
+        p->buffer_ifft.scratch_capacity = p->fc.ifft_work_size * 2;
+    }
+
+    return OK;
+}
+
+/* Lays out and allocates everything the N-D transform needs.
+
+   An N-D FFT is separable: one pass per axis, each consuming and producing the
+   same grid, so a single spectrum buffer per operand carries the whole thing
+   however many dimensions there are. What is per-axis is not the buffer but
+   the length, and with it the shape of the spectrum: only the axis transformed
+   first is one-sided, and only when the operands are real. Every pass after it
+   is a full complex transform that leaves its axis at the padded length. The
+   scratch is one lane's worth of workspace, so it is sized to the widest axis
+   and reused. */
+static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *p, CSN_ARRAY *source_x, CSN_ARRAY *source_h, CSN_FFT_MODE fft_mode, CSN_FFT_MODE ifft_mode) {
+    uint32_t ndim = source_x->ndim;
+    uint32_t last_axis = ndim - 1U;
+
+    p->fc.padded_ndim = ndim;
+    p->fc.x_ndim = ndim;
+    p->fc.h_ndim = ndim;
+    p->fc.ifft_ndim = ndim;
+
+    size_t max_work_size = 0;
+    /* The inverse walks the same lengths back and its shape is the padded grid
+       the crop reads from, so the shape this fills in is not needed. */
+    uint32_t ifft_layout_shape[CSN_MAX_DIMS] = {0};
+    for (uint32_t axis = 0; axis < ndim; axis++) {
+        p->fc.shape_padded_x[axis] = (uint32_t) p->fc.fft_sizes[axis];
+        p->fc.shape_padded_h[axis] = (uint32_t) p->fc.fft_sizes[axis];
+        p->fc.ifft_shape[axis] = (uint32_t) p->fc.fft_sizes[axis];
+
+        CSN_FFT_MODE axis_mode = axis == last_axis ? fft_mode : CSNFFT;
+        CSN_FFT_MODE axis_ifft_mode = axis == last_axis ? ifft_mode : CSNIFFT;
+        fft_assign_layout_at(p->fc.axis_out_size, p->fc.axis_work_size, p->fc.x_shape_fft, p->fc.fft_sizes, axis_mode, axis);
+        fft_assign_layout_at(p->fc.ifft_axis_out_size, p->fc.ifft_axis_work_size, ifft_layout_shape, p->fc.fft_sizes, axis_ifft_mode, axis);
+
+        max_work_size = p->fc.axis_work_size[axis] > max_work_size ? p->fc.axis_work_size[axis] : max_work_size;
+        max_work_size = p->fc.ifft_axis_work_size[axis] > max_work_size ? p->fc.ifft_axis_work_size[axis] : max_work_size;
+    }
+    /* Both operands are padded onto the same grid, so they share a spectrum. */
+    memcpy(p->fc.h_shape_fft, p->fc.x_shape_fft, sizeof(uint32_t) * CSN_MAX_DIMS);
+
+    size_t padded_size = 0;
+    size_t spectrum_size = 0;
+    if (get_array_size_from_shape(&padded_size, ndim, p->fc.shape_padded_x) != OK
+        || get_array_size_from_shape(&spectrum_size, ndim, p->fc.x_shape_fft) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count: every axis is padded to a power of two at or above x + h - 1");
+    }
+
+    bool is_perf = perf_h != NULL;
+    int32_t res;
+    MYFLT *temp_buffer_x = NULL;
+    MYFLT *temp_buffer_h = NULL;
+    MYFLT *temp_buffer_ifft = NULL;
+    size_t req_size = 0;
+    if (is_perf) {
+        if (get_array_size_from_shape(&req_size, ndim, p->fc.x_shape_fft) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_x, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->fft_buffer_x, ndim, p->fc.x_shape_fft, req_size, CSN_COMPLEX);
+
+        if (get_array_size_from_shape(&req_size, ndim, p->fc.h_shape_fft) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_h, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->fft_buffer_h, ndim, p->fc.h_shape_fft, req_size, CSN_COMPLEX);
+
+        if (get_array_size_from_shape(&req_size, ndim, p->fc.x_shape_fft) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_buffer, req_size);
+        if (res != OK) return res;
+        set_csnarray_layout(&p->ifft_buffer, ndim, p->fc.x_shape_fft, req_size, CSN_COMPLEX);
+
+        if (get_array_size_from_shape(&req_size, ndim, p->fc.ifft_shape) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
+        }
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_out, req_size);
+        if (res != OK) return res;
+        ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+        set_csnarray_layout(&p->ifft_out, ndim, p->fc.ifft_shape, req_size, otype);
+
+        if (allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->x_padded, source_x, ndim, p->fc.shape_padded_x) != OK
+            || allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->h_padded, source_h, ndim, p->fc.shape_padded_h) != OK) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+
+        size_t b_cap = max_work_size * 2;
+        if (max_work_size > p->buffer_x.scratch_capacity) {
+            temp_buffer_x = csound->ReAlloc(csound, p->buffer_x.scratch, sizeof(MYFLT) * b_cap);
+            if (temp_buffer_x == NULL) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+            p->buffer_x.scratch = temp_buffer_x;
+            p->buffer_x.scratch_capacity = b_cap;
+        }
+        if (max_work_size > p->buffer_h.scratch_capacity) {
+            temp_buffer_h = csound->ReAlloc(csound, p->buffer_h.scratch, sizeof(MYFLT) * b_cap);
+            if (temp_buffer_h == NULL) {
+                csound->Free(csound, temp_buffer_x);
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+            p->buffer_h.scratch = temp_buffer_h;
+            p->buffer_h.scratch_capacity = b_cap;
+        }
+        if (max_work_size > p->buffer_ifft.scratch_capacity) {
+            temp_buffer_ifft = csound->ReAlloc(csound, p->buffer_ifft.scratch, sizeof(MYFLT) * b_cap);
+            if (temp_buffer_ifft == NULL) {
+                csound->Free(csound, temp_buffer_x);
+                csound->Free(csound, temp_buffer_h);
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+            }
+            p->buffer_ifft.scratch = temp_buffer_h;
+            p->buffer_ifft.scratch_capacity = b_cap;
+        }
+    } else {
+        ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+        if (allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->x_padded, source_x, ndim, p->fc.shape_padded_x) != OK
+            || allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->h_padded, source_h, ndim, p->fc.shape_padded_h) != OK
+            || allocate_array(csound, &p->fft_buffer_x, ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->fft_buffer_h, ndim, p->fc.h_shape_fft, 0, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->ifft_buffer, ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->ifft_out, ndim, p->fc.ifft_shape, 0, otype) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+
+        size_t b_cap = max_work_size * 2;
+        temp_buffer_x = csound->Calloc(csound, sizeof(MYFLT) * b_cap);
+        if (temp_buffer_x == NULL) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+        temp_buffer_h = csound->Calloc(csound, sizeof(MYFLT) * b_cap);
+        if (temp_buffer_h == NULL) {
+            csound->Free(csound, temp_buffer_x);
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+        temp_buffer_ifft = csound->Calloc(csound, sizeof(MYFLT) * b_cap);
+        if (temp_buffer_ifft == NULL) {
+            csound->Free(csound, temp_buffer_x);
+            csound->Free(csound, temp_buffer_h);
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+        }
+
+        p->buffer_x.scratch = temp_buffer_x;
+        p->buffer_x.scratch_capacity = b_cap;
+        p->buffer_h.scratch = temp_buffer_h;
+        p->buffer_h.scratch_capacity = b_cap;
+        p->buffer_ifft.scratch = temp_buffer_ifft;
+        p->buffer_ifft.scratch_capacity = b_cap;
+    }
+
+    return OK;
+}
+
+static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    double edges_temp = (double) *p->arg_a;
+    double axis_value = (double) *p->arg_b;
+
+    if (!IS_VALID_EDGES(edges_temp)) {
+        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    }
+    uint32_t edges_mode = (uint32_t) edges_temp;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    void *fft_setup = NULL;
+    void *ifft_setup = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
+    if (slot_x == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
+    if (slot_h == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+    CSN_ARRAY *source_x = slot_x->array;
+    CSN_ARRAY *source_h = slot_h->array;
+    uint32_t source_ndim_x = source_x->ndim;
+
+    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim_x)) {
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes (flatten), or finite integers 0..%u)", axis_value, source_ndim_x, source_ndim_x - 1);
+        goto done;
+    }
+    int32_t axis = (int32_t) axis_value;
+
+    res = corrconv1d_validate(csound, NULL, source_x, source_h, axis, edges_mode);
+    if (res != OK) goto done;
+
+    size_t xfft_length = axis == -1 ? source_x->size : (size_t) source_x->shape[axis];
+    size_t fft_size_check = xfft_length + source_h->size - 1;
+    size_t fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
+    fftcorrconv_get_edges_offset(&p->fc.crop_offset[0], source_h->size, fft_size, edges_mode, mode);
+
+    ITEM_TYPE itype = (source_x->itype == CSN_COMPLEX || source_h->itype == CSN_COMPLEX) ? CSN_COMPLEX : CSN_REAL;
+    CSN_FFT_MODE fft_mode = itype == CSN_COMPLEX ? CSNFFT : CSNRFFT;
+    CSN_FFT_MODE ifft_mode = fft_mode == CSNFFT ? CSNIFFT : CSNIRFFT;
+
+    if (fft_mode == CSNRFFT) {
+        fft_setup = csound->RealFFTSetup(csound, fft_size, FFT_FWD);
+        ifft_setup = csound->RealFFTSetup(csound, fft_size, FFT_INV);
+    }
+
+    /* The published shape is the one the direct forms publish: the transform
+       runs over a padded power of two, the result does not. */
+    size_t size_result = 0;
+    int64_t direct_offset = 0;
+    corrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis, edges_mode);
+
+    uint32_t new_ndim = axis == -1 ? 1U : source_ndim_x;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    if (axis == -1) {
+        new_shape[0] = (uint32_t) size_result;
+    } else {
+        memcpy(new_shape, source_x->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+        new_shape[axis] = (uint32_t) size_result;
+    }
+
+    ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+    uint32_t protect[2] = { source_handle_a, source_handle_b };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, otype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    res = fftcorrconv_allocate(csound, NULL, p, source_x, source_h, fft_size, fft_mode, ifft_mode, axis);
+    if (res != OK) goto done;
+
+    double *temp_buffer_x = (double *) p->buffer_x.scratch;
+    double *temp_buffer_h = (double *) p->buffer_h.scratch;
+    double *temp_buffer_ifft = (double *) p->buffer_ifft.scratch;
+    uint32_t converted_axis = axis == -1 ? 0 : (uint32_t) axis;
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode);
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode);
+    fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode);
+    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode);
+    fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    p->k_data.prev_axis_i = axis;
+    p->k_data.prev_index = edges_mode;
+
+    p->k_data_fft_x.mode = fft_mode;
+    p->k_data_fft_x.nfft = fft_size;
+    p->k_data_fft_x.fft_setup = fft_setup;
+    p->k_data_fft_x.buffer_out_size = p->fc.x_out_size;
+    p->k_data_fft_x.buffer_work_size = p->fc.x_work_size;
+    p->k_data_fft_h.mode = fft_mode;
+    p->k_data_fft_h.nfft = fft_size;
+    p->k_data_fft_h.fft_setup = fft_setup;
+    p->k_data_fft_h.buffer_out_size = p->fc.h_out_size;
+    p->k_data_fft_h.buffer_work_size = p->fc.h_work_size;
+    p->k_data_ifft.mode = ifft_mode;
+    p->k_data_ifft.nfft = fft_size;
+    p->k_data_ifft.fft_setup = ifft_setup;
+    p->k_data_ifft.buffer_out_size = p->fc.ifft_out_size;
+    p->k_data_ifft.buffer_work_size = p->fc.ifft_work_size;
+
+    if (slot_x->rt_locked || slot_h->rt_locked) {
+        p->fft_buffer_x.external_lock = true;
+        p->fft_buffer_h.external_lock = true;
+        p->ifft_buffer.external_lock = true;
+        p->ifft_out.external_lock = true;
+        p->x_padded.external_lock = true;
+        p->h_padded.external_lock = true;
+    } else {
+        p->fft_buffer_x.external_lock = false;
+        p->fft_buffer_h.external_lock = false;
+        p->ifft_buffer.external_lock = false;
+        p->ifft_out.external_lock = false;
+        p->x_padded.external_lock = false;
+        p->h_padded.external_lock = false;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_fftconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv1d_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_fftcorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv1d_helper(csound, p, CSN_CORRELATION);
+}
+
+static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    double edges_temp = (double) *p->arg_a;
+
+    if (!IS_VALID_EDGES(edges_temp)) {
+        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    }
+    uint32_t edges_mode = (uint32_t) edges_temp;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    void *fft_setup = NULL;
+    void *ifft_setup = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
+    if (slot_x == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
+    if (slot_h == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+    CSN_ARRAY *source_x = slot_x->array;
+    CSN_ARRAY *source_h = slot_h->array;
+    uint32_t ndim = source_x->ndim;
+
+    res = corrconv_validate(csound, NULL, source_x, source_h);
+    if (res != OK) goto done;
+
+    uint32_t last_axis = ndim - 1U;
+    uint32_t fft_shape[CSN_MAX_DIMS] = {0};
+    fftcorrconv_get_shape_and_edges_offset_ndims(fft_shape, p->fc.crop_offset, source_x, source_h, edges_mode, mode);
+    for (uint32_t axis = 0; axis < ndim; axis++) {
+        p->fc.fft_sizes[axis] = (size_t) fft_shape[axis];
+    }
+
+    ITEM_TYPE itype = (source_x->itype == CSN_COMPLEX || source_h->itype == CSN_COMPLEX) ? CSN_COMPLEX : CSN_REAL;
+    CSN_FFT_MODE fft_mode = itype == CSN_COMPLEX ? CSNFFT : CSNRFFT;
+    CSN_FFT_MODE ifft_mode = fft_mode == CSNFFT ? CSNIFFT : CSNIRFFT;
+
+    /* Only the one-sided pass needs a setup, and it runs on the last axis, so
+       that axis alone decides the length it is built for. */
+    if (fft_mode == CSNRFFT) {
+        fft_setup = csound->RealFFTSetup(csound, (int32_t) p->fc.fft_sizes[last_axis], FFT_FWD);
+        ifft_setup = csound->RealFFTSetup(csound, (int32_t) p->fc.fft_sizes[last_axis], FFT_INV);
+    }
+
+    /* The published shape is the one the direct forms publish: the transform
+       runs over a padded power of two on every axis, the result does not. */
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    int64_t direct_offset[CSN_MAX_DIMS] = {0};
+    corrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h, edges_mode);
+
+    ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+    uint32_t protect[2] = { source_handle_a, source_handle_b };
+    if (create_csnarray_locked(csound, reg, &p->h, ndim, new_shape, &p->array, p->handle, protect, 2U, &err, otype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    res = fftcorrconv_allocate_ndims(csound, NULL, p, source_x, source_h, fft_mode, ifft_mode);
+    if (res != OK) goto done;
+
+    MYFLT *temp_buffer_x = (MYFLT *) p->buffer_x.scratch;
+    MYFLT *temp_buffer_h = (MYFLT *) p->buffer_h.scratch;
+    MYFLT *temp_buffer_ifft = (MYFLT *) p->buffer_ifft.scratch;
+
+    /* Forward: the last axis reads the padded operand and is the one-sided
+       pass when the operands are real; the axes before it run in place on the
+       spectrum, each at its own length. */
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
+    for (int32_t axis = (int32_t) last_axis - 1; axis >= 0; axis--) {
+        fft_assign_value(csound, NULL, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
+        fft_assign_value(csound, NULL, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
+    }
+
+    fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
+
+    /* Inverse: mirror order, the full complex axes first and the one-sided one
+       last, so the pass that widens the spectrum back is the pass that writes
+       the padded result. */
+    for (uint32_t axis = 0; axis < last_axis; axis++) {
+        ifft_assign_value(csound, NULL, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT);
+    }
+    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode);
+
+    fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    p->k_data.prev_index = edges_mode;
+
+    p->k_data_fft_x.mode = fft_mode;
+    p->k_data_fft_x.nfft = p->fc.fft_sizes[last_axis];
+    p->k_data_fft_x.fft_setup = fft_setup;
+    p->k_data_fft_h.mode = fft_mode;
+    p->k_data_fft_h.nfft = p->fc.fft_sizes[last_axis];
+    p->k_data_fft_h.fft_setup = fft_setup;
+    p->k_data_ifft.mode = ifft_mode;
+    p->k_data_ifft.nfft = p->fc.fft_sizes[last_axis];
+    p->k_data_ifft.fft_setup = ifft_setup;
+    p->is_published = false;
+
+    if (slot_x->rt_locked || slot_h->rt_locked) {
+        p->fft_buffer_x.external_lock = true;
+        p->fft_buffer_h.external_lock = true;
+        p->ifft_buffer.external_lock = true;
+        p->ifft_out.external_lock = true;
+        p->x_padded.external_lock = true;
+        p->h_padded.external_lock = true;
+    } else {
+        p->fft_buffer_x.external_lock = false;
+        p->fft_buffer_h.external_lock = false;
+        p->ifft_buffer.external_lock = false;
+        p->ifft_out.external_lock = false;
+        p->x_padded.external_lock = false;
+        p->h_padded.external_lock = false;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_fftconvolve(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_fftcorrelate(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_helper(csound, p, CSN_CORRELATION);
+}
+
+static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    uint32_t edges_mode = p->k_data.prev_index;
+    int32_t axis = p->k_data.prev_axis_i;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->arg_c);
+
+    void *fft_setup = p->k_data_fft_x.fft_setup;
+    void *ifft_setup = p->k_data_ifft.fft_setup;
+    size_t fft_size = p->k_data_fft_x.nfft;
+    size_t fft_mode = p->k_data_fft_x.mode;
+    size_t ifft_mode = p->k_data_ifft.mode;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
+    if (slot_x == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
+    if (slot_h == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+    CSN_ARRAY *source_x = slot_x->array;
+    CSN_ARRAY *source_h = slot_h->array;
+    uint32_t source_ndim_x = source_x->ndim;
+
+    res = corrconv1d_validate(csound, &p->h, source_x, source_h, axis, edges_mode);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_x->version);
+        bool is_same_kernel = is_same_array_version(&p->k_data.prev_source_version_b, &source_h->version);
+        bool is_same_result = false;
+        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
+        if (slot_res != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
+        }
+
+        if (is_same_source && is_same_kernel && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    size_t xfft_length = axis == -1 ? source_x->size : (size_t) source_x->shape[axis];
+    size_t fft_size_check = xfft_length + source_h->size - 1;
+    size_t requested_fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
+    if (requested_fft_size != fft_size) {
+        fft_size = requested_fft_size;
+        if (fft_mode == CSNRFFT) {
+            fft_setup = csound->RealFFTSetup(csound, (int32_t) fft_size, FFT_FWD);
+            ifft_setup = csound->RealFFTSetup(csound, (int32_t) fft_size, FFT_INV);
+            p->k_data_fft_x.fft_setup = fft_setup;
+            p->k_data_fft_h.fft_setup = fft_setup;
+            p->k_data_ifft.fft_setup = ifft_setup;
+        }
+        p->k_data_fft_x.nfft = fft_size;
+        p->k_data_fft_h.nfft = fft_size;
+        p->k_data_ifft.nfft = fft_size;
+    }
+
+    /* The crop window is read off the current kernel and the current length,
+       since a correlation's start is rotated by both. */
+    fftcorrconv_get_edges_offset(&p->fc.crop_offset[0], source_h->size, fft_size, edges_mode, mode);
+
+    size_t size_result = 0;
+    int64_t direct_offset = 0;
+    corrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis, edges_mode);
+
+    uint32_t new_ndim = axis == -1 ? 1U : source_ndim_x;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    if (axis == -1) {
+        new_shape[0] = (uint32_t) size_result;
+    } else {
+        memcpy(new_shape, source_x->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+        new_shape[axis] = (uint32_t) size_result;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_x->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, otype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    res = fftcorrconv_allocate(csound, &p->h, p, source_x, source_h, fft_size, fft_mode, ifft_mode, axis);
+    if (res != OK) goto done;
+
+    double *temp_buffer_x = (double *) p->buffer_x.scratch;
+    double *temp_buffer_h = (double *) p->buffer_h.scratch;
+    double *temp_buffer_ifft = (double *) p->buffer_ifft.scratch;
+    uint32_t converted_axis = axis == -1 ? 0 : (uint32_t) axis;
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode);
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode);
+    fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode);
+    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode);
+    fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis);
+
+    SET_KDATA_END(p, new_shape, new_ndim, p->array->itype);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_x->version);
+    set_array_version(&p->k_data.prev_source_version_b, &source_h->version);
+
+    p->k_data_fft_x.buffer_out_size = p->fc.x_out_size;
+    p->k_data_fft_x.buffer_work_size = p->fc.x_work_size;
+    p->k_data_fft_h.buffer_out_size = p->fc.h_out_size;
+    p->k_data_fft_h.buffer_work_size = p->fc.h_work_size;
+    p->k_data_ifft.buffer_out_size = p->fc.ifft_out_size;
+    p->k_data_ifft.buffer_work_size = p->fc.ifft_work_size;
+    p->is_published = true;
+
+    if (slot_x->rt_locked || slot_h->rt_locked) {
+        p->fft_buffer_x.external_lock = true;
+        p->fft_buffer_h.external_lock = true;
+        p->ifft_buffer.external_lock = true;
+        p->ifft_out.external_lock = true;
+        p->x_padded.external_lock = true;
+        p->h_padded.external_lock = true;
+    } else {
+        p->fft_buffer_x.external_lock = false;
+        p->fft_buffer_h.external_lock = false;
+        p->ifft_buffer.external_lock = false;
+        p->ifft_out.external_lock = false;
+        p->x_padded.external_lock = false;
+        p->h_padded.external_lock = false;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle_a = p->source_handle_a->id;
+    uint32_t source_handle_b = p->source_handle_b->id;
+
+    uint32_t edges_mode = p->k_data.prev_index;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    CHECK_KTRIG(p->arg_b);
+
+    void *fft_setup = p->k_data_fft_x.fft_setup;
+    void *ifft_setup = p->k_data_ifft.fft_setup;
+    size_t fft_size = p->k_data_fft_x.nfft;
+    size_t fft_mode = p->k_data_fft_x.mode;
+    size_t ifft_mode = p->k_data_ifft.mode;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
+    if (slot_x == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        goto done;
+    }
+    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
+    if (slot_h == NULL) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        goto done;
+    }
+    CSN_ARRAY *source_x = slot_x->array;
+    CSN_ARRAY *source_h = slot_h->array;
+    uint32_t ndim = source_x->ndim;
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_x->version);
+        bool is_same_kernel = is_same_array_version(&p->k_data.prev_source_version_b, &source_h->version);
+        bool is_same_result = false;
+        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
+        if (slot_res != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
+        }
+
+        if (is_same_source && is_same_kernel && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    res = corrconv_validate(csound, &p->h, source_x, source_h);
+    if (res != OK) goto done;
+
+    uint32_t last_axis = ndim - 1U;
+    uint32_t fft_shape[CSN_MAX_DIMS] = {0};
+    fftcorrconv_get_shape_and_edges_offset_ndims(fft_shape, p->fc.crop_offset, source_x, source_h, edges_mode, mode);
+    for (uint32_t axis = 0; axis < ndim; axis++) {
+        p->fc.fft_sizes[axis] = (size_t) fft_shape[axis];
+    }
+
+    if (p->fc.fft_sizes[last_axis] != fft_size) {
+        if (fft_mode == CSNRFFT) {
+            fft_setup = csound->RealFFTSetup(csound, (int32_t) p->fc.fft_sizes[last_axis], FFT_FWD);
+            ifft_setup = csound->RealFFTSetup(csound, (int32_t) p->fc.fft_sizes[last_axis], FFT_INV);
+            p->k_data_fft_x.fft_setup = fft_setup;
+            p->k_data_fft_h.fft_setup = fft_setup;
+            p->k_data_ifft.fft_setup = ifft_setup;
+        }
+    }
+
+    /* The published shape is the one the direct forms publish: the transform
+       runs over a padded power of two on every axis, the result does not. */
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    int64_t direct_offset[CSN_MAX_DIMS] = {0};
+    corrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h, edges_mode);
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, ndim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = source_x->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, ndim, new_shape, logical_size, otype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    res = fftcorrconv_allocate_ndims(csound, &p->h, p, source_x, source_h, fft_mode, ifft_mode);
+    if (res != OK) goto done;
+
+    MYFLT *temp_buffer_x = (MYFLT *) p->buffer_x.scratch;
+    MYFLT *temp_buffer_h = (MYFLT *) p->buffer_h.scratch;
+    MYFLT *temp_buffer_ifft = (MYFLT *) p->buffer_ifft.scratch;
+
+    /* Forward: the last axis reads the padded operand and is the one-sided
+       pass when the operands are real; the axes before it run in place on the
+       spectrum, each at its own length. */
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
+    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
+    for (int32_t axis = (int32_t) last_axis - 1; axis >= 0; axis--) {
+        fft_assign_value(csound, &p->h, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
+        fft_assign_value(csound, &p->h, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
+    }
+
+    fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
+
+    /* Inverse: mirror order, the full complex axes first and the one-sided one
+       last, so the pass that widens the spectrum back is the pass that writes
+       the padded result. */
+    for (uint32_t axis = 0; axis < last_axis; axis++) {
+        ifft_assign_value(csound, &p->h, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT);
+    }
+    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode);
+
+    fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset);
+
+    SET_KDATA_END(p, new_shape, ndim, p->array->itype);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_x->version);
+    set_array_version(&p->k_data.prev_source_version_b, &source_h->version);
+
+    p->k_data_fft_x.nfft = p->fc.fft_sizes[last_axis];
+    p->k_data_fft_h.nfft = p->fc.fft_sizes[last_axis];
+    p->k_data_ifft.nfft = p->fc.fft_sizes[last_axis];
+    p->is_published = true;
+
+    if (slot_x->rt_locked || slot_h->rt_locked) {
+        p->fft_buffer_x.external_lock = true;
+        p->fft_buffer_h.external_lock = true;
+        p->ifft_buffer.external_lock = true;
+        p->ifft_out.external_lock = true;
+        p->x_padded.external_lock = true;
+        p->h_padded.external_lock = true;
+    } else {
+        p->fft_buffer_x.external_lock = false;
+        p->fft_buffer_h.external_lock = false;
+        p->ifft_buffer.external_lock = false;
+        p->ifft_out.external_lock = false;
+        p->x_padded.external_lock = false;
+        p->h_padded.external_lock = false;
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+int32_t csnarray_fftconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv1d_k_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_fftcorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv1d_k_helper(csound, p, CSN_CORRELATION);
+}
+
+int32_t csnarray_fftconvolve_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_k_helper(csound, p, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_fftcorrelate_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_k_helper(csound, p, CSN_CORRELATION);
 }

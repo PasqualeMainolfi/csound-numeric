@@ -1888,6 +1888,53 @@ instr 13
     assert(abs(iCcConv0Re + 1) < 1e-12)
     assert(abs(iCcConv0Im - 7) < 1e-12)
 
+    ; The FFT forms answer what the direct ones answer, to within rounding:
+    ; padded to a power of two, multiplied in the spectrum, transformed back.
+    ; Checked against the direct result rather than against constants, so the
+    ; two can never drift apart without this failing.
+    iFftFull:CsnArr = csnfftconvolve1d(iCcX, iCcH, 0)
+    assert(csnsize(iFftFull) == 7)
+    iFftFullErr = csnmax(csnabs(csnsubtract(iCcFull, iFftFull)))
+    assert(iFftFullErr < 1e-12)
+
+    iFftSame:CsnArr = csnfftconvolve1d(iCcX, iCcH, 1)
+    assert(csnsize(iFftSame) == 5)
+    iFftSameErr = csnmax(csnabs(csnsubtract(iCcSame, iFftSame)))
+    assert(iFftSameErr < 1e-12)
+
+    iFftValid:CsnArr = csnfftconvolve1d(iCcX, iCcH, 2)
+    assert(csnsize(iFftValid) == 3)
+    iFftValidErr = csnmax(csnabs(csnsubtract(iCcValid, iFftValid)))
+    assert(iFftValidErr < 1e-12)
+
+    iFftCorr:CsnArr = csnfftcorrelate1d(iCcX, iCcH, 0)
+    assert(csnsize(iFftCorr) == 7)
+    iFftCorrErr = csnmax(csnabs(csnsubtract(iCrFull, iFftCorr)))
+    assert(iFftCorrErr < 1e-12)
+
+    ; along an axis, where the destination lane is the one the source came from
+    iFftAxis0:CsnArr = csnfftconvolve1d(iCcMat, iCcOnes, 0, 0)
+    iFftAxis0Shape[] = csnshape(iFftAxis0)
+    assert(iFftAxis0Shape[0] == 3 && iFftAxis0Shape[1] == 3)
+    iFftAxis0Err = csnmax(csnabs(csnsubtract(iCcAxis0, iFftAxis0)))
+    assert(iFftAxis0Err < 1e-12)
+
+    ; N-D: every axis padded to its own power of two
+    iFftNdFull:CsnArr = csnfftconvolve(iNdX, iNdH, 0)
+    iFftNdShape[] = csnshape(iFftNdFull)
+    assert(iFftNdShape[0] == 4 && iFftNdShape[1] == 4)
+    iFftNdErr = csnmax(csnabs(csnsubtract(iNdFull, iFftNdFull)))
+    assert(iFftNdErr < 1e-12)
+
+    iFftNdValid:CsnArr = csnfftconvolve(iNdX, iNdH, 2)
+    assert(csnsize(iFftNdValid) == 4)
+    iFftNdValidErr = csnmax(csnabs(csnsubtract(iNdValid, iFftNdValid)))
+    assert(iFftNdValidErr < 1e-12)
+
+    iFftNdCorr:CsnArr = csnfftcorrelate(iNdX, iNdH, 0)
+    iFftNdCorrErr = csnmax(csnabs(csnsubtract(iNdCorr, iFftNdCorr)))
+    assert(iFftNdCorrErr < 1e-12)
+
     iCcZCorr:CsnArr = csncorrelate1d(iCcZ, iCcK, 0)
     CcCorr0:Complex = csnget(iCcZCorr, iCcIndex0)
     iCcCorr0Re = real(CcCorr0)
@@ -1961,5 +2008,6 @@ e
 ; csnfft csnrfft csnifft csnirfft csnfft2 csnrfft2 csnifft2 csnirfft2 csnstft csnistft
 ; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
+; csnfftconvolve1d csnfftcorrelate1d csnfftconvolve csnfftcorrelate
 ; @covers-end
 </CsoundSynthesizer>

@@ -274,6 +274,17 @@ output. An empty kernel is refused.
 - **csncorrelate1d** - cross-correlation with a 1-D kernel, flat or along one axis (i, k — real, complex)
 - **csnconvolve** - N-D convolution with a kernel of the same rank (i, k — real, complex)
 - **csncorrelate** - N-D cross-correlation with a kernel of the same rank (i, k — real, complex)
+- **csnfftconvolve1d** - the same convolution through Fourier transforms (i, k — real, complex)
+- **csnfftcorrelate1d** - the same cross-correlation through Fourier transforms (i, k — real, complex)
+- **csnfftconvolve** - N-D convolution through Fourier transforms (i, k — real, complex)
+- **csnfftcorrelate** - N-D cross-correlation through Fourier transforms (i, k — real, complex)
+
+The `csnfft*` forms answer what the direct ones answer, to within floating-point
+rounding, by padding both operands to a power of two, multiplying in the
+spectrum and transforming back. The direct forms cost one multiply-add per
+output element per tap and win on short kernels; the transform costs `n log n`
+whatever the kernel does and wins from roughly a dozen taps up. The transform
+length is derived from the operands, never asked for.
 
 ## Interpolation and resampling
 
