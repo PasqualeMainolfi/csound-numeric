@@ -1827,6 +1827,41 @@ instr 13
     csnrtlockblock
     csnrtunlockblock
 
+    ; Savitzky-Golay: a second-order fit reproduces a parabola exactly, so the
+    ; smoothing row gives the signal back and the first-derivative row gives
+    ; 2t + 3. Correlation applies the rows in the order they come out; the
+    ; odd ones change sign under convolution, which is checked too.
+    iSgCoeffs:CsnArr = csnsavgol(7, 2, 1)
+    iSgShape[] = csnshape(iSgCoeffs)
+    assert(iSgShape[0] == 3 && iSgShape[1] == 7)
+
+    iSgT:CsnArr = csnarange(0, 12, 1)
+    iSgSignal:CsnArr = csnadd(csnmul(iSgT, iSgT), csnmul(iSgT, 3))
+    iSgSmooth:CsnArr = csngetrow(iSgCoeffs, 0)
+    iSgSlope:CsnArr = csngetrow(iSgCoeffs, 1)
+
+    iSgFit:CsnArr = csncorrelate1d(iSgSignal, iSgSmooth, 2)
+    iSgFitValues[] = csntoarray(iSgFit)
+    assert(csnsize(iSgFit) == 6)
+    assert(abs(iSgFitValues[0] - 18) < 1e-9)
+    assert(abs(iSgFitValues[5] - 88) < 1e-9)
+
+    iSgDeriv:CsnArr = csncorrelate1d(iSgSignal, iSgSlope, 2)
+    iSgDerivValues[] = csntoarray(iSgDeriv)
+    assert(abs(iSgDerivValues[0] - 9) < 1e-9)
+    assert(abs(iSgDerivValues[5] - 19) < 1e-9)
+
+    iSgFlipped:CsnArr = csnconvolve1d(iSgSignal, iSgSlope, 2)
+    iSgFlippedValues[] = csntoarray(iSgFlipped)
+    assert(abs(iSgFlippedValues[0] + 9) < 1e-9)
+
+    ; delta scales the derivative rows: halving it doubles the first
+    iSgHalf:CsnArr = csnsavgol(7, 2, 0.5)
+    iSgHalfSlope:CsnArr = csngetrow(iSgHalf, 1)
+    iSgHalfDeriv:CsnArr = csncorrelate1d(iSgSignal, iSgHalfSlope, 2)
+    iSgHalfValues[] = csntoarray(iSgHalfDeriv)
+    assert(abs(iSgHalfValues[0] - 18) < 1e-9)
+
     ; ------------------------------------------------------------------
     ; Convolution and correlation. Every expected value here is what NumPy
     ; answers for the same operands: np.convolve / np.correlate for the 1-D
@@ -2067,6 +2102,6 @@ e
 ; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
 ; csnfftconvolve1d csnfftcorrelate1d csnfftconvolve csnfftcorrelate
-; csnsolve csninv csndet csndet.c csnrtlockblock csnrtunlockblock csnrtlockall
+; csnsolve csninv csndet csndet.c csnrtlockblock csnrtunlockblock csnrtlockall csnsavgol
 ; @covers-end
 </CsoundSynthesizer>

@@ -8,8 +8,8 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, convolution, matrix solving, interpolation and resampling, 216
-opcodes across 631 rate and type overloads.
+primitives, convolution, matrix solving, interpolation and resampling, 217
+opcodes across 632 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
 signal generation and no GUI. Two doors lead out of that: `csnsave` / `csnload`
@@ -227,8 +227,9 @@ csound --opcode-dir=build example/csnsort.csd
   membership, union, intersection, difference and set predicates.
 - **Linear algebra and geometry**: dot, inner, outer, matmul, trace, diagonal,
   norms, normalize, cross product, distances, angular distance, vector
-  projection and rejection, reflection, and the three matrix operations that
-  need a factorization — `csnsolve`, `csninv`, `csndet`.
+  projection and rejection, reflection, the three matrix operations that need
+  a factorization — `csnsolve`, `csninv`, `csndet` — and `csnsavgol`, which
+  builds a Savitzky-Golay filter for `csncorrelate1d` to apply.
 - **Complex**: real / imaginary parts, angle, conjugate, conversion to and from
   real arrays.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
@@ -536,6 +537,7 @@ of re-sorting on every k-rate pass.
 | `csnsolve` | `np.linalg.solve` | One factorization, any number of right-hand sides. |
 | `csninv` | `np.linalg.inv` | |
 | `csndet` | `np.linalg.det` | Zero for a singular matrix, as NumPy's does; `csninv` and `csnsolve` refuse one. |
+| `csnsavgol` | `scipy.signal.savgol_coeffs` | Every derivative order at once, one per row; apply it with `csncorrelate1d`. |
 
 ### Complex arrays
 

@@ -233,6 +233,7 @@ result with **csnlikeset** before using it as a set again. See
 - **csnsolve** - solves a linear system A x = B, any number of right-hand sides (i, k — real, complex)
 - **csninv** - inverse of a square matrix (i, k — real, complex)
 - **csndet** - determinant of a square matrix (i, k — real, complex)
+- **csnsavgol** - Savitzky-Golay coefficient matrix, one row per derivative order (i — real only)
 
 The three matrix operations share one LU decomposition with partial pivoting.
 A pivot counts as zero when it falls at or below `n * DBL_EPSILON` times the
@@ -240,6 +241,11 @@ largest magnitude in the matrix, so a matrix that is singular only to within
 rounding is caught too. `csninv` and `csnsolve` refuse a singular matrix;
 `csndet` answers zero, since that is the determinant and asking for it is how
 one tests for singularity.
+
+`csnsavgol` only builds the filter; applying it is `csncorrelate1d`, on the row
+for the derivative wanted. Correlation, not convolution: the rows come out in
+natural order, and convolution would reverse them, which flips the sign of
+every odd-order row.
 
 ## Complex arrays
 

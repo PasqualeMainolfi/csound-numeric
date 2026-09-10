@@ -1,4 +1,5 @@
 #include "csnregistry.h"
+#include "csnfft.h"
 #include "csnum.h"
 #include <math.h>
 #include <stdbool.h>

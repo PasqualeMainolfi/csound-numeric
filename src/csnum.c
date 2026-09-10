@@ -1,6 +1,8 @@
 #include "csnum.h"
+#include "csnfft.h"
 #include "csnfile.h"
 #include "csnregistry.h"
+#include "csnlinalg.h"
 #include <float.h>
 #include <csdl.h>
 #include <math.h>
@@ -22133,6 +22135,7 @@ static OENTRY localops[] = {
     { "csnisinf.k",            S(CSN_UNARYOP),                0, ":CsnArr;",                 ":CsnArr;P",                     (SUBR) csnarray_isinf,                       (SUBR) csnarray_isinf_k,                (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnisfin",              S(CSN_UNARYOP),                0, ":CsnArr;",                 ":CsnArr;",                      (SUBR) csnarray_isfin,                       NULL,                                   (SUBR) csnarray_opunary_deinit,         NULL, 0 },
     { "csnisfin.k",            S(CSN_UNARYOP),                0, ":CsnArr;",                 ":CsnArr;P",                     (SUBR) csnarray_isfin,                       (SUBR) csnarray_isfin_k,                (SUBR) csnarray_opunary_deinit,         NULL, 0 },
+    { "csnsavgol",             S(CSN_SAVGOL_MATRIX),          0, ":CsnArr;",                 "iip",                           (SUBR) csnarray_savgol_mat,                  NULL,                                   (SUBR) csnarray_savgol_mat_deinit,      NULL, 0 },
     // ---
     // REAL AND COMPLEX
     { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",                 "i[]o",                          (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,          NULL, 0 },

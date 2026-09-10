@@ -232,6 +232,7 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnsolve](csnsolve.md) - solves a linear system A x = B
 - [csninv](csninv.md) - inverse of a square matrix
 - [csndet](csndet.md) - determinant of a square matrix
+- [csnsavgol](csnsavgol.md) - Savitzky-Golay coefficient matrix, one row per derivative order
 
 ## Complex arrays
 

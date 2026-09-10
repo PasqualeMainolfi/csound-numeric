@@ -4,6 +4,7 @@
 
 - Add matrix solving, inversion and determinant on a shared LU decomposition with partial pivoting, real and complex (*csnsolve*, *csninv*, *csndet*)
 - Reject singular matrices in *csninv* and *csnsolve* against a pivot threshold scaled to the matrix; *csndet* answers zero, which is what the determinant of a singular matrix is
+- Add the Savitzky-Golay coefficient matrix, every derivative order at once, applied with *csncorrelate1d* (*csnsavgol*)
 - Add block and orchestra-wide real-time marking (*csnrtlockblock*, *csnrtunlockblock*, *csnrtlockall*), the block scoped to the note that opened it and released when that note ends
 - Add opcode reference pages, runnable examples, and regression coverage for the new APIs
 
