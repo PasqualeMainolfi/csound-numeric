@@ -9,6 +9,11 @@ ksmps = 32
 nchnls = 2
 0dbfs = 1
 
+/* Header-only, and harmless here: this file runs at i-time, and the mark only
+   refuses a reallocation at performance time. It is exercised for the same
+   reason every other i-time signature is. */
+csnrtlockall
+
 instr 1
     iIndex0[] = fillarray(0)
     iIndex1[] = fillarray(1)
@@ -1770,6 +1775,59 @@ instr 13
     csnrtunlock(iShiftSource)
 
     ; ------------------------------------------------------------------
+    ; Matrix solving, inversion and determinant. The checks are identities
+    ; rather than transcribed constants: A x = B, A inv(A) = I, and a
+    ; determinant against the value NumPy gives for the same matrix.
+    ; ------------------------------------------------------------------
+    iLaShape[] = fillarray(3, 3)
+    iLaA:CsnArr = csnreshape(csnfromarray(array(4, 3, 2, 1, 5, 7, 2, 2, 9)), iLaShape)
+
+    iLaDet = csndet(iLaA)
+    assert(abs(iLaDet - 123) < 1e-10)
+
+    iLaInv:CsnArr = csninv(iLaA)
+    iLaProd:CsnArr = csnmatmul(iLaA, iLaInv)
+    iLaEye:CsnArr = csnidentity(3)
+    iLaInvErr = csnmax(csnabs(csnsubtract(iLaProd, iLaEye)))
+    assert(iLaInvErr < 1e-12)
+
+    iLaBShape[] = fillarray(3, 2)
+    iLaB:CsnArr = csnreshape(csnfromarray(array(1, 0, 2, 1, 3, 0)), iLaBShape)
+    iLaX:CsnArr = csnsolve(iLaA, iLaB)
+    iLaXShape[] = csnshape(iLaX)
+    assert(iLaXShape[0] == 3 && iLaXShape[1] == 2)
+    iLaBack:CsnArr = csnmatmul(iLaA, iLaX)
+    iLaSolveErr = csnmax(csnabs(csnsubtract(iLaBack, iLaB)))
+    assert(iLaSolveErr < 1e-12)
+
+    ; Singular: row 3 is row 1 plus row 2. The determinant is zero rather
+    ; than an error, which is what separates csndet from csninv and csnsolve.
+    iLaSing:CsnArr = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6, 5, 7, 9)), iLaShape)
+    iLaSingDet = csndet(iLaSing)
+    assert(abs(iLaSingDet) < 1e-12)
+
+    ; Complex: determinant against NumPy, and the inverse by its own identity.
+    JLa:Complex = init(0, 1, 0)
+    iLaRe:CsnArr = csnreshape(csnfromarray(array(4, 3, 2, 1, 5, 7, 2, 2, 9)), iLaShape)
+    iLaIm:CsnArr = csnreshape(csnfromarray(array(1, 0, 2, 0, 3, 1, 1, 1, 0)), iLaShape)
+    iLaZ:CsnArr = csnadd(csntocomplex(iLaRe), csnmul(csntocomplex(iLaIm), JLa))
+    LaDetC:Complex = csndet(iLaZ)
+    iLaDetCRe = real(LaDetC)
+    iLaDetCIm = imag(LaDetC)
+    assert(abs(iLaDetCRe - 132) < 1e-9)
+    assert(abs(iLaDetCIm - 101) < 1e-9)
+
+    iLaZInv:CsnArr = csninv(iLaZ)
+    iLaZProd:CsnArr = csnmatmul(iLaZ, iLaZInv)
+    iLaZEye:CsnArr = csntocomplex(iLaEye)
+    iLaZErr = csnmax(csnabs(csnsubtract(iLaZProd, iLaZEye)))
+    assert(iLaZErr < 1e-12)
+
+    ; The block form marks what follows it and nothing before.
+    csnrtlockblock
+    csnrtunlockblock
+
+    ; ------------------------------------------------------------------
     ; Convolution and correlation. Every expected value here is what NumPy
     ; answers for the same operands: np.convolve / np.correlate for the 1-D
     ; forms, scipy.signal.convolve / correlate for the N-D ones. The two
@@ -2009,5 +2067,6 @@ e
 ; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
 ; csnfftconvolve1d csnfftcorrelate1d csnfftconvolve csnfftcorrelate
+; csnsolve csninv csndet csndet.c csnrtlockblock csnrtunlockblock csnrtlockall
 ; @covers-end
 </CsoundSynthesizer>

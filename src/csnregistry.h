@@ -138,6 +138,9 @@ typedef struct {
     uint32_t active_count;
     void *mutex;
     PCG32_STATE rng; // random generator
+    INSDS *rt_glock_owner;
+    bool rt_glock_locked;
+    bool rt_glock_global;
 #ifdef CSN_VERSION_CROSSCHECK
     /* get_slot is the one place every opcode passes through to reach an array,
        which makes it the natural place to audit the counters — but its

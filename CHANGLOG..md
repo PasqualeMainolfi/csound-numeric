@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2] - 
+
+- Add matrix solving, inversion and determinant on a shared LU decomposition with partial pivoting, real and complex (*csnsolve*, *csninv*, *csndet*)
+- Reject singular matrices in *csninv* and *csnsolve* against a pivot threshold scaled to the matrix; *csndet* answers zero, which is what the determinant of a singular matrix is
+- Add block and orchestra-wide real-time marking (*csnrtlockblock*, *csnrtunlockblock*, *csnrtlockall*), the block scoped to the note that opened it and released when that note ends
+- Add opcode reference pages, runnable examples, and regression coverage for the new APIs
+
 ## [0.1.1] - 2026-09-09
 
 - Add direct convolution and cross-correlation over NumPy's FULL / SAME / VALID spans, with a 1-D kernel flat or along one axis and with a kernel shaped like the source (*csnconvolve1d*, *csncorrelate1d*, *csnconvolve*, *csncorrelate*)

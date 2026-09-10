@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "csnfile.h"
+#include "csnlinalg.h"
 #include "csnregistry.h"
 
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
@@ -1816,6 +1817,14 @@ typedef struct {
 
 typedef struct {
     OPDS h;
+    // inputs
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+} CSN_GRTLOCK;
+
+typedef struct {
+    OPDS h;
     // outputs
     CSNREF *handle;
     // inputs
@@ -2098,6 +2107,84 @@ typedef struct {
     bool is_published;
 } CSN_CORRCONV;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle_a;
+    CSNREF *source_handle_b;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer_a;
+    CSN_SCRATCH buffer_b;
+    CSN_LU_INFO lu_info;
+    bool is_published;
+} CSN_LINALG_SOLVE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle_a;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer_a;
+    CSN_SCRATCH buffer_b;
+    CSN_LU_INFO lu_info;
+    bool is_published;
+} CSN_LINALG_INVERSE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    void *det;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    CSN_LU_INFO lu_info;
+    bool is_published;
+} CSN_LINALG_DETERMINANT_COMMON;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *det;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    CSN_LU_INFO lu_info;
+    double prev_det_real;
+    CSN_COMPLEXDAT prev_det_complex;
+    bool is_published;
+} CSN_LINALG_DET_REAL;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *det;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    CSN_LU_INFO lu_info;
+    double prev_det_real;
+    CSN_COMPLEXDAT prev_det_complex;
+    bool is_published;
+} CSN_LINALG_DET_COMPLEX;
 
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
@@ -2120,6 +2207,24 @@ void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *reque
 void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
+int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
+void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
+
+// linear algebra
+
+int32_t csnarray_solve_deinit(CSOUND *csound, CSN_LINALG_SOLVE *p);
+int32_t csnarray_solve(CSOUND *csound, CSN_LINALG_SOLVE *p);
+int32_t csnarray_solve_k(CSOUND *csound, CSN_LINALG_SOLVE *p);
+int32_t csnarray_inverse_deinit(CSOUND *csound, CSN_LINALG_INVERSE *p);
+int32_t csnarray_inverse(CSOUND *csound, CSN_LINALG_INVERSE *p);
+int32_t csnarray_inverse_k(CSOUND *csound, CSN_LINALG_INVERSE *p);
+int32_t csnarray_det_real_deinit(CSOUND *csound, CSN_LINALG_DET_REAL *p);
+int32_t csnarray_det_complex_deinit(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p);
+int32_t csnarray_determinant_real(CSOUND *csound, CSN_LINALG_DET_REAL *p);
+int32_t csnarray_determinant_real_k(CSOUND *csound, CSN_LINALG_DET_REAL *p);
+int32_t csnarray_determinant_complex(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p);
+int32_t csnarray_determinant_complex_k(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p);
+
 
 // set op
 
@@ -2231,6 +2336,9 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p);
 int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p);
 int32_t csnarray_set_rtlock(CSOUND *csound, CSN_RTLOCK *p);
 int32_t csnarray_set_rtunlock(CSOUND *csound, CSN_RTLOCK *p);
+int32_t csnarray_set_grtlock(CSOUND *csound, CSN_GRTLOCK *p);
+int32_t csnarray_set_grtunlock(CSOUND *csound, CSN_GRTLOCK *p);
+int32_t csnarray_set_grtlock_all(CSOUND *csound, CSN_GRTLOCK *p);
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);
@@ -2529,6 +2637,10 @@ int32_t csnarray_set_rtlock_k(CSOUND *csound, CSN_RTLOCK *p);
 int32_t csnarray_set_rtunlock_k(CSOUND *csound, CSN_RTLOCK *p);
 int32_t csnarray_set_rtlock_k_init(CSOUND *csound, CSN_RTLOCK *p);
 int32_t csnarray_set_rtunlock_k_init(CSOUND *csound, CSN_RTLOCK *p);
+int32_t csnarray_set_grtlock_k(CSOUND *csound, CSN_GRTLOCK *p);
+int32_t csnarray_set_grtunlock_k(CSOUND *csound, CSN_GRTLOCK *p);
+int32_t csnarray_set_grtlock_k_init(CSOUND *csound, CSN_GRTLOCK *p);
+int32_t csnarray_set_grtunlock_k_init(CSOUND *csound, CSN_GRTLOCK *p);
 
 // CREATION
 int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p);

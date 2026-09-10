@@ -9,7 +9,8 @@ if(BUILD_CSNUM_OPCODES)
         src/csnregistry.c
         src/csnfile.c
         src/csnset.c
-        src/csnfft.c)
+        src/csnfft.c
+        src/csnlinalg.c)
 
     make_plugin(csnum "${CSNUM_SOURCES}")
 

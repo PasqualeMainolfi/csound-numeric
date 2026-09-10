@@ -230,6 +230,16 @@ result with **csnlikeset** before using it as a set again. See
 - **csnproject** - component of one vector along another (i, k — real only)
 - **csnreject** - component of one vector orthogonal to another (i, k — real only)
 - **csnreflect** - reflects a vector about another (i, k — real, complex)
+- **csnsolve** - solves a linear system A x = B, any number of right-hand sides (i, k — real, complex)
+- **csninv** - inverse of a square matrix (i, k — real, complex)
+- **csndet** - determinant of a square matrix (i, k — real, complex)
+
+The three matrix operations share one LU decomposition with partial pivoting.
+A pivot counts as zero when it falls at or below `n * DBL_EPSILON` times the
+largest magnitude in the matrix, so a matrix that is singular only to within
+rounding is caught too. `csninv` and `csnsolve` refuse a singular matrix;
+`csndet` answers zero, since that is the determinant and asking for it is how
+one tests for singularity.
 
 ## Complex arrays
 
@@ -319,3 +329,6 @@ k-rate forms, and affect only arrays created from the handle after the change.
 - **csnstream** - overlap-adds frames back into a continuous signal (a — real only)
 - **csnrtlock** - marks any handle as a real-time path (i, k — real, complex)
 - **csnrtunlock** - clears the real-time mark from one handle (i, k — real, complex)
+- **csnrtlockblock** - marks every array the current note creates from here on (i, k)
+- **csnrtunlockblock** - closes that block; the note ending closes it too (i, k)
+- **csnrtlockall** - marks every array for the whole performance; orchestra header only, and there is no way to switch it off (i)

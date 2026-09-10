@@ -229,6 +229,9 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnproject](csnproject.md) - component of one vector along another
 - [csnreject](csnreject.md) - component of one vector orthogonal to another
 - [csnreflect](csnreflect.md) - reflects a vector about another
+- [csnsolve](csnsolve.md) - solves a linear system A x = B
+- [csninv](csninv.md) - inverse of a square matrix
+- [csndet](csndet.md) - determinant of a square matrix
 
 ## Complex arrays
 
@@ -295,3 +298,6 @@ chain is being harvested for analysis rather than sent back out.
 - [csnstream](csnstream.md) - overlap-adds frames back into a continuous signal
 - [csnrtlock](csnrtlock.md) - marks any handle as a real-time path
 - [csnrtunlock](csnrtunlock.md) - clears the real-time mark from one handle
+- [csnrtlockblock](csnrtlockblock.md) - marks every array this note creates from here on
+- [csnrtunlockblock](csnrtunlockblock.md) - closes that block
+- [csnrtlockall](csnrtlockall.md) - marks every array for the whole performance, header only

@@ -8,8 +8,8 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, convolution, interpolation and resampling, 210 opcodes across 618
-rate and type overloads.
+primitives, convolution, matrix solving, interpolation and resampling, 216
+opcodes across 631 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
 signal generation and no GUI. Two doors lead out of that: `csnsave` / `csnload`
@@ -227,7 +227,8 @@ csound --opcode-dir=build example/csnsort.csd
   membership, union, intersection, difference and set predicates.
 - **Linear algebra and geometry**: dot, inner, outer, matmul, trace, diagonal,
   norms, normalize, cross product, distances, angular distance, vector
-  projection and rejection, reflection.
+  projection and rejection, reflection, and the three matrix operations that
+  need a factorization — `csnsolve`, `csninv`, `csndet`.
 - **Complex**: real / imaginary parts, angle, conjugate, conversion to and from
   real arrays.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
@@ -274,7 +275,12 @@ csound --opcode-dir=build example/csnsort.csd
   run under a deadline without touching audio; `csnrtunlock` clears it on a
   selected branch. Both have init and triggered k-rate forms. The state is
   inherited when a derived array is created, so changing a source does not
-  retroactively change existing descendants.
+  retroactively change existing descendants. Where marking each array by hand
+  would be tedious, `csnrtlockblock` marks everything the current note creates
+  until `csnrtunlockblock` or the end of the note, and `csnrtlockall`, which
+  belongs in the orchestra header and is refused anywhere else, marks
+  everything for the whole performance — with no way to switch it off again,
+  since a guarantee any one note could withdraw would not be one.
 
 ---
 
@@ -527,6 +533,9 @@ of re-sorting on every k-rate pass.
 | `csnproject` | — | `dot(a, b) / dot(b, b) * b`. |
 | `csnreject` | — | `a - project(a, b)`. |
 | `csnreflect` | — | `a - 2 * project(a, b)`. |
+| `csnsolve` | `np.linalg.solve` | One factorization, any number of right-hand sides. |
+| `csninv` | `np.linalg.inv` | |
+| `csndet` | `np.linalg.det` | Zero for a singular matrix, as NumPy's does; `csninv` and `csnsolve` refuse one. |
 
 ### Complex arrays
 
@@ -605,6 +614,8 @@ thing NumPy never has to deal with:
 | `csnpack` / `csnunpack` | A whole `a[]` as a `channels x ksmps` matrix, and back. |
 | `csnsnap` / `csnstream` | Frames of a size independent of `ksmps`, and their overlap-add. |
 | `csnrtlock` / `csnrtunlock` | Mark a handle as a realtime path, forbidding reallocation at perf time. |
+| `csnrtlockblock` / `csnrtunlockblock` | The same mark on every array a note creates between the two. |
+| `csnrtlockall` | The same for the whole performance, declared in the orchestra header. |
 | `csnfromftable` / `csntoftable` | Csound function table in and out. |
 | `csnfree` | Explicit release of a `@global` handle. |
 | `csnunlikeset` | Drops the set classification. |

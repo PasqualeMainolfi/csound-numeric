@@ -17,7 +17,6 @@ typedef uint64_t CSN_AUTO_SEED_COUNTER;
 typedef _Atomic uint64_t CSN_AUTO_SEED_COUNTER;
 #endif
 
-
 static int32_t reset_registry(CSOUND *csound, void *userdata) {
     CSN_REGISTRY *reg = (CSN_REGISTRY *) userdata;
     if (reg == NULL) {
@@ -80,6 +79,9 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
     }
 
     pcg32_random_init(&reg->rng, CSN_RND_DEFAULT_STATE);
+    reg->rt_glock_owner = NULL;
+    reg->rt_glock_locked = false;
+    reg->rt_glock_global = false;
 
     if (csound->RegisterResetCallback(csound, reg, reset_registry) != OK) {
         csound->DestroyMutex(reg->mutex);
@@ -391,7 +393,7 @@ int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, ui
 
     slot->state = ACTIVE_SLOT;
     slot->array = array;
-    slot->rt_locked = false;
+    slot->rt_locked = registry->rt_glock_global;
     registry->active_count++;
     return OK;
 }
