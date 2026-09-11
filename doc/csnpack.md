@@ -28,7 +28,7 @@ handle:CsnArr = csnpack(asigs:a[], irt:i)
 ## Arguments
 
 * `asigs:a[]`: the audio signals, one per channel. The channel count is read at init and may not change afterwards.
-* `irt:i` (optional, default 1): marks the result as a realtime audio path. See [csnfromaudio](csnfromaudio.md).
+* `irt:i` (optional, default 1): marks the result as a real-time audio path. See [csnfromaudio](csnfromaudio.md).
 
 ## Output
 

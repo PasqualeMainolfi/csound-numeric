@@ -8,7 +8,9 @@ Insert an element, or a block, at a position in an array.
 
 `csninsert` writes into its source array: it makes room at `index` and puts the
 new data there, shifting everything after it along. It publishes no handle — the
-source itself grows.
+source itself grows, within its spare capacity where it can and by reallocating
+where it cannot. On a [real-time path](csnrtlock.md) the reallocation is refused
+with a performance error instead.
 
 Two shapes of insertion share the name.
 

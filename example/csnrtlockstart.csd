@@ -5,11 +5,11 @@
 <CsInstruments>
 
 ; -----------------------------------------------------------------------------
-; csnrtlockblock.csd
+; csnrtlockstart.csd
 ;
 ; Marks every array created after it, for this note only. What was created
-; before is untouched, and so is every other instrument: the block belongs to
-; the instance that opened it and closes with csnrtunlockblock or with the note.
+; before is untouched, and so is every other instrument: the section belongs to
+; the instance that opened it and ends with csnrtlockend or with the note.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -20,21 +20,21 @@ instr 1
     trig:k     = 1
     source:CsnArr = csnarange(0, 64, 1)
 
-    ; created before the block: free to be resized at k-rate
+    ; created before the section: free to be resized at k-rate
     before_n:k init 4
     before_n   = 40
     before:CsnArr = csnhead(source, before_n, trig)
     before_size:k = csnsize(before)
 
-    csnrtlockblock
+    csnrtlockstart
 
-    ; created inside the block: marked, and its producer refuses to resize it
+    ; created inside the section: marked, and its producer refuses to resize it
     inside:CsnArr = csnzeros(fillarray(8))
     inside_n:k    = csnsize(inside)
 
-    csnrtunlockblock
+    csnrtlockend
 
-    ; created after the block: free again
+    ; created after the section: free again
     after_n:k init 4
     after_n    = 24
     after:CsnArr  = csnhead(source, after_n, trig)

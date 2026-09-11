@@ -18,7 +18,7 @@ instr 1
     magnitude:CsnArr = csnabs(spectrum, kReady)
     kPeak = csnmax(magnitude, kReady)
 
-    ; csnsnap marks frame as a realtime path by default; spectrum and magnitude
+    ; csnsnap marks frame as a real-time path by default; spectrum and magnitude
     ; inherit the mark, so no explicit csnrtlock is needed in this chain.
     printf("new spectrum: %d bins, peak magnitude %.3f\n", kReady, 129, kPeak)
 endin

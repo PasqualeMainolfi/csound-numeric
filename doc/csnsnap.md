@@ -58,7 +58,7 @@ handle:CsnArr, kready:k = csnsnap(asig:a, ifsize:i, ihop:i, irt:i)
 * `asig:a`: the audio signal to slice.
 * `ifsize:i`: frame length in samples. Independent of `ksmps`.
 * `ihop:i` (optional, default `ifsize`): samples between the start of one frame and the next. Must be at least `ksmps` and at most `ifsize`.
-* `irt:i` (optional, default 1): marks the frames as a realtime audio path. See [csnfromaudio](csnfromaudio.md).
+* `irt:i` (optional, default 1): marks the frames as a real-time audio path. See [csnfromaudio](csnfromaudio.md).
 
 ## Output
 

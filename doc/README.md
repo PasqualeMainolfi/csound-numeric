@@ -287,7 +287,7 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 ## Audio bridge
 
 These run at performance time on the audio path. Their arrays are marked as
-realtime by default, which means neither they nor anything derived from them may
+real-time by default, which means neither they nor anything derived from them may
 reallocate during performance; pass `irt = 0` at the source to lift that where a
 chain is being harvested for analysis rather than sent back out.
 
@@ -299,6 +299,6 @@ chain is being harvested for analysis rather than sent back out.
 - [csnstream](csnstream.md) - overlap-adds frames back into a continuous signal
 - [csnrtlock](csnrtlock.md) - marks any handle as a real-time path
 - [csnrtunlock](csnrtunlock.md) - clears the real-time mark from one handle
-- [csnrtlockblock](csnrtlockblock.md) - marks every array this note creates from here on
-- [csnrtunlockblock](csnrtunlockblock.md) - closes that block
+- [csnrtlockstart](csnrtlockstart.md) - starts marking every array this note creates
+- [csnrtlockend](csnrtlockend.md) - stops that marking; the note ending stops it too
 - [csnrtlockall](csnrtlockall.md) - marks every array for the whole performance, header only

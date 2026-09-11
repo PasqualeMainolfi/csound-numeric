@@ -12,7 +12,9 @@ one. It writes into its source and publishes nothing.
 Growing is amortised: an array made by [csnempty](csnempty.md) reserves capacity
 up front, and pushing into that reservation costs no allocation at all. Only a
 push past the reserved extent reallocates, and the array then grows
-geometrically.
+geometrically. On a [real-time path](csnrtlock.md) that push is refused with a
+performance error instead, since a marked array cannot take new storage during
+performance.
 
 A complex array takes a `:Complex;` value. [csnpop](csnpop.md) is the inverse.
 

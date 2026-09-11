@@ -10,7 +10,7 @@ Marks every array created for the rest of the performance. Header only.
 else. From the moment it runs, every array created by any instrument, and by
 any user-defined opcode they call, carries the real-time mark and will refuse
 to reallocate during performance. It is the whole-orchestra version of what
-[csnrtlockblock](csnrtlockblock.md) does for one note.
+[csnrtlockstart](csnrtlockstart.md) does for one note.
 
 The restriction to the header is what makes the guarantee worth having. The
 header runs once, before any note, so what it declares holds for the entire
@@ -20,8 +20,8 @@ so it says so instead:
 
 ```text
 csnrtlockall belongs in the orchestra header, where it holds for the whole
-performance; inside an instrument use csnrtlockblock, which holds until
-csnrtunlockblock or the end of the note
+performance; inside an instrument use csnrtlockstart, which holds until
+csnrtlockend or the end of the note
 ```
 
 There is deliberately **no** way to switch it off again. An orchestra-wide
@@ -109,7 +109,8 @@ i 1 0 0.1
 
 ## See also
 
-* [csnrtlockblock](csnrtlockblock.md)
+* [csnrtlockstart](csnrtlockstart.md)
+* [csnrtlockend](csnrtlockend.md)
 * [csnrtunlock](csnrtunlock.md)
 * [csnrtlock](csnrtlock.md)
 * [csnfromaudio](csnfromaudio.md)

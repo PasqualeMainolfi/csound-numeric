@@ -1254,15 +1254,10 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     p->array_t = array_t;
     p->array_x = array_x;
 
-    if (p->window_sum.scratch_capacity < array_x->size) {
-        double *grown = csound->ReAlloc(csound, p->window_sum.scratch, sizeof(double) * array_x->size);
-        if (grown == NULL) {
-            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
-            goto done;
-        }
-        p->window_sum.scratch = grown;
-        p->window_sum.scratch_capacity = array_x->size;
-    }
+    /* Sized to the signal output, so on a marked output it can only grow
+       where that slot has already been refused a new shape above. */
+    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data_x.owned_handle), &p->window_sum, array_x->size, sizeof(double));
+    if (res != OK) goto done;
 
     MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
     const double *win_buffer = (const double *) p->window.scratch;
@@ -2853,7 +2848,7 @@ static int32_t allocate_and_zero_pad_before(CSOUND *csound, OPDS *h, bool is_per
         if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        int32_t res = ensure_mutation_capacity(csound, h, dest, req_size);
+        int32_t res = ensure_mutation_capacity(csound, h, dest, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(dest, new_ndim, new_shape, req_size, dest->itype);
 
@@ -2887,7 +2882,7 @@ static int32_t allocate_and_zero_pad_before_ndims(CSOUND *csound, OPDS *h, bool 
         if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        int32_t res = ensure_mutation_capacity(csound, h, dest, req_size);
+        int32_t res = ensure_mutation_capacity(csound, h, dest, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(dest, new_ndim, new_shape, req_size, dest->itype);
     } else {
@@ -3043,6 +3038,18 @@ static void fftcorrconv_crop_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr, const si
     }
 }
 
+/* The transform buffers are private arrays, so they carry the mark as their own
+   external_lock. They serve the output and are sized from both operands, so
+   any of the three marks forbids growing them at perf time. */
+static void fftcorrconv_set_external_lock(CSN_CORRCONV *p, bool locked) {
+    p->fft_buffer_x.external_lock = locked;
+    p->fft_buffer_h.external_lock = locked;
+    p->ifft_buffer.external_lock = locked;
+    p->ifft_out.external_lock = locked;
+    p->x_padded.external_lock = locked;
+    p->h_padded.external_lock = locked;
+}
+
 static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *p, CSN_ARRAY *source_x, CSN_ARRAY *source_h, size_t fft_size, CSN_FFT_MODE fft_mode, CSN_FFT_MODE ifft_mode, int32_t axis) {
     if (axis != -1) {
         fft_assign_layout(&p->fc.x_out_size, &p->fc.x_work_size, &p->fc.x_ndim, p->fc.x_shape_fft, source_x, fft_size, fft_mode, (uint32_t) axis);
@@ -3068,21 +3075,21 @@ static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *
         if (get_array_size_from_shape(&req_size, p->fc.x_ndim, p->fc.x_shape_fft) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        int32_t res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_x, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_x, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->fft_buffer_x, p->fc.x_ndim, p->fc.x_shape_fft, req_size, p->fft_buffer_x.itype);
 
         if (get_array_size_from_shape(&req_size, p->fc.h_ndim, p->fc.h_shape_fft) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_h, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_h, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->fft_buffer_h, p->fc.h_ndim, p->fc.h_shape_fft, req_size, p->fft_buffer_h.itype);
 
         if (get_array_size_from_shape(&req_size, p->fc.x_ndim, p->fc.x_shape_fft) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_buffer, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_buffer, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->ifft_buffer, p->fc.x_ndim, p->fc.x_shape_fft, req_size, p->ifft_buffer.itype);
 
@@ -3114,7 +3121,7 @@ static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *
         if (get_array_size_from_shape(&req_size, p->fc.ifft_ndim, p->fc.ifft_shape) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_out, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_out, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->ifft_out, p->fc.ifft_ndim, p->fc.ifft_shape, req_size, p->ifft_out.itype);
     } else {
@@ -3128,34 +3135,14 @@ static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *
     MYFLT *temp_buffer_h = NULL;
     MYFLT *temp_buffer_ifft = NULL;
     if (is_perf) {
-        if (p->fc.x_work_size > p->buffer_x.scratch_capacity) {
-            temp_buffer_x = csound->ReAlloc(csound, p->buffer_x.scratch, sizeof(MYFLT) * p->fc.x_work_size * 2);
-            if (temp_buffer_x == NULL) {
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            p->buffer_x.scratch = temp_buffer_x;
-            p->buffer_x.scratch_capacity = p->fc.x_work_size * 2;
-        }
-
-        if (p->fc.h_work_size > p->buffer_h.scratch_capacity) {
-            temp_buffer_h = csound->ReAlloc(csound, p->buffer_h.scratch, sizeof(MYFLT) * p->fc.h_work_size * 2);
-            if (temp_buffer_h == NULL) {
-                csound->Free(csound, temp_buffer_x);
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            p->buffer_h.scratch = temp_buffer_h;
-            p->buffer_h.scratch_capacity = p->fc.h_work_size * 2;
-        }
-        if (p->fc.ifft_work_size > p->buffer_ifft.scratch_capacity) {
-            temp_buffer_ifft = csound->ReAlloc(csound, p->buffer_ifft.scratch, sizeof(MYFLT) * p->fc.ifft_work_size * 2);
-            if (temp_buffer_h == NULL) {
-                csound->Free(csound, temp_buffer_x);
-                csound->Free(csound, temp_buffer_h);
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            p->buffer_ifft.scratch = temp_buffer_ifft;
-            p->buffer_ifft.scratch_capacity = p->fc.ifft_work_size * 2;
-        }
+        /* The spectra above already carry the mark as external_lock; the work
+           buffers follow the same one. Each is committed to p only once it
+           exists, so a failure leaves nothing freed behind a live pointer. */
+        bool rt_locked = p->fft_buffer_x.external_lock;
+        res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_x, p->fc.x_work_size, sizeof(MYFLT));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_h, p->fc.h_work_size, sizeof(MYFLT));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_ifft, p->fc.ifft_work_size, sizeof(MYFLT));
+        if (res != OK) return res;
     } else {
         temp_buffer_x = csound->Calloc(csound, sizeof(MYFLT) * p->fc.x_work_size * 2);
         if (temp_buffer_x == NULL) {
@@ -3239,28 +3226,28 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
         if (get_array_size_from_shape(&req_size, ndim, p->fc.x_shape_fft) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_x, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_x, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->fft_buffer_x, ndim, p->fc.x_shape_fft, req_size, CSN_COMPLEX);
 
         if (get_array_size_from_shape(&req_size, ndim, p->fc.h_shape_fft) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_h, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->fft_buffer_h, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->fft_buffer_h, ndim, p->fc.h_shape_fft, req_size, CSN_COMPLEX);
 
         if (get_array_size_from_shape(&req_size, ndim, p->fc.x_shape_fft) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_buffer, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_buffer, req_size, false);
         if (res != OK) return res;
         set_csnarray_layout(&p->ifft_buffer, ndim, p->fc.x_shape_fft, req_size, CSN_COMPLEX);
 
         if (get_array_size_from_shape(&req_size, ndim, p->fc.ifft_shape) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The transform this convolution needs exceeds the maximum element count");
         }
-        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_out, req_size);
+        res = ensure_mutation_capacity(csound, perf_h, &p->ifft_out, req_size, false);
         if (res != OK) return res;
         ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
         set_csnarray_layout(&p->ifft_out, ndim, p->fc.ifft_shape, req_size, otype);
@@ -3270,34 +3257,13 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
                 return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
             }
 
-        size_t b_cap = max_work_size * 2;
-        if (max_work_size > p->buffer_x.scratch_capacity) {
-            temp_buffer_x = csound->ReAlloc(csound, p->buffer_x.scratch, sizeof(MYFLT) * b_cap);
-            if (temp_buffer_x == NULL) {
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            p->buffer_x.scratch = temp_buffer_x;
-            p->buffer_x.scratch_capacity = b_cap;
-        }
-        if (max_work_size > p->buffer_h.scratch_capacity) {
-            temp_buffer_h = csound->ReAlloc(csound, p->buffer_h.scratch, sizeof(MYFLT) * b_cap);
-            if (temp_buffer_h == NULL) {
-                csound->Free(csound, temp_buffer_x);
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            p->buffer_h.scratch = temp_buffer_h;
-            p->buffer_h.scratch_capacity = b_cap;
-        }
-        if (max_work_size > p->buffer_ifft.scratch_capacity) {
-            temp_buffer_ifft = csound->ReAlloc(csound, p->buffer_ifft.scratch, sizeof(MYFLT) * b_cap);
-            if (temp_buffer_ifft == NULL) {
-                csound->Free(csound, temp_buffer_x);
-                csound->Free(csound, temp_buffer_h);
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            p->buffer_ifft.scratch = temp_buffer_h;
-            p->buffer_ifft.scratch_capacity = b_cap;
-        }
+        /* Same rule as the 1-D form: the work buffers follow the spectra's
+           mark and are committed only once they exist. */
+        bool rt_locked = p->fft_buffer_x.external_lock;
+        res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_x, max_work_size, sizeof(MYFLT));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_h, max_work_size, sizeof(MYFLT));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_ifft, max_work_size, sizeof(MYFLT));
+        if (res != OK) return res;
     } else {
         ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
         if (allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->x_padded, source_x, ndim, p->fc.shape_padded_x) != OK
@@ -3452,21 +3418,7 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     p->k_data_ifft.buffer_out_size = p->fc.ifft_out_size;
     p->k_data_ifft.buffer_work_size = p->fc.ifft_work_size;
 
-    if (slot_x->rt_locked || slot_h->rt_locked) {
-        p->fft_buffer_x.external_lock = true;
-        p->fft_buffer_h.external_lock = true;
-        p->ifft_buffer.external_lock = true;
-        p->ifft_out.external_lock = true;
-        p->x_padded.external_lock = true;
-        p->h_padded.external_lock = true;
-    } else {
-        p->fft_buffer_x.external_lock = false;
-        p->fft_buffer_h.external_lock = false;
-        p->ifft_buffer.external_lock = false;
-        p->ifft_out.external_lock = false;
-        p->x_padded.external_lock = false;
-        p->h_padded.external_lock = false;
-    }
+    fftcorrconv_set_external_lock(p, csn_slot_rt_locked(reg, p->k_data.owned_handle) || slot_x->rt_locked || slot_h->rt_locked);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3594,21 +3546,7 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     p->k_data_ifft.fft_setup = ifft_setup;
     p->is_published = false;
 
-    if (slot_x->rt_locked || slot_h->rt_locked) {
-        p->fft_buffer_x.external_lock = true;
-        p->fft_buffer_h.external_lock = true;
-        p->ifft_buffer.external_lock = true;
-        p->ifft_out.external_lock = true;
-        p->x_padded.external_lock = true;
-        p->h_padded.external_lock = true;
-    } else {
-        p->fft_buffer_x.external_lock = false;
-        p->fft_buffer_h.external_lock = false;
-        p->ifft_buffer.external_lock = false;
-        p->ifft_out.external_lock = false;
-        p->x_padded.external_lock = false;
-        p->h_padded.external_lock = false;
-    }
+    fftcorrconv_set_external_lock(p, csn_slot_rt_locked(reg, p->k_data.owned_handle) || slot_x->rt_locked || slot_h->rt_locked);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3666,6 +3604,12 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     res = corrconv1d_validate(csound, &p->h, source_x, source_h, axis, edges_mode);
     if (res != OK) goto done;
 
+    /* Decided before anything below can allocate: the transform setups, the
+       spectra and the work buffers all serve the output, and a mark on it or
+       on either operand forbids growing them at perf time. */
+    bool rt_locked = csn_slot_rt_locked(reg, owned_handle) || slot_x->rt_locked || slot_h->rt_locked;
+    fftcorrconv_set_external_lock(p, rt_locked);
+
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_x->version);
         bool is_same_kernel = is_same_array_version(&p->k_data.prev_source_version_b, &source_h->version);
@@ -3685,6 +3629,10 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     size_t fft_size_check = xfft_length + source_h->size - 1;
     size_t requested_fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
     if (requested_fft_size != fft_size) {
+        if (rt_locked) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] A real-time path would need a new %zu-point transform at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (size_t) requested_fft_size);
+            goto done;
+        }
         fft_size = requested_fft_size;
         if (fft_mode == CSNRFFT) {
             fft_setup = csound->RealFFTSetup(csound, (int32_t) fft_size, FFT_FWD);
@@ -3754,21 +3702,6 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     p->k_data_ifft.buffer_work_size = p->fc.ifft_work_size;
     p->is_published = true;
 
-    if (slot_x->rt_locked || slot_h->rt_locked) {
-        p->fft_buffer_x.external_lock = true;
-        p->fft_buffer_h.external_lock = true;
-        p->ifft_buffer.external_lock = true;
-        p->ifft_out.external_lock = true;
-        p->x_padded.external_lock = true;
-        p->h_padded.external_lock = true;
-    } else {
-        p->fft_buffer_x.external_lock = false;
-        p->fft_buffer_h.external_lock = false;
-        p->ifft_buffer.external_lock = false;
-        p->ifft_out.external_lock = false;
-        p->x_padded.external_lock = false;
-        p->h_padded.external_lock = false;
-    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3829,6 +3762,12 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     res = corrconv_validate(csound, &p->h, source_x, source_h);
     if (res != OK) goto done;
 
+    /* Decided before anything below can allocate: the transform setups, the
+       spectra and the work buffers all serve the output, and a mark on it or
+       on either operand forbids growing them at perf time. */
+    bool rt_locked = csn_slot_rt_locked(reg, owned_handle) || slot_x->rt_locked || slot_h->rt_locked;
+    fftcorrconv_set_external_lock(p, rt_locked);
+
     uint32_t last_axis = ndim - 1U;
     uint32_t fft_shape[CSN_MAX_DIMS] = {0};
     fftcorrconv_get_shape_and_edges_offset_ndims(fft_shape, p->fc.crop_offset, source_x, source_h, edges_mode, mode);
@@ -3837,6 +3776,10 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     }
 
     if (p->fc.fft_sizes[last_axis] != fft_size) {
+        if (rt_locked) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] A real-time path would need a new %zu-point transform at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (size_t) p->fc.fft_sizes[last_axis]);
+            goto done;
+        }
         if (fft_mode == CSNRFFT) {
             fft_setup = csound->RealFFTSetup(csound, (int32_t) p->fc.fft_sizes[last_axis], FFT_FWD);
             ifft_setup = csound->RealFFTSetup(csound, (int32_t) p->fc.fft_sizes[last_axis], FFT_INV);
@@ -3904,21 +3847,6 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     p->k_data_ifft.nfft = p->fc.fft_sizes[last_axis];
     p->is_published = true;
 
-    if (slot_x->rt_locked || slot_h->rt_locked) {
-        p->fft_buffer_x.external_lock = true;
-        p->fft_buffer_h.external_lock = true;
-        p->ifft_buffer.external_lock = true;
-        p->ifft_out.external_lock = true;
-        p->x_padded.external_lock = true;
-        p->h_padded.external_lock = true;
-    } else {
-        p->fft_buffer_x.external_lock = false;
-        p->fft_buffer_h.external_lock = false;
-        p->ifft_buffer.external_lock = false;
-        p->ifft_out.external_lock = false;
-        p->x_padded.external_lock = false;
-        p->h_padded.external_lock = false;
-    }
 
 done:
     csound->UnlockMutex(reg->mutex);

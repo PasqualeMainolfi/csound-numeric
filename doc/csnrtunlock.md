@@ -88,6 +88,9 @@ i 1 0 0.01
 ## See also
 
 * [csnrtlock](csnrtlock.md)
+* [csnrtlockstart](csnrtlockstart.md)
+* [csnrtlockend](csnrtlockend.md)
+* [csnrtlockall](csnrtlockall.md)
 * [csnfromaudio](csnfromaudio.md)
 * [csnresample](csnresample.md)
 

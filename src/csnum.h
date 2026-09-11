@@ -344,6 +344,18 @@ typedef enum {
     CSNSET_EQUAL,
 } CSNSET_OPS_MODE;
 
+typedef enum {
+     CSN_MEDIAN_EDGE_SHRINK,
+     CSN_MEDIAN_EDGE_ZERO
+} CSN_MEDIAN_EDGES;
+
+typedef struct {
+    double *sorted;
+    double *ring;
+    size_t count;
+    size_t nan_count;
+} CSN_SORTED_SLIDING_WINDOW;
+
 typedef struct {
     void *scratch;
     size_t scratch_capacity;
@@ -1353,8 +1365,9 @@ typedef struct {
     CSN_SCRATCH scratch;
     /* A window reaches back over elements this pass has already rewritten, so
        the filter cannot read the array it is writing. This holds the untouched
-       source for the duration of one call; scratch above is the median sort
-       buffer and serves a different purpose. */
+       source for the duration of one call. The median never uses it: scratch
+       above is its sorted window and ring, and the ring already keeps every
+       value until it leaves. */
     CSN_SCRATCH src_scratch;
     K_DATA k_data;
 } CSN_MOVSTATS_IN;
@@ -1827,78 +1840,6 @@ typedef struct {
     bool is_published;
 } CSN_STACK_K;
 
-typedef struct {
-    OPDS h;
-    // outputs
-    CSNREF *handle;
-    // inputs
-    CSNREF *source_handle;
-    MYFLT *trig;
-    // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
-    CSN_SCRATCH buffer;
-    bool is_published;
-} CSNSET_UNARYOP;
-
-typedef struct {
-    OPDS h;
-    // inputs
-    CSNREF *source_handle;
-    MYFLT *arg_a; // trig in unlikeset_k
-                  // scalar in insert, remove
-    MYFLT *arg_b; // trig in insert and remove
-    // private
-    K_DATA k_data;
-    bool is_published;
-} CSNSET_UNARYOP_IN;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    MYFLT *value;
-    // inputs
-    CSNREF *source_handle;
-    MYFLT *scalar;
-    MYFLT *trig;
-    // private
-    K_DATA k_data;
-    bool is_published;
-    bool prev_result;
-} CSNSET_BINARYOP_SCALAR;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    CSNREF *handle;
-    // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
-    MYFLT *trig;
-    // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
-    CSN_SCRATCH buffer;
-    bool is_published;
-} CSNSET_BINARYOP;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    MYFLT *result;
-    // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
-    MYFLT *trig;
-    // private
-    CSN_REGISTRY *registry;
-    ARRAY_VERSION prev_source_version_a;
-    ARRAY_VERSION prev_source_version_b;
-    CSN_SCRATCH buffer;
-    bool is_published;
-    double prev_result;
-} CSNSET_BINARYOP_PREDICATE;
-
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
@@ -1907,7 +1848,10 @@ int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_
 CSN_COMPLEXDAT slice_get(const double *src, size_t i, size_t stride, ITEM_TYPE itype);
 int compare_double(const void *a, const void *b);
 size_t get_and_count_unique_double(double *temp, size_t size);
-int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size);
+/* Caller holds the registry mutex. */
+bool csn_slot_rt_locked(CSN_REGISTRY *reg, uint32_t handle);
+int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size, bool rt_locked);
+int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size);
 int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
 void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim);
 uint32_t from_coords_to_offset(uint32_t *coords, const size_t *strides, uint32_t ndim);
@@ -1922,44 +1866,6 @@ void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
-
-
-// set op
-
-int32_t csnarray_set_binaryop_deinit(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_set_binaryop_p_deinit(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_likeset_deinit(CSOUND *csound, CSNSET_UNARYOP *p);
-int32_t csnarray_likeset(CSOUND *csound, CSNSET_UNARYOP *p);
-int32_t csnarray_unlikeset(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setinsert(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setremove(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setcontains(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p);
-int32_t csnarray_setunion(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setintersect(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setdiff(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setsymdiff(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setissubset(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_setissuperset(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_setisdisjoint(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_setisequal(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-
-int32_t csnarray_likeset_k(CSOUND *csound, CSNSET_UNARYOP *p);
-int32_t csnarray_likeset_k_init(CSOUND *csound, CSNSET_UNARYOP *p);
-int32_t csnarray_unlikeset_k_init(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_unlikeset_k(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setinsertremove_k_init(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setinsert_k(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setremove_k(CSOUND *csound, CSNSET_UNARYOP_IN *p);
-int32_t csnarray_setcontains_k_init(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p);
-int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p);
-int32_t csnarray_setunion_k(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setintersect_k(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setdiff_k(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setsymdiff_k(CSOUND *csound, CSNSET_BINARYOP *p);
-int32_t csnarray_setissubset_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_setissuperset_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_setisdisjoint_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
-int32_t csnarray_setisequal_k(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);
 
 
 // a-rate

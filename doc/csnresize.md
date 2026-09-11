@@ -16,7 +16,9 @@ vector resized to 6 comes back as `1 2 3 4 0 0`, and resized to 2 as `1 2`.
 
 Two forms share the name. The one with an output publishes a new handle and
 leaves the source alone; the one without an output rewrites the source in place
-and returns nothing.
+and returns nothing. In place, a new shape that fits the source's capacity
+reuses its storage; a larger one reallocates, which a
+[real-time path](csnrtlock.md) refuses during performance.
 
 ## Syntax
 

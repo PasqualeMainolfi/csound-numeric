@@ -15,10 +15,10 @@ Samples outside the note's active window — the ones covered by `ksmps_offset`
 at the start and `ksmps_no_end` at the end — are written as zero, so a
 sample-accurate note start does not leak the previous block's tail.
 
-### Realtime paths
+### Real-time paths
 
 A malloc on the audio thread is what a dropout sounds like. By default the array
-this opcode publishes is marked as belonging to a realtime path, and the mark
+this opcode publishes is marked as belonging to a real-time path, and the mark
 travels along the operand edges of every array derived from it. A marked array
 refuses to reallocate during performance and raises an error naming the variable
 instead.
@@ -39,7 +39,7 @@ handle:CsnArr = csnfromaudio(asig:a, irt:i)
 ## Arguments
 
 * `asig:a`: the audio signal to capture.
-* `irt:i` (optional, default 1): `1` marks the array as a realtime audio path, so neither it nor anything derived from it may reallocate during performance; `0` lifts that restriction for arrays derived from it. See *Realtime paths* below.
+* `irt:i` (optional, default 1): `1` marks the array as a real-time audio path, so neither it nor anything derived from it may reallocate during performance; `0` lifts that restriction for arrays derived from it. See *Real-time paths* below.
 
 ## Output
 

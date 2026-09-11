@@ -52,6 +52,7 @@ ComplexSquare@global:CsnArr = csnreshape(ComplexQuad, giShape22)
 ComplexAbsolute@global:CsnArr = csnabs(ComplexQuad)
 
 MovMedian@global:CsnArr = csnmovmedian(Seq, 3)
+MovMedianGrow@global:CsnArr = csnmovmedian(Seq, 2)
 MovMin@global:CsnArr = csnmovmin(Seq, 3)
 MovMax@global:CsnArr = csnmovmax(Seq, 3)
 MovMean@global:CsnArr = csnmovmean(Seq, 3)
@@ -153,6 +154,13 @@ instr 1
        during the init pass, which the k init must tolerate. */
     kWindow = 3
     MovMedian = csnmovmedian(Seq, kWindow, kAllAxes, kTrig)
+    /* Known at init and grown mid-note without doubling: the median scratch
+       has to follow the window it now needs, not the capacity it started with. */
+    kGrowWindow init 2
+    if timeinstk() >= 3 then
+        kGrowWindow = 3
+    endif
+    MovMedianGrow = csnmovmedian(Seq, kGrowWindow, kAllAxes, kTrig)
     MovMin = csnmovmin(Seq, kWindow, kAllAxes, kTrig)
     MovMax = csnmovmax(Seq, kWindow, kAllAxes, kTrig)
     MovMean = csnmovmean(Seq, kWindow, kAllAxes, kTrig)
@@ -288,6 +296,16 @@ instr 2
     assert(iMed1 == 2 && iMin1 == 1 && iMax1 == 5)
     assert(iMean1 > 2.66 && iMean1 < 2.67)
     assert(iVar1 > 2.888 && iVar1 < 2.89)
+
+    /* The right edge shrinks the window to [4, 3]. The grown window reads 3
+       at position 0 and 2 at position 1, where a window of 2 would read 1 and 3. */
+    i4[] = array(4)
+    iMed4 = csnget(MovMedian, i4)
+    iGrow0 = csnget(MovMedianGrow, i0)
+    iGrow1 = csnget(MovMedianGrow, i1)
+    iGrow4 = csnget(MovMedianGrow, i4)
+    assert(iMed4 == 3.5)
+    assert(iGrow0 == 3 && iGrow1 == 2 && iGrow4 == 3.5)
 
     /* Gated off: the in-place filter must not have touched the sequence. */
     iGated1 = csnget(MovGated, i1)

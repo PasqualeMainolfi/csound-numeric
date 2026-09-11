@@ -15,7 +15,14 @@ the filter to reach for on data with dropouts or single-sample glitches.
 
 The window is centred on each element and **the array's length is preserved**:
 near the two ends the window is simply shorter, so no padding value is invented
-and the result lines up with the source element by element.
+and the result lines up with the source element by element. An even `winsize`
+reaches one element further back than forward, and a window holding an even
+count takes the mean of its two middle values. A NaN anywhere in the window
+makes that result NaN, as `np.median` does.
+
+The filter slides a sorted copy of the window along the array: each step
+removes the element that leaves and inserts the one that arrives, instead of
+sorting every window again.
 
 With no axis the array is read flat. Given an axis each line along it is filtered
 on its own.
@@ -26,10 +33,10 @@ Two forms share the name. The one with an output publishes a new handle and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
-An in-place pass reads a snapshot of the complete source taken before that pass,
-so it produces exactly the same values as the output form applied to the same
-input. Values written near the start of the array never leak into later
-windows. At k-rate, every non-zero trigger applies one new pass to the array's
+An in-place pass produces exactly the same values as the output form applied
+to the same input. The filter keeps every value until it leaves the window, so
+values written near the start of the array never leak into later windows, and
+the source is not copied to get there. At k-rate, every non-zero trigger applies one new pass to the array's
 current values; a zero trigger leaves it untouched.
 
 ## Syntax

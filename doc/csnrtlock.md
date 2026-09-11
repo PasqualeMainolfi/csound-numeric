@@ -34,6 +34,14 @@ layout changes that reuse the existing capacity remain allowed. The optional
 k-rate trigger applies the lock on every non-zero pass and is inert when zero,
 including at initialization.
 
+The same rule covers in-place growth past an array's capacity (`csnpush`,
+`csninsert`, `csnsetinsert`, and `csnpad` or `csnresize` without an output) and
+the working buffers opcodes keep for themselves. Those buffers are reserved at
+init for the most the array they serve can hold, so a marked path does not need
+to grow them even when the lock is applied after the opcode. `csnsave`,
+`csnload` and `csnprint` do file or console I/O at perf time and stay outside
+the guarantee.
+
 ### Audio frames are already marked
 
 There is normally no explicit `csnrtlock` call in a `csnsnap` analysis chain:
@@ -103,6 +111,9 @@ i 1 0 0.01
 ## See also
 
 * [csnrtunlock](csnrtunlock.md)
+* [csnrtlockstart](csnrtlockstart.md)
+* [csnrtlockend](csnrtlockend.md)
+* [csnrtlockall](csnrtlockall.md)
 * [csnfromaudio](csnfromaudio.md)
 * [csnpack](csnpack.md)
 * [csnsnap](csnsnap.md)

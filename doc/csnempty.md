@@ -12,7 +12,9 @@ reports `1`, while [csnshape](csnshape.md) still reports the extents that were
 reserved.
 
 That reservation is the capacity [csnpush](csnpush.md) fills, so an array built
-up element by element only reallocates when it outgrows what was reserved. It is
+up element by element only reallocates when it outgrows what was reserved. On a
+[real-time path](csnrtlock.md) that is the room it has: growing past it during
+performance is refused. It is
 also the idiomatic way to declare a `@global` output slot before the note that
 will fill it exists.
 

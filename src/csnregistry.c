@@ -426,6 +426,8 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
 
 /* Copies the payload and the layout, but not ndim: both callers preserve the
    rank and only reshape one axis. A caller that changes rank must set it. */
+/* dest must already hold src->size items: its storage and capacity are kept,
+   so a caller on a real-time path can size it without reallocating. */
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
     bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
     bool itype_changed = dest->itype != src->itype;
@@ -434,7 +436,6 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
     memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
     memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
     dest->size = src->size;
-    dest->capacity = src->capacity;
     dest->itype = src->itype;
 
     /* dest keeps its own identity and its own counters; it does not inherit

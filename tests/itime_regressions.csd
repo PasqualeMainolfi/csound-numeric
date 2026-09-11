@@ -490,6 +490,51 @@ instr 2
     assert(iMovMedianInValues[1] == iMovMedianValues[1])
     assert(iMovMinInValues[2] == iMovMinValues[2])
     assert(iMovMaxInValues[3] == iMovMaxValues[3])
+
+    ; Every position of the median, edges included: the window shrinks to
+    ; [1, 5] and [4, 3] at the ends, and the in-place form agrees throughout.
+    assert(iMovMedianValues[0] == 3 && iMovMedianValues[1] == 2 && iMovMedianValues[2] == 4)
+    assert(iMovMedianValues[3] == 3 && iMovMedianValues[4] == 3.5)
+    assert(iMovMedianInValues[0] == 3 && iMovMedianInValues[2] == 4)
+    assert(iMovMedianInValues[3] == 3 && iMovMedianInValues[4] == 3.5)
+
+    ; An even window reaches two back and one ahead, and averages the middle
+    ; pair whenever it holds an even count.
+    iMovMedianEven:CsnArr = csnmovmedian(iMoving, 4, -1)
+    iMovMedianEvenValues[] = csntoarray(iMovMedianEven)
+    assert(iMovMedianEvenValues[0] == 3 && iMovMedianEvenValues[1] == 2 && iMovMedianEvenValues[2] == 3)
+    assert(iMovMedianEvenValues[3] == 3.5 && iMovMedianEvenValues[4] == 3)
+
+    ; A NaN turns every window holding it into NaN, and stops once it has left.
+    iMovNaN = sqrt(-1)
+    iMovNaNValues[] = fillarray(1, iMovNaN, 2, 4, 3)
+    iMovNaNArr:CsnArr = csnfromarray(iMovNaNValues)
+    iMovMedianNaN:CsnArr = csnmovmedian(iMovNaNArr, 3, -1)
+    iMovMedianNaNValues[] = csntoarray(iMovMedianNaN)
+    iMovNaN0 = iMovMedianNaNValues[0]
+    iMovNaN2 = iMovMedianNaNValues[2]
+    assert(iMovNaN0 != iMovNaN0 && iMovNaN2 != iMovNaN2)
+    assert(iMovMedianNaNValues[3] == 3 && iMovMedianNaNValues[4] == 3.5)
+
+    ; The axis path walks strided lanes: rows [1, 5, 2, 4, 3] and
+    ; [5, 4, 3, 2, 1] along axis 1, and two-element columns along axis 0.
+    iMovMatValues[] = fillarray(1, 5, 2, 4, 3, 5, 4, 3, 2, 1)
+    iMovMatShape[] = fillarray(2, 5)
+    iMovMatFlat:CsnArr = csnfromarray(iMovMatValues)
+    iMovMat:CsnArr = csnreshape(iMovMatFlat, iMovMatShape)
+    iMovRows:CsnArr = csnmovmedian(iMovMat, 3, 1)
+    iMovCols:CsnArr = csnmovmedian(iMovMat, 2, 0)
+    iMovRowsValues[][] = csntoarray(iMovRows)
+    iMovColsValues[][] = csntoarray(iMovCols)
+    assert(iMovRowsValues[0][0] == 3 && iMovRowsValues[0][2] == 4 && iMovRowsValues[0][4] == 3.5)
+    assert(iMovRowsValues[1][0] == 4.5 && iMovRowsValues[1][2] == 3 && iMovRowsValues[1][4] == 1.5)
+    assert(iMovColsValues[0][0] == 1 && iMovColsValues[0][1] == 5 && iMovColsValues[0][4] == 3)
+    assert(iMovColsValues[1][0] == 3 && iMovColsValues[1][1] == 4.5 && iMovColsValues[1][2] == 2.5)
+    assert(iMovColsValues[1][3] == 3 && iMovColsValues[1][4] == 2)
+    iMovRowsIn:CsnArr = csncopy(iMovMat)
+    csnmovmedian(iMovRowsIn, 3, 1)
+    iMovRowsInValues[][] = csntoarray(iMovRowsIn)
+    assert(iMovRowsInValues[0][4] == 3.5 && iMovRowsInValues[1][0] == 4.5 && iMovRowsInValues[1][4] == 1.5)
 endin
 
 instr 3
@@ -1823,9 +1868,9 @@ instr 13
     iLaZErr = csnmax(csnabs(csnsubtract(iLaZProd, iLaZEye)))
     assert(iLaZErr < 1e-12)
 
-    ; The block form marks what follows it and nothing before.
-    csnrtlockblock
-    csnrtunlockblock
+    ; A marked section covers what follows csnrtlockstart and nothing before.
+    csnrtlockstart
+    csnrtlockend
 
     ; Savitzky-Golay: a second-order fit reproduces a parabola exactly, so the
     ; smoothing row gives the signal back and the first-derivative row gives
@@ -2102,6 +2147,6 @@ e
 ; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
 ; csnfftconvolve1d csnfftcorrelate1d csnfftconvolve csnfftcorrelate
-; csnsolve csninv csndet csndet.c csnrtlockblock csnrtunlockblock csnrtlockall csnsavgol
+; csnsolve csninv csndet csndet.c csnrtlockstart csnrtlockend csnrtlockall csnsavgol
 ; @covers-end
 </CsoundSynthesizer>

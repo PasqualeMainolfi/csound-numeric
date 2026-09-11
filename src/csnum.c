@@ -1,5 +1,6 @@
 #include "csnum.h"
 #include "csnfft.h"
+#include "csnset.h"
 #include "csnfile.h"
 #include "csnregistry.h"
 #include "csnlinalg.h"
@@ -147,14 +148,11 @@ static inline void PUBLISH_ELEMENTWISE(K_DATA *k_data, uint32_t handle_a, const 
     if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
 }
 
-static int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, uint32_t source_handle, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed) {
-    /* The scratch lives in the caller's opcode struct; these keep the buffer
-       and its capacity moving together. */
-    void **scratch = &scratch_ref->scratch;
-    size_t *scratch_capacity = &scratch_ref->scratch_capacity;
+static int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, uint32_t source_handle, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed, bool rt_locked) {
+    /* The scratch lives in the caller's opcode struct. */
     size_t required = arr->size * (size_t) itype;
     bool layout_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, arr->shape) || k_data->prev_size != arr->size;
-    bool scratch_too_small = *scratch_capacity < required;
+    bool scratch_too_small = scratch_ref->scratch_capacity < required;
 
     /* These opcodes are not idempotent — flipping an already flipped array
        undoes it — so a pass must run exactly once per write by someone else.
@@ -169,7 +167,7 @@ static int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_
        (a writer that stored identical bytes still bumped the counter) costs a
        recomputation and nothing else. */
     if (!data_changed && !layout_changed && !scratch_too_small && required > 0
-        && memcmp(arr->data, *scratch, sizeof(double) * required) != 0) {
+        && memcmp(arr->data, scratch_ref->scratch, sizeof(double) * required) != 0) {
         csound->Message(csound, "[csnarray] VERSION CROSSCHECK: handle %u reports data version %llu unchanged while its payload differs from the last published copy\n",
                         source_handle, (unsigned long long) arr->version.data_version);
     }
@@ -177,15 +175,11 @@ static int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_
 
     if (!layout_changed && !scratch_too_small && !data_changed && !is_value_changed) return NOTOK; // goto done
 
+    /* The k init reserves the source's whole capacity, so on a marked source
+       this can only trip once the source itself has been refused a larger
+       buffer. */
     if (scratch_too_small) {
-        size_t new_capacity = required > 0 ? required * 2 : 1;
-        double *data = csound->ReAlloc(csound, *scratch, sizeof(double) * new_capacity);
-        if (data == NULL) {
-            return csn_locked_perf_error(csound, h, "[csnarray] Memory allocation failed");
-        }
-
-        *scratch = data;
-        *scratch_capacity = new_capacity;
+        return csn_scratch_reserve(csound, h, rt_locked, scratch_ref, required, sizeof(double));
     }
     return OK;
 }
@@ -1541,6 +1535,21 @@ int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
     return OK;
 }
 
+/* A k-rate Csound array output is filled on the audio thread too. Csound owns
+   it, so init reserves room for everything the source can hold without
+   reallocating, and a marked source that needs more is refused instead of
+   letting tabinit allocate. Csound's own copy-on-write detach of a shared
+   output array stays outside this guarantee. */
+static int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out, size_t items) {
+    if (h->perf == NULL || items == 0) return OK;
+    return csound_array_ensure_capacity(csound, out, items, h->insdshead);
+}
+
+static bool krate_array_output_fits(const ARRAYDAT *out, size_t items) {
+    return out->data != NULL && out->arrayMemberSize > 0
+        && out->allocated / (size_t) out->arrayMemberSize >= items;
+}
+
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -1582,7 +1591,8 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     }
 
     tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
-    if (p->array->data == NULL || p->array->sizes == NULL) {
+    if (p->array->data == NULL || p->array->sizes == NULL
+        || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
         csound->UnlockMutex(reg->mutex);
         return csound->InitError(csound, "[csnarray] Could not allocate the %u-D output i-array of %zu elements", ndim, total_size);
     }
@@ -1636,6 +1646,11 @@ int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
     if (total_size > (size_t) INT32_MAX) {
         csound->UnlockMutex(reg->mutex);
         return csound->PerfError(csound, &p->h, "[csnarray] Array holds %zu elements, too many for an k-array output (limit %d)", total_size, INT32_MAX);
+    }
+
+    if (slot->rt_locked && !krate_array_output_fits(p->array, total_size)) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Array %u is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (uint32_t) p->source_handle->id, total_size, get_out_name(&p->h));
     }
 
     // use int32_t as return value on tabinit in Csound recent version
@@ -1697,7 +1712,8 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
     }
 
     tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
-    if (p->array->data == NULL || p->array->sizes == NULL) {
+    if (p->array->data == NULL || p->array->sizes == NULL
+        || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
         csound->UnlockMutex(reg->mutex);
         return csound->InitError(csound, "[csnarray] Could not allocate the %u-D output complex array of %zu elements", ndim, total_size);
     }
@@ -1754,6 +1770,11 @@ int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p) {
     if (total_size > (size_t) INT32_MAX) {
         csound->UnlockMutex(reg->mutex);
         return csound->PerfError(csound, &p->h, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
+    }
+
+    if (slot->rt_locked && !krate_array_output_fits(p->array, total_size)) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Array %u is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (uint32_t) p->source_handle->id, total_size, get_out_name(&p->h));
     }
 
     tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
@@ -1944,7 +1965,13 @@ int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
     uint32_t dims = (MYFLT) slot->array->ndim;
     uint32_t *shape = slot->array->shape;
 
+    /* The k form reserves every dimension an array can have, so a source that
+       changes rank at perf time never makes tabinit allocate. */
     tabinit(csound, p->shape, (int32_t) dims, p->h.insdshead);
+    if (reserve_krate_array_output(csound, &p->h, p->shape, CSN_MAX_DIMS) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->InitError(csound, "[csnarray] Could not allocate the shape output of %u elements", (uint32_t) CSN_MAX_DIMS);
+    }
     for (uint32_t i = 0; i < dims; i++) {
         p->shape->data[i] = (MYFLT) shape[i];
     }
@@ -3016,7 +3043,10 @@ static int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
         }
     }
 
-    size_t scratch_capacity = arr->size * 2 * arr->itype;
+    /* Sized to the source's capacity, not its current length: the source can
+       grow that far without reallocating, and a marked source must find the
+       scratch already big enough at perf time. */
+    size_t scratch_capacity = arr->capacity * arr->itype;
     data = csound->Calloc(csound, sizeof(double) * scratch_capacity);
     if (data == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size * arr->itype));
@@ -3108,7 +3138,7 @@ int32_t csnarray_transpose_in_k(CSOUND *csound, CSN_RESHAPE_IN *p) {
     compute_strides(shape, strides, ndim);
 
     bool axes_changed = memcmp(axes, p->k_data.prev_axes, sizeof(axes)) != 0;
-    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, axes_changed);
+    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, axes_changed, slot->rt_locked);
     if (res != OK) {
         res = res == NOTOK ? OK : res;
         goto done;
@@ -3355,8 +3385,10 @@ static int32_t csnarray_flip_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     }
     int32_t axis_flip = (int32_t) axis_value;
 
-    size_t required = arr->size * (size_t) arr->itype;
-    size_t s_capacity = required > 0 ? required * 2 : 1;
+    /* Sized to the source's capacity, not its current length: the source can
+       grow that far without reallocating, and a marked source must find the
+       scratch already big enough at perf time. */
+    size_t s_capacity = arr->capacity * (size_t) arr->itype;
     double *data = csound->Calloc(csound, sizeof(double) * s_capacity);
     if (data == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size * arr->itype));
@@ -3409,7 +3441,7 @@ int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     int32_t axis_flip = (int32_t) axis_value;
 
     bool axis_changed = axis_flip != p->k_data.prev_axis_u;
-    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, axis_changed);
+    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, axis_changed, slot->rt_locked);
     if (res != OK) {
         res = res == NOTOK ? OK : res;
         goto done;
@@ -3658,8 +3690,10 @@ static int32_t csnarray_roll_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     }
     int32_t shift = (int32_t) shift_value;
 
-    size_t required = arr->size * (size_t) arr->itype;
-    size_t capacity = required > 0 ? required * 2 : 1;
+    /* Sized to the source's capacity, not its current length: the source can
+       grow that far without reallocating, and a marked source must find the
+       scratch already big enough at perf time. */
+    size_t capacity = arr->capacity * (size_t) arr->itype;
     double *data = csound->Calloc(csound, sizeof(double) * capacity);
     if (data == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size * arr->itype));
@@ -3709,7 +3743,7 @@ int32_t csnarray_roll_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     bool shift_changed = shift != p->k_data.prev_roll_shift;
 
-    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, shift_changed);
+    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, itype, shift_changed, slot->rt_locked);
     if (res != OK) {
         res = res == NOTOK ? OK : res;
         goto done;
@@ -3916,8 +3950,10 @@ static int32_t csnarray_rollaxis_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) 
     }
     int32_t axis_roll = (int32_t) axis_value;
 
-    size_t required = arr->size * (size_t) arr->itype;
-    size_t capacity = required > 0 ? required * 2 : 1;
+    /* Sized to the source's capacity, not its current length: the source can
+       grow that far without reallocating, and a marked source must find the
+       scratch already big enough at perf time. */
+    size_t capacity = arr->capacity * (size_t) arr->itype;
     double *data = csound->Calloc(csound, sizeof(double) * capacity);
     if (data == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * arr->size * arr->itype));
@@ -3971,7 +4007,7 @@ int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     int32_t axis_roll = (int32_t) axis_value;
 
     bool is_changed = (shift != p->k_data.prev_roll_shift) || (axis_roll != p->k_data.prev_axis_u);
-    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, arr->itype, is_changed);
+    res = CHECK_IF_REALLOC_IN(csound, &p->h, &p->k_data, arr, source_handle, &p->scratch, ndim, arr->itype, is_changed, slot->rt_locked);
     if (res != OK) {
         res = res == NOTOK ? OK : res;
         goto done;
@@ -5023,10 +5059,30 @@ static int32_t push_check_body(CSOUND *csound, OPDS *perf_h, CSN_SLOT **slot, CS
     return OK;
 }
 
-int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size) {
+bool csn_slot_rt_locked(CSN_REGISTRY *reg, uint32_t handle) {
+    CSN_SLOT *slot = get_slot(reg, handle);
+    return slot != NULL && slot->rt_locked;
+}
+
+/* Registry arrays are named by handle; an opcode's private array has none, so
+   it is named by the opcode's output. Csound's own report adds the opcode and
+   the line either way. */
+static int32_t rt_growth_refused(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *arr, size_t required_size) {
+    if (arr->array_id == 0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] '%s' is on a real-time path and its working buffer cannot grow from %zu to %zu elements at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", get_out_name(perf_h), arr->capacity, required_size);
+    }
+    return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Array %u is on a real-time path and cannot grow from %zu to %zu elements at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", arr->array_id, arr->capacity, required_size);
+}
+
+/* rt_locked is the mark of the slot arr belongs to or, for an array private to
+   an opcode, of the slot it serves; external_lock covers the private arrays
+   that carry their own flag. A marked array must already be large enough at
+   perf time: growing it would call the allocator on the audio thread, so the
+   growth is refused instead. Init-time growth stays allowed. */
+int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size, bool rt_locked) {
     if (required_size > arr->capacity) {
-        if (arr->external_lock) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Memory reallocation not permitted with external lock applied");
+        if (arr->external_lock || (perf_h != NULL && rt_locked)) {
+            return rt_growth_refused(csound, perf_h, arr, required_size);
         }
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
         if (new_capacity < required_size) new_capacity = required_size;
@@ -5041,9 +5097,39 @@ int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, s
     return OK;
 }
 
-static int32_t push_in(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, const MYFLT *in_rvalue, COMPLEXDAT *in_cvalue) {
+/* The same rule for an opcode's private scratch, counted in items of
+   item_size bytes: at perf time a scratch serving a marked slot must have been
+   reserved at init. A first reservation is exact; growth doubles, so a
+   buffer that keeps growing off a marked path does not reallocate every
+   pass. The caller holds the registry mutex. */
+int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size) {
+    if (scratch->scratch != NULL && required <= scratch->scratch_capacity) {
+        return OK;
+    }
+
+    if (perf_h != NULL && rt_locked) {
+        const char *name = get_out_name(perf_h);
+        if (strcmp(name, "?") == 0) {
+            return csn_locked_perf_error(csound, perf_h, "[csnarray] A working buffer needs %zu items but only %zu were reserved at init, and the array it serves is on a real-time path; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", required, scratch->scratch_capacity);
+        }
+        return csn_locked_perf_error(csound, perf_h, "[csnarray] '%s' needs a working buffer of %zu items but only %zu were reserved at init, and it is on a real-time path; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", name, required, scratch->scratch_capacity);
+    }
+
+    size_t new_capacity = scratch->scratch == NULL ? required : required * 2;
+    if (new_capacity == 0) new_capacity = 1;
+    void *data = csound->ReAlloc(csound, scratch->scratch, item_size * new_capacity);
+    if (data == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", item_size * new_capacity);
+    }
+
+    scratch->scratch = data;
+    scratch->scratch_capacity = new_capacity;
+    return OK;
+}
+
+static int32_t push_in(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, bool rt_locked, const MYFLT *in_rvalue, COMPLEXDAT *in_cvalue) {
     size_t new_size = arr->size + 1;
-    int32_t res = ensure_mutation_capacity(csound, perf_h, arr, new_size);
+    int32_t res = ensure_mutation_capacity(csound, perf_h, arr, new_size, rt_locked);
     if (res != OK) return res;
 
     if (in_cvalue == NULL) {
@@ -5077,7 +5163,7 @@ int32_t csnarray_push(CSOUND *csound, CSN_PUSH *p) {
     CSN_ARRAY *arr = NULL;
     res = push_check_body(csound, NULL, &slot, &arr, reg, handle, false);
     if (res != OK) goto done;
-    res = push_in(csound, NULL, arr, p->in_value, NULL);
+    res = push_in(csound, NULL, arr, slot->rt_locked, p->in_value, NULL);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5104,7 +5190,7 @@ int32_t csnarray_push_k(CSOUND *csound, CSN_PUSH_K *p) {
     CSN_ARRAY *arr = NULL;
     res = push_check_body(csound, &p->h, &slot, &arr, reg, handle, false);
     if (res != OK) goto done;
-    res = push_in(csound, &p->h, arr, p->in_value, NULL);
+    res = push_in(csound, &p->h, arr, slot->rt_locked, p->in_value, NULL);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5124,7 +5210,7 @@ int32_t csnarray_pushcomp(CSOUND *csound, CSN_PUSHCOMPLEX *p) {
     CSN_ARRAY *arr = NULL;
     res = push_check_body(csound, NULL, &slot, &arr, reg, handle, true);
     if (res != OK) goto done;
-    res = push_in(csound, NULL, arr, NULL, p->in_value);
+    res = push_in(csound, NULL, arr, slot->rt_locked, NULL, p->in_value);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5151,7 +5237,7 @@ int32_t csnarray_pushcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX_K *p) {
     CSN_ARRAY *arr = NULL;
     res = push_check_body(csound, &p->h, &slot, &arr, reg, handle, true);
     if (res != OK) goto done;
-    res = push_in(csound, &p->h, arr, NULL, p->in_value);
+    res = push_in(csound, &p->h, arr, slot->rt_locked, NULL, p->in_value);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -5340,7 +5426,7 @@ static int32_t insert_value_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *r
     }
 
     size_t new_size = arr->size + 1;
-    int32_t res = ensure_mutation_capacity(csound, perf_h, arr, new_size);
+    int32_t res = ensure_mutation_capacity(csound, perf_h, arr, new_size, slot->rt_locked);
     if (res != OK) return res;
 
     size_t width = (size_t) arr->itype;
@@ -5627,16 +5713,13 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     insert_block_assign_value(temp, source_arr, data_arr, source_ndim, axis, index);
 
-    size_t bytes = sizeof(double) * temp->capacity * temp->itype;
-    double *new_data = csound->ReAlloc(csound, source_arr->data, bytes);
-    if (new_data == NULL) {
+    res = ensure_mutation_capacity(csound, NULL, source_arr, temp->size, false);
+    if (res != OK) {
         csound->Free(csound, temp->data);
         csound->Free(csound, temp);
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", bytes);
         goto done;
     }
 
-    source_arr->data = new_data;
     travase_csnarray(source_arr, temp);
     p->scratch = temp;
     p->registry = reg;
@@ -5680,6 +5763,16 @@ static int32_t csnarray_insert_block_k_init(CSOUND *csound, CSN_INSERT_BLOCK *p)
         goto done;
     }
 
+    /* The image is copied back over the source, so it never needs more room
+       than the source can take without reallocating. Reserving that much here
+       keeps a marked source from being refused by its scratch first. */
+    res = ensure_mutation_capacity(csound, NULL, temp, source_arr->capacity, false);
+    if (res != OK) {
+        csound->Free(csound, temp->data);
+        csound->Free(csound, temp);
+        goto done;
+    }
+
     p->scratch = temp;
     p->registry = reg;
 
@@ -5720,12 +5813,17 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
+    bool rt_locked = csn_slot_rt_locked(reg, source_handle);
     bool have_same_shape = memcmp(p->scratch->shape, temp_shape, sizeof(uint32_t) * CSN_MAX_DIMS) == 0;
     bool request_changed = !have_same_shape || source_ndim != p->scratch->ndim || p->scratch->capacity < requested_size || source_arr->itype != p->scratch->itype;
 
     if (request_changed) {
         bool needs_realloc = p->scratch->capacity < requested_size || source_arr->itype != p->scratch->itype;
         if (needs_realloc) {
+            if (rt_locked) {
+                res = rt_growth_refused(csound, &p->h, source_arr, requested_size);
+                goto done;
+            }
             size_t new_capacity = requested_size > 0 ? requested_size * 2 : 1;
             double *new_realloc = csound->ReAlloc(csound, p->scratch->data, sizeof(double) * new_capacity * source_arr->itype);
             if (new_realloc == NULL) {
@@ -5741,19 +5839,12 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
         set_csnarray_layout(p->scratch, source_arr->ndim, temp_shape, requested_size, source_arr->itype);
     }
 
+    /* The source only reallocates when the image outgrows it, never on a pass
+       that still fits. */
+    res = ensure_mutation_capacity(csound, &p->h, source_arr, p->scratch->size, rt_locked);
+    if (res != OK) goto done;
+
     insert_block_assign_value(p->scratch, source_arr, data_arr, source_ndim, axis, index);
-
-    size_t bytes = sizeof(double) * p->scratch->capacity * p->scratch->itype;
-    double *new_data = csound->ReAlloc(csound, source_arr->data, bytes);
-    if (new_data == NULL) {
-        csound->Free(csound, p->scratch->data);
-        csound->Free(csound, p->scratch);
-        p->scratch = NULL;
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Out of memory: allocation of %zu bytes failed", bytes);
-    }
-
-    source_arr->data = new_data;
     travase_csnarray(source_arr, p->scratch);
 
 done:
@@ -6442,6 +6533,31 @@ done:
     return res;
 }
 
+/* The widths and the axis of the k-rate pads are k-arguments, read here at
+   their init values. When those already describe a valid pad, the output is
+   created at the padded shape, so a perf pass that keeps the same widths needs
+   no new storage, which a marked output could not take. Widths that only
+   settle during performance (a plain `=` still reads 0 at init) keep the
+   source's shape, and the first pass that pads reshapes the output as before.
+   Anything invalid is left for the perf pass to report, as it always was: the
+   checks below mirror pad_body's, so the call into it cannot raise. */
+static bool pad_k_init_shape(CSOUND *csound, CSN_REGISTRY *reg, uint32_t source_handle, const CSN_ARRAY *source_arr, double in_axis, const MYFLT *in_before, const MYFLT *in_after, ITEM_TYPE itype, int32_t *axis, uint32_t *before, uint32_t *after, uint32_t *shape) {
+    double before_value = (double) *in_before;
+    double after_value = (double) *in_after;
+    if (!IS_VALID_INDEX(before_value) || !IS_VALID_INDEX(after_value)) return false;
+    if (before_value + after_value > (double) UINT32_MAX) return false;
+    if (in_axis != -1.0 && !IS_VALID_AXIS(in_axis, source_arr->ndim)) return false;
+
+    double pad_extent = before_value + after_value;
+    for (uint32_t i = 0; i < source_arr->ndim; i++) {
+        double extent = source_arr->size == 0 ? 0.0 : (double) source_arr->shape[i];
+        if ((in_axis == -1.0 || (uint32_t) in_axis == i) && extent + pad_extent > (double) UINT32_MAX) return false;
+    }
+
+    CSN_ARRAY *checked = NULL;
+    return pad_body(csound, NULL, reg, &checked, source_handle, in_axis, in_before, in_after, axis, before, after, shape, itype) == OK;
+}
+
 static int32_t csnarray_pad_k_init(CSOUND *csound, CSN_PAD *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -6466,19 +6582,31 @@ static int32_t csnarray_pad_k_init(CSOUND *csound, CSN_PAD *p) {
         goto done;
     }
 
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    memcpy(shape, source_arr->shape, sizeof(shape));
+    int32_t axis = -1;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    double in_axis = p->INOCOUNT > 5 ? (double) *p->arg_a : -1.0;
+    bool padded = pad_k_init_shape(csound, reg, source_handle, source_arr, in_axis, p->before, p->after, CSN_REAL, &axis, &before, &after, shape);
+
     const uint32_t protect[1] = { source_handle };
 
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
 
-    p->array->size = source_arr->size;
-    if (source_arr->size > 0) {
-        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+    if (padded) {
+        pad_assign_value(source_arr, p->array, (double) *p->value, NULL, axis, before);
+    } else {
+        p->array->size = source_arr->size;
+        if (source_arr->size > 0) {
+            memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+        }
     }
     SET_KDATA_BEGIN(p, reg);
-    p->k_data.prev_size = source_arr->size;
+    p->k_data.prev_size = p->array->size;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6509,19 +6637,31 @@ static int32_t csnarray_padcomp_k_init(CSOUND *csound, CSN_PADCOMPLEX *p) {
         goto done;
     }
 
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    memcpy(shape, source_arr->shape, sizeof(shape));
+    int32_t axis = -1;
+    uint32_t before = 0;
+    uint32_t after = 0;
+    double in_axis = p->INOCOUNT > 5 ? (double) *p->arg_a : -1.0;
+    bool padded = pad_k_init_shape(csound, reg, source_handle, source_arr, in_axis, p->before, p->after, CSN_COMPLEX, &axis, &before, &after, shape);
+
     const uint32_t protect[1] = { source_handle };
 
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
+    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
 
-    p->array->size = source_arr->size;
-    if (source_arr->size > 0) {
-        memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+    if (padded) {
+        pad_assign_value(source_arr, p->array, 0.0, p->value, axis, before);
+    } else {
+        p->array->size = source_arr->size;
+        if (source_arr->size > 0) {
+            memcpy(p->array->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+        }
     }
     SET_KDATA_BEGIN(p, reg);
-    p->k_data.prev_size = source_arr->size;
+    p->k_data.prev_size = p->array->size;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -6721,17 +6861,10 @@ static int32_t csnarray_pad_in_helper(CSOUND *csound, CSNREF *shandle, const MYF
 
     pad_assign_value(source_arr, temp, value, valuecomp, axis, before);
 
-    size_t bytes = sizeof(double) * temp->capacity * temp->itype;
-    double *new_data = csound->ReAlloc(csound, source_arr->data, bytes);
-    if (new_data == NULL) {
-        csound->Free(csound, temp->data);
-        csound->Free(csound, temp);
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", bytes);
-        goto done;
+    res = ensure_mutation_capacity(csound, NULL, source_arr, temp->size, false);
+    if (res == OK) {
+        travase_csnarray(source_arr, temp);
     }
-
-    source_arr->data = new_data;
-    travase_csnarray(source_arr, temp);
     csound->Free(csound, temp->data);
     csound->Free(csound, temp);
 
@@ -6803,11 +6936,20 @@ static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, CSNREF *shandle, I
     }
 
     /* The widths are k-rate, so the scratch starts at the source shape and is
-       grown by the perf pass whenever the requested padding needs more room. */
+       grown by the perf pass whenever the requested padding needs more room.
+       It starts at least as large as the source's capacity: the image lands
+       back in the source, so a marked source is refused by its own capacity
+       and never earlier by this scratch. */
     if (allocate_array(csound, temp, source_arr->ndim, source_arr->shape, source_arr->array_id, source_arr->itype) != OK) {
         char tbuf[CSN_SHAPE_STR_MAX];
         csound->Free(csound, temp);
         res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_arr->ndim, shape_str(tbuf, sizeof(tbuf), source_arr->shape, source_arr->ndim));
+        goto done;
+    }
+    res = ensure_mutation_capacity(csound, NULL, temp, source_arr->capacity, false);
+    if (res != OK) {
+        csound->Free(csound, temp->data);
+        csound->Free(csound, temp);
         goto done;
     }
 
@@ -6851,7 +6993,7 @@ static int32_t csnarray_padcomp_in_k_deinit(CSOUND *csound, CSN_PADCOMPLEX_IN *p
 
 /* Fits the scratch to the padded shape, fills it and copies it back over the
    source array. The caller holds the registry lock. */
-static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY **scratch, CSN_ARRAY *source_arr, const uint32_t *new_shape, double value, COMPLEXDAT *valuecomp, int32_t axis, uint32_t before) {
+static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY **scratch, CSN_ARRAY *source_arr, bool rt_locked, const uint32_t *new_shape, double value, COMPLEXDAT *valuecomp, int32_t axis, uint32_t before) {
     uint32_t source_ndim = source_arr->ndim;
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, source_ndim, new_shape) != OK) {
@@ -6865,6 +7007,9 @@ static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY **scratch, CSN
     if (request_changed) {
         bool needs_realloc = temp->capacity < requested_size || source_arr->itype != temp->itype;
         if (needs_realloc) {
+            if (rt_locked) {
+                return rt_growth_refused(csound, h, source_arr, requested_size);
+            }
             size_t new_capacity = requested_size > 0 ? requested_size * 2 : 1;
             double *new_realloc = csound->ReAlloc(csound, temp->data, sizeof(double) * new_capacity * source_arr->itype);
             if (new_realloc == NULL) {
@@ -6879,18 +7024,12 @@ static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY **scratch, CSN
         set_csnarray_layout(temp, source_ndim, new_shape, requested_size, source_arr->itype);
     }
 
+    /* The source only reallocates when the padded image outgrows it, never on
+       a pass that still fits. */
+    int32_t res = ensure_mutation_capacity(csound, h, source_arr, requested_size, rt_locked);
+    if (res != OK) return res;
+
     pad_assign_value(source_arr, temp, value, valuecomp, axis, before);
-
-    size_t bytes = sizeof(double) * temp->capacity * temp->itype;
-    double *new_data = csound->ReAlloc(csound, source_arr->data, bytes);
-    if (new_data == NULL) {
-        csound->Free(csound, temp->data);
-        csound->Free(csound, temp);
-        *scratch = NULL;
-        return csn_locked_perf_error(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", bytes);
-    }
-
-    source_arr->data = new_data;
     travase_csnarray(source_arr, temp);
     return OK;
 }
@@ -6925,7 +7064,8 @@ int32_t csnarray_pad_in_k(CSOUND *csound, CSN_PAD_IN *p) {
         goto done;
     }
 
-    res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, (double) *p->value, NULL, axis, before);
+    res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, csn_slot_rt_locked(reg, p->source_handle->id), new_shape, (double) *p->value, NULL, axis, before);
+    if (res != OK) goto done;
     PUBLISH_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, (double) *p->value, (double) axis);
     p->k_data.prev_index = before;
     p->k_data.prev_roll_shift = (int32_t) after;
@@ -6965,7 +7105,8 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
         && (int32_t) p->k_data.prev_axis_u == axis
         && p->k_data.prev_index == before && p->k_data.prev_roll_shift == (int32_t) after) { goto done; }
 
-    res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, new_shape, 0.0, p->value, axis, before);
+    res = pad_in_k_commit(csound, &p->h, &p->scratch, source_arr, csn_slot_rt_locked(reg, p->source_handle->id), new_shape, 0.0, p->value, axis, before);
+    if (res != OK) goto done;
     PUBLISH_ELEMENTWISE(&p->k_data, p->source_handle->id, source_arr, 0, NULL, NULL, fill_re, fill_im);
     p->k_data.prev_axis_u = (uint32_t) axis;
     p->k_data.prev_index = before;
@@ -7880,7 +8021,9 @@ static int32_t csnarray_argunique_k_init(CSOUND *csound, CSN_ARGWHERE *p) {
         goto done;
     }
 
-    size_t capacity = source_arr->size > 0 ? source_arr->size * 2 : 1;
+    /* The source can grow to its capacity without reallocating; reserving that
+       much keeps the perf pass from growing this on a marked path. */
+    size_t capacity = source_arr->capacity > 0 ? source_arr->capacity : 1;
     ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * capacity);
     if (temp == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
@@ -7939,16 +8082,8 @@ int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p) {
     uint32_t *source_shape = source_arr->shape;
     size_t source_size = source_arr->size;
 
-    if (source_size > p->scratch.scratch_capacity) {
-        size_t new_cap = source_size * 2;
-        ARRAY_ELEMENT *temp = csound->ReAlloc(csound, p->scratch.scratch, sizeof(ARRAY_ELEMENT) * new_cap);
-        if (temp == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, &p->h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
-        }
-        p->scratch.scratch = temp;
-        p->scratch.scratch_capacity = new_cap;
-    }
+    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data.owned_handle), &p->scratch, source_size, sizeof(ARRAY_ELEMENT));
+    if (res != OK) goto done;
 
     ARRAY_ELEMENT *scratch = (ARRAY_ELEMENT *) p->scratch.scratch;
 
@@ -8081,7 +8216,9 @@ static int32_t csnarray_unique_k_init(CSOUND *csound, CSN_COMPARE *p) {
         goto done;
     }
 
-    size_t capacity = source_arr->size > 0 ? source_arr->size * 2 : 1;
+    /* The source can grow to its capacity without reallocating; reserving that
+       much keeps the perf pass from growing this on a marked path. */
+    size_t capacity = source_arr->capacity > 0 ? source_arr->capacity : 1;
     ARRAY_ELEMENT *temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * capacity);
     if (temp == NULL) {
         res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
@@ -8137,16 +8274,8 @@ int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p) {
     }
 
     size_t source_size = source_arr->size;
-    if (source_size > p->scratch.scratch_capacity) {
-        size_t new_cap = source_size * 2;
-        ARRAY_ELEMENT *temp = csound->ReAlloc(csound, p->scratch.scratch, sizeof(ARRAY_ELEMENT) * new_cap);
-        if (temp == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, &p->h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
-        }
-         p->scratch.scratch = temp;
-        p->scratch.scratch_capacity = new_cap;
-    }
+    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data.owned_handle), &p->scratch, source_size, sizeof(ARRAY_ELEMENT));
+    if (res != OK) goto done;
 
     ARRAY_ELEMENT *scratch = (ARRAY_ELEMENT *) p->scratch.scratch;
 
@@ -10188,12 +10317,14 @@ static int32_t csnarray_median_impl_k_init(CSOUND *csound, OPDS *h, CSNREF *src_
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    /* Median needs a sorted copy, so it cannot stream like the folds do. */
+    /* Median needs a sorted copy, so it cannot stream like the folds do. Every
+       run the perf pass can meet, flat or along any axis, fits in the source's
+       capacity, so a marked path never has to grow this later. */
     size_t run = (axis == -1) ? source_arr->size : source_shape[axis];
-    size_t scratch_capacity_temp = (run > 0 ? run : 1) * 2;
+    size_t scratch_capacity_temp = source_arr->capacity > 0 ? source_arr->capacity : 1;
     double *scratch_temp = csound->Calloc(csound, sizeof(double) * scratch_capacity_temp);
     if (scratch_temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * (run > 0 ? run : 1)));
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * scratch_capacity_temp));
         goto done;
     }
 
@@ -10232,10 +10363,8 @@ done:
 }
 
 int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, K_DATA *k_data, CSN_SCRATCH *scratch_ref, const MYFLT *trig) {
-    /* The scratch lives in the caller's opcode struct; these keep the buffer
-       and its capacity moving together. */
+    /* The scratch lives in the caller's opcode struct. */
     void **scratch = &scratch_ref->scratch;
-    size_t *scratch_capacity = &scratch_ref->scratch_capacity;
     CSN_REGISTRY *reg = k_data->registry;
     if (reg == NULL || (out_handle != NULL && k_data->owned_handle == 0)) {
         return csound->PerfError(csound, h, "[csnarray] k-rate output slot was not initialized");
@@ -10273,19 +10402,13 @@ int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double 
     }
     k_data->prev_axis_u = (uint32_t) axis;
 
-    /* Median needs a sorted copy, so it cannot stream like the folds do. */
-    memset(*scratch, 0, sizeof(double) * (*scratch_capacity));
+    /* Median needs a sorted copy, so it cannot stream like the folds do. The
+       copy serves the output slot, or the source when the result is a scalar;
+       init reserved the source's capacity, which bounds every run. */
     size_t runs_size = (axis == -1) ? source_arr->size : source_shape[axis];
-    if (runs_size > *scratch_capacity) {
-        size_t new_capacity = runs_size * 2;
-        double *new_data = csound->ReAlloc(csound, *scratch, sizeof(double) * new_capacity);
-        if (new_data == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, h,"[csnarray] Internal buffer memory allocation failed");
-        }
-        *scratch = new_data;
-        *scratch_capacity = new_capacity;
-    }
+    bool rt_locked = csn_slot_rt_locked(reg, has_array_output ? k_data->owned_handle : source_handle);
+    res = csn_scratch_reserve(csound, h, rt_locked, scratch_ref, runs_size, sizeof(double));
+    if (res != OK) goto done;
 
     CSN_ARRAY *arr = NULL;
     if (axis == -1) {
@@ -12995,11 +13118,13 @@ static int32_t csnarray_norm_k_init(CSOUND *csound, CSN_NORM_REDUCTION *p) {
 
     ITEM_TYPE itype = source_arr->itype;
     size_t run = source_shape[axis];
-    size_t scratch_items = run > 0 ? run : 1;
-    size_t scratch_cap = scratch_items * 2;
-    scratch = csound->Calloc(csound, sizeof(double) * scratch_cap * itype);
+    /* Counted in doubles, so a later complex source cannot outgrow it
+       unnoticed. Any run along any axis fits in the source's capacity, which
+       keeps a marked path from growing this at perf time. */
+    size_t scratch_cap = (source_arr->capacity > 0 ? source_arr->capacity : 1) * itype;
+    scratch = csound->Calloc(csound, sizeof(double) * scratch_cap);
     if (scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * scratch_items * itype));
+        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * scratch_cap));
         goto done;
     }
 
@@ -13072,18 +13197,10 @@ int32_t csnarray_norm_k(CSOUND *csound, CSN_NORM_REDUCTION *p) {
 
     ITEM_TYPE itype = source_arr->itype;
     size_t run = source_shape[axis];
-    size_t scratch_items = run > 0 ? run : 1;
+    size_t scratch_doubles = (run > 0 ? run : 1) * itype;
 
-    if (scratch_items > p->scratch.scratch_capacity) {
-        size_t scratch_cap = scratch_items * 2;
-        double *scratch = csound->ReAlloc(csound, p->scratch.scratch, sizeof(double) * scratch_cap * itype);
-        if (scratch == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, &p->h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * scratch_items * itype));
-        }
-        p->scratch.scratch = scratch;
-        p->scratch.scratch_capacity = scratch_cap;
-    }
+    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data.owned_handle), &p->scratch, scratch_doubles, sizeof(double));
+    if (res != OK) goto done;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_ndim = 0;
@@ -13413,31 +13530,17 @@ static int32_t unary_ax_assign_value(CSN_SCRATCH *scratch, CSN_ARRAY *source_arr
     return OK;
 }
 
-static int32_t unaryop_allocate_scratch(CSOUND *csound, OPDS *perf_h, CSN_SCRATCH *scratch, size_t size, ITEM_TYPE itype, CSN_UNARYOP_AX_MODE mode) {
-    /* Only the two sort modes stage a slice through the scratch buffer. Both
-       index it by element and an opcode instance only ever runs one mode, so
-       the capacity counts elements of that mode's own type. */
+static int32_t unaryop_allocate_scratch(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t size, ITEM_TYPE itype, CSN_UNARYOP_AX_MODE mode) {
+    /* Only the two sort modes stage a slice through the scratch buffer. The
+       capacity counts cells of the mode's element type, one per real item and
+       two per complex one, so a source that turns complex is measured in the
+       units it needs. */
     if (mode != CSN_SORT && mode != CSN_ARGSORT) {
         return OK;
     }
 
-    if (scratch->scratch != NULL && size <= scratch->scratch_capacity) {
-        return OK;
-    }
-
     size_t elem_size = mode == CSN_ARGSORT ? sizeof(ARRAY_ELEMENT) : sizeof(double);
-    size_t new_cap = size > 0 ? size * 2 : 1;
-    size_t bytes = elem_size * new_cap * (size_t) itype;
-    void *temp = scratch->scratch == NULL
-        ? csound->Calloc(csound, bytes)
-        : csound->ReAlloc(csound, scratch->scratch, bytes);
-    if (temp == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Memory allocation failed");
-    }
-
-    scratch->scratch = temp;
-    scratch->scratch_capacity = new_cap;
-    return OK;
+    return csn_scratch_reserve(csound, perf_h, rt_locked, scratch, size * (size_t) itype, elem_size);
 }
 
 static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch) {
@@ -13496,7 +13599,7 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *s
         arr = *out_array;
     }
 
-    res = unaryop_allocate_scratch(csound, NULL, scratch, source_arr->size, itype, mode);
+    res = unaryop_allocate_scratch(csound, NULL, false, scratch, source_arr->size, itype, mode);
     if (res != OK) goto done;
 
     res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
@@ -13579,7 +13682,10 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, const OPDS *h, CS
         arr = *out_array;
     }
 
-    res = unaryop_allocate_scratch(csound, NULL, scratch, source_arr->size, itype, mode);
+    /* Reserved for everything the source can hold without reallocating: the
+       in-place form has no output shape to hold the source still, so the perf
+       pass must never need more than this on a marked source. */
+    res = unaryop_allocate_scratch(csound, NULL, false, scratch, source_arr->capacity, itype, mode);
     if (res != OK) goto done;
 
     /* csnnormalize with the order still unset leaves the output as created; the
@@ -13700,7 +13806,8 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_r
         arr = *out_array;
     }
 
-    res = unaryop_allocate_scratch(csound, h, scratch, source_arr->size, itype, mode);
+    /* The scratch serves the output, or the source the in-place form rewrites. */
+    res = unaryop_allocate_scratch(csound, h, csn_slot_rt_locked(reg, out_handle != NULL ? k_data->owned_handle : source_handle), scratch, source_arr->size, itype, mode);
     if (res != OK) goto done;
 
     res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
@@ -14673,20 +14780,101 @@ static void movminmax_slice(double *dst, const double *src, size_t n, size_t str
     }
 }
 
-static void movmedian_slice(double *dst, const double *src, double *scratch, size_t n, size_t stride, size_t win_size) {
-    size_t left = win_size / 2;
-    size_t right = win_size - left - 1;
+static void sw_push(CSN_SORTED_SLIDING_WINDOW *w, double x) {
+    if (isnan(x)) {
+        w->nan_count++;
+        return;
+    }
+    size_t pos = 0;
+    binary_search(&pos, NULL, 0, w->sorted, x, w->count);
+    memmove(w->sorted + pos + 1, w->sorted + pos, sizeof(double) * (w->count - pos));
+    w->sorted[pos] = x;
+    w->count++;
+}
 
-    for (size_t i = 0; i < n; i++) {
-        size_t begin = i >= left ? i - left : 0;
-        size_t end = i + right + 1;
-        end = end > n ? n : end;
-        for (size_t j = begin; j < end; ++j) {
-            scratch[j - begin] = src[j * stride];
+static void sw_pop(CSN_SORTED_SLIDING_WINDOW *w, double x) {
+    if (isnan(x)) {
+        w->nan_count--;
+        return;
+    }
+    size_t pos = 0;
+    binary_search(&pos, NULL, 0, w->sorted, x, w->count);
+    memmove(w->sorted + pos, w->sorted + pos + 1, sizeof(double) * (w->count - pos - 1));
+    w->count--;
+}
+
+static void sw_replace(CSN_SORTED_SLIDING_WINDOW *w, double out, double in) {
+    if (isnan(out) || isnan(in)) {
+        sw_pop(w, out);
+        sw_push(w, in);
+        return;
+    }
+
+    double *s = w->sorted;
+    size_t po;
+    binary_search(&po, NULL, 0, s, out, w->count);
+    size_t pi;
+    if (in > out) {
+        binary_search(&pi, NULL, po + 1, s, in, w->count);
+        memmove(s + po, s + po + 1, (pi - po - 1) * sizeof(double));
+        s[pi - 1] = in;
+    } else if (in < out) {
+        binary_search(&pi, NULL, 0, s, in, po);
+        memmove(s + pi + 1, s + pi, (po - pi) * sizeof(double));
+        s[pi] = in;
+    }
+}
+
+static double sw_median(const CSN_SORTED_SLIDING_WINDOW *w) {
+    if (w->nan_count > 0) return NAN;
+    size_t c = w->count;
+    return (c & 1) ? w->sorted[c / 2] : 0.5 * (w->sorted[c / 2 - 1] + w->sorted[c / 2]);
+}
+
+/* The window is held twice, sorted for the rank and in arrival order for what
+   leaves next, so the scratch is two windows long. */
+static inline size_t sliding_median_scratch_size(size_t win_size) {
+    return 2 * win_size;
+}
+
+/* scratch holds sliding_median_scratch_size(win_size) doubles. dst may alias
+   src: the leaving value comes from the ring, and the arriving one lies ahead
+   of every write. */
+static void sliding_median_slice(double *dst, const double *src, double *scratch, size_t n, size_t stride, size_t win_size, CSN_MEDIAN_EDGES edge) {
+    CSN_SORTED_SLIDING_WINDOW w = { scratch, scratch + win_size, 0, 0 };
+    ptrdiff_t left = (ptrdiff_t) (win_size / 2);
+    ptrdiff_t right = (ptrdiff_t) win_size - left - 1;
+    ptrdiff_t len = (ptrdiff_t) n;
+    bool zero = (edge == CSN_MEDIAN_EDGE_ZERO);
+
+    size_t head = 0;
+    for (ptrdiff_t j = -left; j <= right; ++j, ++head) {
+        if (j < len && j >= 0) {
+            w.ring[head] = src[(size_t) j * stride];
+            sw_push(&w, w.ring[head]);
+        } else if (zero) {
+            w.ring[head] = 0.0;
+            sw_push(&w, 0.0);
         }
+    }
 
-        size_t buffer_size = end - begin;
-        dst[i * stride] = median_of_scratch(scratch, buffer_size);
+    /* Index i - left leaves and i + right + 1 arrives: both map to the same
+       ring slot, i % win_size. */
+    head = 0;
+    for (ptrdiff_t i = 0; i < len; ++i) {
+        dst[(size_t) i * stride] = sw_median(&w);
+
+        ptrdiff_t ji = i + right + 1;
+        bool has_out = (i - left >= 0) || zero;
+        bool has_in = (ji < len) || zero;
+        double in = ji < len ? src[(size_t) ji * stride] : 0.0;
+
+        if (has_out && has_in) sw_replace(&w, w.ring[head], in);
+        else if (has_out) sw_pop(&w, w.ring[head]);
+        else if (has_in) sw_push(&w, in);
+        if (has_in) w.ring[head] = in;
+
+        if (++head == win_size) head = 0;
     }
 }
 
@@ -14721,7 +14909,7 @@ static int32_t movstats_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
                 movmean_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, itype);
                 break;
             case CSN_MOVMEDIAN:
-                movmedian_slice(arr->data, source_arr->data, median_buffer, source_arr->size, 1, winsize);
+                sliding_median_slice(arr->data, source_arr->data, median_buffer, source_arr->size, 1, winsize, CSN_MEDIAN_EDGE_SHRINK);
                 break;
             case CSN_MOVSTD:
                 if (movstdvar_slice(arr->data, source_arr->data, source_arr->size, 1, winsize, RED_STD, itype) != OK) {
@@ -14773,7 +14961,7 @@ static int32_t movstats_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
                 movmean_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, itype);
                 break;
             case CSN_MOVMEDIAN:
-                movmedian_slice(arr->data + dst_base, source_arr->data + src_base, median_buffer, source_shape[axis], src_stride, winsize);
+                sliding_median_slice(arr->data + dst_base, source_arr->data + src_base, median_buffer, source_shape[axis], src_stride, winsize, CSN_MEDIAN_EDGE_SHRINK);
                 break;
             case CSN_MOVSTD:
                 if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, RED_STD, itype) != OK) {
@@ -14814,7 +15002,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
 
     double *median_buffer = NULL;
     if (mode == CSN_MOVMEDIAN) {
-        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
+        median_buffer = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(winsize));
         if (median_buffer == NULL) {
             return csound->InitError(csound, "[csnarray] Memory allocation failed");
         }
@@ -14880,16 +15068,6 @@ static int32_t csnarray_movstats_k_init_helper(CSOUND *csound, CSN_MOVSTATS *p, 
        during the init pass. The perf pass validates it before every use. */
     size_t winsize = (size_t) *p->winsize;
 
-    if (mode == CSN_MOVMEDIAN) {
-        size_t cap = winsize > 0 ? winsize * 2 : 1;
-        double *median_buffer = csound->Calloc(csound, sizeof(double) * cap);
-        if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Memory allocation failed");
-        }
-        p->scratch.scratch = median_buffer;
-        p->scratch.scratch_capacity = cap;
-    }
-
     csound->LockMutex(reg->mutex);
 
     CSN_ARRAY *source_arr = NULL;
@@ -14902,6 +15080,25 @@ static int32_t csnarray_movstats_k_init_helper(CSOUND *csound, CSN_MOVSTATS *p, 
     if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, out_itype) != OK) {
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
+    }
+
+    if (mode == CSN_MOVMEDIAN) {
+        /* Reserved for the widest window the perf pass can accept, whatever
+           this one reads now: a window never exceeds the length it slides
+           along, and that length cannot grow while the output keeps its shape.
+           A new shape reaches NEED_TO_UPDATE_SLOT first, which refuses it on a
+           marked output. So the buffer never grows mid-note on a real-time
+           path, whether the mark came from the source, csnrtlockstart, rtlockall or
+           a csnrtlock on the output after this init. */
+        size_t bound = source_arr->size > winsize ? source_arr->size : winsize;
+        size_t cap = bound > 0 ? sliding_median_scratch_size(bound) : 1;
+        double *median_buffer = csound->Calloc(csound, sizeof(double) * cap);
+        if (median_buffer == NULL) {
+            res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+            goto done;
+        }
+        p->scratch.scratch = median_buffer;
+        p->scratch.scratch_capacity = cap;
     }
 
     ITEM_TYPE itype = source_arr->itype;
@@ -14936,18 +15133,6 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
 
     CHECK_KTRIG(p->trig);
     size_t winsize = (size_t) *p->winsize;
-
-    if (mode == CSN_MOVMEDIAN) {
-        if (winsize > p->scratch.scratch_capacity) {
-            size_t new_cap = winsize * 2;
-            double *median_buffer = csound->ReAlloc(csound, p->scratch.scratch, sizeof(double) * new_cap);
-            if (median_buffer == NULL) {
-                return csound->PerfError(csound, &p->h, "[csnarray] Memory allocation failed");
-            }
-            p->scratch.scratch = median_buffer;
-            p->scratch.scratch_capacity = new_cap;
-        }
-    }
 
     csound->LockMutex(reg->mutex);
 
@@ -15001,6 +15186,13 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
     size_t logical_size = source_arr->size == 0 ? 0 : requested_size;
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
+
+    /* After the slot, so a shape the marked output cannot take is refused
+       there before this buffer is consulted. */
+    if (mode == CSN_MOVMEDIAN) {
+        res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data.owned_handle), &p->scratch, sliding_median_scratch_size(winsize), sizeof(double));
+        if (res != OK) goto done;
+    }
 
     res = movstats_assign_value(csound, &p->h, source_arr, arr, p->scratch.scratch, winsize,  axis, itype, mode);
     if (res != OK) goto done;
@@ -15094,7 +15286,7 @@ static int32_t dispatch_movstats(double *dst, double *src, size_t size, uint32_t
             movmean_slice(dst, src, size, stride, winsize, itype);
             break;
         case CSN_MOVMEDIAN:
-            movmedian_slice(dst, src, median_buffer, size, stride, winsize);
+            sliding_median_slice(dst, src, median_buffer, size, stride, winsize, CSN_MEDIAN_EDGE_SHRINK);
             break;
         case CSN_MOVSTD:
             if (movstdvar_slice(dst, src, size, stride, winsize, RED_STD, itype) != OK) {
@@ -15116,21 +15308,8 @@ static int32_t dispatch_movstats(double *dst, double *src, size_t size, uint32_t
     return OK;
 }
 
-static int32_t ensure_movstats_source_copy(CSOUND *csound, OPDS *perf_h, CSN_SCRATCH *scratch, const CSN_ARRAY *source_arr) {
-    size_t required = source_arr->size * (size_t) source_arr->itype;
-    if (scratch->scratch != NULL && scratch->scratch_capacity >= required) {
-        return OK;
-    }
-
-    size_t new_capacity = required > 0 ? required * 2 : 1;
-    double *src_copy = csound->ReAlloc(csound, scratch->scratch, sizeof(double) * new_capacity);
-    if (src_copy == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Memory allocation failed");
-    }
-
-    scratch->scratch = src_copy;
-    scratch->scratch_capacity = new_capacity;
-    return OK;
+static int32_t ensure_movstats_source_copy(CSOUND *csound, OPDS *perf_h, CSN_SCRATCH *scratch, const CSN_ARRAY *source_arr, bool rt_locked) {
+    return csn_scratch_reserve(csound, perf_h, rt_locked, scratch, source_arr->size * (size_t) source_arr->itype, sizeof(double));
 }
 
 static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, MYFLT *in_axis, int32_t *out_axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
@@ -15176,10 +15355,16 @@ static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg,
 /* src_copy holds the source as it was before this call, laid out exactly like
    source_arr->data so the same strides and offsets address both. Writing back
    into the source is only safe against that copy: every window reaches over
-   elements the pass has already replaced. */
+   elements the pass has already replaced. The median is the exception and
+   passes NULL: its ring keeps every value until it leaves the window, so it
+   reads the source it is rewriting. */
 static int32_t movstats_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, double *src_copy, double *median_buffer, int32_t axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
     ITEM_TYPE itype = source_arr->itype;
-    memcpy(src_copy, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+    if (mode == CSN_MOVMEDIAN) {
+        src_copy = source_arr->data;
+    } else {
+        memcpy(src_copy, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+    }
 
     if (axis == -1) {
         if (dispatch_movstats(source_arr->data, src_copy, source_arr->size, 1, winsize, median_buffer, mode, itype) != OK) {
@@ -15232,9 +15417,9 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
 
     double *median_buffer = NULL;
     if (mode == CSN_MOVMEDIAN) {
-        median_buffer = csound->Calloc(csound, sizeof(double) * winsize);
+        median_buffer = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(winsize));
         if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+            return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         }
     }
 
@@ -15245,8 +15430,10 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
     res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
     if (res != OK) goto done;
 
-    res = ensure_movstats_source_copy(csound, NULL, &src_scratch, source_arr);
-    if (res != OK) goto done;
+    if (mode != CSN_MOVMEDIAN) {
+        res = ensure_movstats_source_copy(csound, NULL, &src_scratch, source_arr, false);
+        if (res != OK) goto done;
+    }
 
     res = movstats_in_assign_value(csound, NULL, source_arr, src_scratch.scratch, median_buffer, axis, winsize, mode);
     if (res == OK) update_array_data_version(&source_arr->version);
@@ -15280,32 +15467,41 @@ static int32_t csnarray_movstats_in_k_init_helper(CSOUND *csound, CSN_MOVSTATS_I
     p->scratch.scratch_capacity = 0;
     p->src_scratch.scratch = NULL;
     p->src_scratch.scratch_capacity = 0;
-    if (mode == CSN_MOVMEDIAN) {
-        /* The window is a k-argument, so it still reads 0 here; the perf pass
-           grows the buffer on demand and only needs a seed it can realloc. */
-        size_t cap = winsize > 0 ? winsize * 2 : 1;
-        double *median_buffer = csound->Calloc(csound, sizeof(double) * cap);
-        if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Memory allocation failed");
-        }
-        p->scratch.scratch = median_buffer;
-        p->scratch.scratch_capacity = cap;
-    }
-
-    /* Same reason as the output form: with a k window this check can only run
-       once the first performance pass knows the value. */
-    if (winsize == 0) {
-        return OK;
-    }
 
     csound->LockMutex(reg->mutex);
 
-    CSN_ARRAY *source_arr = NULL;
-    int32_t axis = -1;
-    res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
-    if (res != OK) goto done;
+    /* The filter rewrites its own source, which can grow to its capacity
+       without reallocating, and a window never exceeds the length it slides
+       along. Reserving for that capacity now keeps the perf pass from
+       allocating on a marked source, whenever and however the mark arrives.
+       The window is a k-argument and usually still reads 0 here, so it only
+       widens the reservation when it is already larger. An unknown handle
+       keeps a one-item seed and is reported where the window is checked. */
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    size_t capacity = source_slot != NULL ? source_slot->array->capacity : 1;
+    size_t bound = capacity > winsize ? capacity : winsize;
+    CSN_SCRATCH *reserved = &p->src_scratch;
+    size_t items = capacity * (source_slot != NULL ? (size_t) source_slot->array->itype : 1U);
+    if (mode == CSN_MOVMEDIAN) {
+        /* The median's ring stands in for the copy of the source. */
+        reserved = &p->scratch;
+        items = sliding_median_scratch_size(bound);
+    }
+    items = items > 0 ? items : 1;
+    reserved->scratch = csound->Calloc(csound, sizeof(double) * items);
+    if (reserved->scratch == NULL) {
+        res = csound->InitError(csound, "[csnarray] Memory allocation failed");
+        goto done;
+    }
+    reserved->scratch_capacity = items;
 
-    res = ensure_movstats_source_copy(csound, NULL, &p->src_scratch, source_arr);
+    /* Same reason as the output form: with a k window this check can only run
+       once the first performance pass knows the value. */
+    if (winsize != 0) {
+        CSN_ARRAY *source_arr = NULL;
+        int32_t axis = -1;
+        res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, p->axis, &axis, winsize, mode);
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -15329,18 +15525,6 @@ static int32_t csnarray_movstats_in_k_helper(CSOUND *csound, CSN_MOVSTATS_IN *p,
     uint32_t source_handle = p->source_handle->id;
     size_t winsize = (size_t) *p->winsize;
 
-    if (mode == CSN_MOVMEDIAN) {
-        if (winsize > p->scratch.scratch_capacity) {
-            size_t new_cap = winsize * 2;
-            double *median_buffer = csound->ReAlloc(csound, p->scratch.scratch, sizeof(double) * new_cap);
-            if (median_buffer == NULL) {
-                return csound->PerfError(csound, &p->h, "[csnarray] Memory allocation failed");
-            }
-            p->scratch.scratch = median_buffer;
-            p->scratch.scratch_capacity = new_cap;
-        }
-    }
-
     csound->LockMutex(reg->mutex);
 
     CSN_ARRAY *source_arr = NULL;
@@ -15352,7 +15536,13 @@ static int32_t csnarray_movstats_in_k_helper(CSOUND *csound, CSN_MOVSTATS_IN *p,
         goto done;
     }
 
-    res = ensure_movstats_source_copy(csound, &p->h, &p->src_scratch, source_arr);
+    /* Both buffers serve the source being rewritten, so its mark decides. */
+    bool rt_locked = csn_slot_rt_locked(reg, source_handle);
+    if (mode == CSN_MOVMEDIAN) {
+        res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->scratch, sliding_median_scratch_size(winsize), sizeof(double));
+    } else {
+        res = ensure_movstats_source_copy(csound, &p->h, &p->src_scratch, source_arr, rt_locked);
+    }
     if (res != OK) goto done;
 
     res = movstats_in_assign_value(csound, &p->h, source_arr, p->src_scratch.scratch, p->scratch.scratch, axis, winsize, mode);
@@ -16720,11 +16910,12 @@ static int32_t csnarray_perquant_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p) {
 
     size_t source_size = source_arr->size;
     if (source_arr->size > 0) {
-        memcpy(p->array->data, source_arr->data, source_size);
+        memcpy(p->array->data, source_arr->data, sizeof(double) * source_size);
         p->array->size = source_size;
     }
 
-    size_t cap = source_size > 0 ? source_size * 2 : 1;
+    /* Any run along any axis fits in the source's capacity. */
+    size_t cap = source_arr->capacity > 0 ? source_arr->capacity : 1;
     buffer = csound->Calloc(csound, sizeof(double) * cap);
     if (buffer == NULL) {
         res = csound->InitError(csound, "Memory allocation failed");
@@ -16747,7 +16938,17 @@ static int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p)
 
     p->registry = reg;
 
+    /* Sized to what the source can hold without reallocating, so a marked
+       source never makes the perf pass grow this. An unknown handle keeps the
+       default and is reported by the perf pass. */
     size_t init_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *source_slot = get_slot(reg, p->source_handle->id);
+    if (source_slot != NULL && source_slot->array->capacity > init_capacity) {
+        init_capacity = source_slot->array->capacity;
+    }
+    csound->UnlockMutex(reg->mutex);
+
     double *buffer = csound->Calloc(csound, sizeof(double) * init_capacity);
     if (buffer == NULL) {
         return csound->InitError(csound, "[csnarray] Internal memory allocation failed");
@@ -16762,10 +16963,8 @@ static int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p)
 /* The scalar forms own no output slot, so they carry a bare registry instead of
    a K_DATA: everything that depends on a slot is guarded on k_data. */
 static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, bool is_percentile, double q, K_DATA *k_data, CSN_REGISTRY *registry, const MYFLT *trig, CSN_SCRATCH *buffer_ref) {
-    /* The scratch lives in the caller's opcode struct; these keep the buffer
-       and its capacity moving together. */
+    /* The scratch lives in the caller's opcode struct. */
     void **buffer = &buffer_ref->scratch;
-    size_t *buffer_capacity = &buffer_ref->scratch_capacity;
     CSN_REGISTRY *reg = k_data != NULL ? k_data->registry : registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -16861,17 +17060,11 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *sr
     }
 
     if (arr != NULL) {
+        /* The sort buffer serves the output slot here and the source in the
+           scalar form below; the k init reserved the source's capacity. */
         size_t r_size = (size_t) source_shape[axis];
-        if (r_size > *buffer_capacity) {
-            size_t new_cap = r_size > 0 ? r_size * 2 : 1;
-            double *temp = csound->ReAlloc(csound, *buffer, sizeof(double) * new_cap);
-            if (temp == NULL) {
-                csound->UnlockMutex(reg->mutex);
-                return csound->PerfError(csound, h, "[csnarray] Memory allocation failed");
-            }
-            *buffer = temp;
-            *buffer_capacity = new_cap;
-        }
+        res = csn_scratch_reserve(csound, h, csn_slot_rt_locked(reg, k_data->owned_handle), buffer_ref, r_size, sizeof(double));
+        if (res != OK) goto done;
 
         for (size_t linear = 0; linear < arr->size; ++linear) {
             uint32_t dst_coords[CSN_MAX_DIMS] = {0};
@@ -16890,16 +17083,8 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *sr
         }
     } else {
         size_t r_size = (size_t) source_arr->size;
-        if (r_size > *buffer_capacity) {
-            size_t new_cap = r_size > 0 ? r_size * 2 : 1;
-            double *temp = csound->ReAlloc(csound, *buffer, sizeof(double) * new_cap);
-            if (temp == NULL) {
-                csound->UnlockMutex(reg->mutex);
-                return csound->PerfError(csound, h, "[csnarray] Memory allocation failed");
-            }
-            *buffer = temp;
-            *buffer_capacity = new_cap;
-        }
+        res = csn_scratch_reserve(csound, h, source_slot->rt_locked, buffer_ref, r_size, sizeof(double));
+        if (res != OK) goto done;
 
         double value = 0;
         accumulate_perquant_reduction_scalar_helper(&value, q, *buffer, source_arr, is_percentile);
@@ -18926,12 +19111,14 @@ int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p) {
     if (res != OK) goto done;
     p->array = arr;
 
-    if (ensure_resample_buffer(csound, &p->x_data_scratch, data_size) != OK
-        || ensure_resample_buffer(csound, &p->x_source_scratch, (size_t) new_length) != OK
-        || (axis != -1 && ensure_resample_buffer(csound, &p->y_data_scratch, data_size) != OK)) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
-        goto done;
-    }
+    /* The grids serve the output slot. The new length is already part of its
+       shape, but the source length is not: a source that outgrew the capacity
+       reserved at init would otherwise grow these on a marked output. */
+    bool rt_locked = csn_slot_rt_locked(reg, p->k_data.owned_handle);
+    res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->x_data_scratch, data_size, sizeof(double));
+    if (res == OK) res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->x_source_scratch, (size_t) new_length, sizeof(double));
+    if (res == OK && axis != -1) res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->y_data_scratch, data_size, sizeof(double));
+    if (res != OK) goto done;
 
     fill_resample_grid(p->x_data_scratch.scratch, data_size, p->x_source_scratch.scratch, (size_t) new_length);
 
@@ -19228,11 +19415,14 @@ done:
     return res;
 }
 
-static int32_t resize_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_array, size_t new_size, ITEM_TYPE itype) {
+static int32_t resize_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_array, size_t new_size, ITEM_TYPE itype, bool rt_locked) {
     CSN_ARRAY *source_arr = *source_array;
     const size_t old_size = source_arr->size;
 
     if (new_size > source_arr->capacity) {
+        if (perf_h != NULL && rt_locked) {
+            return rt_growth_refused(csound, perf_h, source_arr, new_size);
+        }
         size_t new_cap = new_size * 2;
         /* ReAlloc keeps the elements already there, so only the grown tail
            below needs writing. */
@@ -19279,7 +19469,7 @@ int32_t csnarray_resize_in(CSOUND *csound, CSN_RESIZE_IN *p) {
     CSN_ARRAY *source_arr = slot->array;
     ITEM_TYPE itype = source_arr->itype;
 
-    res = resize_in_assign_value(csound, NULL, &source_arr, new_size, itype);
+    res = resize_in_assign_value(csound, NULL, &source_arr, new_size, itype, false);
     if (res != OK) goto done;
 
     set_csnarray_layout(source_arr, ndim, shape, new_size, itype);
@@ -19614,7 +19804,7 @@ int32_t csnarray_resize_in_k(CSOUND *csound, CSN_RESIZE_IN *p) {
         if (is_same_version && is_same_shape) goto done;
     }
 
-    res = resize_in_assign_value(csound, &p->h, &source_arr, new_size, itype);
+    res = resize_in_assign_value(csound, &p->h, &source_arr, new_size, itype, slot->rt_locked);
     if (res != OK) goto done;
 
     set_csnarray_layout(source_arr, ndim, shape, new_size, itype);
@@ -20579,7 +20769,7 @@ static int32_t csnarray_grtlock_deinit(CSOUND *csound, CSN_GRTLOCK *p) {
 
 static int32_t csnarray_set_grtlock_helper(CSOUND *csound, OPDS *perf_h, CSN_GRTLOCK *p, bool lock, bool all) {
     if (all && p->h.insdshead->insno != 0) {
-        return csound->InitError(csound, "[csnarray] csnrtlockall belongs in the orchestra header, where it holds for the whole performance; inside an instrument use csnrtlockblock, which holds until csnrtunlockblock or the end of the note");
+        return csound->InitError(csound, "[csnarray] csnrtlockall belongs in the orchestra header, where it holds for the whole performance; inside an instrument use csnrtlockstart, which holds until csnrtlockend or the end of the note");
     }
 
     CSN_REGISTRY *reg = perf_h == NULL ? get_registry(csound) : p->registry;
@@ -21278,17 +21468,8 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
         }
     }
 
-    if (mask_arr->size > p->scratch.scratch_capacity) {
-        size_t cap = mask_arr->size == 0 ? 1 : mask_arr->size * 2;
-        uint32_t *indexes = csound->ReAlloc(csound, p->scratch.scratch, sizeof(uint32_t) * cap);
-        if (indexes == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
-        }
-
-        p->scratch.scratch = indexes;
-        p->scratch.scratch_capacity = cap;
-    }
+    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data.owned_handle), &p->scratch, mask_arr->size, sizeof(uint32_t));
+    if (res != OK) goto done;
 
     uint32_t *indexes_temp = (uint32_t *) p->scratch.scratch;
     uint32_t count_true = 0;
@@ -21939,10 +22120,10 @@ static OENTRY localops[] = {
     { "csnrtunlock",           S(CSN_RTLOCK),                 0, "",                         ":CsnArr;",                      (SUBR) csnarray_set_rtunlock,                NULL,                                   NULL,                                   NULL, 0 },
     { "csnrtlock.k",           S(CSN_RTLOCK),                 0, "",                         ":CsnArr;P",                     (SUBR) csnarray_set_rtlock_k_init,           (SUBR) csnarray_set_rtlock_k,           NULL,                                   NULL, 0 },
     { "csnrtunlock.k",         S(CSN_RTLOCK),                 0, "",                         ":CsnArr;P",                     (SUBR) csnarray_set_rtunlock_k_init,         (SUBR) csnarray_set_rtunlock_k,         NULL,                                   NULL, 0 },
-    { "csnrtlockblock",        S(CSN_GRTLOCK),                0, "",                         "",                              (SUBR) csnarray_set_grtlock,                 NULL,                                   (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
-    { "csnrtunlockblock",      S(CSN_GRTLOCK),                0, "",                         "",                              (SUBR) csnarray_set_grtunlock,               NULL,                                   (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
-    { "csnrtlockblock.k",      S(CSN_GRTLOCK),                0, "",                         "P",                             (SUBR) csnarray_set_grtlock_k_init,          (SUBR) csnarray_set_grtlock_k,          (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
-    { "csnrtunlockblock.k",    S(CSN_GRTLOCK),                0, "",                         "P",                             (SUBR) csnarray_set_grtunlock_k_init,        (SUBR) csnarray_set_grtunlock_k,        (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
+    { "csnrtlockstart",        S(CSN_GRTLOCK),                0, "",                         "",                              (SUBR) csnarray_set_grtlock,                 NULL,                                   (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
+    { "csnrtlockend",          S(CSN_GRTLOCK),                0, "",                         "",                              (SUBR) csnarray_set_grtunlock,               NULL,                                   (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
+    { "csnrtlockstart.k",      S(CSN_GRTLOCK),                0, "",                         "P",                             (SUBR) csnarray_set_grtlock_k_init,          (SUBR) csnarray_set_grtlock_k,          (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
+    { "csnrtlockend.k",        S(CSN_GRTLOCK),                0, "",                         "P",                             (SUBR) csnarray_set_grtunlock_k_init,        (SUBR) csnarray_set_grtunlock_k,        (SUBR) csnarray_grtlock_deinit,         NULL, 0 },
     { "csnrtlockall",          S(CSN_GRTLOCK),                0, "",                         "",                              (SUBR) csnarray_set_grtlock_all,             NULL,                                   NULL,                                   NULL, 0 },
     // REAL-ONLY
     { "csnfromaudio",          S(CSN_FROM_AUDIO),             0, ":CsnArr;",                 "ap",                            (SUBR) csnarray_from_audio_init,             (SUBR) csnarray_from_audio,             (SUBR) csnarray_from_audio_deinit,      NULL, 0 },

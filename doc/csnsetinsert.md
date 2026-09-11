@@ -10,8 +10,10 @@ Inserts a value into a set while preserving its invariant.
 sorted position when absent; inserting an existing value has no effect. The
 array remains one-dimensional, ascending, duplicate-free, and marked as a set.
 
-Insertion may grow and reallocate the array. Plan k-rate use accordingly and do
-not trigger an insertion on a path that must remain allocation-free.
+Insertion reuses the array's spare capacity and only reallocates once the set
+outgrows it. On a [real-time path](csnrtlock.md) that last insertion is refused
+with a performance error instead, so a set filled at k-rate on a marked path
+needs its room reserved at init.
 
 ## Syntax
 

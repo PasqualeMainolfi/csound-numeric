@@ -382,6 +382,26 @@ if(BUILD_TESTING)
         set_tests_properties(csnum_audio_rtlock_regression PROPERTIES
             PASS_REGULAR_EXPRESSION "csnum registry alive after the realtime-lock refusal"
             TIMEOUT 60)
+        add_test(
+            NAME csnum_rtlock_growth_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/rtlock_growth_regression.csd")
+        set_tests_properties(csnum_rtlock_growth_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum growth guards held on every real-time path"
+            TIMEOUT 60)
+        add_test(
+            NAME csnum_rtlockall_growth_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/rtlockall_growth_regression.csd")
+        set_tests_properties(csnum_rtlockall_growth_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum growth guards held under csnrtlockall"
+            TIMEOUT 60)
     endif()
 endif()
 endif()

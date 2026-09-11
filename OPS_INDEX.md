@@ -335,6 +335,6 @@ k-rate forms, and affect only arrays created from the handle after the change.
 - **csnstream** - overlap-adds frames back into a continuous signal (a — real only)
 - **csnrtlock** - marks any handle as a real-time path (i, k — real, complex)
 - **csnrtunlock** - clears the real-time mark from one handle (i, k — real, complex)
-- **csnrtlockblock** - marks every array the current note creates from here on (i, k)
-- **csnrtunlockblock** - closes that block; the note ending closes it too (i, k)
+- **csnrtlockstart** - starts marking every array the current note creates (i, k)
+- **csnrtlockend** - stops that marking; the note ending stops it too (i, k)
 - **csnrtlockall** - marks every array for the whole performance; orchestra header only, and there is no way to switch it off (i)

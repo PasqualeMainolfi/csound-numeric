@@ -270,60 +270,26 @@ static int32_t solve_helper(CSOUND *csound, OPDS *perf_h, CSN_LU_INFO *info, dou
     return OK;
 }
 
-static int32_t linalg_allocate(CSOUND *csound, OPDS *perf_h, CSN_SCRATCH *a, CSN_SCRATCH *b, CSN_LU_INFO *info, size_t size_a, size_t size_b, size_t n, ITEM_TYPE itype) {
-    double *buffer_a = NULL;
-    double *buffer_b = NULL;
-    size_t *pivots = NULL;
-    size_t ba_cap = size_a * 2;
-    size_t bb_cap = size_b * 2;
-    if (perf_h == NULL) {
-        buffer_a = csound->Calloc(csound, sizeof(double) * ba_cap * itype);
-        if (buffer_a == NULL) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-        }
-        if (b != NULL) {
-            buffer_b = csound->Calloc(csound, sizeof(double) * bb_cap * itype);
-            if (buffer_b == NULL) {
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            b->scratch = buffer_b;
-            b->scratch_capacity = bb_cap;
-        }
-        a->scratch = buffer_a;
-        a->scratch_capacity = ba_cap;
-        pivots = csound->Calloc(csound, sizeof(size_t) * ba_cap);
+/* Capacities count doubles, so a complex operand arriving later is measured
+   in the units it needs, and the pivots follow a's buffer, which bounds the row
+   count. The init calls pass each operand's capacity, the most it can hold
+   without reallocating; at perf time these buffers serve the output slot, or
+   the source for the scalar determinant, and growing them is refused when
+   that slot is marked. The caller holds the registry mutex. */
+static int32_t linalg_allocate(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *a, CSN_SCRATCH *b, CSN_LU_INFO *info, size_t size_a, size_t size_b, ITEM_TYPE itype) {
+    size_t capacity_before = a->scratch_capacity;
+    int32_t res = csn_scratch_reserve(csound, perf_h, rt_locked, a, (size_a > 0 ? size_a : 1) * (size_t) itype, sizeof(double));
+    if (res == OK && b != NULL) {
+        res = csn_scratch_reserve(csound, perf_h, rt_locked, b, (size_b > 0 ? size_b : 1) * (size_t) itype, sizeof(double));
+    }
+    if (res != OK) return res;
+
+    if (info->pivots == NULL || a->scratch_capacity != capacity_before) {
+        size_t *pivots = csound->ReAlloc(csound, info->pivots, sizeof(size_t) * a->scratch_capacity);
         if (pivots == NULL) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
         info->pivots = pivots;
-    } else {
-        if (size_a > a->scratch_capacity) {
-            buffer_a = csound->ReAlloc(csound, a->scratch, sizeof(double) * ba_cap * itype);
-            if (buffer_a == NULL) {
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-
-            a->scratch = buffer_a;
-            a->scratch_capacity = ba_cap;
-
-            pivots = csound->ReAlloc(csound, info->pivots, sizeof(size_t) * ba_cap);
-            if (pivots == NULL) {
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-            }
-            info->pivots = pivots;
-        }
-
-        if (b != NULL) {
-            if (size_b > b->scratch_capacity) {
-                buffer_b = csound->ReAlloc(csound, b->scratch, sizeof(double) * bb_cap * itype);
-                if (buffer_b == NULL) {
-                    return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
-                }
-
-                b->scratch = buffer_b;
-                b->scratch_capacity = bb_cap;
-            }
-        }
     }
 
     return OK;
@@ -394,7 +360,7 @@ int32_t csnarray_solve(CSOUND *csound, CSN_LINALG_SOLVE *p) {
 
     ITEM_TYPE itype = (itype_a == CSN_COMPLEX || itype_b == CSN_COMPLEX) ? CSN_COMPLEX : CSN_REAL;
 
-    res = linalg_allocate(csound, NULL, &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->size, source_arr_b->size, (size_t) source_shape_a[0], itype);
+    res = linalg_allocate(csound, NULL, false, &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->capacity, source_arr_b->capacity, itype);
     if (res != OK) goto done;
 
     double *buffer_a = (double *) p->buffer_a.scratch;
@@ -505,7 +471,7 @@ int32_t csnarray_solve_k(CSOUND *csound, CSN_LINALG_SOLVE *p) {
     }
 
     ITEM_TYPE itype = (itype_a == CSN_COMPLEX || itype_b == CSN_COMPLEX) ? CSN_COMPLEX : CSN_REAL;
-    res = linalg_allocate(csound, &p->h, &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->size, source_arr_b->size, source_shape_a[0], itype);
+    res = linalg_allocate(csound, &p->h, csn_slot_rt_locked(reg, owned_handle), &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->size, source_arr_b->size, itype);
     if (res != OK) goto done;
 
     double *ba = (double *) p->buffer_a.scratch;
@@ -597,7 +563,7 @@ int32_t csnarray_inverse(CSOUND *csound, CSN_LINALG_INVERSE *p) {
         goto done;
     }
 
-    res = linalg_allocate(csound, NULL, &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->size, source_arr_a->size, (size_t) n, itype);
+    res = linalg_allocate(csound, NULL, false, &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->capacity, source_arr_a->capacity, itype);
     if (res != OK) goto done;
 
     double *buffer_a = (double *) p->buffer_a.scratch;
@@ -674,7 +640,7 @@ int32_t csnarray_inverse_k(CSOUND *csound, CSN_LINALG_INVERSE *p) {
         }
     }
 
-    res = linalg_allocate(csound, &p->h, &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->size, source_arr_a->size, (size_t) n, itype);
+    res = linalg_allocate(csound, &p->h, csn_slot_rt_locked(reg, owned_handle), &p->buffer_a, &p->buffer_b, &p->lu_info, source_arr_a->size, source_arr_a->size, itype);
     if (res != OK) goto done;
 
     double *buffer_a = (double *) p->buffer_a.scratch;
@@ -750,7 +716,7 @@ static int32_t csnarray_determinant_helper(CSOUND *csound, MYFLT *det_real, COMP
         goto done;
     }
 
-    res = linalg_allocate(csound, NULL, buffer, NULL, lu_info, source_arr_a->size, 0, (size_t) n, itype);
+    res = linalg_allocate(csound, NULL, false, buffer, NULL, lu_info, source_arr_a->capacity, 0, itype);
     if (res != OK) goto done;
 
     double *lu_buffer = (double *) buffer->scratch;
@@ -839,7 +805,7 @@ static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, MYFLT *det
         }
     }
 
-    res = linalg_allocate(csound, h, buffer, NULL, lu_info, source_arr_a->size, 0, (size_t) n, itype);
+    res = linalg_allocate(csound, h, slot->rt_locked, buffer, NULL, lu_info, source_arr_a->size, 0, itype);
     if (res != OK) goto done;
 
     double *lu_buffer = (double *) buffer->scratch;
