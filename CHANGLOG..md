@@ -13,6 +13,7 @@
 - Fix a double free in the k-rate N-D FFT convolution, whose inverse work buffer was left aliasing the kernel's, and a wrong allocation check in the 1-D form
 - Fix k-rate *csnpad* on a real-time path: the output now starts at the padded shape when the widths are known at init, so passes that keep them need no new storage; it started from the source's shape and was refused on the first pass
 - Fix the init-time placeholder of the k-rate *csnpercentile* and *csnquantile* along an axis, which copied the source's element count in bytes rather than elements
+- Keep a k-rate output's storage across shape changes that fit it: a producer now takes new storage only when the requested shape outgrows the room it has, twice its initial element count, instead of on every shape change. A marked output can shrink, grow back or change its count with the data (*csncompress*, *csnselect*, *csnunique*, the set operations) on a real-time path; the reused region is cleared, as fresh storage was
 - Add opcode reference pages, runnable examples, and regression coverage for the new APIs
 
 ## [0.1.1] - 2026-09-09

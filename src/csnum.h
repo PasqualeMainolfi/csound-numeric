@@ -9,7 +9,6 @@
 
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
 #define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
-#define SHOULD_SLOT_BE_UPDATED(request_changed, array, mode_type, requested_size) (request_changed) || (array)->data == NULL || (array)->itype != (mode_type) || (array)->capacity < (requested_size)
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
 #define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
 #define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))

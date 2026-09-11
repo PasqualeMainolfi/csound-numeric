@@ -24,7 +24,9 @@ At k-rate the widths are read at init too. When they are already known there
 (declared with `init` rather than `=`, which still reads 0 at init), the output
 starts at the padded shape, so passes that keep those widths need no new
 storage and the pad can run on a [real-time path](csnrtlock.md). Widths that
-change during performance reshape the output, which a marked output refuses.
+change during performance reshape the output within the room it was created
+with, twice its initial element count; only a shape that needs more than that
+is refused on a marked output.
 The in-place form rewrites its source within the source's capacity and only
 reallocates when the padded array outgrows it, which a marked source refuses
 too.

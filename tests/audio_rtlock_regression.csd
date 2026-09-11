@@ -72,8 +72,10 @@ endin
 
 /* These four producers used to create an unmarked one-element placeholder at
    init. Each source is marked before the derived output is initialized; the
-   first pass fits the preallocated layout, while the later change would force
-   the derived slot to be republished and must therefore stop the note. */
+   first pass fits the preallocated layout, while the later change needs more
+   than the storage the derived slot was created with (twice its initial
+   element count, which a smaller change would reuse) and must therefore stop
+   the note. */
 gkInterpReached   init 0
 gkResampleReached init 0
 gkCompressReached init 0
@@ -89,7 +91,7 @@ RtInterpOut@global:CsnArr   = csnempty(array(0))
 instr 4
     csnrtlock RtInterpX, 1
     kShape[] init 1
-    kShape[0] = timeinstk() < 2 ? 2 : 3
+    kShape[0] = timeinstk() < 2 ? 2 : 10
     csnresize RtInterpQuery, kShape
     RtInterpOut = csninterp(RtInterpQuery, RtInterpX, RtInterpY, 0, 1)
     if timeinstk() == 12 then
@@ -104,7 +106,7 @@ instr 5
     csnrtlock RtResampleSrc, 1
     kLength init 4
     if timeinstk() >= 2 then
-        kLength = 5
+        kLength = 20
     endif
     RtResampleOut = csnresample(RtResampleSrc, kLength, 0, 1)
     if timeinstk() == 12 then
@@ -126,8 +128,10 @@ instr 6
 endin
 
 instr 7
-    iIndex[] = fillarray(1)
-    csnset RtCompressMask, iIndex, 1
+    iIndex1[] = fillarray(1)
+    iIndex2[] = fillarray(2)
+    csnset RtCompressMask, iIndex1, 1
+    csnset RtCompressMask, iIndex2, 1
 endin
 
 RtSelectSrc@global:CsnArr  = csnfromarray(array(10, 20, 30, 40))
@@ -144,8 +148,10 @@ instr 8
 endin
 
 instr 9
-    iIndex[] = fillarray(1)
-    csnset RtSelectMask, iIndex, 1
+    iIndex1[] = fillarray(1)
+    iIndex2[] = fillarray(2)
+    csnset RtSelectMask, iIndex1, 1
+    csnset RtSelectMask, iIndex2, 1
 endin
 
 /* The source mark is inherited by the resampler output at init. Explicitly
@@ -158,7 +164,7 @@ instr 10
     csnrtlock RtUnlockSrc, 1
     kLength init 4
     if timeinstk() >= 2 then
-        kLength = 5
+        kLength = 20
     endif
     RtUnlockOut = csnresample(RtUnlockSrc, kLength, 0, 1)
     csnrtunlock RtUnlockOut, 1
@@ -176,7 +182,7 @@ instr 11
     csnrtlock RtHeldSrc, kZero
     kLength init 4
     if timeinstk() >= 2 then
-        kLength = 5
+        kLength = 20
     endif
     RtHeldOut = csnresample(RtHeldSrc, kLength, 0, 1)
     if timeinstk() == 12 then

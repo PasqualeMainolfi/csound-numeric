@@ -645,8 +645,10 @@ own input as unchanged precisely because the producer upstream skipped its work.
 Three details make this safe rather than merely fast:
 
 - **The output slot is reused, not reallocated.** A k-rate producer owns its
-  destination slot for the life of the note and only resizes it when the
-  requested shape actually changes.
+  destination slot for the life of the note. The slot is created with room for
+  twice its initial element count, and a later shape that fits that room
+  reuses it; new storage is taken only when the requested shape no longer
+  fits.
 - **In-place opcodes publish their write.** They bump the data version *and*
   record it as their own, so the next pass recognizes its own handiwork and
   leaves it alone, while every other consumer still sees a new generation.
@@ -760,8 +762,12 @@ endin
 The mark is enforced wherever storage could grow during performance, not only
 where an opcode publishes a result:
 
-- **Published outputs.** A k-rate producer whose output would need a larger
-  buffer is refused. A shape change that fits the existing storage is not.
+- **Published outputs.** An output keeps the storage it was created with, room
+  for twice its initial element count, and reuses it for any later shape that
+  fits. A marked output can therefore shrink, grow back, or change its count
+  with the data (`csncompress`, `csnselect`, `csnunique`, the set operations)
+  without new storage; only a shape that needs more than that room is
+  refused.
 - **Arrays rewritten in place.** `csnpush`, `csninsert`, `csnsetinsert`, and
   `csnpad` or `csnresize` without an output refuse to grow a marked array past
   its capacity.
@@ -788,8 +794,10 @@ another variable is Csound's to perform.
   source at init, so a chain fed by an array of fixed shape allocates once per
   note and never again.
 - **Reserve what has to grow.** An array can grow up to its capacity without
-  new storage. `csnempty` reserves a shape without publishing any element, which
-  gives `csnpush` and an in-place resize room to grow into.
+  new storage. A derived output has room for twice the element count it had at
+  init; one that has to vary further should start at init from the largest
+  shape it will take. `csnempty` reserves a shape without publishing any
+  element, which gives `csnpush` and an in-place resize room to grow into.
 - **Unmark what does not go back out.** Frames harvested only for analysis do
   not need the guarantee: pass `irt = 0` at the audio source, or `csnrtunlock`
   the branch.

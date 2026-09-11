@@ -52,6 +52,8 @@ gkSortInPlace  init 0
 gkToArray      init 0
 gkPadKnown     init 0
 gkPadKnownC    init 0
+gkPadResize    init 0
+gkCompressFits init 0
 
 /* A four-element array holds eight before it has to reallocate, so one push
    per pass reaches the limit on the fifth. */
@@ -198,11 +200,18 @@ instr 11
 endin
 
 /* The mark belongs to the slot it is set on. Locking a source mid-note does
-   not reach an output already derived from it, so that output may still take
-   a new shape; a lock inherited at init does reach it, and clearing it with
-   csnrtunlock releases it again. The sources move within their capacity, which
-   a marked source is allowed to do. */
-RtLateSrc@global:CsnArr    = csnfromarray(giEight)
+   not reach an output already derived from it; a lock inherited at init does,
+   and stays on the output after the source is released; csnrtunlock on the
+   output releases the output. Each output here is made to need more storage
+   than it was created with, the only change a mark refuses.
+
+   The late-lock source is shrunk to 8 elements before the output exists, so
+   it keeps room for 40 while the output is created with room for 16: once
+   marked, the source can still grow to 30 without reallocating, and the
+   output it feeds cannot hold that without new storage. */
+giSixteenTwenty[] = fillarray(1, 5, 2, 4, 3, 9, 7, 8, 6, 0, 11, 13, 12, 10, 15, 14, 16, 17, 18, 19)
+giShapeEight[] = fillarray(8)
+RtLateSrc@global:CsnArr    = csnfromarray(giSixteenTwenty)
 RtUnlockSrc@global:CsnArr  = csnfromarray(giEight)
 RtInheritSrc@global:CsnArr = csnfromarray(giEight)
 
@@ -210,11 +219,12 @@ instr 12
     kOne init 1
     kAll init -1
     kWin init 3
+    csnresize RtLateSrc, giShapeEight
     LateOut:CsnArr = csnmovmedian(RtLateSrc, kWin, kAll, kOne)
     kLock = timeinstk() == 2 ? 1 : 0
     csnrtlock RtLateSrc, kLock
     kShape[] init 1
-    kShape[0] = timeinstk() < 4 ? 8 : 12
+    kShape[0] = timeinstk() < 4 ? 8 : 30
     csnresize RtLateSrc, kShape, kOne
     if timeinstk() == 12 then
         gkLateSource = 1
@@ -228,8 +238,9 @@ instr 13
     kWin init 3
     UnlockedOut:CsnArr = csnmovmedian(RtUnlockSrc, kWin, kAll, kOne)
     csnrtunlock UnlockedOut
+    csnrtunlock RtUnlockSrc
     kShape[] init 1
-    kShape[0] = timeinstk() < 4 ? 8 : 12
+    kShape[0] = timeinstk() < 4 ? 8 : 40
     csnresize RtUnlockSrc, kShape, kOne
     if timeinstk() == 12 then
         gkUnlockedOut = 1
@@ -242,8 +253,9 @@ instr 14
     kAll init -1
     kWin init 3
     InheritedOut:CsnArr = csnmovmedian(RtInheritSrc, kWin, kAll, kOne)
+    csnrtunlock RtInheritSrc
     kShape[] init 1
-    kShape[0] = timeinstk() < 4 ? 8 : 12
+    kShape[0] = timeinstk() < 4 ? 8 : 40
     csnresize RtInheritSrc, kShape, kOne
     if timeinstk() == 12 then
         gkInheritedOut = 1
@@ -342,6 +354,47 @@ instr 20
     endif
 endin
 
+/* A marked output keeps the storage it was created with, twice its initial
+   element count, and reuses it for any later shape that fits: the pad shrinks
+   and then grows again within that room, and a compress whose count follows a
+   moving threshold stays within it too. */
+RtPadResizeSrc@global:CsnArr = csnfromarray(giEight)
+RtCompressFitsSrc@global:CsnArr = csnfromarray(giEight)
+
+instr 21
+    csnrtlock RtPadResizeSrc
+    kOne init 1
+    kFill init 0
+    kGrow init 4
+    if timeinstk() >= 3 then
+        kGrow = 2
+    endif
+    if timeinstk() >= 6 then
+        kGrow = 6
+    endif
+    PadResize:CsnArr = csnpad(RtPadResizeSrc, kGrow, kGrow, kFill, kOne)
+    if timeinstk() == 12 then
+        gkPadResize = 1
+    endif
+endin
+
+instr 22
+    csnrtlock RtCompressFitsSrc
+    kOne init 1
+    kThresh init 4.5
+    if timeinstk() >= 3 then
+        kThresh = 6.5
+    endif
+    if timeinstk() >= 6 then
+        kThresh = 1.5
+    endif
+    Mask:CsnArr = csngt(RtCompressFitsSrc, kThresh, kOne)
+    Kept:CsnArr = csncompress(RtCompressFitsSrc, Mask, -1, kOne)
+    if timeinstk() == 12 then
+        gkCompressFits = 1
+    endif
+endin
+
 instr 100
     iPushLocked   = i(gkPushLocked)
     iPushFree     = i(gkPushFree)
@@ -363,6 +416,8 @@ instr 100
     iToArray      = i(gkToArray)
     iPadKnown     = i(gkPadKnown)
     iPadKnownC    = i(gkPadKnownC)
+    iPadResize    = i(gkPadResize)
+    iCompressFits = i(gkCompressFits)
 
     assert(iPushLocked == 0)
     assert(iPushFree == 1)
@@ -384,13 +439,15 @@ instr 100
     assert(iToArray == 1)
     assert(iPadKnown == 1)
     assert(iPadKnownC == 1)
+    assert(iPadResize == 1)
+    assert(iCompressFits == 1)
 
     iRefused = iPushLocked + iInsertLocked + iSetLocked + iPadLocked + iBlockLocked \
              + iResizeLocked + iInheritedOut + iConvBlock
     iRan = iPushFree + iResizeFits + iMedLateLock + iMedBlock + iMedInPlace \
          + iLateSource + iUnlockedOut + iConvFree + iSortInPlace + iToArray \
-         + iPadKnown + iPadKnownC
-    if iRefused == 0 && iRan == 12 then
+         + iPadKnown + iPadKnownC + iPadResize + iCompressFits
+    if iRefused == 0 && iRan == 14 then
         prints("csnum growth guards held on every real-time path\n")
     endif
 endin
@@ -417,7 +474,9 @@ i 17 1.6 0.02
 i 18 1.7 0.02
 i 19 1.8 0.02
 i 20 1.9 0.02
-i 100 2.0 0.01
+i 21 2.0 0.02
+i 22 2.1 0.02
+i 100 2.2 0.01
 e
 </CsScore>
 </CsoundSynthesizer>

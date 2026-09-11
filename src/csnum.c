@@ -293,9 +293,9 @@ int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t
 }
 
 /* Republishes the opcode's own k-rate output slot with the requested layout,
-   reallocating only when the request or the buffer make it necessary. The
-   caller holds the registry mutex; *destination is an output, so no caller has
-   to seed it. */
+   taking new storage only when the one the slot has cannot hold it. The caller
+   holds the registry mutex; *destination is an output, so no caller has to
+   seed it. */
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err) {
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
@@ -314,8 +314,9 @@ int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_
     }
     *destination = slot->array;
 
-    bool request_changed = IS_REQUEST_CHANGED(k_data, ndim, itype, shape);
-    if (SHOULD_SLOT_BE_UPDATED(request_changed, *destination, itype, requested_size)) {
+    CSN_ARRAY *current = *destination;
+    bool needs_storage = current->data == NULL || current->itype != itype || current->capacity < requested_size;
+    if (needs_storage) {
         if (slot->rt_locked) {
             return csn_locked_perf_error(csound, h,  "[csnarray] '%s' (array %u) is on a real-time path and cannot be reallocated at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", get_out_name(h), req_owned_handle);
         }
@@ -323,6 +324,14 @@ int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_
         if (res != OK) {
             return csn_locked_perf_error(csound, h, "[csnarray] Could not update k-rate output slot: %s", err != NULL ? err : "unknown error");
         }
+    } else if (IS_REQUEST_CHANGED(k_data, ndim, itype, shape)) {
+        /* A new layout that fits the storage the slot already has reuses it, as
+           csnreshape always has, so a marked output can change shape within
+           its capacity without reaching the allocator. The region is cleared
+           to what a fresh buffer would have held: a producer that writes only
+           part of its output, the off-diagonal of an identity or the tail of a
+           zero-padded transform, still finds zeros there. */
+        memset(current->data, 0, sizeof(double) * requested_size * (size_t) itype);
     }
 
     /* Re-stamped on every pass, not only when the slot is reallocated: an

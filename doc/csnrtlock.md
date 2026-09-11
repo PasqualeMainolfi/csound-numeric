@@ -30,7 +30,9 @@ it. Similarly, [csnrtunlock](csnrtunlock.md) clears only the specified handle;
 it does not clear existing descendants.
 
 Only reallocation during performance is forbidden. Ordinary value updates and
-layout changes that reuse the existing capacity remain allowed. The optional
+layout changes that reuse the existing capacity remain allowed, including a
+derived output taking a new shape within the room it was created with (twice
+its initial element count). The optional
 k-rate trigger applies the lock on every non-zero pass and is inert when zero,
 including at initialization.
 
