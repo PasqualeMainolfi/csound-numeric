@@ -181,6 +181,8 @@ support of each opcode.
 - [csngrad](csngrad.md) - central-difference gradient
 - [csnmovmean](csnmovmean.md) - moving average over a window
 - [csnmovmedian](csnmovmedian.md) - moving median over a window
+- [csnmedfilt1d](csnmedfilt1d.md) - median filter along one axis, zero-padded edges
+- [csnmedfilt](csnmedfilt.md) - N-D median filter over a box, zero-padded edges
 - [csnmovmin](csnmovmin.md) - moving minimum over a window
 - [csnmovmax](csnmovmax.md) - moving maximum over a window
 - [csnmovstd](csnmovstd.md) - moving standard deviation over a window

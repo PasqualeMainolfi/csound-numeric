@@ -182,6 +182,8 @@ previous result — it simply does not touch the disk.
 - **csngrad** - central-difference gradient (i, k — real only)
 - **csnmovmean** - moving average over a window (i, k — real, complex)
 - **csnmovmedian** - moving median over a window (i, k — real only)
+- **csnmedfilt1d** - median filter along one axis, zero-padded edges (i, k — real only)
+- **csnmedfilt** - N-D median filter over a box, zero-padded edges (i, k — real only)
 - **csnmovmin** - moving minimum over a window (i, k — real only)
 - **csnmovmax** - moving maximum over a window (i, k — real only)
 - **csnmovstd** - moving standard deviation over a window (i, k — real, complex)

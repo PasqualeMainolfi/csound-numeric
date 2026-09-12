@@ -8,8 +8,8 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, convolution, matrix solving, interpolation and resampling, 217
-opcodes across 632 rate and type overloads.
+primitives, convolution, matrix solving, interpolation and resampling, 219
+opcodes across 644 rate and type overloads.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
 signal generation and no GUI. Two doors lead out of that: `csnsave` / `csnload`
@@ -476,6 +476,8 @@ entry means the operation lives outside NumPy proper.
 | `csngrad` | `np.gradient` | |
 | `csnmovmean` | — | `pandas.Series.rolling(w, center=True, min_periods=1).mean()`: the window is centred and shorter near the ends, and every moving statistic below uses it. `np.convolve` with a box agrees away from the edges. |
 | `csnmovmedian` | — | `rolling(...).median()`; a NaN in the window gives NaN, as `np.median` does. |
+| `csnmedfilt1d` | — | `scipy.signal.medfilt` along one axis: the same centred window, padded with zeros instead of shortened at the ends. |
+| `csnmedfilt` | — | `scipy.signal.medfilt` over a box of one size per axis, `scipy.signal.medfilt2d` for a 2-D pair. |
 | `csnmovmin` | — | `rolling(...).min()`. |
 | `csnmovmax` | — | `rolling(...).max()`. |
 | `csnmovstd` | — | `rolling(...).std(ddof=0)`, the population deviation; pandas defaults to `ddof=1`. |

@@ -7,6 +7,7 @@
 - Add the Savitzky-Golay coefficient matrix, every derivative order at once, applied with *csncorrelate1d* (*csnsavgol*)
 - Add per-note and orchestra-wide real-time marking (*csnrtlockstart*, *csnrtlockend*, *csnrtlockall*), the section between start and end scoped to the note that opened it and closed when that note ends
 - Run the moving median on a sliding sorted window instead of sorting every window, and drop the source copy from its in-place form (*csnmovmedian*)
+- Add the median filter with scipy's zero-padded edges, along one axis on the same sliding window as the moving median, and over a box of one size per axis (*csnmedfilt1d*, *csnmedfilt*); the kernel is init-time on every overload, so a performance pass allocates nothing
 - Fix in-place growth on a real-time path: *csnpush*, *csninsert*, *csnsetinsert*, *csnpad* and *csnresize* reallocated a marked array because the capacity check read a flag registry arrays never carry; the in-place block insert and pad also reallocated the source on every pass
 - Fix working buffers growing on a real-time path: they are now reserved at init from the capacity of the array they serve and refused at perf time when that array is marked (moving statistics, median, norm, percentile and quantile, unique, compress, resample, sort, set operations, solve, inverse, determinant, k-rate *csntoarray* and *csnshape*)
 - Fix the FFT convolutions on a path marked only through their output (*csnrtlockstart*, *csnrtlockall* or *csnrtlock* on the result): the transform buffers now follow that mark, and a new transform size is refused before *RealFFTSetup* allocates
@@ -14,6 +15,7 @@
 - Fix k-rate *csnpad* on a real-time path: the output now starts at the padded shape when the widths are known at init, so passes that keep them need no new storage; it started from the source's shape and was refused on the first pass
 - Fix the init-time placeholder of the k-rate *csnpercentile* and *csnquantile* along an axis, which copied the source's element count in bytes rather than elements
 - Keep a k-rate output's storage across shape changes that fit it: a producer now takes new storage only when the requested shape outgrows the room it has, twice its initial element count, instead of on every shape change. A marked output can shrink, grow back or change its count with the data (*csncompress*, *csnselect*, *csnunique*, the set operations) on a real-time path; the reused region is cleared, as fresh storage was
+- Fix a hang when the k-rate convolutions (*csnconvolve1d*, *csnconvolve*, *csnfftconvolve1d*, *csnfftconvolve*), *csnsolve*, *csninv* or *csndet* raised a performance error, such as an operand freed mid-note: the error was reported with the registry lock held, and the note's deinit then waited on that lock forever
 - Add opcode reference pages, runnable examples, and regression coverage for the new APIs
 
 ## [0.1.1] - 2026-09-09

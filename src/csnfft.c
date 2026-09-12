@@ -2607,12 +2607,12 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
     if (slot_a == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
         goto done;
     }
     CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
     if (slot_b == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
         goto done;
     }
 
@@ -2774,12 +2774,12 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
     if (slot_a == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
         goto done;
     }
     CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
     if (slot_b == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
         goto done;
     }
 
@@ -3589,12 +3589,12 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
     if (slot_x == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
         goto done;
     }
     CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
     if (slot_h == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
         goto done;
     }
     CSN_ARRAY *source_x = slot_x->array;
@@ -3732,12 +3732,12 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
     if (slot_x == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
         goto done;
     }
     CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
     if (slot_h == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
         goto done;
     }
     CSN_ARRAY *source_x = slot_x->array;

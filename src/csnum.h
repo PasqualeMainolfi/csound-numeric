@@ -1839,6 +1839,91 @@ typedef struct {
     bool is_published;
 } CSN_STACK_K;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *kernel_size;
+    MYFLT *axis;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+} CSN_MEDFILT;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *kernel_size;
+    MYFLT *axis;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+} CSN_MEDFILT_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *kernel_size;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    uint32_t kernel_shape[CSN_MAX_DIMS];
+    size_t kernel_total_size;
+} CSN_MEDFILT_ND;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *kernel_size;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    uint32_t kernel_shape[CSN_MAX_DIMS];
+    size_t kernel_total_size;
+} CSN_MEDFILT_ND_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    ARRAYDAT *kernel_sizes;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    uint32_t kernel_shape[CSN_MAX_DIMS];
+    size_t kernel_total_size;
+} CSN_MEDFILT_ND_ARR;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    ARRAYDAT *kernel_sizes;
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH buffer;
+    uint32_t kernel_shape[CSN_MAX_DIMS];
+    size_t kernel_total_size;
+} CSN_MEDFILT_ND_ARR_IN;
+
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
@@ -2100,6 +2185,12 @@ int32_t csnarray_atan2_hh(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_atan2_hs(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_sh(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_shuffle(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_medfilt1d(CSOUND *csound, CSN_MEDFILT *p);
+int32_t csnarray_medfilt1d_in(CSOUND *csound, CSN_MEDFILT_IN *p);
+int32_t csnarray_medfilt(CSOUND *csound, CSN_MEDFILT_ND *p); // same size on every axes
+int32_t csnarray_medfilt_in(CSOUND *csound, CSN_MEDFILT_ND_IN *p);
+int32_t csnarray_medfilt_arr(CSOUND *csound, CSN_MEDFILT_ND_ARR *p); // pass shape of kernels sizes
+int32_t csnarray_medfilt_arr_in(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *p);
 
 // VECTORIAL
 int32_t csnarray_dot(CSOUND *csound, CSN_BINOP_HH *p);
@@ -2394,6 +2485,12 @@ int32_t csnarray_atan2_hh_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_atan2_hs_k(CSOUND *csound, CSN_BINOP_HS *p);
 int32_t csnarray_atan2_sh_k(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_shuffle_k(CSOUND *csound, CSN_UNARYOP_IN *p);
+int32_t csnarray_medfilt1d_k(CSOUND *csound, CSN_MEDFILT *p);
+int32_t csnarray_medfilt1d_in_k(CSOUND *csound, CSN_MEDFILT_IN *p);
+int32_t csnarray_medfilt_k(CSOUND *csound, CSN_MEDFILT_ND *p);
+int32_t csnarray_medfilt_in_k(CSOUND *csound, CSN_MEDFILT_ND_IN *p);
+int32_t csnarray_medfilt_arr_k(CSOUND *csound, CSN_MEDFILT_ND_ARR *p); // pass shape of kernels sizes
+int32_t csnarray_medfilt_arr_in_k(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *p);
 
 // VECTORIAL
 int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p);

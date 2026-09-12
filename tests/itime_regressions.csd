@@ -535,6 +535,44 @@ instr 2
     csnmovmedian(iMovRowsIn, 3, 1)
     iMovRowsInValues[][] = csntoarray(iMovRowsIn)
     assert(iMovRowsInValues[0][4] == 3.5 && iMovRowsInValues[1][0] == 4.5 && iMovRowsInValues[1][4] == 1.5)
+
+    ; Median filter, output and in-place signatures. The window is the moving
+    ; median's, padded with zeros instead of shortened: position 0 sees
+    ; [0, 1, 5] and answers 1, where the moving median answers 3.
+    iMedFlat:CsnArr = csnmedfilt1d(iMoving, 3, -1)
+    iMedFlatValues[] = csntoarray(iMedFlat)
+    assert(iMedFlatValues[0] == 1 && iMedFlatValues[1] == 2 && iMedFlatValues[2] == 4)
+    assert(iMedFlatValues[3] == 3 && iMedFlatValues[4] == 3)
+
+    iMedFlatIn:CsnArr = csncopy(iMoving)
+    csnmedfilt1d(iMedFlatIn, 3, -1)
+    iMedFlatInValues[] = csntoarray(iMedFlatIn)
+    assert(iMedFlatInValues[0] == 1 && iMedFlatInValues[2] == 4 && iMedFlatInValues[4] == 3)
+
+    ; The N-D form filters a box over every axis at once. On a 2x5 matrix a 3x3
+    ; box always reaches outside, and the border comes back at zero.
+    iMedBox:CsnArr = csnmedfilt(iMovMat, 3)
+    iMedBoxValues[][] = csntoarray(iMedBox)
+    assert(iMedBoxValues[0][0] == 0 && iMedBoxValues[0][1] == 2 && iMedBoxValues[0][4] == 0)
+    assert(iMedBoxValues[1][1] == 2 && iMedBoxValues[1][2] == 2 && iMedBoxValues[1][3] == 2)
+
+    iMedBoxIn:CsnArr = csncopy(iMovMat)
+    csnmedfilt(iMedBoxIn, 3)
+    iMedBoxInValues[][] = csntoarray(iMedBoxIn)
+    assert(iMedBoxInValues[0][1] == 2 && iMedBoxInValues[1][3] == 2 && iMedBoxInValues[1][4] == 0)
+
+    ; One size per axis: 1 down the columns and 3 across filters the rows only,
+    ; and each row comes back as the flat filter of that row.
+    iMedKernel[] = fillarray(1, 3)
+    iMedRows:CsnArr = csnmedfilt(iMovMat, iMedKernel)
+    iMedRowsValues[][] = csntoarray(iMedRows)
+    assert(iMedRowsValues[0][0] == 1 && iMedRowsValues[0][2] == 4 && iMedRowsValues[0][4] == 3)
+    assert(iMedRowsValues[1][0] == 4 && iMedRowsValues[1][2] == 3 && iMedRowsValues[1][4] == 1)
+
+    iMedRowsIn:CsnArr = csncopy(iMovMat)
+    csnmedfilt(iMedRowsIn, iMedKernel)
+    iMedRowsInValues[][] = csntoarray(iMedRowsIn)
+    assert(iMedRowsInValues[0][2] == 4 && iMedRowsInValues[1][0] == 4 && iMedRowsInValues[1][4] == 1)
 endin
 
 instr 3

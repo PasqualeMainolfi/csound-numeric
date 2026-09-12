@@ -425,13 +425,13 @@ int32_t csnarray_solve_k(CSOUND *csound, CSN_LINALG_SOLVE *p) {
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
     if (slot_a == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
         goto done;
     }
 
     CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
     if (slot_b == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
         goto done;
     }
 
@@ -461,12 +461,12 @@ int32_t csnarray_solve_k(CSOUND *csound, CSN_LINALG_SOLVE *p) {
     ITEM_TYPE itype_b = source_arr_b->itype;
 
     if (source_ndim_a != 2 || source_shape_a[0] != source_shape_a[1]) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Matrix must be 2-D N x N");
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Matrix must be 2-D N x N");
         goto done;
     }
 
     if (source_shape_b[0] != source_shape_a[0]) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Incompatible dimensions: shape[0] of B must be equal to nrows/ncols of A");
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Incompatible dimensions: shape[0] of B must be equal to nrows/ncols of A");
         goto done;
     }
 
@@ -611,7 +611,7 @@ int32_t csnarray_inverse_k(CSOUND *csound, CSN_LINALG_INVERSE *p) {
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
         goto done;
     }
 
@@ -622,7 +622,7 @@ int32_t csnarray_inverse_k(CSOUND *csound, CSN_LINALG_INVERSE *p) {
     ITEM_TYPE itype = source_arr_a->itype;
 
     if (source_ndim_a != 2 || source_shape_a[0] != source_shape_a[1]) {
-        res = csound->PerfError(csound, &p->h, "[csnarray] Matrix must be 2-D N x N");
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Matrix must be 2-D N x N");
         goto done;
     }
 
@@ -777,7 +777,7 @@ static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, MYFLT *det
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
-        res = csound->PerfError(csound, h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
         goto done;
     }
 
@@ -788,7 +788,7 @@ static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, MYFLT *det
     ITEM_TYPE itype = source_arr_a->itype;
 
     if (source_ndim_a != 2 || n != source_shape_a[1]) {
-        res = csound->PerfError(csound, h, "[csnarray] Matrix must be 2-D N x N");
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] Matrix must be 2-D N x N");
         goto done;
     }
 

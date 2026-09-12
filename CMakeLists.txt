@@ -226,6 +226,13 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_pad_regression.csd")
         add_test(
+            NAME csnum_krate_medfilt_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_medfilt_regression.csd")
+        add_test(
             NAME csnum_krate_vecmath_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests
@@ -401,6 +408,16 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/rtlockall_growth_regression.csd")
         set_tests_properties(csnum_rtlockall_growth_regression PROPERTIES
             PASS_REGULAR_EXPRESSION "csnum growth guards held under csnrtlockall"
+            TIMEOUT 60)
+        add_test(
+            NAME csnum_perf_error_unlock_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/perf_error_unlock_regression.csd")
+        set_tests_properties(csnum_perf_error_unlock_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum performance continued after every locked perf error"
             TIMEOUT 60)
     endif()
 endif()
