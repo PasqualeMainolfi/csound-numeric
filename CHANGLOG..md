@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.2] - 
+## [0.1.2] - 2026-09-14
 
 - Add matrix solving, inversion and determinant on a shared LU decomposition with partial pivoting, real and complex (*csnsolve*, *csninv*, *csndet*)
 - Reject singular matrices in *csninv* and *csnsolve* against a pivot threshold scaled to the matrix; *csndet* answers zero, which is what the determinant of a singular matrix is
@@ -21,6 +21,9 @@
 - Add the triangular mel filterbank as a matrix, linear or logarithmic (*csnmfbank*, *csnmlogfbank*); bands are rows, since adjacent mel bands always overlap and cannot share one
 - Build the filterbank triangles at each bin's own centre frequency instead of from rounded bin edges: a band narrower than the bin spacing keeps fractional weight from its neighbours instead of collapsing to silence, which at 128 bands over a 1024-point spectrum was emptying twenty of them
 - Cut the FFT copy overhead: a slice already contiguous in the item type the transform wants now moves in one block instead of one strided element at a time, and the scratch is cleared only where zero-padding actually reaches (*csnfft*, *csnrfft*, *csnifft*, *csnirfft* and the 2-D forms). Against Csound's own *rfft* the gap closes from 16-50% to 0-3%
+- Add the analytic signal in one and two dimensions and the Hilbert transform on its own (*csnhilbert1d*, *csnhilbert1dr*, *csnhilbert2*); as in scipy the one named for the transform returns the analytic signal, whose real part is the source and whose imaginary part is the transform, and *csnhilbert1dr* answers that imaginary part directly through two real transforms instead of a real one and a complex one, about forty per cent less work
+- Take the Hilbert length from the array and never pad it: the transform is global, so a padded length does not extend the answer but changes every sample of it, which is why an odd extent is refused rather than rounded up. There is no real counterpart to *csnhilbert2*, the product mask in two dimensions no longer leaving the real part equal to the source
+- Add the Hilbert matrix (*csnhilbertmat*), which shares a name with those and nothing else: 1 / (i + j + 1), the textbook ill-conditioned example, for exercising *csnsolve*, *csninv* and *csndet* where a system is barely solvable
 - Add opcode reference pages, runnable examples, and regression coverage for the new APIs
 
 ## [0.1.1] - 2026-09-09

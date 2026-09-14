@@ -1931,6 +1931,7 @@ bool IS_VALID_AXIS(double axis, uint32_t ndim);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
 bool IS_VALID_VALUE(double value);
 bool IS_VALID_ZERO_ONE(double value);
+bool IS_VALID_LENGTH(double length);
 CSN_COMPLEXDAT slice_get(const double *src, size_t i, size_t stride, ITEM_TYPE itype);
 int compare_double(const void *a, const void *b);
 size_t get_and_count_unique_double(double *temp, size_t size);

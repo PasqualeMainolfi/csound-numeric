@@ -2244,6 +2244,74 @@ instr 16
     iLfbEmpty = csnget(iLfb, iFbEmpty)
     assert(abs(iLfbEmpty + 27.631021115928547) < 1e-9)
 endin
+
+instr 17
+    ; ------------------------------------------------------------------
+    ; Hilbert: the analytic signal, its real counterpart, and the
+    ; two-dimensional form. The telling check on the analytic signal is
+    ; that its real part is the source itself, exactly, and that its
+    ; imaginary part is what the real form returns on its own.
+    ; ------------------------------------------------------------------
+    iHilbValues[] = fillarray(1, 2, 3, 4, 5, 6, 7, 8)
+    iHilbSrc:CsnArr = csnfromarray(iHilbValues)
+
+    iHilbA:CsnArr = csnhilbert1d(iHilbSrc)
+    iHilbRe:CsnArr = csnreal(iHilbA)
+    iHilbIm:CsnArr = csnimag(iHilbA)
+    iHilbReErr = csnmax(csnabs(csnsubtract(iHilbRe, iHilbSrc)))
+    assert(iHilbReErr < 1e-12)
+
+    ; 3.82842712474619 is 2 + sqrt(2), -1.82842712474619 is -(sqrt(2) - ...)
+    iHilbWant[] = fillarray(3.82842712474619, -1, -1, -1.82842712474619,
+                            -1.82842712474619, -1, -1, 3.82842712474619)
+    iHilbRef:CsnArr = csnfromarray(iHilbWant)
+    iHilbImErr = csnmax(csnabs(csnsubtract(iHilbIm, iHilbRef)))
+    assert(iHilbImErr < 1e-9)
+
+    ; The real form answers the imaginary part of the analytic signal.
+    iHilbR:CsnArr = csnhilbert1dr(iHilbSrc)
+    iHilbRErr = csnmax(csnabs(csnsubtract(iHilbR, iHilbIm)))
+    assert(iHilbRErr < 1e-12)
+    assert(csntype(iHilbR) == 0)
+    assert(csntype(iHilbA) == 1)
+
+    ; An odd length has no even extension to transform.
+    iHilbOddShape[] = fillarray(7)
+    iHilbOdd:CsnArr = csnzeros(iHilbOddShape)
+    assert(csnsize(iHilbOdd) == 7)
+
+    ; Two dimensions: the mask is the outer product of the two 1-D masks.
+    iHilb2Values[] = fillarray(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                               13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+    iHilb2Shape[] = fillarray(4, 6)
+    iHilb2Src:CsnArr = csnreshape(csnfromarray(iHilb2Values), iHilb2Shape)
+    iHilb2:CsnArr = csnhilbert2(iHilb2Src)
+    iHilb2Sh[] = csnshape(iHilb2)
+    assert(iHilb2Sh[0] == 4)
+    assert(iHilb2Sh[1] == 6)
+    assert(csntype(iHilb2) == 1)
+
+    iHilb2Im:CsnArr = csnimag(iHilb2)
+    iHilb2Idx[] = fillarray(0, 0)
+    iHilb2Corner = csnget(iHilb2Im, iHilb2Idx)
+    assert(abs(iHilb2Corner - 8.30940107675850) < 1e-9)
+    iHilb2Mid[] = fillarray(1, 2)
+    iHilb2Inner = csnget(iHilb2Im, iHilb2Mid)
+    assert(abs(iHilb2Inner + 7.15470053837925) < 1e-9)
+
+    ; The Hilbert matrix is unrelated to the transforms: 1 / (i + j + 1),
+    ; the textbook ill-conditioned example. Its determinant is the check
+    ; that bites, since any slip moves it by orders of magnitude.
+    iHilbMat:CsnArr = csnhilbertmat(4)
+    iHilbMatSh[] = csnshape(iHilbMat)
+    assert(iHilbMatSh[0] == 4)
+    assert(iHilbMatSh[1] == 4)
+    iHilbMatIdx[] = fillarray(2, 3)
+    iHilbMatV = csnget(iHilbMat, iHilbMatIdx)
+    assert(abs(iHilbMatV - 1.0 / 6.0) < 1e-12)
+    iHilbMatDet = csndet(iHilbMat)
+    assert(abs(iHilbMatDet - 1.65343915343927e-07) < 1e-18)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -2268,6 +2336,7 @@ i 13 0.24 0.01
 i 14 0.26 0.01
 i 15 0.28 0.01
 i 16 0.30 0.01
+i 17 0.32 0.01
 e
 </CsScore>
 
@@ -2317,5 +2386,6 @@ e
 ; csnsolve csninv csndet csndet.c csnrtlockstart csnrtlockend csnrtlockall csnsavgol
 ; csnmedfilt csnmedfilt.in csnmedfilt.s csnmedfilt.s.in csnmedfilt1d csnmedfilt1d.in
 ; csndctone1d csndcttwo1d csndstone1d csndsttwo1d csnmfcc csnmfbank csnmlogfbank
+; csnhilbert1d csnhilbert1dr csnhilbert2 csnhilbertmat
 ; @covers-end
 </CsoundSynthesizer>

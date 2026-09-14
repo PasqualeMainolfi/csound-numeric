@@ -237,7 +237,8 @@ csound --opcode-dir=build example/csnsort.csd
   real arrays.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
   matrix, STFT/ISTFT, frequency-coordinate arrays, FFT shift/unshift, and the
-  DCT-I/II and DST-I/II at any length.
+  DCT-I/II and DST-I/II at any length, the analytic signal in one and two
+  dimensions and the Hilbert transform on its own.
 - **Cepstral and mel analysis**: mel-frequency cepstral coefficients in one
   opcode, and the triangular mel filterbank itself, linear or logarithmic.
 - **Convolution and correlation**: convolution and cross-correlation, with a
@@ -536,6 +537,7 @@ of re-sorting on every k-rate pass.
 | `csnsolve` | `np.linalg.solve` | One factorization, any number of right-hand sides. |
 | `csninv` | `np.linalg.inv` | |
 | `csndet` | `np.linalg.det` | Zero for a singular matrix, as NumPy's does; `csninv` and `csnsolve` refuse one. |
+| `csnhilbertmat` | `scipy.linalg.hilbert` | The matrix, not a transform. |
 | `csnsavgol` | `scipy.signal.savgol_coeffs` | Every derivative order at once, one per row; apply it with `csncorrelate1d`. |
 
 ### Complex arrays
@@ -571,6 +573,9 @@ of re-sorting on every k-rate pass.
 | `csndcttwo1d` | `scipy.fft.dct(x, type=2)` | `norm=None`. Any length. |
 | `csndstone1d` | `scipy.fft.dst(x, type=1)` | `norm=None`. Any length. |
 | `csndsttwo1d` | `scipy.fft.dst(x, type=2)` | `norm=None`. Any length. |
+| `csnhilbert1d` | `scipy.signal.hilbert` | The analytic signal, as scipy returns. Even length. |
+| `csnhilbert1dr` | `np.imag(scipy.signal.hilbert(x))` | The transform alone, computed with two real FFTs. |
+| `csnhilbert2` | `scipy.signal.hilbert2` | |
 
 ### Cepstral and mel analysis
 

@@ -235,6 +235,7 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csninv](csninv.md) - inverse of a square matrix
 - [csndet](csndet.md) - determinant of a square matrix
 - [csnsavgol](csnsavgol.md) - Savitzky-Golay coefficient matrix, one row per derivative order
+- [csnhilbertmat](csnhilbertmat.md) - the Hilbert matrix, the textbook ill-conditioned example
 
 ## Complex arrays
 
@@ -265,6 +266,9 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csndcttwo1d](csndcttwo1d.md) - DCT-II along one axis
 - [csndstone1d](csndstone1d.md) - DST-I along one axis
 - [csndsttwo1d](csndsttwo1d.md) - DST-II along one axis
+- [csnhilbert1d](csnhilbert1d.md) - analytic signal of a real array along one axis
+- [csnhilbert1dr](csnhilbert1dr.md) - the Hilbert transform itself, real in and real out
+- [csnhilbert2](csnhilbert2.md) - two-dimensional analytic signal
 
 ## Cepstral and mel analysis
 

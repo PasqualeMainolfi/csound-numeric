@@ -5062,3 +5062,486 @@ int32_t csnarray_mfbank(CSOUND *csound, CSN_MFCC_FBANK *p) {
 int32_t csnarray_mlogfbank(CSOUND *csound, CSN_MFCC_FBANK *p) {
     return csnarray_mfbank_helper(csound, p, true);
 }
+
+static void hilbert_kernel(double *kernel, size_t kernel_size, bool is_analytic) {
+    for (size_t i = 0; i < kernel_size; i++) {
+        if (is_analytic) {
+            if (i == 0 || i == kernel_size / 2) {
+                kernel[i] = 1.0;
+            } else {
+                if ((i != 0 && i != kernel_size / 2) && i < kernel_size / 2) {
+                    kernel[i] = 2.0;
+                } else if (i >= kernel_size / 2) {
+                    kernel[i] = 0.0;
+                }
+            }
+        } else {
+            kernel[i] = (i == 0 || i == kernel_size / 2) ? 0.0 : 1.0;
+        }
+    }
+}
+
+int32_t csnarray_hilbert_deinit(CSOUND *csound, CSN_HILBERT *p) {
+    deinit_scratch(csound, &p->fft_temp_buffer);
+    deinit_scratch(csound, &p->kernel_buffer);
+    FREE_CSNARRDATA(csound, &p->fft_buffer);
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+static int32_t hilbert_assign_value(CSN_ARRAY *fft_buffer, double *kernel, int32_t axis, bool is_analytic) {
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < fft_buffer->ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = fft_buffer->shape[i];
+            slice_count *= fft_buffer->shape[i];
+        }
+    }
+
+    size_t src_stride = fft_buffer->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < fft_buffer->ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, fft_buffer->strides, fft_buffer->ndim);
+        uint32_t n = fft_buffer->shape[axis];
+        for (uint32_t i = 0; i < n; i++) {
+            CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, i, src_stride, fft_buffer->itype);
+
+            CSN_COMPLEXDAT y = {0};
+            y.re = is_analytic ? z.re * kernel[i] : z.im * kernel[i];
+            y.im = is_analytic ? z.im * kernel[i] : -z.re * kernel[i];
+
+            slice_put(fft_buffer->data + src_base * fft_buffer->itype, i, src_stride, fft_buffer->itype, y);
+        }
+    }
+
+    return OK;
+}
+
+static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, bool is_analytic) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    ITEM_TYPE itype = is_analytic ? CSN_COMPLEX : CSN_REAL;
+    CSN_FFT_MODE fwd_mode = is_analytic ? CSNFFT : CSNRFFT;
+    CSN_FFT_MODE inv_mode = is_analytic ? CSNIFFT : CSNIRFFT;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    MYFLT *fft_temp_buffer = NULL;
+    double *kernel_buffer = NULL;
+    void *fft_setup = NULL;
+    void *ifft_setup = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    uint32_t axis = 0;
+    res = fft_body(csound, NULL, reg, &source_arr, p->axis, &axis, source_handle, fwd_mode);
+    if (res != OK) goto done;
+
+    size_t source_size = source_arr->shape[axis];
+    size_t hilb_fft_size = source_size;
+    if (!IS_VALID_FFT_SIZE((double) hilb_fft_size) || hilb_fft_size < 2 || (hilb_fft_size & 1)) {
+        res = csound->InitError(csound, "[csnarray] Length %zu is too short or odd for this transform", source_size);
+        goto done;
+    }
+
+    if (fwd_mode == CSNRFFT) {
+        fft_setup = csound->RealFFTSetup(csound, (int32_t) hilb_fft_size, FFT_FWD);
+    }
+    if (inv_mode == CSNIRFFT) {
+        ifft_setup = csound->RealFFTSetup(csound, (int32_t) hilb_fft_size, FFT_INV);
+    }
+
+    uint32_t fft_ndim;
+    uint32_t fft_shape[CSN_MAX_DIMS] = {0};
+    size_t out_size = 0;
+    size_t work_size = 0;
+    fft_assign_layout(&out_size, &work_size, &fft_ndim, fft_shape, source_arr, (uint32_t) hilb_fft_size, fwd_mode, axis);
+
+    fft_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    if (fft_temp_buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    size_t ifft_out_size = is_analytic ? out_size : hilb_fft_size;
+    kernel_buffer = csound->Calloc(csound, sizeof(double) * ifft_out_size);
+    if (kernel_buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    hilbert_kernel(kernel_buffer, ifft_out_size, is_analytic);
+
+    FREE_CSNARRDATA(csound, &p->fft_buffer);
+    if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, 0, CSN_COMPLEX) != OK) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    CSN_ARRAY *fft_buffer = &p->fft_buffer;
+    fft_assign_value(csound, fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode);
+
+    uint32_t new_ndim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_arr->shape, sizeof(new_shape));
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic);
+    ifft_assign_value(csound, ifft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, ifft_out_size, axis, inv_mode);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    p->fft_temp_buffer.scratch = fft_temp_buffer;
+    p->fft_temp_buffer.scratch_capacity = work_size;
+    p->kernel_buffer.scratch = kernel_buffer;
+    p->kernel_buffer.scratch_capacity = hilb_fft_size;
+    p->k_data_fft.nfft = (size_t) hilb_fft_size;
+    p->k_data_fft.buffer_out_size = out_size;
+    p->k_data_fft.buffer_work_size = work_size;
+    p->k_data_fft.fft_setup = fft_setup;
+    p->k_data_ifft.nfft = (size_t) hilb_fft_size;
+    p->k_data_ifft.buffer_out_size = ifft_out_size;
+    p->k_data_ifft.buffer_work_size = work_size;
+    p->k_data_ifft.fft_setup = ifft_setup;
+    p->k_data.prev_axis_u = axis;
+    p->is_published = false;
+
+done:
+    if (res != OK) {
+       if (fft_temp_buffer != NULL) csound->Free(csound, fft_temp_buffer);
+       if (kernel_buffer != NULL) csound->Free(csound, kernel_buffer);
+    }
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is_analytic) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    uint32_t axis = p->k_data.prev_axis_u;
+    size_t hilb_fft_size = p->k_data_fft.nfft;
+    double *kernel_buffer = (double *) p->kernel_buffer.scratch;
+    size_t out_size = p->k_data_fft.buffer_out_size;
+    size_t work_size = p->k_data_fft.buffer_work_size;
+    size_t iout_size = p->k_data_ifft.buffer_out_size;
+    MYFLT *fft_temp_buffer = (MYFLT *) p->fft_temp_buffer.scratch;
+    CSN_ARRAY *fft_buffer = &p->fft_buffer;
+
+    ITEM_TYPE itype = is_analytic ? CSN_COMPLEX : CSN_REAL;
+    CSN_FFT_MODE fwd_mode = is_analytic ? CSNFFT : CSNRFFT;
+    CSN_FFT_MODE inv_mode = is_analytic ? CSNIFFT : CSNIRFFT;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csn_locked_perf_error(csound,&p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot->array;
+    if (source_arr->ndim != fft_buffer->ndim) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Source is now %u-dimensional on axis %u, but the transform was set up for %u-dimensional on axis %u", source_arr->ndim, axis, p->fft_buffer.ndim, p->k_data.prev_axis_u);
+        goto done;
+    }
+    for (uint32_t i = 0; i < source_arr->ndim; i++) {
+        uint32_t expected = (i == axis) ? (uint32_t) hilb_fft_size : fft_buffer->shape[i];
+        if (source_arr->shape[i] != expected) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Extent %u of the source is %u, but the transform was set up for %u", i, source_arr->shape[i], expected);
+            goto done;
+        }
+    }
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        bool is_same_result = false;
+        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
+        if (slot_res != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
+        }
+
+        if (is_same_source && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    fft_assign_value(csound, p->k_data_fft.fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode);
+
+    uint32_t new_ndim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_arr->shape, sizeof(new_shape));
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic);
+    ifft_assign_value(csound, p->k_data_ifft.fft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, iout_size, axis, inv_mode);
+
+    SET_KDATA_END(p, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_hilbert1d(CSOUND *csound, CSN_HILBERT *p) {
+    return csnarray_hilbert_helper(csound, p, true);
+}
+
+int32_t csnarray_hilbert1d_k(CSOUND *csound, CSN_HILBERT *p) {
+    return csnarray_hilbert_k_helper(csound, p, true);
+}
+
+int32_t csnarray_hilbert1dr(CSOUND *csound, CSN_HILBERT *p) {
+    return csnarray_hilbert_helper(csound, p, false);
+}
+
+int32_t csnarray_hilbert1dr_k(CSOUND *csound, CSN_HILBERT *p) {
+    return csnarray_hilbert_k_helper(csound, p, false);
+}
+
+/* Forward on both axes, the two masks, then back. Columns first and rows
+   second on the way in, reversed on the way out, so each axis sees exactly one
+   forward and one inverse and the two normalizations cancel. */
+static void hilbert2_transform(CSOUND *csound, CSN_HILBERT2 *p, CSN_ARRAY *source_arr) {
+    MYFLT *temp = (MYFLT *) p->fft_temp_buffer.scratch;
+    double *h_rows = (double *) p->kernel_buffer.scratch;
+    double *h_cols = h_rows + p->nrows;
+    uint32_t nrows = p->nrows;
+    uint32_t ncols = p->ncols;
+
+    fft_assign_value(csound, NULL, &p->intermediate, source_arr, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNFFT);
+    fft_assign_value(csound, NULL, p->array, &p->intermediate, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNFFT);
+
+    hilbert_assign_value(p->array, h_rows, 0, true);
+    hilbert_assign_value(p->array, h_cols, 1, true);
+
+    ifft_assign_value(csound, NULL, &p->intermediate, p->array, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNIFFT);
+    ifft_assign_value(csound, NULL, p->array, &p->intermediate, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNIFFT);
+}
+
+/* The two-dimensional analytic signal. The mask is the outer product of the
+   two one-dimensional masks, one per axis, which means it never has to be
+   materialized: scaling by h0[i] along the rows and then by h1[j] along the
+   columns is the same thing, and reuses the mask that hilbert_assign_value
+   already applies one axis at a time.
+
+   Both passes are full complex transforms. A real FFT on the second axis would
+   only pay off if the masked spectrum stayed conjugate-symmetric, and the mask
+   is exactly what breaks that symmetry -- which is also why there is no real
+   counterpart to this opcode the way csnhilbert1dr answers csnhilbert1d: in two
+   dimensions Re(a) is no longer the source. */
+static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    MYFLT *fft_temp_buffer = NULL;
+    double *kernel_buffer = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    /* CSNRFFT only to borrow the real-input check: the analytic signal of a
+       complex array is not defined, since the negative half of its spectrum is
+       not the redundant mirror of the positive one. */
+    res = fft_body(csound, NULL, reg, &source_arr, NULL, NULL, source_handle, CSNRFFT);
+    if (res != OK) goto done;
+
+    if (source_arr->ndim != 2U) {
+        res = csound->InitError(csound, "[csnarray] The two-dimensional Hilbert transform requires a two-dimensional array");
+        goto done;
+    }
+
+    size_t nrows = source_arr->shape[0];
+    size_t ncols = source_arr->shape[1];
+    if (nrows < 2U || (nrows & 1) || ncols < 2U || (ncols & 1)) {
+        res = csound->InitError(csound, "[csnarray] Extents %zu by %zu: both must be even and at least two for this transform", nrows, ncols);
+        goto done;
+    }
+
+    size_t rows_work_size = nrows * 2U;
+    size_t cols_work_size = ncols * 2U;
+    size_t work_size = rows_work_size > cols_work_size ? rows_work_size : cols_work_size;
+
+    fft_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    if (fft_temp_buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    kernel_buffer = csound->Calloc(csound, sizeof(double) * (nrows + ncols));
+    if (kernel_buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+    hilbert_kernel(kernel_buffer, nrows, true);
+    hilbert_kernel(kernel_buffer + nrows, ncols, true);
+
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) nrows;
+    new_shape[1] = (uint32_t) ncols;
+
+    FREE_CSNARRDATA(csound, &p->intermediate);
+    if (allocate_array(csound, &p->intermediate, new_ndim, new_shape, 0, CSN_COMPLEX) != OK) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_COMPLEX) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    p->fft_temp_buffer.scratch = fft_temp_buffer;
+    p->fft_temp_buffer.scratch_capacity = work_size;
+    p->kernel_buffer.scratch = kernel_buffer;
+    p->kernel_buffer.scratch_capacity = nrows + ncols;
+    p->nrows = (uint32_t) nrows;
+    p->ncols = (uint32_t) ncols;
+
+    hilbert2_transform(csound, p, source_arr);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    p->is_published = false;
+
+done:
+    if (res != OK) {
+        if (fft_temp_buffer != NULL) csound->Free(csound, fft_temp_buffer);
+        if (kernel_buffer != NULL) csound->Free(csound, kernel_buffer);
+    }
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_hilbert2_deinit(CSOUND *csound, CSN_HILBERT2 *p) {
+    deinit_scratch(csound, &p->fft_temp_buffer);
+    deinit_scratch(csound, &p->kernel_buffer);
+    FREE_CSNARRDATA(csound, &p->intermediate);
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot->array;
+    /* Every buffer in the chain was sized once at init and none of them can be
+       grown here, so the source layout has to be the one they were built for. */
+    if (source_arr->ndim != 2U) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Source is now %u-dimensional, but the transform was set up for two dimensions", source_arr->ndim);
+        goto done;
+    }
+    if (source_arr->shape[0] != p->nrows || source_arr->shape[1] != p->ncols) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Source is now %ux%u, but the transform was set up for %ux%u", source_arr->shape[0], source_arr->shape[1], p->nrows, p->ncols);
+        goto done;
+    }
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        bool is_same_result = false;
+        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
+        if (slot_res != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
+        }
+
+        if (is_same_source && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = p->nrows;
+    new_shape[1] = p->ncols;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, req_size, CSN_COMPLEX, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    hilbert2_transform(csound, p, source_arr);
+
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_COMPLEX);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_hilbert2(CSOUND *csound, CSN_HILBERT2 *p) {
+    return csnarray_hilbert2_helper(csound, p);
+}
+
+int32_t csnarray_hilbert2_k(CSOUND *csound, CSN_HILBERT2 *p) {
+    return csnarray_hilbert2_k_helper(csound, p);
+}

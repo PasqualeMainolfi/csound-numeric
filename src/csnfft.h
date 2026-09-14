@@ -314,6 +314,46 @@ typedef struct {
     CSN_ARRAY *array;
 } CSN_MFCC_FBANK;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *axis;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    CSN_ARRAY fft_buffer;
+    CSN_SCRATCH fft_temp_buffer;
+    CSN_SCRATCH kernel_buffer;
+    K_DATA k_data;
+    K_DATA_FFT k_data_fft;
+    K_DATA_FFT k_data_ifft;
+    bool is_published;
+} CSN_HILBERT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    /* The spectrum lands in the published array and the intermediate holds the
+       half-transformed pass, so the two transforms need no third buffer. */
+    CSN_ARRAY intermediate;
+    CSN_SCRATCH fft_temp_buffer;
+    /* Both masks end to end: rows first, then columns. */
+    CSN_SCRATCH kernel_buffer;
+    uint32_t nrows;
+    uint32_t ncols;
+    K_DATA k_data;
+    bool is_published;
+} CSN_HILBERT2;
+
 int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_fft2_deinit(CSOUND *csound, CSN_FFT2 *p);
 int32_t csnarray_stft_deinit(CSOUND *csound, CSN_STFT *p);
@@ -396,5 +436,15 @@ int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p);
 int32_t csnarray_mfbank_deinit(CSOUND *csound, CSN_MFCC_FBANK *p);
 int32_t csnarray_mfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
 int32_t csnarray_mlogfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
+
+
+int32_t csnarray_hilbert_deinit(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert1d(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert1d_k(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert1dr(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert1dr_k(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert2_deinit(CSOUND *csound, CSN_HILBERT2 *p);
+int32_t csnarray_hilbert2(CSOUND *csound, CSN_HILBERT2 *p);
+int32_t csnarray_hilbert2_k(CSOUND *csound, CSN_HILBERT2 *p);
 
 #endif

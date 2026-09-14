@@ -1111,3 +1111,141 @@ done:
     csound->UnlockMutex(reg->mutex);
     return res;
 }
+
+int32_t csnarray_hilbertmat_deinit(CSOUND *csound, CSN_HILBERT_MAT *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_hilbertmat(CSOUND *csound, CSN_HILBERT_MAT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    double n_value = (double) *p->n;
+    if (!IS_VALID_LENGTH(n_value)) {
+        return csound->InitError(csound, "[csnarray] Matrix size must be a valid value");
+    }
+    size_t n = (size_t) n_value;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) n;
+    new_shape[1] = (uint32_t) n;
+    ITEM_TYPE itype = CSN_REAL;
+
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *matrix = p->array;
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = 0; j < n; j++) {
+            matrix->data[i * n + j] = 1.0 / ((double) (i + j) + 1.0);
+        }
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_hilbertmat_k_init(CSOUND *csound, CSN_HILBERT_MAT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = 1U;
+    new_shape[1] = 1U;
+    ITEM_TYPE itype = CSN_REAL;
+
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    reset_empty_csnarray(p->array, new_ndim, new_shape, itype);
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_hilbertmat_k(CSOUND *csound, CSN_HILBERT_MAT *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    double n_value = (double) *p->n;
+    if (!IS_VALID_LENGTH(n_value)) {
+        return csound->InitError(csound, "[csnarray] Matrix size must be a valid value");
+    }
+    size_t n = (size_t) n_value;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    if (p->is_published) {
+        bool is_same_n = p->k_data.prev_size == n;
+        bool is_same_result = false;
+        CSN_SLOT *slot = get_slot(reg, owned_handle);
+        if (slot != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
+        }
+
+        if (is_same_n && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) n;
+    new_shape[1] = (uint32_t) n;
+    ITEM_TYPE itype = CSN_REAL;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    CSN_ARRAY *matrix = p->array;
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = 0; j < n; j++) {
+            matrix->data[i * n + j] = 1.0 / ((double) (i + j) + 1.0);
+        }
+    }
+
+    SET_KDATA_END(p, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    p->k_data.prev_size = n;
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}

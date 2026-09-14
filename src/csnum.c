@@ -203,7 +203,7 @@ static bool IS_VALID_INDEX(double index) {
     return isfinite(index) && trunc(index) == index && index >= 0.0 && index <= (double) UINT32_MAX;
 }
 
-static bool IS_VALID_LENGTH(double length) {
+bool IS_VALID_LENGTH(double length) {
     return isfinite(length) && trunc(length) == length && length >= 0.0 && length <= (double) CSN_MAX_ELEMS;
 }
 
@@ -23654,6 +23654,14 @@ static OENTRY localops[] = {
     { "csnmfcc.k",             S(CSN_MFCC),                   0, ":CsnArr;",                 ":CsnArr;iiiiiiiiP",             (SUBR) csnarray_mfcc,                        (SUBR) csnarray_mfcc_k,                 (SUBR) csnarray_mfcc_deinit,             NULL, 0 },
     { "csnmfbank",             S(CSN_MFCC_FBANK),             0, ":CsnArr;",                 "iiiiii",                        (SUBR) csnarray_mfbank,                      NULL,                                   (SUBR) csnarray_mfbank_deinit,           NULL, 0 },
     { "csnmlogfbank",          S(CSN_MFCC_FBANK),             0, ":CsnArr;",                 "iiiiii",                        (SUBR) csnarray_mlogfbank,                   NULL,                                   (SUBR) csnarray_mfbank_deinit,           NULL, 0 },
+    { "csnhilbert1d",          S(CSN_HILBERT),                0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_hilbert1d,                   NULL,                                   (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
+    { "csnhilbert1d.k",        S(CSN_HILBERT),                0, ":CsnArr;",                 ":CsnArr;jP",                    (SUBR) csnarray_hilbert1d,                   (SUBR) csnarray_hilbert1d_k,            (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
+    { "csnhilbert1dr",         S(CSN_HILBERT),                0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_hilbert1dr,                  NULL,                                   (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
+    { "csnhilbert1dr.k",       S(CSN_HILBERT),                0, ":CsnArr;",                 ":CsnArr;jP",                    (SUBR) csnarray_hilbert1dr,                  (SUBR) csnarray_hilbert1dr_k,           (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
+    { "csnhilbert2",           S(CSN_HILBERT2),               0, ":CsnArr;",                 ":CsnArr;",                      (SUBR) csnarray_hilbert2,                    NULL,                                   (SUBR) csnarray_hilbert2_deinit,         NULL, 0 },
+    { "csnhilbert2.k",         S(CSN_HILBERT2),               0, ":CsnArr;",                 ":CsnArr;P",                     (SUBR) csnarray_hilbert2,                    (SUBR) csnarray_hilbert2_k,             (SUBR) csnarray_hilbert2_deinit,         NULL, 0 },
+    { "csnhilbertmat",         S(CSN_HILBERT_MAT),            0, ":CsnArr;",                 "i",                             (SUBR) csnarray_hilbertmat,                  NULL,                                   (SUBR) csnarray_hilbertmat_deinit,       NULL, 0 },
+    { "csnhilbertmat.k",       S(CSN_HILBERT_MAT),            0, ":CsnArr;",                 "kP",                            (SUBR) csnarray_hilbertmat_k_init,           (SUBR) csnarray_hilbertmat_k,           (SUBR) csnarray_hilbertmat_deinit,       NULL, 0 },
     // ---
 };
 

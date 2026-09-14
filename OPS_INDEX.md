@@ -236,6 +236,7 @@ result with **csnlikeset** before using it as a set again. See
 - **csninv** - inverse of a square matrix (i, k — real, complex)
 - **csndet** - determinant of a square matrix (i, k — real, complex)
 - **csnsavgol** - Savitzky-Golay coefficient matrix, one row per derivative order (i — real only)
+- **csnhilbertmat** - the Hilbert matrix, 1 / (i + j + 1) (i, k — real output)
 
 The three matrix operations share one LU decomposition with partial pivoting.
 A pivot counts as zero when it falls at or below `n * DBL_EPSILON` times the
@@ -289,6 +290,16 @@ depend on the length, only the time does.
 - **csndcttwo1d** - DCT-II along one axis (i, k — real input; real output)
 - **csndstone1d** - DST-I along one axis (i, k — real input; real output)
 - **csndsttwo1d** - DST-II along one axis (i, k — real input; real output)
+
+The Hilbert forms take their length from the array as well, and additionally
+need it even: the transform is global, so a padded length would not extend the
+answer but change every sample of it, and an odd one is refused rather than
+padded. They accept real input only, the analytic signal of a complex array
+being undefined.
+
+- **csnhilbert1d** - analytic signal along one axis (i, k — real input; complex output)
+- **csnhilbert1dr** - the Hilbert transform itself (i, k — real input; real output)
+- **csnhilbert2** - two-dimensional analytic signal (i, k — real input; complex output)
 
 ## Cepstral and mel analysis
 

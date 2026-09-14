@@ -126,6 +126,19 @@ typedef struct {
     CSN_ARRAY *array;
 } CSN_SAVGOL_MATRIX;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *n;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_HILBERT_MAT;
+
 int32_t lu_factor_real(double *a, size_t n, CSN_LU_INFO *info);
 int32_t lu_solve_real(const double *lu, const CSN_LU_INFO *info, double *b, size_t nrhs);
 int32_t lu_factor_complex(double *a, size_t n, CSN_LU_INFO *info);
@@ -147,5 +160,9 @@ int32_t csnarray_determinant_complex_k(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p
 int32_t csnarray_savgol_mat_deinit(CSOUND *csound, CSN_SAVGOL_MATRIX *p);
 int32_t csnarray_savgol_mat(CSOUND *csound, CSN_SAVGOL_MATRIX *p); // savgol i-rate
 
+int32_t csnarray_hilbertmat_deinit(CSOUND *csound, CSN_HILBERT_MAT *p);
+int32_t csnarray_hilbertmat(CSOUND *csound, CSN_HILBERT_MAT *p);
+int32_t csnarray_hilbertmat_k_init(CSOUND *csound, CSN_HILBERT_MAT *p);
+int32_t csnarray_hilbertmat_k(CSOUND *csound, CSN_HILBERT_MAT *p);
 
 #endif
