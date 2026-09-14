@@ -207,11 +207,11 @@ static bool IS_VALID_LENGTH(double length) {
     return isfinite(length) && trunc(length) == length && length >= 0.0 && length <= (double) CSN_MAX_ELEMS;
 }
 
-static bool IS_VALID_ZERO_ONE(double value) {
+bool IS_VALID_ZERO_ONE(double value) {
     return isfinite(value) && trunc(value) == value && (value == 0.0 || value == 1.0);
 }
 
-static bool IS_VALID_VALUE(double value) {
+bool IS_VALID_VALUE(double value) {
     return isfinite(value) && !isnan(value);
 }
 
@@ -23642,6 +23642,18 @@ static OENTRY localops[] = {
     { "csnfftcorrelate",       S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;o",             (SUBR) csnarray_fftcorrelate,                NULL,                                   (SUBR) csnarray_corrconv_deinit,         NULL, 0 },
     { "csnfftconvolve.k",      S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftconvolve,                 (SUBR) csnarray_fftconvolve_k,          (SUBR) csnarray_corrconv_deinit,         NULL, 0 },
     { "csnfftcorrelate.k",     S(CSN_CORRCONV),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_fftcorrelate,                (SUBR) csnarray_fftcorrelate_k,         (SUBR) csnarray_corrconv_deinit,         NULL, 0 },
+    { "csndctone1d",           S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_dct_one,                     NULL,                                   (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndcttwo1d",           S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_dct_two,                     NULL,                                   (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndstone1d",           S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_dst_one,                     NULL,                                   (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndsttwo1d",           S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;j",                     (SUBR) csnarray_dst_two,                     NULL,                                   (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndctone1d.k",         S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;jP",                    (SUBR) csnarray_dct_one,                     (SUBR) csnarray_dct_one_k,              (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndcttwo1d.k",         S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;jP",                    (SUBR) csnarray_dct_two,                     (SUBR) csnarray_dct_two_k,              (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndstone1d.k",         S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;jP",                    (SUBR) csnarray_dst_one,                     (SUBR) csnarray_dst_one_k,              (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csndsttwo1d.k",         S(CSN_DCST),                   0, ":CsnArr;",                 ":CsnArr;jP",                    (SUBR) csnarray_dst_two,                     (SUBR) csnarray_dst_two_k,              (SUBR) csnarray_dcst_deinit,             NULL, 0 },
+    { "csnmfcc",               S(CSN_MFCC),                   0, ":CsnArr;",                 ":CsnArr;iiiiiiii",              (SUBR) csnarray_mfcc,                        NULL,                                   (SUBR) csnarray_mfcc_deinit,             NULL, 0 },
+    { "csnmfcc.k",             S(CSN_MFCC),                   0, ":CsnArr;",                 ":CsnArr;iiiiiiiiP",             (SUBR) csnarray_mfcc,                        (SUBR) csnarray_mfcc_k,                 (SUBR) csnarray_mfcc_deinit,             NULL, 0 },
+    { "csnmfbank",             S(CSN_MFCC_FBANK),             0, ":CsnArr;",                 "iiiiii",                        (SUBR) csnarray_mfbank,                      NULL,                                   (SUBR) csnarray_mfbank_deinit,           NULL, 0 },
+    { "csnmlogfbank",          S(CSN_MFCC_FBANK),             0, ":CsnArr;",                 "iiiiii",                        (SUBR) csnarray_mlogfbank,                   NULL,                                   (SUBR) csnarray_mfbank_deinit,           NULL, 0 },
     // ---
 };
 

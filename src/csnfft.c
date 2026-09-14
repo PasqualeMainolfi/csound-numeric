@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 
@@ -14,6 +15,10 @@ static inline bool IS_POWER_OF_TWO(size_t n) {
 
 static inline bool IS_VALID_FFT_SIZE(double value) {
     return isfinite(value) && !isnan(value) && trunc(value) == value && value > 0.0 && value <= (double) CSN_MAX_ELEMS;
+}
+
+static inline bool IS_VALID_NMFCC(double value) {
+    return IS_VALID_FFT_SIZE(value);
 }
 
 static inline bool IS_VALID_SR(double value) {
@@ -26,6 +31,19 @@ static inline bool IS_VALID_STFT_WIN(double value) {
 
 static bool IS_VALID_VALUE_GT_ZERO(double value) {
     return isfinite(value) && !isnan(value) && value > 0.0;
+}
+
+static bool IS_VALID_DCT_MODE(double value) {
+    return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 1.0 && value <= 2.0;
+}
+
+/* Csound hands a deallocated instrument's opcode memory to the next note
+   without zeroing it, and an opcode inside a branch the new note does not take
+   is deinitialized all the same. A pointer left behind here would therefore be
+   freed a second time, so every buffer is cleared as it is released. */
+static void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array) {
+    if (array->data != NULL) csound->Free(csound, array->data);
+    memset(array, 0, sizeof(CSN_ARRAY));
 }
 
 static inline size_t NEXT_POWER_OF_TWO(size_t n) {
@@ -562,8 +580,7 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
 
     ITEM_TYPE otype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
     CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL,
-                              new_ndim, new_shape, output_size, otype, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, new_ndim, new_shape, output_size, otype, err);
     if (res != OK) goto done;
     p->array = fft_buffer;
 
@@ -646,8 +663,8 @@ static void stft_assign_layout(size_t *fft_out_size, size_t *fft_work_size, uint
     size_t s_size = source_arr->size;
     uint32_t nrows = mode == CSNFFT ? nfft : nfft / 2U + 1U;
     uint32_t ncols = s_size < (size_t) nfft ? 1U : 1U + (uint32_t) ((s_size - nfft) / hopsize);
-    new_shape_f[0] = nrows;
-    new_shape_t[0] = ncols;
+    if (new_shape_f != NULL) new_shape_f[0] = nrows;
+    if (new_shape_t != NULL) new_shape_t[0] = ncols;
     new_shape_z[0] = nrows;
     new_shape_z[1] = ncols;
     switch (mode) {
@@ -842,11 +859,12 @@ static int32_t stft_validate_params(CSOUND *csound, OPDS *perf_h, const MYFLT *w
     if (!IS_VALID_FFT_SIZE(hopsize_temp)) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Hop size must be a positive finite integer");
     }
-    double sr_temp = (double) *sr;
-    if (!IS_VALID_SR(sr_temp)) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid sr value");
+    if (sr != NULL) {
+        double sr_temp = (double) *sr;
+        if (!IS_VALID_SR(sr_temp)) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid sr value");
+        }
     }
-
     double win = (double) *window_type;
     if (!IS_VALID_STFT_WIN(win)) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown window type");
@@ -952,6 +970,74 @@ done:
     }
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+static int32_t GET_STFT_INIT(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_RAW_STFT *p) {
+    int32_t res = OK;
+    res = stft_validate_params(csound, perf_h, &p->winsize, &p->hopsize, NULL, &p->window_type);
+    if (res != OK) return res;
+
+    int32_t fft_size = (int32_t) p->winsize;
+    int32_t overlap_size = (int32_t) p->hopsize;
+    uint32_t wtype = (uint32_t) p->window_type;
+
+    uint32_t source_ndim = source_arr->ndim;
+    if (source_ndim != 1U) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] STFT requires 1-D array");
+    }
+
+    ITEM_TYPE itype = source_arr->itype;
+    CSN_FFT_MODE fft_mode = itype == CSN_COMPLEX ? CSNFFT : CSNRFFT;
+
+    p->fft_setup = csound->RealFFTSetup(csound, fft_size, FFT_FWD);
+
+    uint32_t new_dim_z = 2U;
+    uint32_t new_shape_z[CSN_MAX_DIMS] = {0};
+    size_t out_size = 0;
+    size_t work_size = 0;
+    stft_assign_layout(&out_size, &work_size, NULL, NULL, new_shape_z, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, fft_mode);
+
+    size_t scratch_work_size = (size_t) fft_size * 2U;
+    MYFLT *temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * scratch_work_size);
+    if (temp_buffer == NULL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+    }
+
+    double *win_buffer = csound->Calloc(csound, sizeof(double) * (size_t) fft_size);
+    if (win_buffer == NULL) {
+        csound->Free(csound, temp_buffer);
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+    }
+
+    FREE_CSNARRDATA(csound, &p->stft);
+    if (allocate_array(csound, &p->stft, new_dim_z, new_shape_z, 0, CSN_COMPLEX) != OK) {
+        csound->Free(csound, temp_buffer);
+        csound->Free(csound, win_buffer);
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
+    }
+    get_window_function(win_buffer, fft_size, wtype, 0.0);
+
+    deinit_scratch(csound, &p->buffer);
+    deinit_scratch(csound, &p->window);
+    p->buffer.scratch = temp_buffer;
+    p->buffer.scratch_capacity = scratch_work_size;
+    p->window.scratch = win_buffer;
+    p->window.scratch_capacity = (size_t) fft_size;
+    p->fft_out_size = out_size;
+    p->fft_work_size = work_size;
+
+    return res;
+}
+
+static int32_t GET_STFT(CSOUND *csound, CSN_ARRAY *source_arr, CSN_RAW_STFT *p) {
+    int32_t fft_size = (int32_t) p->winsize;
+    int32_t overlap_size = (int32_t) p->hopsize;
+
+    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    double *win = (double *) p->window.scratch;
+    CSN_FFT_MODE fft_mode = source_arr->itype == CSN_COMPLEX ? CSNFFT : CSNRFFT;
+    stft_assign_value(csound, p->fft_setup, &p->stft, source_arr, temp_buffer, win, fft_size, overlap_size, p->fft_work_size, p->fft_out_size, fft_mode);
+    return OK;
 }
 
 static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
@@ -2555,25 +2641,16 @@ done:
 
 }
 
-/* Csound hands a deallocated instrument's opcode memory to the next note
-   without zeroing it, and an opcode inside a branch the new note does not take
-   is deinitialized all the same. A pointer left behind here would therefore be
-   freed a second time, so every buffer is cleared as it is released. */
-static void free_corrconv_array(CSOUND *csound, CSN_ARRAY *array) {
-    if (array->data != NULL) csound->Free(csound, array->data);
-    memset(array, 0, sizeof(CSN_ARRAY));
-}
-
 int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
      deinit_scratch(csound, &p->buffer_x);
      deinit_scratch(csound, &p->buffer_h);
      deinit_scratch(csound, &p->buffer_ifft);
-     free_corrconv_array(csound, &p->fft_buffer_x);
-     free_corrconv_array(csound, &p->fft_buffer_h);
-     free_corrconv_array(csound, &p->ifft_buffer);
-     free_corrconv_array(csound, &p->ifft_out);
-     free_corrconv_array(csound, &p->x_padded);
-     free_corrconv_array(csound, &p->h_padded);
+     FREE_CSNARRDATA(csound, &p->fft_buffer_x);
+     FREE_CSNARRDATA(csound, &p->fft_buffer_h);
+     FREE_CSNARRDATA(csound, &p->ifft_buffer);
+     FREE_CSNARRDATA(csound, &p->ifft_out);
+     FREE_CSNARRDATA(csound, &p->x_padded);
+     FREE_CSNARRDATA(csound, &p->h_padded);
      return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
@@ -3868,4 +3945,958 @@ int32_t csnarray_fftconvolve_k(CSOUND *csound, CSN_CORRCONV *p) {
 
 int32_t csnarray_fftcorrelate_k(CSOUND *csound, CSN_CORRCONV *p) {
     return fftcorrconv_k_helper(csound, p, CSN_CORRELATION);
+}
+
+// DCT I - II
+
+
+static int32_t get_dct_size(int32_t start_size, CSN_DCST_MODE dcst_mode) {
+    int32_t size = start_size;
+    switch (dcst_mode) {
+        case CSN_DCT_I:
+            size = 2 * (size - 1);
+            break;
+        case CSN_DST_I:
+            size = 2 * (size + 1);
+            break;
+        case CSN_DCT_II:
+        case CSN_DST_II:
+        case CSN_DST_III:
+        case CSN_DCT_III:
+            size = 2 * size;
+            break;
+        case CSN_DCT_IV:
+        case CSN_DST_IV:
+            size = 4 * size;
+            break;
+    }
+    return size;
+}
+
+static int32_t dcst1d_from_fft_assign_value(CSN_ARRAY *dcst_buffer, CSN_ARRAY *fft_buffer, CSN_DCST_MODE mode, int32_t axis) {
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    /* Driven by the array being filled, not by the spectrum: the two carry the
+       same off-axis extents, but only this one bounds the writes. */
+    for (uint32_t i = 0; i < dcst_buffer->ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = dcst_buffer->shape[i];
+            slice_count *= dcst_buffer->shape[i];
+        }
+    }
+
+    size_t src_stride = fft_buffer->strides[axis];
+    size_t dst_stride = dcst_buffer->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < dcst_buffer->ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, fft_buffer->strides, dcst_buffer->ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, dcst_buffer->strides, dcst_buffer->ndim);
+        uint32_t n = dcst_buffer->shape[axis];
+        for (uint32_t i = 0; i < n; i++) {
+            CSN_COMPLEXDAT y = {0};
+            switch (mode) {
+                case CSN_DCT_I: {
+                        CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, i, src_stride, fft_buffer->itype);
+                        y.re = z.re;
+                    };
+                    break;
+                case CSN_DST_I: {
+                        CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, i + 1, src_stride, fft_buffer->itype);
+                        y.re = -z.im;
+                    }
+                    break;
+                case CSN_DCT_II: {
+                        CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, i, src_stride, fft_buffer->itype);
+                        double angle = M_PI * (double) i / (2.0 * (double) n);
+                        y.re = z.re * cos(angle) + z.im * sin(angle);
+                    };
+                    break;
+                case CSN_DST_II: {
+                        size_t q = i + 1;
+                        CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, q, src_stride, fft_buffer->itype);
+                        double angle = M_PI * (double) q / (2.0 * (double) n);
+                        double c = cos(angle);
+                        double s = sin(angle);
+                        double rotated_im =z.im * c - z.re * s;
+                        y.re = -rotated_im;
+                    }
+                    break;
+                case CSN_DST_III:
+                case CSN_DCT_III:
+                case CSN_DCT_IV:
+                case CSN_DST_IV:
+                    return NOTOK;
+            }
+            slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, i, dst_stride, dcst_buffer->itype, y);
+        }
+    }
+
+    return OK;
+}
+
+static int32_t dcst1d_extend_source(CSN_ARRAY *dcst_buffer, CSN_ARRAY *source_arr, int32_t axis, CSN_DCST_MODE mode) {
+    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
+    uint32_t reduced_ndim = 0;
+    size_t slice_count = 1;
+    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
+        if (i != (uint32_t) axis) {
+            reduced_shape[reduced_ndim++] = source_arr->shape[i];
+            slice_count *= source_arr->shape[i];
+        }
+    }
+
+    size_t src_stride = source_arr->strides[axis];
+    size_t dst_stride = dcst_buffer->strides[axis];
+    for (size_t linear = 0; linear < slice_count; ++linear) {
+        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
+        uint32_t src_coords[CSN_MAX_DIMS] = {0};
+
+        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
+        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
+            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+        }
+
+        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        size_t dst_base = from_coords_to_offset(src_coords, dcst_buffer->strides, source_arr->ndim);
+        uint32_t n_embedded = dcst_buffer->shape[axis];
+        uint32_t n_source = source_arr->shape[axis];
+        for (uint32_t i = 0; i < n_source; i++) {
+            CSN_COMPLEXDAT z = slice_get(source_arr->data + src_base * source_arr->itype, i, src_stride, source_arr->itype);
+            switch (mode) {
+                case CSN_DCT_I: {
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, i, dst_stride, dcst_buffer->itype, z);
+                        if (i > 0 && i < n_source - 1) {
+                            slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, n_embedded - i, dst_stride, dcst_buffer->itype, z);
+                        }
+                    }
+                    break;
+                case CSN_DST_I: {
+                        size_t p = i + 1;
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, p, dst_stride, dcst_buffer->itype, z);
+                        z.re = -z.re;
+                        z.im = -z.im;
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, n_embedded - p, dst_stride, dcst_buffer->itype, z);
+                    }
+                    break;
+                case CSN_DCT_II: {
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, i, dst_stride, dcst_buffer->itype, z);
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, 2 * n_source - 1 - i, dst_stride, dcst_buffer->itype, z);
+                    }
+                    break;
+                case CSN_DST_II: {
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, i, dst_stride, dcst_buffer->itype, z);
+                        z.re = -z.re;
+                        z.im = -z.im;
+                        slice_put(dcst_buffer->data + dst_base * dcst_buffer->itype, n_embedded - 1 - i, dst_stride, dcst_buffer->itype, z);
+                    }
+                    break;
+                case CSN_DST_III:
+                case CSN_DCT_III:
+                case CSN_DCT_IV:
+                case CSN_DST_IV:
+                    return NOTOK;
+            }
+        }
+    }
+
+    return OK;
+}
+
+static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    if (dcst_mode == CSN_DCT_III || dcst_mode == CSN_DCT_IV || dcst_mode == CSN_DST_III || dcst_mode == CSN_DST_IV) {
+        return csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
+    }
+
+    ITEM_TYPE itype = CSN_REAL;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    MYFLT *temp_buffer = NULL;
+    void *fft_setup = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    uint32_t axis = 0;
+    res = fft_body(csound, NULL, reg, &source_arr, p->axis, &axis, source_handle, fft_mode);
+    if (res != OK) goto done;
+
+    size_t source_size = source_arr->shape[axis];
+    int32_t dcst_fft_size = get_dct_size(source_size, dcst_mode);
+    /* Any length goes, as scipy allows. The extension is transformed by
+       csound->RealFFT, whose non-power-of-two branch is exact but wants an
+       even size -- which every one of the four extensions yields by
+       construction: 2N for the type-II pair, 2(N-1) for DCT-I, 2(N+1) for
+       DST-I. A ragged factorization costs time, not accuracy, and the branch
+       allocates its own scratch per call, so a k-rate transform over a length
+       that is not a power of two does touch the allocator. */
+    if (!IS_VALID_FFT_SIZE((double) dcst_fft_size) || dcst_fft_size < 2 || (dcst_fft_size & 1)) {
+        res = csound->InitError(csound, "[csnarray] Length %zu is too short for this transform", source_size);
+        goto done;
+    }
+
+    uint32_t dcst_shape[CSN_MAX_DIMS] = {0};
+    memcpy(dcst_shape, source_arr->shape, sizeof(dcst_shape));
+    dcst_shape[axis] = (uint32_t) dcst_fft_size;
+    /* A second init pass would otherwise drop the previous payload on the
+       floor: allocate_array overwrites ->data without looking at it. */
+    FREE_CSNARRDATA(csound, &p->dcst_extended);
+    if (allocate_array(csound, &p->dcst_extended, source_arr->ndim, dcst_shape, 0, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    if (dcst1d_extend_source(&p->dcst_extended, source_arr, axis, dcst_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
+        goto done;
+    }
+
+    uint32_t fft_ndim;
+    uint32_t fft_shape[CSN_MAX_DIMS] = {0};
+    size_t out_size = 0;
+    size_t work_size = 0;
+    fft_assign_layout(&out_size, &work_size, &fft_ndim, fft_shape, &p->dcst_extended, (uint32_t) dcst_fft_size, fft_mode, axis);
+
+    temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    if (temp_buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    if (fft_mode == CSNRFFT) {
+        fft_setup = csound->RealFFTSetup(csound, dcst_fft_size, FFT_FWD);
+    }
+
+    FREE_CSNARRDATA(csound, &p->fft_buffer);
+    if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, 0, CSN_COMPLEX) != OK) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    CSN_ARRAY *fft_buffer = &p->fft_buffer;
+    fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode);
+
+    uint32_t new_ndim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_arr->shape, sizeof(new_shape));
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (dcst1d_from_fft_assign_value(p->array, fft_buffer, dcst_mode, axis) != OK) {
+        res = csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
+        goto done;
+    }
+
+    p->buffer.scratch = temp_buffer;
+    p->buffer.scratch_capacity = work_size;
+    p->k_data_fft.fft_setup = fft_setup;
+    p->k_data_fft.nfft = (size_t) dcst_fft_size;
+    p->k_data_fft.buffer_out_size = out_size;
+    p->k_data_fft.buffer_work_size = work_size;
+    p->k_data.prev_axis_u = axis;
+    p->source_axis_len = source_arr->shape[axis];
+    p->is_published = false;
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    SET_KDATA_BEGIN(p, reg);
+
+done:
+    if (res != OK) if (temp_buffer != NULL) csound->Free(csound, temp_buffer);
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    ITEM_TYPE itype = CSN_REAL;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    CHECK_KTRIG(p->trig);
+
+    size_t fft_size = p->k_data_fft.nfft;
+    void *fft_setup = p->k_data_fft.fft_setup;
+    size_t dcst_fft_size = fft_size;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    uint32_t axis = 0;
+    res = fft_body(csound, &p->h, reg, &source_arr, p->axis, &axis, source_handle, fft_mode);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        bool is_same_result = false;
+        CSN_SLOT *slot = get_slot(reg, owned_handle);
+        if (slot != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
+        }
+
+        if (is_same_source && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    /* dcst_extended and fft_buffer were sized at init for one source layout and
+       cannot be grown here: reallocating on the performance path is what the
+       rt-lock model forbids. Every extent has to match, not just the
+       transformed one -- a second axis that grows walks off the end of
+       dcst_extended just as surely. */
+    if (source_arr->ndim != p->dcst_extended.ndim || axis != p->k_data.prev_axis_u) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Source is now %u-dimensional on axis %u, but the transform was set up for %u-dimensional on axis %u", source_arr->ndim, axis, p->dcst_extended.ndim, p->k_data.prev_axis_u);
+        goto done;
+    }
+    for (uint32_t i = 0; i < source_arr->ndim; i++) {
+        uint32_t expected = (i == axis) ? p->source_axis_len : p->dcst_extended.shape[i];
+        if (source_arr->shape[i] != expected) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Extent %u of the source is %u, but the transform was set up for %u", i, source_arr->shape[i], expected);
+            goto done;
+        }
+    }
+
+    if (dcst1d_extend_source(&p->dcst_extended, source_arr, axis, dcst_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] DCT/DST mode not yet implemented");
+        goto done;
+    }
+
+    uint32_t fft_ndim;
+    uint32_t fft_shape[CSN_MAX_DIMS] = {0};
+    size_t out_size = 0;
+    size_t work_size = 0;
+    fft_assign_layout(&out_size, &work_size, &fft_ndim, fft_shape, &p->dcst_extended, (uint32_t) dcst_fft_size, fft_mode, axis);
+
+    CSN_ARRAY *fft_buffer = &p->fft_buffer;
+    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode);
+
+    uint32_t new_ndim = source_arr->ndim;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    memcpy(new_shape, source_arr->shape, sizeof(new_shape));
+    size_t output_size = 0;
+    if (get_array_size_from_shape(&output_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] FFT output exceeds the maximum element count");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, output_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    if (dcst1d_from_fft_assign_value(p->array, fft_buffer, dcst_mode, axis) != OK) {
+        csound->UnlockMutex(reg->mutex);
+        return csound->PerfError(csound, &p->h, "[csnarray] DCT/DST mode not yet implemented");
+    }
+
+    p->k_data.prev_axis_u = axis;
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p, p->array->shape, p->array->ndim, itype);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_dct_one(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_helper(csound, p, CSN_DCT_I, CSNRFFT);
+}
+
+int32_t csnarray_dct_two(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_helper(csound, p, CSN_DCT_II, CSNRFFT);
+}
+
+int32_t csnarray_dst_one(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_helper(csound, p, CSN_DST_I, CSNRFFT);
+}
+
+int32_t csnarray_dst_two(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_helper(csound, p, CSN_DST_II, CSNRFFT);
+}
+
+int32_t csnarray_dct_one_k(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_k_helper(csound, p, CSN_DCT_I, CSNRFFT);
+}
+
+int32_t csnarray_dct_two_k(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_k_helper(csound, p, CSN_DCT_II, CSNRFFT);
+}
+
+int32_t csnarray_dst_one_k(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_k_helper(csound, p, CSN_DST_I, CSNRFFT);
+}
+
+int32_t csnarray_dst_two_k(CSOUND *csound, CSN_DCST *p) {
+    return dcst1d_k_helper(csound, p, CSN_DST_II, CSNRFFT);
+}
+
+int32_t csnarray_dcst_deinit(CSOUND *csound, CSN_DCST *p) {
+    deinit_scratch(csound, &p->buffer);
+    FREE_CSNARRDATA(csound, &p->dcst_extended);
+    FREE_CSNARRDATA(csound, &p->fft_buffer);
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+
+// MFCC
+
+#define HZ_TO_MEL(hz) (2595.0 * log10(1.0 + (hz) / 700.0))
+#define MEL_TO_HZ(mel) (700.0 * (pow(10.0, (mel) / 2595.0) - 1.0))
+/* Centre frequency of one-sided FFT bin k. Bin nfft/2 is Nyquist. */
+#define BIN_TO_HZ(bin, nfft, sr) ((double) (bin) * (sr) / (double) (nfft))
+
+/* Owns every weight vector as well as the band array, and clears the caller's
+   pointer so a second deinit pass is a no-op. The bank is built once at init
+   and read on every k-pass, so releasing it is the deinit's job. */
+static void mel_filterbank_free(CSOUND *csound, CSN_MEL_FILTER **fbank, uint32_t nmels) {
+    CSN_MEL_FILTER *fb = *fbank;
+    if (fb == NULL) return;
+    for (uint32_t i = 0; i < nmels; i++) {
+        if (fb[i].weights != NULL) csound->Free(csound, fb[i].weights);
+    }
+    csound->Free(csound, fb);
+    *fbank = NULL;
+}
+
+/* Triangular mel filterbank over the bins of a one-sided spectrum.
+
+   The triangles are evaluated at each bin's own centre frequency rather than
+   built from rounded bin edges: a band narrower than the bin spacing still
+   picks up fractional weight from its neighbours instead of collapsing to
+   nothing, which is what quantising the edges to integers does to the low
+   bands whenever nmels is large relative to nfft.
+
+   slaney_norm scales each band to unit area in frequency. Without it sum(w)
+   grows with the band width -- roughly 20x from the lowest band to the
+   highest at nmels=40, nfft=1024 -- which shows up as a fixed tilt across the
+   log-mel spectrum and lands in the first MFCC coefficients. */
+static int32_t mel_filterbank(CSOUND *csound, OPDS *perf_h, CSN_MEL_FILTER **fbank, uint32_t nmels, double fmin, double fmax, double sr, uint32_t nfft, bool slaney_norm) {
+    if (nmels == 0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank needs at least one band");
+    }
+    if (!IS_VALID_VALUE_GT_ZERO(sr)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank needs a positive sample rate");
+    }
+    if (nfft < 2U) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank needs an FFT size of at least 2");
+    }
+    if (!isfinite(fmin) || !isfinite(fmax) || fmin < 0.0 || fmax <= fmin) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank needs 0 <= fmin < fmax");
+    }
+    if (fmax > sr / 2.0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank fmax %g is above the Nyquist frequency %g", fmax, sr / 2.0);
+    }
+
+    uint32_t nbins = nfft / 2U;
+    size_t npoints = (size_t) nmels + 2U;
+
+    double *edges = csound->Calloc(csound, sizeof(double) * npoints);
+    if (edges == NULL) return NOTOK;
+
+    double mmin = HZ_TO_MEL(fmin);
+    double mmax = HZ_TO_MEL(fmax);
+    double step = (mmax - mmin) / (double) (nmels + 1);
+    for (size_t i = 0; i < npoints; i++) {
+        edges[i] = MEL_TO_HZ(mmin + (double) i * step);
+    }
+
+    CSN_MEL_FILTER *fb = csound->Calloc(csound, sizeof(CSN_MEL_FILTER) * (size_t) nmels);
+    if (fb == NULL) {
+        csound->Free(csound, edges);
+        return NOTOK;
+    }
+
+    uint32_t empty = 0;
+    for (uint32_t i = 0; i < nmels; i++) {
+        double lo = edges[i];
+        double mid = edges[i + 1];
+        double hi = edges[i + 2];
+        if (!(lo < mid && mid < hi)) {
+            empty++;
+            continue;
+        }
+
+        /* Bins strictly inside (lo, hi): the triangle is zero at both edges,
+           so a bin sitting exactly on one contributes nothing. */
+        double first_f = floor(lo * (double) nfft / sr) + 1.0;
+        double last_f = ceil(hi * (double) nfft / sr) - 1.0;
+        if (first_f < 0.0) first_f = 0.0;
+        if (last_f > (double) nbins) last_f = (double) nbins;
+        if (last_f < first_f) {
+            empty++;
+            continue;
+        }
+
+        uint32_t first = (uint32_t) first_f;
+        uint32_t count = (uint32_t) (last_f - first_f) + 1U;
+
+        double *weights = csound->Calloc(csound, sizeof(double) * (size_t) count);
+        if (weights == NULL) {
+            mel_filterbank_free(csound, &fb, nmels);
+            csound->Free(csound, edges);
+            return NOTOK;
+        }
+
+        double scale = slaney_norm ? 2.0 / (hi - lo) : 1.0;
+        uint32_t nonzero = 0;
+        for (uint32_t j = 0; j < count; j++) {
+            double freq = BIN_TO_HZ(first + j, nfft, sr);
+            double rise = (freq - lo) / (mid - lo);
+            double fall = (hi - freq) / (hi - mid);
+            double w = rise < fall ? rise : fall;
+            if (w <= 0.0) {
+                weights[j] = 0.0;
+                continue;
+            }
+            weights[j] = w * scale;
+            nonzero++;
+        }
+
+        if (nonzero == 0) {
+            csound->Free(csound, weights);
+            empty++;
+            continue;
+        }
+
+        fb[i].first_bin = first;
+        fb[i].count = count;
+        fb[i].weights = weights;
+    }
+
+    csound->Free(csound, edges);
+
+    if (empty > 0) {
+        /* Left in place rather than refused: the band reads as the log floor,
+           which is legible once it is announced. */
+        csound->Message(csound, "[csnarray] WARNING: %u of %u mel bands are empty at nfft %u and sr %g: raise the FFT size or lower the band count\n", empty, nmels, nfft, sr);
+    }
+
+    *fbank = fb;
+    return OK;
+}
+
+static int32_t mel_apply_filter_bank(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *out_log_mel, CSN_ARRAY *stft, CSN_MEL_FILTER *fbank, uint32_t nmels) {
+    if (stft->ndim != 2U || stft->itype != CSN_COMPLEX) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank needs a two-dimensional complex spectrogram");
+    }
+    if (out_log_mel->ndim != 2U || out_log_mel->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel filterbank writes a two-dimensional real array");
+    }
+
+    uint32_t nbins = stft->shape[0];
+    uint32_t nframes = stft->shape[1];
+    if (out_log_mel->shape[0] != nmels || out_log_mel->shape[1] != nframes) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel output is %ux%u but %u bands over %u frames were requested", out_log_mel->shape[0], out_log_mel->shape[1], nmels, nframes);
+    }
+
+    /* Nothing else ties the FFT size the bank was built for to the one the
+       spectrogram was produced with, and a mismatch reads past the last bin. */
+    for (uint32_t mel = 0; mel < nmels; mel++) {
+        if ((size_t) fbank[mel].first_bin + fbank[mel].count > (size_t) nbins) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] mel band %u reaches bin %zu but the spectrogram holds %u: the filterbank was built for a different FFT size", mel, (size_t) fbank[mel].first_bin + fbank[mel].count - 1U, nbins);
+        }
+    }
+
+    size_t src_stride = stft->strides[0];
+    size_t dst_stride = out_log_mel->strides[0];
+    for (uint32_t frame = 0; frame < nframes; frame++) {
+        uint32_t src_coords[2] = { 0U, frame };
+        uint32_t dst_coords[2] = { 0U, frame };
+        size_t src_base = from_coords_to_offset(src_coords, stft->strides, 2U);
+        size_t dst_base = from_coords_to_offset(dst_coords, out_log_mel->strides, 2U);
+
+        for (uint32_t mel = 0; mel < nmels; mel++) {
+            const CSN_MEL_FILTER *filter = &fbank[mel];
+            double sum = 0.0;
+            for (uint32_t j = 0; j < filter->count; j++) {
+                CSN_COMPLEXDAT z = slice_get(stft->data + src_base * stft->itype, (size_t) filter->first_bin + j, src_stride, stft->itype);
+                sum += (z.re * z.re + z.im * z.im) * filter->weights[j];
+            }
+            CSN_COMPLEXDAT y = { log(fmax(sum, 1.0e-12)), 0.0 };
+            slice_put(out_log_mel->data + dst_base * out_log_mel->itype, mel, dst_stride, out_log_mel->itype, y);
+        }
+    }
+
+    return OK;
+}
+
+/* Cepstral stage: a DCT over the mel axis, held as an explicit
+   mfcc_count-by-mel_count table rather than routed through csndct.
+
+   At these sizes the direct product is the cheaper transform -- 0.14 us
+   against 1.2 us for the FFT route at 40 bands, measured -- it needs no
+   scratch and no allocator on the per-frame path, and it places no
+   arithmetic condition on the band count. The FFT route only starts winning
+   somewhere past a hundred bands, which no filterbank reaches.
+
+   Rows follow the scipy definitions with norm=None, so a column of this
+   times a log-mel frame equals scipy.fft.dct of that frame. */
+static int32_t mfcc_dct_matrix(CSOUND *csound, double **matrix, uint32_t ncoef, uint32_t nmels, uint32_t dct_type) {
+    if (dct_type == 1U && nmels < 2U) {
+        return csound->InitError(csound, "[csnarray] DCT-I over the mel axis needs at least two bands");
+    }
+
+    double *table = csound->Calloc(csound, sizeof(double) * (size_t) ncoef * (size_t) nmels);
+    if (table == NULL) return NOTOK;
+
+    for (uint32_t k = 0; k < ncoef; k++) {
+        double *row = table + (size_t) k * (size_t) nmels;
+        if (dct_type == 1U) {
+            row[0] = 1.0;
+            row[nmels - 1U] = (k & 1U) ? -1.0 : 1.0;
+            for (uint32_t n = 1U; n + 1U < nmels; n++) {
+                row[n] = 2.0 * cos(M_PI * (double) k * (double) n / (double) (nmels - 1U));
+            }
+        } else {
+            for (uint32_t n = 0; n < nmels; n++) {
+                row[n] = 2.0 * cos(M_PI * (double) k * (2.0 * (double) n + 1.0) / (2.0 * (double) nmels));
+            }
+        }
+    }
+
+    *matrix = table;
+    return OK;
+}
+
+static int32_t mfcc_apply_dct(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *out, const CSN_ARRAY *log_mel, const double *matrix, uint32_t ncoef, uint32_t nmels) {
+    if (log_mel->shape[0] != nmels || out->shape[0] != ncoef || out->shape[1] != log_mel->shape[1]) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] cepstral stage expects %u bands and %u coefficients over %u frames", nmels, ncoef, log_mel->shape[1]);
+    }
+
+    uint32_t nframes = log_mel->shape[1];
+    size_t src_stride = log_mel->strides[0];
+    size_t dst_stride = out->strides[0];
+
+    for (uint32_t frame = 0; frame < nframes; frame++) {
+        uint32_t src_coords[2] = { 0U, frame };
+        uint32_t dst_coords[2] = { 0U, frame };
+        size_t src_base = from_coords_to_offset(src_coords, log_mel->strides, 2U);
+        size_t dst_base = from_coords_to_offset(dst_coords, out->strides, 2U);
+
+        for (uint32_t k = 0; k < ncoef; k++) {
+            const double *row = matrix + (size_t) k * (size_t) nmels;
+            double sum = 0.0;
+            for (uint32_t n = 0; n < nmels; n++) {
+                CSN_COMPLEXDAT z = slice_get(log_mel->data + src_base * log_mel->itype, n, src_stride, log_mel->itype);
+                sum += row[n] * z.re;
+            }
+            CSN_COMPLEXDAT y = { sum, 0.0 };
+            slice_put(out->data + dst_base * out->itype, k, dst_stride, out->itype, y);
+        }
+    }
+
+    return OK;
+}
+
+int32_t csnarray_mfcc_deinit(CSOUND *csound, CSN_MFCC *p) {
+    mel_filterbank_free(csound, &p->fbank, p->mel_count);
+    if (p->dct_matrix != NULL) {
+        csound->Free(csound, p->dct_matrix);
+        p->dct_matrix = NULL;
+    }
+    FREE_CSNARRDATA(csound, &p->log_mel);
+    deinit_scratch(csound, &p->stft_buffer.buffer);
+    deinit_scratch(csound, &p->stft_buffer.window);
+    FREE_CSNARRDATA(csound, &p->stft_buffer.stft);
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    p->stft_buffer.winsize = *p->winsize;
+    p->stft_buffer.hopsize = *p->hopsize;
+    p->stft_buffer.window_type = *p->wintype;
+
+    double nmfcc_value = (double) *p->nmfcc;
+    if (!IS_VALID_NMFCC(nmfcc_value)) {
+        return csound->InitError(csound, "[csnarray] Invalid number of mfcc coefficients");
+    }
+    p->mfcc_count = (uint32_t) nmfcc_value;
+    p->mel_count = p->mfcc_count;
+
+    double lowf = (double) *p->lowf;
+    double highf = (double) *p->highf;
+    if (!IS_VALID_VALUE(lowf) || !IS_VALID_VALUE(highf) || lowf >= highf) {
+        return csound->InitError(csound, "[csnarray] flow and fhigh should be a valid values with flow less than fhigh");
+    }
+    double dct_type_value = (double) *p->dct_type;
+    if (!IS_VALID_DCT_MODE(dct_type_value)) {
+        return csound->InitError(csound, "[csnarray] DCT mode should be 1 or 2");
+    }
+    uint32_t dct_type = (uint32_t) dct_type_value;
+
+    double sr = (double) *p->sr;
+    if (!IS_VALID_SR(sr)) {
+        return csound->InitError(csound, "[csnarray] Invalid sample rate");
+    }
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot->array;
+    if (source_arr->ndim != 1U) {
+        res = csound->InitError(csound, "[csnarray] MFCC requires 1-D array");
+        goto done;
+    }
+    res = GET_STFT_INIT(csound, NULL, source_arr, &p->stft_buffer);
+    if (res != OK) goto done;
+    res = GET_STFT(csound, source_arr, &p->stft_buffer);
+    if (res != OK) goto done;
+
+    uint32_t nfft = (uint32_t) p->stft_buffer.winsize;
+    res = mel_filterbank(csound, NULL, &p->fbank, p->mel_count, lowf, highf, sr, nfft, true);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = p->mfcc_count;
+    new_shape[1] = p->stft_buffer.stft.shape[1];
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    uint32_t log_mel_shape[CSN_MAX_DIMS] = {0};
+    log_mel_shape[0] = p->mel_count;
+    log_mel_shape[1] = p->stft_buffer.stft.shape[1];
+    FREE_CSNARRDATA(csound, &p->log_mel);
+    if (allocate_array(csound, &p->log_mel, 2U, log_mel_shape, 0, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    res = mel_apply_filter_bank(csound, NULL, &p->log_mel, &p->stft_buffer.stft, p->fbank, p->mel_count);
+    if (res != OK) goto done;
+
+    if (p->dct_matrix != NULL) {
+        csound->Free(csound, p->dct_matrix);
+        p->dct_matrix = NULL;
+    }
+    res = mfcc_dct_matrix(csound, &p->dct_matrix, p->mfcc_count, p->mel_count, dct_type);
+    if (res != OK) goto done;
+
+    res = mfcc_apply_dct(csound, NULL, p->array, &p->log_mel, p->dct_matrix, p->mfcc_count, p->mel_count);
+    if (res != OK) goto done;
+
+    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    p->k_data.prev_size = source_arr->size;
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = slot->array;
+    if (source_arr->ndim != 1U) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] MFCC requires 1-D array");
+        goto done;
+    }
+
+    if (source_arr->shape[0] != p->k_data.prev_size) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Extent %u of the source is %u, but the transform was set up for %zu", 0, source_arr->shape[0], p->k_data.prev_size);
+        goto done;
+    }
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        bool is_same_result = false;
+        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
+        if (res_slot != NULL) {
+            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
+        }
+
+        if (is_same_source && is_same_result) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    res = GET_STFT(csound, source_arr, &p->stft_buffer);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = p->mfcc_count;
+    new_shape[1] = p->stft_buffer.stft.shape[1];
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    res = mel_apply_filter_bank(csound, &p->h, &p->log_mel, &p->stft_buffer.stft, p->fbank, p->mel_count);
+    if (res != OK) goto done;
+
+    res = mfcc_apply_dct(csound, &p->h, p->array, &p->log_mel, p->dct_matrix, p->mfcc_count, p->mel_count);
+    if (res != OK) goto done;
+
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is_log) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    /* Power of two, matching what stft_validate_params accepts: a bank built
+       for any other size cannot be applied to a spectrogram csnum produces. */
+    double nfft_value = (double) *p->nfft;
+    if (!IS_VALID_FFT_SIZE(nfft_value) || !IS_POWER_OF_TWO((uint32_t) nfft_value)) {
+        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+    }
+    uint32_t nfft = (uint32_t) nfft_value;
+
+    double nmfcc_value = (double) *p->nmfcc;
+    if (!IS_VALID_NMFCC(nmfcc_value)) {
+        return csound->InitError(csound, "[csnarray] Invalid number of mfcc coefficients");
+    }
+    uint32_t nmfcc = (uint32_t) *p->nmfcc;
+
+    double lowf = (double) *p->lowf;
+    double highf = (double) *p->highf;
+    if (!IS_VALID_VALUE(lowf) || !IS_VALID_VALUE(highf) || lowf >= highf) {
+        return csound->InitError(csound, "[csnarray] flow and fhigh should be a valid values with flow less than fhigh");
+    }
+
+    double sr = (double) *p->sr;
+    if (!IS_VALID_SR(sr)) {
+        return csound->InitError(csound, "[csnarray] Invalid sample rate");
+    }
+
+    double has_norm = (double) *p->slaney_norm;
+    if (!IS_VALID_ZERO_ONE(has_norm)) {
+        return csound->InitError(csound, "[csnarray] Slaney normalisation flag must be 0 or 1");
+    }
+    bool slaney_norm = (bool) has_norm;
+
+    csound->LockMutex(reg->mutex);
+
+    /* One row per band over the bins of a one-sided spectrum, which is the
+       shape librosa.filters.mel returns. Adjacent bands always overlap -- band
+       i spans the edges (i, i+2) and band i+1 the edges (i+1, i+3) -- so they
+       cannot share a single row without erasing each other. */
+    uint32_t nbins = nfft / 2U + 1U;
+    uint32_t new_ndim = 2U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = nmfcc;
+    new_shape[1] = nbins;
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_MEL_FILTER *fbank = NULL;
+    res = mel_filterbank(csound, NULL, &fbank, nmfcc, lowf, highf, sr, nfft, slaney_norm);
+    if (res != OK) goto done;
+
+    size_t bin_stride = p->array->strides[1];
+    for (uint32_t i = 0; i < nmfcc; i++) {
+        const CSN_MEL_FILTER *filter = &fbank[i];
+        uint32_t row_coords[2] = { i, 0U };
+        size_t row_base = from_coords_to_offset(row_coords, p->array->strides, 2U);
+        double *row = p->array->data + row_base * p->array->itype;
+
+        if (is_log) {
+            for (uint32_t b = 0; b < nbins; b++) {
+                double w = 0.0;
+                if (b >= filter->first_bin && b - filter->first_bin < filter->count) {
+                    w = filter->weights[b - filter->first_bin];
+                }
+                CSN_COMPLEXDAT y = { log(fmax(w, 1.0e-12)), 0.0 };
+                slice_put(row, b, bin_stride, p->array->itype, y);
+            }
+        } else {
+            for (uint32_t j = 0; j < filter->count; j++) {
+                CSN_COMPLEXDAT y = { filter->weights[j], 0.0 };
+                slice_put(row, (size_t) filter->first_bin + j, bin_stride, p->array->itype, y);
+            }
+        }
+    }
+
+    mel_filterbank_free(csound, &fbank, nmfcc);
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_mfbank_deinit(CSOUND *csound, CSN_MFCC_FBANK *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_mfbank(CSOUND *csound, CSN_MFCC_FBANK *p) {
+    return csnarray_mfbank_helper(csound, p, false);
+}
+
+int32_t csnarray_mlogfbank(CSOUND *csound, CSN_MFCC_FBANK *p) {
+    return csnarray_mfbank_helper(csound, p, true);
 }

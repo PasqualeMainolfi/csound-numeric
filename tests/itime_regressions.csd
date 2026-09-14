@@ -2118,6 +2118,132 @@ instr 13
     assert(abs(iCcCorr0Re - 2) < 1e-12)
     assert(abs(iCcCorr0Im - 11) < 1e-12)
 endin
+
+instr 14
+    ; ------------------------------------------------------------------
+    ; DCT/DST: the transform is built on a real FFT of an extended signal,
+    ; so the admissible lengths are the ones whose extension is a power of
+    ; two: 2^k+1 for DCT-I, 2^k-1 for DST-I, 2^k for the type-II pair.
+    ; Reference values are the scipy definitions with norm=None.
+    ; ------------------------------------------------------------------
+    iDcstNine[] = fillarray(1, 2, 3, 4, 5, 6, 7, 8, 9)
+    iDcstEight[] = fillarray(1, 2, 3, 4, 5, 6, 7, 8)
+    iDcstSeven[] = fillarray(1, 2, 3, 4, 5, 6, 7)
+
+    iDcstSrcNine:CsnArr = csnfromarray(iDcstNine)
+    iDcstSrcEight:CsnArr = csnfromarray(iDcstEight)
+    iDcstSrcSeven:CsnArr = csnfromarray(iDcstSeven)
+
+    iDctOneWant[] = fillarray(80, -26.2741423691, 0, -3.23982880884,
+                              0, -1.44646269217, 0, -1.0395661299, 0)
+    iDctOneRef:CsnArr = csnfromarray(iDctOneWant)
+    iDctOneGot:CsnArr = csndctone1d(iDcstSrcNine)
+    iDctOneErr = csnmax(csnabs(csnsubtract(iDctOneGot, iDctOneRef)))
+    assert(iDctOneErr < 1e-9)
+
+    iDctTwoWant[] = fillarray(72, -25.7692920908, 0, -2.69381920362,
+                              0, -0.803611614944, 0, -0.202809291039)
+    iDctTwoRef:CsnArr = csnfromarray(iDctTwoWant)
+    iDctTwoGot:CsnArr = csndcttwo1d(iDcstSrcEight)
+    iDctTwoErr = csnmax(csnabs(csnsubtract(iDctTwoGot, iDctTwoRef)))
+    assert(iDctTwoErr < 1e-9)
+
+    iDstOneWant[] = fillarray(40.218715937, -19.313708499, 11.9728461013, -8,
+                              5.34542910335, -3.31370849898, 1.59129893904)
+    iDstOneRef:CsnArr = csnfromarray(iDstOneWant)
+    iDstOneGot:CsnArr = csndstone1d(iDcstSrcSeven)
+    iDstOneErr = csnmax(csnabs(csnsubtract(iDstOneGot, iDstOneRef)))
+    assert(iDstOneErr < 1e-9)
+
+    iDstTwoWant[] = fillarray(46.1324780593, -20.905007438, 16.1995720165,
+                              -11.313708499, 10.8242079648, -8.65913760234,
+                              9.17632042387, -8)
+    iDstTwoRef:CsnArr = csnfromarray(iDstTwoWant)
+    iDstTwoGot:CsnArr = csndsttwo1d(iDcstSrcEight)
+    iDstTwoErr = csnmax(csnabs(csnsubtract(iDstTwoGot, iDstTwoRef)))
+    assert(iDstTwoErr < 1e-9)
+
+    ; The explicit axis reaches the same single axis that -1 defaults to, and
+    ; the transform keeps the source length rather than the extended one.
+    iDcstShape[] = fillarray(9)
+    iDctOneAxis:CsnArr = csndctone1d(iDcstSrcNine, 0)
+    iDctOneAxisSize[] = csnshape(iDctOneAxis)
+    assert(iDctOneAxisSize[0] == iDcstShape[0])
+endin
+
+instr 15
+    ; ------------------------------------------------------------------
+    ; MFCC: STFT, mel filterbank, log, then a DCT over the mel axis.
+    ; A silent source pins every band at the log floor, and the DCT of a
+    ; constant vector is exactly 2*nbands*c in bin 0 and zero everywhere
+    ; else -- which checks the cepstral stage without depending on the
+    ; windowing or on where the band edges land.
+    ; ------------------------------------------------------------------
+    iMfccSrcShape[] = fillarray(128)
+    iMfccSrc:CsnArr = csnzeros(iMfccSrcShape)
+
+    ; src, winsize, hopsize, sr, nmfcc, lowf, highf, wintype, dct_type
+    iMfcc:CsnArr = csnmfcc(iMfccSrc, 32, 16, 48000, 4, 0, 24000, 2, 2)
+    iMfccShape[] = csnshape(iMfcc)
+    assert(iMfccShape[0] == 4)
+    assert(iMfccShape[1] == 7)
+
+    iMfccFirst[] = fillarray(0, 0)
+    iMfccC0 = csnget(iMfcc, iMfccFirst)
+    assert(abs(iMfccC0 + 221.04816892742838) < 1e-9)
+
+    iMfccRest[] = fillarray(2, 3)
+    iMfccC2 = csnget(iMfcc, iMfccRest)
+    assert(abs(iMfccC2) < 1e-9)
+endin
+
+instr 16
+    ; ------------------------------------------------------------------
+    ; Mel filterbank: one row per band over the bins of a one-sided
+    ; spectrum. Adjacent bands overlap by construction, so the telling
+    ; check is that each keeps its own row -- summed down a column the
+    ; triangles form a partition of unity between the first and last
+    ; band centre, which collapses the moment two bands share storage.
+    ; ------------------------------------------------------------------
+    iFb:CsnArr = csnmfbank(64, 5, 0, 24000, 48000, 0)
+    iFbShape[] = csnshape(iFb)
+    assert(iFbShape[0] == 5)
+    assert(iFbShape[1] == 33)
+
+    iFbBin = 1
+    until iFbBin == 18 do
+        iFbRow = 0
+        iFbSum = 0
+        until iFbRow == 5 do
+            iFbIdx[] = fillarray(iFbRow, iFbBin)
+            iFbW = csnget(iFb, iFbIdx)
+            iFbSum += iFbW
+            iFbRow += 1
+        od
+        assert(abs(iFbSum - 1) < 1e-12)
+        iFbBin += 1
+    od
+
+    iFbOne[] = fillarray(0, 1)
+    iFbTwo[] = fillarray(2, 5)
+    iFbW0 = csnget(iFb, iFbOne)
+    iFbW2 = csnget(iFb, iFbTwo)
+    assert(abs(iFbW0 - 0.8227445719637628) < 1e-12)
+    assert(abs(iFbW2 - 0.9134541302495613) < 1e-12)
+
+    ; The log form carries the same matrix in log scale, floor included,
+    ; so every bin is the log of the linear one.
+    iLfb:CsnArr = csnmlogfbank(64, 5, 0, 24000, 48000, 0)
+    iLfbW0 = csnget(iLfb, iFbOne)
+    iLfbW2 = csnget(iLfb, iFbTwo)
+    assert(abs(iLfbW0 - log(iFbW0)) < 1e-12)
+    assert(abs(iLfbW2 - log(iFbW2)) < 1e-12)
+
+    ; A bin no band reaches sits at the floor, not at zero.
+    iFbEmpty[] = fillarray(0, 30)
+    iLfbEmpty = csnget(iLfb, iFbEmpty)
+    assert(abs(iLfbEmpty + 27.631021115928547) < 1e-9)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -2139,6 +2265,9 @@ i 10 0.18 0.01
 i 11 0.20 0.01
 i 12 0.22 0.01
 i 13 0.24 0.01
+i 14 0.26 0.01
+i 15 0.28 0.01
+i 16 0.30 0.01
 e
 </CsScore>
 
@@ -2186,5 +2315,7 @@ e
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
 ; csnfftconvolve1d csnfftcorrelate1d csnfftconvolve csnfftcorrelate
 ; csnsolve csninv csndet csndet.c csnrtlockstart csnrtlockend csnrtlockall csnsavgol
+; csnmedfilt csnmedfilt.in csnmedfilt.s csnmedfilt.s.in csnmedfilt1d csnmedfilt1d.in
+; csndctone1d csndcttwo1d csndstone1d csndsttwo1d csnmfcc csnmfbank csnmlogfbank
 ; @covers-end
 </CsoundSynthesizer>

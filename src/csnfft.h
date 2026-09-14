@@ -5,6 +5,7 @@
 #include "csnum.h"
 #include <stddef.h>
 #include <csdl.h>
+#include <stdint.h>
 
 
 #define NUMBER_OF_STFT_WINDOWS 3
@@ -31,6 +32,17 @@ typedef enum {
     CSN_CONVOLUTION = 0,
     CSN_CORRELATION,
 } CSN_CORRCONV_MODE;
+
+typedef enum {
+    CSN_DCT_I = 0,
+    CSN_DCT_II,
+    CSN_DCT_III,
+    CSN_DCT_IV,
+    CSN_DST_I,
+    CSN_DST_II,
+    CSN_DST_III,
+    CSN_DST_IV
+} CSN_DCST_MODE;
 
 typedef struct {
     void *fft_setup;
@@ -104,6 +116,18 @@ typedef struct {
     K_DATA_FFT k_data_fft;
     bool is_published;
 } CSN_STFT;
+
+typedef struct {
+    CSN_ARRAY stft;
+    MYFLT winsize;
+    MYFLT hopsize;
+    MYFLT window_type;
+    CSN_SCRATCH buffer;
+    CSN_SCRATCH window;
+    size_t fft_out_size;
+    size_t fft_work_size;
+    void *fft_setup;
+} CSN_RAW_STFT;
 
 typedef struct {
     OPDS h;
@@ -215,6 +239,80 @@ typedef struct {
     bool is_published;
 } CSN_CORRCONV;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *axis; // -1 last axis (as numpy)
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    CSN_SCRATCH buffer;
+    CSN_ARRAY fft_buffer;
+    CSN_ARRAY dcst_extended;
+    /* Extent of the transformed axis as it stood at init. dcst_extended keeps
+       the other extents and the rank, so the two together describe the only
+       source layout the scratch buffers are sized for. */
+    uint32_t source_axis_len;
+    K_DATA k_data;
+    K_DATA_FFT k_data_fft;
+    bool is_published;
+} CSN_DCST;
+
+typedef struct {
+    uint32_t first_bin;
+    uint32_t count;
+    double *weights;
+} CSN_MEL_FILTER;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *winsize;
+    MYFLT *hopsize;
+    MYFLT *sr;
+    MYFLT *nmfcc;
+    MYFLT *lowf;
+    MYFLT *highf;
+    MYFLT *wintype; // stft window
+    MYFLT *dct_type; // 1 or 2
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    CSN_MEL_FILTER *fbank;
+    CSN_RAW_STFT stft_buffer;
+    /* Bands in, coefficients out. They are the same number today because one
+       argument sets both; the cepstral stage is written against the pair so
+       that splitting them is an argument away. */
+    uint32_t mfcc_count;
+    uint32_t mel_count;
+    /* mfcc_count rows by mel_count columns, built once at init. */
+    double *dct_matrix;
+    CSN_ARRAY log_mel;
+    K_DATA k_data;
+    K_DATA_FFT k_data_fft;
+    bool is_published;
+} CSN_MFCC;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    MYFLT *nfft;
+    MYFLT *nmfcc;
+    MYFLT *lowf;
+    MYFLT *highf;
+    MYFLT *sr;
+    MYFLT *slaney_norm;
+    // private
+    CSN_ARRAY *array;
+} CSN_MFCC_FBANK;
 
 int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_fft2_deinit(CSOUND *csound, CSN_FFT2 *p);
@@ -279,5 +377,24 @@ int32_t csnarray_convolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_correlate1d_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p);
+
+int32_t csnarray_dcst_deinit(CSOUND *csound, CSN_DCST *p);
+
+int32_t csnarray_dct_one(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dct_two(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dct_one_k(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dct_two_k(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dst_one(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dst_two(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dst_one_k(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dst_two_k(CSOUND *csound, CSN_DCST *p);
+
+int32_t csnarray_mfcc_deinit(CSOUND *csound, CSN_MFCC *p);
+int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p);
+int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p);
+
+int32_t csnarray_mfbank_deinit(CSOUND *csound, CSN_MFCC_FBANK *p);
+int32_t csnarray_mfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
+int32_t csnarray_mlogfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
 
 #endif
