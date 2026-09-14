@@ -25,7 +25,7 @@ index of the largest - from [csnargmax](csnargmax.md) - is where the template
 starts.
 
 Everything else follows [csncorrelate1d](csncorrelate1d.md): the kernel must be
-1-D and non-empty, the default axis `-1` reads the source flat, and `edges`
+1-D and non-empty, omitting the axis reads the source flat, and `edges`
 selects FULL, SAME or VALID with the same lengths. Both real and complex arrays
 are accepted.
 
@@ -42,7 +42,8 @@ instead of one laid along an axis.
 handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr)
 handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i)
 handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
+handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -50,7 +51,7 @@ handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
 * `x:CsnArr`: the array to correlate.
 * `h:CsnArr`: the kernel; must be 1-D and hold at least one element.
 * `edges:i` (optional, default `0`): `0` FULL, `1` SAME, `2` VALID.
-* `axis:i` (optional, default `-1`): the axis to correlate along; `-1` reads the array flat.
+* `axis:i` (optional): the axis to correlate along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

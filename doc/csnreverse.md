@@ -7,7 +7,7 @@ Reverse the flat element order of an array.
 ## Description
 
 `csnreverse` reverses an array read flat: the last element becomes the first,
-whatever the rank. It is [csnflip](csnflip.md) with `axis = -1`, said directly
+whatever the rank. It is the flat reversal counterpart of [csnflip](csnflip.md), said directly
 and with no axis argument to give.
 
 Two forms share the name. The one with an output publishes a new handle and

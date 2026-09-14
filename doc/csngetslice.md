@@ -28,7 +28,7 @@ handle:CsnArr = csngetslice(source:CsnArr, axis:k, start:k, stop:k, step:k)
 ## Arguments
 
 * `source:CsnArr`: the array to read.
-* `axis:i / axis:k`: the axis to slice along, from `0` to `csndims - 1`.
+* `axis:i / axis:k`: the axis to slice along, from `-csndims` to `csndims - 1`; negative values count from the end.
 * `start:i / start:k`: first index, included.
 * `stop:i / stop:k`: last index, excluded.
 * `step:i / step:k`: stride; must be > 0.

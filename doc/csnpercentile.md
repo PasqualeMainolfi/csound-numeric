@@ -28,15 +28,14 @@ value:i = csnpercentile(source:CsnArr, percent:i)
 value:k = csnpercentile(source:CsnArr, percent:k)
 value:k = csnpercentile(source:CsnArr, percent:k, trig:k)
 handle:CsnArr = csnpercentile(source:CsnArr, percent:i, axis:i)
-handle:CsnArr = csnpercentile(source:CsnArr, percent:k, axis:k)
-handle:CsnArr = csnpercentile(source:CsnArr, percent:k, axis:k, trig:k)
+handle:CsnArr = csnpercentile(source:CsnArr, percent:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to reduce.
 * `percent:i / percent:k`: the percentile, from 0 to 100.
-* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number.
+* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

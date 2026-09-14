@@ -80,7 +80,7 @@ instr 7
        cell in place. After the first pass the norm is 1, so it settles. */
     kAxis init -1
     kOrder init 2
-    Normed = csnnormalize(Normed, kAxis, kOrder)
+    Normed = csnnormalize(Normed, kOrder, kAxis)
 endin
 
 instr 8

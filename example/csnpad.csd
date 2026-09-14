@@ -29,9 +29,9 @@ instr 1
     frame_shape:i[] = csnshape(frame)
     prints("every axis: %g x %g\n", frame_shape[0], frame_shape[1])
 
-    rows:CsnArr     = csnpad(mat, 1, 1, 0, 0)
+    rows:CsnArr     = csnpad(mat, 1, 1, 0, -2)
     rows_shape:i[]  = csnshape(rows)
-    prints("axis 0 only: %g x %g\n", rows_shape[0], rows_shape[1])
+    prints("axis -2 only: %g x %g\n", rows_shape[0], rows_shape[1])
 
     ; in place
     csnpad(vec, 0, 1, 9)

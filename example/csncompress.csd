@@ -26,7 +26,7 @@ instr 1
     shape:i[]     = fillarray(2, 2)
     mat:CsnArr    = csnreshape(vec, shape)
     rows:CsnArr   = csnfromarray(array(0, 1))
-    row:CsnArr    = csncompress(mat, rows, 0)
+    row:CsnArr    = csncompress(mat, rows, -2)
     flat:CsnArr   = csnflatten(row)
     row_out:i[]   = csntoarray(flat)
     prints("row  = %g %g\n", row_out[0], row_out[1])

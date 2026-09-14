@@ -50,7 +50,7 @@ There is normally no explicit `csnrtlock` call in a `csnsnap` analysis chain:
 
 ```csound
 frame:CsnArr, kready = csnsnap(asig, 1024, 256)
-spectrum:CsnArr = csnrfft(frame, 1024, -1, kready)
+spectrum:CsnArr = csnrfft(frame, 1024, kready, -1)
 ```
 
 `csnsnap` uses `irt=1` by default, so `frame` is marked and `spectrum` inherits
@@ -97,7 +97,7 @@ instr 1
     ; This result inherits the mark. Its fixed shape allocates at init and
     ; therefore needs no allocation on the performance thread.
     kTrig init 1
-    spectrum:CsnArr = csnrfft(source, 4, -1, kTrig)
+    spectrum:CsnArr = csnrfft(source, 4, kTrig, -1)
     kSize = csnsize(spectrum)
     if timeinstk() == 2 then
         printf("locked fixed-size spectrum: %d bins\n", 1, kSize)

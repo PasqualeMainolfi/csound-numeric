@@ -40,7 +40,7 @@ instr 2
     kWindow init 3
     kAxis init -1
     kTrig init 1
-    MovOut = csnmovmean(MovSrc, kWindow, kAxis, kTrig)
+    MovOut = csnmovmean(MovSrc, kWindow, kTrig)
 endin
 
 instr 3
@@ -64,7 +64,7 @@ instr 10
        so a cache that never noticed the write would still be reporting it. */
     assert(iMedianCached != 3)
 
-    MovRef:CsnArr = csnmovmean(MovSrc, 3, -1)
+    MovRef:CsnArr = csnmovmean(MovSrc, 3)
     iRef0 = csnget(MovRef, i0)
     iRef1 = csnget(MovRef, i1)
     iRef4 = csnget(MovRef, i4)

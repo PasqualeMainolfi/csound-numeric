@@ -348,6 +348,33 @@ typedef enum {
      CSN_MEDIAN_EDGE_ZERO
 } CSN_MEDIAN_EDGES;
 
+/* Axis defaults describe the public contract of an opcode when its axis
+   argument is absent.  Axis kinds describe the resolved operation.  Keeping
+   the two concepts separate prevents an explicit axis from being confused
+   with the default that happened to select it. */
+typedef enum {
+    CSN_AXIS_DEFAULT_FLATTEN,
+    CSN_AXIS_DEFAULT_LAST,
+    CSN_AXIS_DEFAULT_ALL,
+    CSN_AXIS_DEFAULT_REQUIRED
+} CSN_AXIS_DEFAULT;
+
+typedef enum {
+    CSN_AXIS_INDEX,
+    CSN_AXIS_FLATTEN,
+    CSN_AXIS_ALL,
+    CSN_AXIS_INVALID
+} CSN_AXIS_KIND;
+
+typedef struct {
+    CSN_AXIS_KIND kind;
+    uint32_t index; /* meaningful only when kind == CSN_AXIS_INDEX */
+} CSN_AXIS_SPEC;
+
+CSN_AXIS_SPEC csn_normalize_axis(const MYFLT *axis_in, uint32_t ndim, CSN_AXIS_DEFAULT omitted_default);
+CSN_AXIS_SPEC csn_normalize_axis_value(double axis, uint32_t ndim);
+/* ---------- */
+
 typedef struct {
     double *sorted;
     double *ring;
@@ -593,9 +620,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *param_a; // axis for flip
+    MYFLT *param_a; // axis for i-rate flip, trigger for flip.k
                     // shift for roll/rollaxis
-    MYFLT *param_b; // null for flip
+    MYFLT *param_b; // axis for flip.k
                     // axis for rollaxis
     // private
     CSN_ARRAY *array;
@@ -606,9 +633,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *param_a; // axis for flip
+    MYFLT *param_a; // axis for i-rate flip, trigger for flip.in.k
                     // shift for roll/rollaxis
-    MYFLT *param_b; // null for flip
+    MYFLT *param_b; // axis for flip.in.k
                     // axis for rollaxis
     K_DATA k_data;
     CSN_SCRATCH scratch;
@@ -840,9 +867,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *data_handle;
-    MYFLT *arg_a; // trig for .flat
-                  // axis for .block
-    MYFLT *arg_b; // trig for .block
+    MYFLT *arg_a; // trig for both k-rate forms; axis for .block at i-rate
+    MYFLT *arg_b; // axis for .block.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -857,11 +883,8 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     MYFLT *value;
-    MYFLT *arg_a; // axis in pad.ax (INOCOUNT > 4)
-                  // trig in pad.k
-                  // axis in pad.ax.k (INOCOUNT > 5)
-    MYFLT *arg_b; // unused in pad and pad.k
-                  // trig in pad.ax.k
+    MYFLT *arg_a; // axis in pad.ax (INOCOUNT > 4), trigger in pad[.ax].k
+    MYFLT *arg_b; // axis in pad.ax.k (INOCOUNT > 5)
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -876,11 +899,8 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     COMPLEXDAT *value;
-    MYFLT *arg_a; // axis in pad.ax.c (INOCOUNT > 4)
-                  // trig in pad.c.k
-                  // axis in pad.ax.c.k (INOCOUNT > 5)
-    MYFLT *arg_b; // unused in pad.c and pad.c.k
-                  // trig in pad.ax.c.k
+    MYFLT *arg_a; // axis in pad.ax.c (INOCOUNT > 4), trigger in pad[.ax].c.k
+    MYFLT *arg_b; // axis in pad.ax.c.k (INOCOUNT > 5)
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -893,11 +913,8 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     MYFLT *value;
-    MYFLT *arg_a; // axis in pad.ax.in (INOCOUNT > 4), -1 default all axes
-                  // trig in pad.in.k
-                  // axis in pad.ax.in.k (INOCOUNT > 5)
-    MYFLT *arg_b; // unused in pad.in and pad.in.k
-                  // trig in pad.ax.in.k
+    MYFLT *arg_a; // axis in pad.ax.in (INOCOUNT > 4), trigger in pad[.ax].in.k
+    MYFLT *arg_b; // axis in pad.ax.in.k (INOCOUNT > 5)
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
@@ -911,11 +928,8 @@ typedef struct {
     MYFLT *before;
     MYFLT *after;
     COMPLEXDAT *value;
-    MYFLT *arg_a; // axis in pad.ax.in.c (INOCOUNT > 4), -1 default all axes
-                  // trig in pad.in.c.k
-                  // axis in pad.ax.in.c.k (INOCOUNT > 5)
-    MYFLT *arg_b; // unused in pad.in.c and pad.in.c.k
-                  // trig in pad.ax.in.c.k
+    MYFLT *arg_a; // axis in pad.ax.in.c (INOCOUNT > 4), trigger in pad[.ax].in.c.k
+    MYFLT *arg_b; // axis in pad.ax.in.c.k (INOCOUNT > 5)
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
@@ -1004,9 +1018,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *source_handle_true; // mask
-    MYFLT *source_scalar_false; // scalar in where_hs
-                                // axis in compress (-1 return flatten, >= 0 reduce dim)
-    MYFLT *trig;
+    MYFLT *source_scalar_false; // scalar in where_hs; i-axis or k-trigger in compress
+    MYFLT *trig;                // explicit axis in compress.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1080,8 +1093,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1207,9 +1220,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *order;
-    MYFLT *trig;
+    MYFLT *axis;  // i-rate axis; order in the k-rate overload
+    MYFLT *order; // i-rate order; trigger in the k-rate overload
+    MYFLT *trig;  // axis in the k-rate overload
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1315,9 +1328,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *order;
-    MYFLT *trig;
+    MYFLT *axis;  // i-rate axis; order in the k-rate overload
+    MYFLT *order; // i-rate order; trigger in the k-rate overload
+    MYFLT *trig;  // axis in the k-rate overload
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1344,8 +1357,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *winsize;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1357,8 +1370,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *winsize;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // explicit axis in the k-rate overloads
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH scratch;
@@ -1382,8 +1395,8 @@ typedef struct {
                    // in unwrap is period (see numpy)
     MYFLT *arg_b;  // in wrap is trig
                    // discount for unwrap
-    MYFLT *arg_c;  // axis
-    MYFLT *arg_d;  // trig in unwrap
+    MYFLT *arg_c;  // i-rate axis; trigger in unwrap.k
+    MYFLT *arg_d;  // axis in unwrap.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1398,8 +1411,8 @@ typedef struct {
                    // in unwrap is period (see numpy)
     MYFLT *arg_b;  // in wrap is trig
                    // discount for unwrap
-    MYFLT *arg_c;  // axis
-    MYFLT *arg_d;  // trig in unwrap
+    MYFLT *arg_c;  // i-rate axis; trigger in unwrap.in.k
+    MYFLT *arg_d;  // axis in unwrap.in.k
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1412,8 +1425,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *quantity;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overload
+    MYFLT *trig; // axis in the k-rate overload
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1568,8 +1581,8 @@ typedef struct {
     MYFLT *mode;
     MYFLT *bounds;
     MYFLT *fill;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // trigger
+    MYFLT *trig; // explicit axis in the axis overload
     // private
     CSN_ARRAY *array;
     double fill_value;
@@ -1592,8 +1605,8 @@ typedef struct {
     MYFLT *mode;
     MYFLT *bounds;
     MYFLT *fill;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in resample.k
+    MYFLT *trig; // explicit axis in resample.k
     // private
     CSN_ARRAY *array;
     double fill_value;
@@ -1614,9 +1627,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *length;
-    MYFLT *arg_a; // trig for head
-                  // axis for truncate
-    MYFLT *arg_b; // trig for truncate
+    MYFLT *arg_a; // trigger for k-rate head/truncate; i-rate truncate axis
+    MYFLT *arg_b; // explicit axis for truncate.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1628,8 +1640,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *length;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in truncate.in.k
+    MYFLT *trig; // explicit axis in truncate.in.k
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1927,7 +1939,6 @@ typedef struct {
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
-bool IS_VALID_AXIS(double axis, uint32_t ndim);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
 bool IS_VALID_VALUE(double value);
 bool IS_VALID_ZERO_ONE(double value);
@@ -2055,8 +2066,8 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p);     // return (count
 int32_t csnarray_argnonzero(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
 int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
 int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
-int32_t csnarray_argmin(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
-int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
+int32_t csnarray_argmin(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
+int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
 int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
 int32_t csnarray_greater_than(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
 int32_t csnarray_less_than(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
@@ -2204,9 +2215,9 @@ int32_t csnarray_dotcomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
 int32_t csnarray_innercomp_scalar(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
 int32_t csnarray_outer(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p); // generalized norm order (Minkowski)
-int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
-int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p); // specify axis -1 -> all
-int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p); // specify axis -1 -> all
+int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // norm over the whole flattened array
+int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
 int32_t csnarray_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
 int32_t csnarray_pair_distance(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
 int32_t csnarray_angle_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);
@@ -2355,8 +2366,8 @@ int32_t csnarray_argwhere_k(CSOUND *csound, CSN_ARGWHERE *p);     // return (cou
 int32_t csnarray_argnonzero_k(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
 int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
 int32_t csnarray_argisnan_k(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
-int32_t csnarray_argmin_k(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
-int32_t csnarray_argmax_k(CSOUND *csound, CSN_REDUCTION *p);      // return (1, ndim) if axis == -1 else (shape[axis], ndim)
+int32_t csnarray_argmin_k(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
+int32_t csnarray_argmax_k(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
 int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
 int32_t csnarray_greater_than_k(CSOUND *csound, CSN_COMPARE *p);  // return array 1D
 int32_t csnarray_less_than_k(CSOUND *csound, CSN_COMPARE *p);     // return array 1D
@@ -2504,9 +2515,9 @@ int32_t csnarray_dotcomp_scalar_k(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p)
 int32_t csnarray_innercomp_scalar_k(CSOUND *csound, CSN_BINOPCOMPLEX_HH_SCALAR *p);
 int32_t csnarray_outer_k(CSOUND *csound, CSN_BINOP_HH *p);
 int32_t csnarray_norm_k(CSOUND *csound, CSN_NORM_REDUCTION *p); // generalized norm order (Minkowski)
-int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // specify axis -1 -> all
-int32_t csnarray_normalize_k(CSOUND *csound, CSN_UNARYOP_AX *p); // specify axis -1 -> all
-int32_t csnarray_normalize_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p); // specify axis -1 -> all
+int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p); // norm over the whole flattened array
+int32_t csnarray_normalize_k(CSOUND *csound, CSN_UNARYOP_AX *p);
+int32_t csnarray_normalize_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
 int32_t csnarray_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p); // only between vecton in the same space
 int32_t csnarray_pair_distance_k(CSOUND *csound, CSN_BINOP_HH *p); // only between vecton in the same space
 int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p);

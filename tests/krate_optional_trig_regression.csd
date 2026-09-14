@@ -47,16 +47,15 @@ instr 1
 endin
 
 instr 2
-    /* Array output, trigger omitted, one k argument left to mark the rate. */
-    kAxis init -1
-    Sorted = csnsort(Src, kAxis)
+    /* Array output with the trigger supplied in its canonical position. */
+    kTrig init 1
+    Sorted = csnsort(Src, kTrig)
 endin
 
 instr 3
-    /* Two k arguments plus the omitted trigger. */
+    /* The window marks the rate; the trailing trigger is omitted. */
     kWindow init 3
-    kMovAxis init -1
-    Mov = csnmovmean(Src, kWindow, kMovAxis)
+    Mov = csnmovmean(Src, kWindow)
 endin
 
 instr 4
@@ -90,7 +89,7 @@ instr 10
     assert(iSorted0 == 2 && iSorted4 == 100)
 
     /* The moving mean has to agree with one computed now. */
-    MovRef:CsnArr = csnmovmean(Src, 3, -1)
+    MovRef:CsnArr = csnmovmean(Src, 3)
     iMovRef0 = csnget(MovRef, i0)
     iMov0 = csnget(Mov, i0)
     assert(iMov0 == iMovRef0)

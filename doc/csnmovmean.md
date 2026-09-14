@@ -34,19 +34,19 @@ current values; a zero trigger leaves it untouched.
 ```csound
 handle:CsnArr = csnmovmean(source:CsnArr, winsize:i)
 handle:CsnArr = csnmovmean(source:CsnArr, winsize:i, axis:i)
-handle:CsnArr = csnmovmean(source:CsnArr, winsize:k, axis:k)
-handle:CsnArr = csnmovmean(source:CsnArr, winsize:k, axis:k, trig:k)
+handle:CsnArr = csnmovmean(source:CsnArr, winsize:k, trig:k)
+handle:CsnArr = csnmovmean(source:CsnArr, winsize:k, trig:k, axis:k)
 csnmovmean(source:CsnArr, winsize:i)
 csnmovmean(source:CsnArr, winsize:i, axis:i)
-csnmovmean(source:CsnArr, winsize:k, axis:k)
-csnmovmean(source:CsnArr, winsize:k, axis:k, trig:k)
+csnmovmean(source:CsnArr, winsize:k, trig:k)
+csnmovmean(source:CsnArr, winsize:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to filter.
 * `winsize:i / winsize:k`: the window length, in elements.
-* `axis:i / axis:k` (optional, default `-1`): the axis to slide along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to slide along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. In the output form a zero trigger republishes the previous result; in place it leaves the source untouched.
 
 ## Output

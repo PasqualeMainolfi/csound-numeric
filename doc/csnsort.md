@@ -26,18 +26,18 @@ and returns nothing.
 ```csound
 handle:CsnArr = csnsort(source:CsnArr)
 handle:CsnArr = csnsort(source:CsnArr, axis:i)
-handle:CsnArr = csnsort(source:CsnArr, axis:k)
-handle:CsnArr = csnsort(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnsort(source:CsnArr, trig:k)
+handle:CsnArr = csnsort(source:CsnArr, trig:k, axis:k)
 csnsort(source:CsnArr)
 csnsort(source:CsnArr, axis:i)
-csnsort(source:CsnArr, axis:k)
-csnsort(source:CsnArr, axis:k, trig:k)
+csnsort(source:CsnArr, trig:k)
+csnsort(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to sort.
-* `axis:i / axis:k` (optional, default `-1`): the axis to sort along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to sort along. Omit it to use the last axis; explicit negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -61,8 +61,8 @@ csnsort(source:CsnArr, axis:k, trig:k)
 ; -----------------------------------------------------------------------------
 ; csnsort.csd
 ;
-; Ascending order, duplicates kept. With an axis every row is sorted on its own
-; and the rows stay where they are.
+; Ascending order, duplicates kept. The omitted axis is the last one; explicit
+; negative axes count from the end just as in NumPy.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -80,10 +80,10 @@ instr 1
     src_out:i[]    = csntoarray(data)
     prints("source = %g %g %g %g %g\n", src_out[0], src_out[1], src_out[2], src_out[3], src_out[4])
 
-    ; along an axis: every row sorted, rows in place
+    ; on a matrix omission means the last axis: every row is sorted on its own
     shape:i[]      = fillarray(2, 3)
     mat:CsnArr     = csnreshape(csnfromarray(array(3, 1, 2, 9, 7, 8)), shape)
-    rows:CsnArr    = csnsort(mat, 1)
+    rows:CsnArr    = csnsort(mat)
     rows_out:i[]   = csntoarray(csnflatten(rows))
     prints("per row = %g %g %g | %g %g %g\n", rows_out[0], rows_out[1], rows_out[2], rows_out[3], rows_out[4], rows_out[5])
 

@@ -463,23 +463,23 @@ instr 2
 
     iGradientInputValues[] = fillarray(1, 4, 9)
     iGradientInput:CsnArr = csnfromarray(iGradientInputValues)
-    iGradient:CsnArr = csngrad(iGradientInput, -1)
+    iGradient:CsnArr = csngrad(iGradientInput)
     iGradientValues[] = csntoarray(iGradient)
     assert(iGradientValues[0] == 3 && iGradientValues[1] == 4 && iGradientValues[2] == 5)
 
     ; Moving median/min/max, output and in-place signatures.
     iMovingValues[] = fillarray(1, 5, 2, 4, 3)
     iMoving:CsnArr = csnfromarray(iMovingValues)
-    iMovMedian:CsnArr = csnmovmedian(iMoving, 3, -1)
-    iMovMin:CsnArr = csnmovmin(iMoving, 3, -1)
-    iMovMax:CsnArr = csnmovmax(iMoving, 3, -1)
+    iMovMedian:CsnArr = csnmovmedian(iMoving, 3)
+    iMovMin:CsnArr = csnmovmin(iMoving, 3)
+    iMovMax:CsnArr = csnmovmax(iMoving, 3)
     assert(csnsize(iMovMedian) == 5 && csnsize(iMovMin) == 5 && csnsize(iMovMax) == 5)
     iMovMedianIn:CsnArr = csncopy(iMoving)
     iMovMinIn:CsnArr = csncopy(iMoving)
     iMovMaxIn:CsnArr = csncopy(iMoving)
-    csnmovmedian(iMovMedianIn, 3, -1)
-    csnmovmin(iMovMinIn, 3, -1)
-    csnmovmax(iMovMaxIn, 3, -1)
+    csnmovmedian(iMovMedianIn, 3)
+    csnmovmin(iMovMinIn, 3)
+    csnmovmax(iMovMaxIn, 3)
     assert(csnsize(iMovMedianIn) == 5 && csnsize(iMovMinIn) == 5 && csnsize(iMovMaxIn) == 5)
     iMovMedianValues[] = csntoarray(iMovMedian)
     iMovMinValues[] = csntoarray(iMovMin)
@@ -500,7 +500,7 @@ instr 2
 
     ; An even window reaches two back and one ahead, and averages the middle
     ; pair whenever it holds an even count.
-    iMovMedianEven:CsnArr = csnmovmedian(iMoving, 4, -1)
+    iMovMedianEven:CsnArr = csnmovmedian(iMoving, 4)
     iMovMedianEvenValues[] = csntoarray(iMovMedianEven)
     assert(iMovMedianEvenValues[0] == 3 && iMovMedianEvenValues[1] == 2 && iMovMedianEvenValues[2] == 3)
     assert(iMovMedianEvenValues[3] == 3.5 && iMovMedianEvenValues[4] == 3)
@@ -509,7 +509,7 @@ instr 2
     iMovNaN = sqrt(-1)
     iMovNaNValues[] = fillarray(1, iMovNaN, 2, 4, 3)
     iMovNaNArr:CsnArr = csnfromarray(iMovNaNValues)
-    iMovMedianNaN:CsnArr = csnmovmedian(iMovNaNArr, 3, -1)
+    iMovMedianNaN:CsnArr = csnmovmedian(iMovNaNArr, 3)
     iMovMedianNaNValues[] = csntoarray(iMovMedianNaN)
     iMovNaN0 = iMovMedianNaNValues[0]
     iMovNaN2 = iMovMedianNaNValues[2]
@@ -539,13 +539,13 @@ instr 2
     ; Median filter, output and in-place signatures. The window is the moving
     ; median's, padded with zeros instead of shortened: position 0 sees
     ; [0, 1, 5] and answers 1, where the moving median answers 3.
-    iMedFlat:CsnArr = csnmedfilt1d(iMoving, 3, -1)
+    iMedFlat:CsnArr = csnmedfilt1d(iMoving, 3)
     iMedFlatValues[] = csntoarray(iMedFlat)
     assert(iMedFlatValues[0] == 1 && iMedFlatValues[1] == 2 && iMedFlatValues[2] == 4)
     assert(iMedFlatValues[3] == 3 && iMedFlatValues[4] == 3)
 
     iMedFlatIn:CsnArr = csncopy(iMoving)
-    csnmedfilt1d(iMedFlatIn, 3, -1)
+    csnmedfilt1d(iMedFlatIn, 3)
     iMedFlatInValues[] = csntoarray(iMedFlatIn)
     assert(iMedFlatInValues[0] == 1 && iMedFlatInValues[2] == 4 && iMedFlatInValues[4] == 3)
 
@@ -682,9 +682,19 @@ instr 3
     iFlipEmpty:CsnArr = csnflip(iEmpty2D, 1)
     assert(csnsize(iTransposeEmpty) == 0 && csnsize(iFlipEmpty) == 0)
 
-    iFlip:CsnArr = csnflip(iFromReal, 1)
+    /* Omission and negative indexing are deliberately different: no axis
+       flips every axis, -1 selects the last, and -2 selects the first. */
+    iFlipAll:CsnArr = csnflip(iFromReal)
+    iFlip:CsnArr = csnflip(iFromReal, -1)
+    iFlipFirst:CsnArr = csnflip(iFromReal, -2)
     iFlipIn:CsnArr = csncopy(iFromReal)
     csnflip(iFlipIn, 1)
+    iFlipAllValues[][] = csntoarray(iFlipAll)
+    iFlipValues[][] = csntoarray(iFlip)
+    iFlipFirstValues[][] = csntoarray(iFlipFirst)
+    assert(iFlipAllValues[0][0] == 4 && iFlipAllValues[1][1] == 1)
+    assert(iFlipValues[0][0] == 2 && iFlipValues[1][0] == 4)
+    assert(iFlipFirstValues[0][0] == 3 && iFlipFirstValues[1][1] == 2)
     assert(csnget(iFlip, iIndex01) == 1 && csnget(iFlipIn, iIndex01) == 1)
 
     iRoll:CsnArr = csnroll(iFromReal, 1)
@@ -1018,9 +1028,9 @@ instr 4
 
     iNormAxis:CsnArr = csnnorm(iMatrix, 1, 2)
     iNormScalar = csnnorm(iValuesArr, 2)
-    iNormalized:CsnArr = csnnormalize(iValuesArr, -1, 2)
+    iNormalized:CsnArr = csnnormalize(iValuesArr, 2)
     iNormalizeIn:CsnArr = csncopy(iValuesArr)
-    csnnormalize(iNormalizeIn, -1, 2)
+    csnnormalize(iNormalizeIn, 2)
     assert(csnsize(iNormAxis) == 2 && abs(iNormScalar - sqrt(21)) < 1e-12)
     assert(csnsize(iNormalized) == 3 && csnsize(iNormalizeIn) == 3)
 
@@ -1031,9 +1041,9 @@ instr 4
     assert(csnsize(iPairDist) > 0 && iDistance >= 0 && iAngleDistance >= 0)
     assert(csnsize(iReflected) == 3)
 
-    iDiff:CsnArr = csndiff(iValuesArr, -1)
-    iCumSum:CsnArr = csncumsum(iValuesArr, -1)
-    iCumProd:CsnArr = csncumprod(iValuesArr, -1)
+    iDiff:CsnArr = csndiff(iValuesArr)
+    iCumSum:CsnArr = csncumsum(iValuesArr)
+    iCumProd:CsnArr = csncumprod(iValuesArr)
     iDiffValues[] = csntoarray(iDiff)
     iCumSumValues[] = csntoarray(iCumSum)
     iCumProdValues[] = csntoarray(iCumProd)
@@ -1052,15 +1062,15 @@ instr 4
     assert(iTrace == 5 && iTraceComplexReal == 5 && csnsize(iDiag) == 9)
 
     ; Moving mean/std/variance, output and in-place forms.
-    iMovMean:CsnArr = csnmovmean(iValuesArr, 2, -1)
-    iMovStd:CsnArr = csnmovstd(iValuesArr, 2, -1)
-    iMovVar:CsnArr = csnmovvar(iValuesArr, 2, -1)
+    iMovMean:CsnArr = csnmovmean(iValuesArr, 2)
+    iMovStd:CsnArr = csnmovstd(iValuesArr, 2)
+    iMovVar:CsnArr = csnmovvar(iValuesArr, 2)
     iMovMeanIn:CsnArr = csncopy(iValuesArr)
     iMovStdIn:CsnArr = csncopy(iValuesArr)
     iMovVarIn:CsnArr = csncopy(iValuesArr)
-    csnmovmean(iMovMeanIn, 2, -1)
-    csnmovstd(iMovStdIn, 2, -1)
-    csnmovvar(iMovVarIn, 2, -1)
+    csnmovmean(iMovMeanIn, 2)
+    csnmovstd(iMovStdIn, 2)
+    csnmovvar(iMovVarIn, 2)
     assert(csnsize(iMovMean) == 3 && csnsize(iMovStd) == 3 && csnsize(iMovVar) == 3)
     assert(csnsize(iMovMeanIn) == 3 && csnsize(iMovStdIn) == 3 && csnsize(iMovVarIn) == 3)
     iMovMeanValues[] = csntoarray(iMovMean)
@@ -1097,9 +1107,9 @@ instr 5
 
     iUnwrapInputValues[] = fillarray(0, 3, -3, -2)
     iUnwrapInput:CsnArr = csnfromarray(iUnwrapInputValues)
-    iUnwrapped:CsnArr = csnunwrap(iUnwrapInput, 6.283185307179586, 3.141592653589793, -1)
+    iUnwrapped:CsnArr = csnunwrap(iUnwrapInput, 6.283185307179586, 3.141592653589793)
     iUnwrapIn:CsnArr = csncopy(iUnwrapInput)
-    csnunwrap(iUnwrapIn, 6.283185307179586, 3.141592653589793, -1)
+    csnunwrap(iUnwrapIn, 6.283185307179586, 3.141592653589793)
     iUnwrappedValues[] = csntoarray(iUnwrapped)
     iUnwrapInValues[] = csntoarray(iUnwrapIn)
     assert(abs(iUnwrappedValues[2] - 3.283185307179586) < 1e-12)
@@ -1527,7 +1537,7 @@ instr 9
     iPutHS1 = csnget(iPutHS, iI1)
     assert(iPutHS0 == 10 && iPutHS1 == -9)
 
-    ; compress drops the unmarked entries along the axis; -1 flattens first
+    ; compress drops the unmarked entries; omitting the axis flattens first
     iKeep:CsnArr = csnfromarray(array(1, 0, 1, 1))
     iCompAx:CsnArr = csncompress(iTrue, iKeep, 0)
     iCompSize = csnsize(iCompAx)
@@ -2163,7 +2173,7 @@ instr 14
     iDstTwoErr = csnmax(csnabs(csnsubtract(iDstTwoGot, iDstTwoRef)))
     assert(iDstTwoErr < 1e-9)
 
-    ; The explicit axis reaches the same single axis that -1 defaults to, and
+    ; The explicit axis reaches the same single axis used by the default, and
     ; the transform keeps the source length rather than the extended one.
     iDcstShape[] = fillarray(9)
     iDctOneAxis:CsnArr = csndctone1d(iDcstSrcNine, 0)

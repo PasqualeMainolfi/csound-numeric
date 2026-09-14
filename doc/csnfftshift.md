@@ -20,14 +20,14 @@ both even and odd lengths.
 ```csound
 shifted:CsnArr = csnfftshift(source:CsnArr)
 shifted:CsnArr = csnfftshift(source:CsnArr, axis:i)
-shifted:CsnArr = csnfftshift(source:CsnArr, axis:k)
-shifted:CsnArr = csnfftshift(source:CsnArr, axis:k, trig:k)
+shifted:CsnArr = csnfftshift(source:CsnArr, trig:k)
+shifted:CsnArr = csnfftshift(source:CsnArr, trig:k, axis:i)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: real or complex source array.
-* `axis:i / axis:k` (optional, default `-1`): axis to reorder; `-1` means the last axis.
+* `axis:i / axis:k` (optional): axis to transform. Omit it to use the last axis; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Zero republishes the previous result.
 
 ## Output

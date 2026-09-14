@@ -40,13 +40,13 @@ handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:i, axis:i)
 handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:Complex)
 handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:Complex, axis:i)
 handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, trig:k)
-handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, axis:k, trig:k)
+handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, trig:k, axis:k)
 handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, trig:k)
-handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, axis:k, trig:k)
+handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, trig:k, axis:k)
 csnpad(source:CsnArr, before:i, after:i, value:i)
 csnpad(source:CsnArr, before:i, after:i, value:i, axis:i)
 csnpad(source:CsnArr, before:k, after:k, value:k, trig:k)
-csnpad(source:CsnArr, before:k, after:k, value:k, axis:k, trig:k)
+csnpad(source:CsnArr, before:k, after:k, value:k, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -56,7 +56,7 @@ csnpad(source:CsnArr, before:k, after:k, value:k, axis:k, trig:k)
 * `after:i / after:k`: how many elements to add at the end.
 * `value:i / value:k` (optional, default `0`): the fill value.
 * `value:Complex`: the fill value for a complex array.
-* `axis:i / axis:k` (optional): the axis to pad. Omitted, every axis is padded.
+* `axis:i / axis:k` (optional): the axis to pad. Omitted, every axis is padded; `-1` selects the last axis.
 * `trig:k`: k-rate trigger. The padding is recomputed on a non-zero trigger; a zero trigger republishes the previous result.
 
 ## Output
@@ -102,9 +102,9 @@ instr 1
     frame_shape:i[] = csnshape(frame)
     prints("every axis: %g x %g\n", frame_shape[0], frame_shape[1])
 
-    rows:CsnArr     = csnpad(mat, 1, 1, 0, 0)
+    rows:CsnArr     = csnpad(mat, 1, 1, 0, -2)
     rows_shape:i[]  = csnshape(rows)
-    prints("axis 0 only: %g x %g\n", rows_shape[0], rows_shape[1])
+    prints("axis -2 only: %g x %g\n", rows_shape[0], rows_shape[1])
 
     ; in place
     csnpad(vec, 0, 1, 9)

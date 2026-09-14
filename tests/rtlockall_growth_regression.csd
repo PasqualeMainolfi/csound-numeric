@@ -43,7 +43,7 @@ instr 2
     kOne init 1
     kAll init -1
     kWin = timeinstk() < 3 ? 2 : 9
-    MedOut:CsnArr = csnmovmedian(AllMedSrc, kWin, kAll, kOne)
+    MedOut:CsnArr = csnmovmedian(AllMedSrc, kWin, kOne)
     if timeinstk() == 12 then
         gkMedRan = 1
     endif
@@ -53,7 +53,7 @@ instr 3
     kOne init 1
     kAll init -1
     kWin = timeinstk() < 3 ? 2 : 9
-    csnmovmedian AllMedIn, kWin, kAll, kOne
+    csnmovmedian AllMedIn, kWin, kOne
     if timeinstk() == 12 then
         gkMedInRan = 1
     endif

@@ -8,7 +8,8 @@ Keeps only the entries a 1-D mask marks, along one axis or over the flattened ar
 
 `csncompress` selects along a single axis: the mask is a 1-D array read against
 that axis, and every position where it is non-zero is kept, in order. With the
-axis left at `-1` the source is read flat and the result is 1-D.
+axis omitted the source is read flat and the result is 1-D. An explicit `-1`
+selects the last axis.
 
 The mask may be shorter than the axis it selects on, and then the result is
 truncated to the mask's length — the trailing positions are simply never
@@ -24,14 +25,15 @@ source may be real or complex.
 ```csound
 handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr)
 handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, axis:i)
-handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, axis:k, trig:k)
+handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k)
+handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to select from.
 * `mask:CsnArr`: 1-D real mask, no longer than the selected axis.
-* `axis:i / axis:k` (optional, default `-1`): axis to select along; `-1` reads the source flat.
+* `axis:i / axis:k` (optional): axis to select along. Omit it to read the source flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -74,7 +76,7 @@ instr 1
     shape:i[]     = fillarray(2, 2)
     mat:CsnArr    = csnreshape(vec, shape)
     rows:CsnArr   = csnfromarray(array(0, 1))
-    row:CsnArr    = csncompress(mat, rows, 0)
+    row:CsnArr    = csncompress(mat, rows, -2)
     flat:CsnArr   = csnflatten(row)
     row_out:i[]   = csntoarray(flat)
     prints("row  = %g %g\n", row_out[0], row_out[1])

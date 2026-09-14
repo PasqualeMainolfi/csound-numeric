@@ -24,7 +24,7 @@ transform accumulates a different sequence of roundings. On the examples below
 the largest difference is a few units in the last place.
 
 Everything else follows [csnconvolve1d](csnconvolve1d.md): the kernel must be
-1-D and non-empty, the default axis `-1` reads the source flat, `edges`
+1-D and non-empty, omitting the axis reads the source flat, `edges`
 selects `0` FULL, `1` SAME, `2` VALID, and VALID requires the source to be at
 least as long as the kernel along the axis being convolved. Both real and
 complex arrays are accepted, and a real operand is promoted when the other is
@@ -45,7 +45,8 @@ instead of one laid along an axis.
 handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr)
 handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i)
 handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
+handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -53,7 +54,7 @@ handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
 * `x:CsnArr`: the array to convolve.
 * `h:CsnArr`: the kernel; must be 1-D and hold at least one element.
 * `edges:i` (optional, default `0`): `0` FULL, `1` SAME, `2` VALID.
-* `axis:i` (optional, default `-1`): the axis to convolve along; `-1` reads the array flat.
+* `axis:i` (optional): the axis to convolve along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -118,7 +119,7 @@ instr 1
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
     ones:CsnArr   = csnfromarray(array(1, 1))
-    rows:CsnArr   = csnfftconvolve1d(mat, ones, 0, 1)
+    rows:CsnArr   = csnfftconvolve1d(mat, ones, 0, -1)
     csnprint rows
     turnoff
 endin

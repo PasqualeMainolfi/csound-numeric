@@ -25,14 +25,13 @@ result:i = csnany(source:CsnArr)
 result:k = csnany(source:CsnArr)
 result:k = csnany(source:CsnArr, trig:k)
 handle:CsnArr = csnany(source:CsnArr, axis:i)
-handle:CsnArr = csnany(source:CsnArr, axis:k)
-handle:CsnArr = csnany(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnany(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to test, read as truth values.
-* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number.
+* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

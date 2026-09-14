@@ -25,14 +25,14 @@ promoted.
 handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr)
 handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, axis:i)
 handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `a:CsnArr`: first array; its elements come first.
 * `b:CsnArr`: second array.
-* `axis:i / axis:k` (optional): the axis to stack along. Omitted, both arrays are read flat and the result is 1-D.
+* `axis:i / axis:k` (optional): the axis to stack along. Omitted, both arrays are read flat and the result is 1-D; `-1` selects the last axis.
 * `trig:k`: k-rate trigger. The join is recomputed on a non-zero trigger; a zero trigger republishes the previous result.
 
 ## Output
@@ -76,9 +76,9 @@ instr 1
     ; stacked along an axis
     shape:i[]       = fillarray(2, 3)
     mat:CsnArr      = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
-    stacked:CsnArr  = csnconcat(mat, mat, 0)
+    stacked:CsnArr  = csnconcat(mat, mat, -2)
     stacked_shape:i[] = csnshape(stacked)
-    prints("axis 0: %g x %g\n", stacked_shape[0], stacked_shape[1])
+    prints("axis -2: %g x %g\n", stacked_shape[0], stacked_shape[1])
 
     ; concatenating with an empty array gives back the other operand
     cap:i[]         = fillarray(4)

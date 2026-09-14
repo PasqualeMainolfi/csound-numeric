@@ -27,14 +27,13 @@ result:i = csnstd(source:CsnArr)
 result:k = csnstd(source:CsnArr)
 result:k = csnstd(source:CsnArr, trig:k)
 handle:CsnArr = csnstd(source:CsnArr, axis:i)
-handle:CsnArr = csnstd(source:CsnArr, axis:k)
-handle:CsnArr = csnstd(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnstd(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to reduce.
-* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number.
+* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

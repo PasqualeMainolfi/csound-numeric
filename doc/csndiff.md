@@ -26,14 +26,14 @@ accepted.
 ```csound
 handle:CsnArr = csndiff(source:CsnArr)
 handle:CsnArr = csndiff(source:CsnArr, axis:i)
-handle:CsnArr = csndiff(source:CsnArr, axis:k)
-handle:CsnArr = csndiff(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csndiff(source:CsnArr, trig:k)
+handle:CsnArr = csndiff(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to difference; at least 2 elements along the axis.
-* `axis:i / axis:k` (optional, default `-1`): the axis to difference along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to difference along. Omit it to use the last axis; explicit negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -78,10 +78,10 @@ instr 1
     dur_out:i[]   = csntoarray(dur)
     prints("durations = %g %g %g\n", dur_out[0], dur_out[1], dur_out[2])
 
-    ; along an axis
+    ; explicit -1 selects the last axis (also the default for csndiff)
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 3, 6, 10, 15, 21)), shape)
-    rows:CsnArr   = csndiff(mat, 1)
+    rows:CsnArr   = csndiff(mat, -1)
     rows_shape:i[] = csnshape(rows)
     rows_out:i[]  = csntoarray(csnflatten(rows))
     prints("per row: %g x %g = %g %g %g %g\n", rows_shape[0], rows_shape[1], rows_out[0], rows_out[1], rows_out[2], rows_out[3])

@@ -53,7 +53,7 @@ static inline size_t NEXT_POWER_OF_TWO(size_t n) {
     return n + 1;
 }
 
-static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, const MYFLT *axis_in, uint32_t *axis_out, uint32_t source_handle, CSN_FFT_MODE mode) {
+static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_AXIS_SPEC *axis, const MYFLT *axis_in, CSN_AXIS_DEFAULT omitted_default, uint32_t source_handle, CSN_FFT_MODE mode) {
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
@@ -67,12 +67,15 @@ static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARR
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Real-valued FFT requires real array");
     }
 
-    if (axis_in != NULL && axis_out != NULL) {
-        double axis_value = (double) *axis_in;
-        if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for last axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+    if (axis != NULL) {
+        CSN_AXIS_SPEC spec = csn_normalize_axis(axis_in, source_ndim, omitted_default);
+        if (spec.kind != CSN_AXIS_INDEX) {
+            if (axis_in == NULL) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] An axis is required for a %u-D array", source_ndim);
+            }
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Axis %g is invalid for a %u-D array " "(valid axes: %d..%u)", (double) *axis_in, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
         }
-        *axis_out = axis_value != -1.0 ? (uint32_t) axis_value : source_ndim - 1U;
+        *axis = spec;
     }
 
     *source_array = source_arr;
@@ -376,7 +379,7 @@ static void fft_assign_flatten_layout(size_t *out_size, size_t *work_size, uint3
     new_shape[0] = (uint32_t) *out_size;
 }
 
-static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
+static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axis_in, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -395,8 +398,8 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, NULL, reg, &source_arr, p->axis, &axis, source_handle, mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
     if (res != OK) goto done;
 
     if (mode == CSNRFFT) {
@@ -407,7 +410,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     size_t out_size = 0;
     size_t work_size = 0;
-    fft_assign_layout(&out_size, &work_size, &new_ndim, new_shape, source_arr, (uint32_t) fft_size, mode, axis);
+    fft_assign_layout(&out_size, &work_size, &new_ndim, new_shape, source_arr, (uint32_t) fft_size, mode, axis_spec.index);
 
     temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
     if (temp_buffer == NULL) {
@@ -420,7 +423,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode
         goto done;
     }
     CSN_ARRAY *fft_buffer = p->array;
-    fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode);
+    fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis_spec.index, mode);
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -428,7 +431,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode
     p->k_data_fft.nfft = (size_t) fft_size;
     p->k_data_fft.buffer_out_size = out_size;
     p->k_data_fft.buffer_work_size = work_size;
-    p->k_data.prev_axis_u = axis;
+    p->k_data.prev_axis_u = axis_spec.index;
     p->is_published = false;
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -441,11 +444,23 @@ done:
 }
 
 int32_t csnarray_fft(CSOUND *csound, CSN_FFT *p) {
-    return csnarray_fft_helper(csound, p, CSNFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    return csnarray_fft_helper(csound, p, axis_in, CSNFFT);
 }
 
 int32_t csnarray_rfft(CSOUND *csound, CSN_FFT *p) {
-    return csnarray_fft_helper(csound, p, CSNRFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    return csnarray_fft_helper(csound, p, axis_in, CSNRFFT);
+}
+
+int32_t csnarray_fft_k_init(CSOUND *csound, CSN_FFT *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    return csnarray_fft_helper(csound, p, axis_in, CSNFFT);
+}
+
+int32_t csnarray_rfft_k_init(CSOUND *csound, CSN_FFT *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    return csnarray_fft_helper(csound, p, axis_in, CSNRFFT);
 }
 
 static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
@@ -457,16 +472,18 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     int32_t res = OK;
     const char *err = NULL;
 
-    CHECK_KTRIG(p->trig);
+    CHECK_KTRIG(p->axis);
 
     size_t fft_size = p->k_data_fft.nfft;
     void *fft_setup = p->k_data_fft.fft_setup;
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, &p->h, reg, &source_arr, p->axis, &axis, source_handle, mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
     if (res != OK) goto done;
+    uint32_t axis = axis_spec.index;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -521,7 +538,7 @@ int32_t csnarray_rfft_k(CSOUND *csound, CSN_FFT *p) {
     return csnarray_fft_k_helper(csound, p, CSNRFFT);
 }
 
-static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
+static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axis_in, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -539,9 +556,10 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mod
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, NULL, reg, &source_arr, p->axis, &axis, source_handle, mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
     if (res != OK) goto done;
+    uint32_t axis = axis_spec.index;
 
     if (mode == CSNIRFFT) {
         fft_setup = csound->RealFFTSetup(csound, fft_size, FFT_INV);
@@ -592,11 +610,23 @@ int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p) {
 }
 
 int32_t csnarray_ifft(CSOUND *csound, CSN_FFT *p) {
-    return csnarray_ifft_helper(csound, p, CSNIFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    return csnarray_ifft_helper(csound, p, axis_in, CSNIFFT);
 }
 
 int32_t csnarray_irfft(CSOUND *csound, CSN_FFT *p) {
-    return csnarray_ifft_helper(csound, p, CSNIRFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    return csnarray_ifft_helper(csound, p, axis_in, CSNIRFFT);
+}
+
+int32_t csnarray_ifft_k_init(CSOUND *csound, CSN_FFT *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    return csnarray_ifft_helper(csound, p, axis_in, CSNIFFT);
+}
+
+int32_t csnarray_irfft_k_init(CSOUND *csound, CSN_FFT *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    return csnarray_ifft_helper(csound, p, axis_in, CSNIRFFT);
 }
 
 static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
@@ -608,16 +638,18 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
     int32_t res = OK;
     const char *err = NULL;
 
-    CHECK_KTRIG(p->trig);
+    CHECK_KTRIG(p->axis);
 
     size_t fft_size = p->k_data_fft.nfft;
     void *fft_setup = p->k_data_fft.fft_setup;
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, &p->h, reg, &source_arr, p->axis, &axis, source_handle, mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
     if (res != OK) goto done;
+    uint32_t axis = axis_spec.index;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -1670,8 +1702,6 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
     int32_t res = OK;
     const char *err = NULL;
 
-    double axis_value = (double) *p->axis;
-
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
@@ -1683,11 +1713,14 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for last axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
+    if (axis_spec.kind != CSN_AXIS_INDEX) {
+        double value = axis_in == NULL ? -1.0 : (double) *axis_in;
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
         goto done;
     }
-    uint32_t axis = axis_value == -1.0 ? source_ndim - 1 : (uint32_t) axis_value;
+    uint32_t axis = axis_spec.index;
 
     uint32_t new_ndim = source_ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -1765,9 +1798,7 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
     int32_t res = OK;
     const char *err = NULL;
 
-    CHECK_KTRIG(p->trig);
-
-    double axis_value = (double) *p->axis;
+    CHECK_KTRIG(p->axis);
 
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot = get_slot(reg, source_handle);
@@ -1780,11 +1811,14 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim)) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
+    if (axis_spec.kind != CSN_AXIS_INDEX) {
+        double value = axis_in == NULL ? -1.0 : (double) *axis_in;
         csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for last axes, or finite integers 0..%u)", axis_value, source_ndim, source_ndim - 1);
+        return csound->PerfError(csound, &p->h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
     }
-    uint32_t axis = axis_value == -1.0 ? source_ndim - 1 : (uint32_t) axis_value;
+    uint32_t axis = axis_spec.index;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -2725,7 +2759,7 @@ static void corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64
     }
 }
 
-static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT *axis_in, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2733,7 +2767,6 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     uint32_t source_handle_b = p->source_handle_b->id;
 
     double edges_temp = (double) *p->arg_a;
-    double axis_value = (double) *p->arg_b;
 
     if (!IS_VALID_EDGES(edges_temp)) {
         return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
@@ -2760,11 +2793,13 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     uint32_t source_ndim_a = source_arr_a->ndim;
     uint32_t *source_shape_a = source_arr_a->shape;
 
-    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim_a)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes (flatten), or finite integers 0..%u)", axis_value, source_ndim_a, source_ndim_a - 1);
+    CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim_a, CSN_AXIS_DEFAULT_FLATTEN);
+    if (axis_spec.kind == CSN_AXIS_INVALID) {
+        double value = axis_in == NULL ? 0.0 : (double) *axis_in;
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim_a, -(int32_t) source_ndim_a, source_ndim_a - 1U);
         goto done;
     }
-    int32_t axis = (int32_t) axis_value;
+    int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
 
     res = corrconv1d_validate(csound, NULL, source_arr_a, source_arr_b, axis, edges_mode);
     if (res != OK) goto done;
@@ -2817,11 +2852,23 @@ int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
 }
 
 int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p) {
-    return csnarray_corrconv1d_helper(csound, p, CSN_CONVOLUTION);
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
 }
 
 int32_t csnarray_correlate1d(CSOUND *csound, CSN_CORRCONV *p) {
-    return csnarray_corrconv1d_helper(csound, p, CSN_CORRELATION);
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
+}
+
+int32_t csnarray_convolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_correlate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
 static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
@@ -2841,7 +2888,7 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
     if (res != OK) return res;
 
-    CHECK_KTRIG(p->arg_c);
+    CHECK_KTRIG(p->arg_b);
 
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
@@ -3542,7 +3589,7 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
     return OK;
 }
 
-static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
+static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT *axis_in, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -3550,7 +3597,6 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     uint32_t source_handle_b = p->source_handle_b->id;
 
     double edges_temp = (double) *p->arg_a;
-    double axis_value = (double) *p->arg_b;
 
     if (!IS_VALID_EDGES(edges_temp)) {
         return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
@@ -3578,11 +3624,13 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     CSN_ARRAY *source_h = slot_h->array;
     uint32_t source_ndim_x = source_x->ndim;
 
-    if (axis_value != -1.0 && !IS_VALID_AXIS(axis_value, source_ndim_x)) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: -1 for all axes (flatten), or finite integers 0..%u)", axis_value, source_ndim_x, source_ndim_x - 1);
+    CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim_x, CSN_AXIS_DEFAULT_FLATTEN);
+    if (axis_spec.kind == CSN_AXIS_INVALID) {
+        double value = axis_in == NULL ? 0.0 : (double) *axis_in;
+        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim_x, -(int32_t) source_ndim_x, source_ndim_x - 1U);
         goto done;
     }
-    int32_t axis = (int32_t) axis_value;
+    int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
 
     res = corrconv1d_validate(csound, NULL, source_x, source_h, axis, edges_mode);
     if (res != OK) goto done;
@@ -3665,11 +3713,23 @@ done:
 }
 
 int32_t csnarray_fftconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
-    return fftcorrconv1d_helper(csound, p, CSN_CONVOLUTION);
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
 }
 
 int32_t csnarray_fftcorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
-    return fftcorrconv1d_helper(csound, p, CSN_CORRELATION);
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
+}
+
+int32_t csnarray_fftconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
+}
+
+int32_t csnarray_fftcorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
 static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
@@ -3817,7 +3877,7 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
     if (res != OK) return res;
 
-    CHECK_KTRIG(p->arg_c);
+    CHECK_KTRIG(p->arg_b);
 
     void *fft_setup = p->k_data_fft_x.fft_setup;
     void *ifft_setup = p->k_data_ifft.fft_setup;
@@ -4272,7 +4332,7 @@ static int32_t dcst1d_extend_source(CSN_ARRAY *dcst_buffer, CSN_ARRAY *source_ar
     return OK;
 }
 
-static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
+static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const MYFLT *axis_in, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -4291,9 +4351,10 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_mod
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, NULL, reg, &source_arr, p->axis, &axis, source_handle, fft_mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fft_mode);
     if (res != OK) goto done;
+    uint32_t axis = axis_spec.index;
 
     size_t source_size = source_arr->shape[axis];
     int32_t dcst_fft_size = get_dct_size(source_size, dcst_mode);
@@ -4393,7 +4454,7 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
 
     int32_t res = OK;
     const char *err = NULL;
-    CHECK_KTRIG(p->trig);
+    CHECK_KTRIG(p->axis);
 
     size_t fft_size = p->k_data_fft.nfft;
     void *fft_setup = p->k_data_fft.fft_setup;
@@ -4401,9 +4462,11 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, &p->h, reg, &source_arr, p->axis, &axis, source_handle, fft_mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fft_mode);
     if (res != OK) goto done;
+    uint32_t axis = axis_spec.index;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -4482,19 +4545,43 @@ done:
 }
 
 int32_t csnarray_dct_one(CSOUND *csound, CSN_DCST *p) {
-    return dcst1d_helper(csound, p, CSN_DCT_I, CSNRFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DCT_I, CSNRFFT);
 }
 
 int32_t csnarray_dct_two(CSOUND *csound, CSN_DCST *p) {
-    return dcst1d_helper(csound, p, CSN_DCT_II, CSNRFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DCT_II, CSNRFFT);
 }
 
 int32_t csnarray_dst_one(CSOUND *csound, CSN_DCST *p) {
-    return dcst1d_helper(csound, p, CSN_DST_I, CSNRFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DST_I, CSNRFFT);
 }
 
 int32_t csnarray_dst_two(CSOUND *csound, CSN_DCST *p) {
-    return dcst1d_helper(csound, p, CSN_DST_II, CSNRFFT);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DST_II, CSNRFFT);
+}
+
+int32_t csnarray_dct_one_k_init(CSOUND *csound, CSN_DCST *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DCT_I, CSNRFFT);
+}
+
+int32_t csnarray_dct_two_k_init(CSOUND *csound, CSN_DCST *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DCT_II, CSNRFFT);
+}
+
+int32_t csnarray_dst_one_k_init(CSOUND *csound, CSN_DCST *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DST_I, CSNRFFT);
+}
+
+int32_t csnarray_dst_two_k_init(CSOUND *csound, CSN_DCST *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    return dcst1d_helper(csound, p, axis_in, CSN_DST_II, CSNRFFT);
 }
 
 int32_t csnarray_dct_one_k(CSOUND *csound, CSN_DCST *p) {
@@ -5125,7 +5212,7 @@ static int32_t hilbert_assign_value(CSN_ARRAY *fft_buffer, double *kernel, int32
     return OK;
 }
 
-static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, bool is_analytic) {
+static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const MYFLT *axis_in, bool is_analytic) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -5143,9 +5230,10 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, bool is_a
 
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
-    uint32_t axis = 0;
-    res = fft_body(csound, NULL, reg, &source_arr, p->axis, &axis, source_handle, fwd_mode);
+    CSN_AXIS_SPEC axis_spec = {0};
+    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fwd_mode);
     if (res != OK) goto done;
+    uint32_t axis = axis_spec.index;
 
     size_t source_size = source_arr->shape[axis];
     size_t hilb_fft_size = source_size;
@@ -5241,7 +5329,7 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
     res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
     if (res != OK) return res;
 
-    CHECK_KTRIG(p->trig);
+    CHECK_KTRIG(p->axis);
 
     uint32_t axis = p->k_data.prev_axis_u;
     size_t hilb_fft_size = p->k_data_fft.nfft;
@@ -5322,7 +5410,13 @@ done:
 }
 
 int32_t csnarray_hilbert1d(CSOUND *csound, CSN_HILBERT *p) {
-    return csnarray_hilbert_helper(csound, p, true);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    return csnarray_hilbert_helper(csound, p, axis_in, true);
+}
+
+int32_t csnarray_hilbert1d_k_init(CSOUND *csound, CSN_HILBERT *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    return csnarray_hilbert_helper(csound, p, axis_in, true);
 }
 
 int32_t csnarray_hilbert1d_k(CSOUND *csound, CSN_HILBERT *p) {
@@ -5330,7 +5424,13 @@ int32_t csnarray_hilbert1d_k(CSOUND *csound, CSN_HILBERT *p) {
 }
 
 int32_t csnarray_hilbert1dr(CSOUND *csound, CSN_HILBERT *p) {
-    return csnarray_hilbert_helper(csound, p, false);
+    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    return csnarray_hilbert_helper(csound, p, axis_in, false);
+}
+
+int32_t csnarray_hilbert1dr_k_init(CSOUND *csound, CSN_HILBERT *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    return csnarray_hilbert_helper(csound, p, axis_in, false);
 }
 
 int32_t csnarray_hilbert1dr_k(CSOUND *csound, CSN_HILBERT *p) {
@@ -5384,7 +5484,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     /* CSNRFFT only to borrow the real-input check: the analytic signal of a
        complex array is not defined, since the negative half of its spectrum is
        not the redundant mirror of the positive one. */
-    res = fft_body(csound, NULL, reg, &source_arr, NULL, NULL, source_handle, CSNRFFT);
+    res = fft_body(csound, NULL, reg, &source_arr, NULL, NULL, CSN_AXIS_DEFAULT_REQUIRED, source_handle, CSNRFFT);
     if (res != OK) goto done;
 
     if (source_arr->ndim != 2U) {

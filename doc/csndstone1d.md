@@ -31,13 +31,14 @@ performance path.
 ```csound
 coeffs:CsnArr = csndstone1d(source:CsnArr)
 coeffs:CsnArr = csndstone1d(source:CsnArr, axis:i)
-coeffs:CsnArr = csndstone1d(source:CsnArr, axis:i, trig:k)
+coeffs:CsnArr = csndstone1d(source:CsnArr, trig:k)
+coeffs:CsnArr = csndstone1d(source:CsnArr, trig:k, axis:i)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: a real array.
-* `axis:i` (optional, default `-1`): axis to transform; `-1` is the last axis.
+* `axis:i` (optional): axis to transform. Omit it to use the last axis; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Zero republishes the previous result.
 
 ## Output

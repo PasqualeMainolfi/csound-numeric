@@ -26,14 +26,14 @@ Real only.
 ```csound
 handle:CsnArr = csngrad(source:CsnArr)
 handle:CsnArr = csngrad(source:CsnArr, axis:i)
-handle:CsnArr = csngrad(source:CsnArr, axis:k)
-handle:CsnArr = csngrad(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csngrad(source:CsnArr, trig:k)
+handle:CsnArr = csngrad(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to differentiate.
-* `axis:i / axis:k` (optional, default `-1`): the axis to work along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to work along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

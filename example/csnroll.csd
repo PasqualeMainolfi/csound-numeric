@@ -26,12 +26,12 @@ instr 1
     left_out:i[]   = csntoarray(left)
     prints("shift -1 = %g %g %g %g\n", left_out[0], left_out[1], left_out[2], left_out[3])
 
-    ; along an axis, each row moves on its own
+    ; explicit -1 is the last axis, so each row moves on its own
     shape:i[]      = fillarray(2, 3)
     mat:CsnArr     = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
-    rolled:CsnArr  = csnroll(mat, 1, 1)
+    rolled:CsnArr  = csnroll(mat, 1, -1)
     rolled_out:i[] = csntoarray(csnflatten(rolled))
-    prints("axis 1   = %g %g %g %g %g %g\n", rolled_out[0], rolled_out[1], rolled_out[2], rolled_out[3], rolled_out[4], rolled_out[5])
+    prints("axis -1  = %g %g %g %g %g %g\n", rolled_out[0], rolled_out[1], rolled_out[2], rolled_out[3], rolled_out[4], rolled_out[5])
 
     ; in place
     csnroll(vec, 2)

@@ -31,7 +31,7 @@ csnsetslice(dest:CsnArr, data:CsnArr, axis:k, start:k, stop:k, step:k)
 
 * `dest:CsnArr`: the array written into.
 * `data:CsnArr`: the values to write. Same rank as `dest`, and shaped like the slice.
-* `axis:i / axis:k`: the axis to slice along.
+* `axis:i / axis:k`: the axis to slice along; negative values count from the end.
 * `start:i / start:k`: first index, included.
 * `stop:i / stop:k`: last index, excluded.
 * `step:i / step:k`: stride; must be > 0.

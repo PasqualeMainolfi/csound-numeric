@@ -29,9 +29,9 @@ SinDst@global:CsnArr = csnzeros(giFlatShape)
 
 instr 1
     kTrig init 1
-    FlatDct = csndcttwo1d(FlatSrc, -1, kTrig)
-    GridDct = csndcttwo1d(GridSrc, -1, kTrig)
-    SinDst = csndsttwo1d(SinSrc, -1, kTrig)
+    FlatDct = csndcttwo1d(FlatSrc, kTrig)
+    GridDct = csndcttwo1d(GridSrc, kTrig)
+    SinDst = csndsttwo1d(SinSrc, kTrig)
 endin
 
 instr 2

@@ -54,13 +54,13 @@ instr 1
     FlatEmptyRightOut = csnconcat(FlatA, EmptyFlat, kPulse)
 
     ; A zero trigger retains the source-copy slot published by block.k init.
-    BlockZeroOut = csnconcat(BlockA, BlockB, kAxis1, kZero)
-    BlockAxis0Out = csnconcat(BlockA, BlockB, kAxis0, kPulse)
-    BlockAxis1Out = csnconcat(BlockA, BlockB, kAxis1, kPulse)
-    BlockEmptyLeftOut = csnconcat(EmptyBlockA, BlockB, kAxis0, kPulse)
-    BlockEmptyRightOut = csnconcat(BlockA, EmptyBlockB, kAxis1, kPulse)
-    BlockBothEmptyOut = csnconcat(EmptyBlockA, EmptyBlockB, kAxis0, kPulse)
-    BlockEmptyZeroOut = csnconcat(EmptyBlockA, BlockB, kAxis1, kZero)
+    BlockZeroOut = csnconcat(BlockA, BlockB, kZero, kAxis1)
+    BlockAxis0Out = csnconcat(BlockA, BlockB, kPulse, kAxis0)
+    BlockAxis1Out = csnconcat(BlockA, BlockB, kPulse, kAxis1)
+    BlockEmptyLeftOut = csnconcat(EmptyBlockA, BlockB, kPulse, kAxis0)
+    BlockEmptyRightOut = csnconcat(BlockA, EmptyBlockB, kPulse, kAxis1)
+    BlockBothEmptyOut = csnconcat(EmptyBlockA, EmptyBlockB, kPulse, kAxis0)
+    BlockEmptyZeroOut = csnconcat(EmptyBlockA, BlockB, kZero, kAxis1)
 
     ComplexOut = csnconcat(ComplexA, ComplexB, kPulse)
 endin

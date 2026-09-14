@@ -11,8 +11,9 @@ it reverses them all, which for a matrix is the ordinary transpose: a `2×3`
 becomes a `3×2` and element `[i][j]` becomes `[j][i]`.
 
 Given an explicit `axes` array it applies that permutation instead: `axes` must
-list every axis index from `0` to `ndims - 1` exactly once, and axis `n` of the
-result is axis `axes[n]` of the source.
+list every source axis exactly once. Negative values count from the end, so
+`-1` names the last source axis; axis `n` of the result is axis `axes[n]` of the
+source.
 
 The permutation lives in the array's strides, so this is a layout change, not a
 copy of the data.
@@ -75,8 +76,8 @@ instr 1
     tr_out:i[]     = csntoarray(csnflatten(tr))
     prints("shape = %g x %g, flat = %g %g %g %g %g %g\n", tr_shape[0], tr_shape[1], tr_out[0], tr_out[1], tr_out[2], tr_out[3], tr_out[4], tr_out[5])
 
-    ; the same thing said as an explicit permutation
-    axes:i[]       = fillarray(1, 0)
+    ; the same permutation using negative axis indices
+    axes:i[]       = fillarray(-1, -2)
     perm:CsnArr    = csntranspose(mat, axes)
     perm_out:i[]   = csntoarray(csnflatten(perm))
     prints("explicit  = %g %g %g %g %g %g\n", perm_out[0], perm_out[1], perm_out[2], perm_out[3], perm_out[4], perm_out[5])

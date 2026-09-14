@@ -26,13 +26,13 @@ empty array gives `nan`, as [csnmean](csnmean.md) does.
 value:i = csnrms(source:CsnArr)
 value:k = csnrms(source:CsnArr, trig:k)
 handle:CsnArr = csnrms(source:CsnArr, axis:i)
-handle:CsnArr = csnrms(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnrms(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to reduce.
-* `axis:i / axis:k`: axis to fold. Without it the array is read flat and the result is a scalar.
+* `axis:i / axis:k`: axis to fold; negative values count from the end. Without it the array is read flat and the result is a scalar.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

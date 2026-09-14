@@ -34,11 +34,11 @@ instr 1
     moving_out:i[]   = csntoarray(moving)
     prints("movmedian 3     : %g %g %g %g %g\n", moving_out[0], moving_out[1], moving_out[2], moving_out[3], moving_out[4])
 
-    ; along one axis of a matrix: each row is filtered on its own
+    ; axis -1 is the last axis: each row is filtered on its own
     shape:i[]        = fillarray(2, 5)
     flat:CsnArr      = csnfromarray(array(1, 5, 2, 4, 3, 5, 4, 3, 2, 1))
     matrix:CsnArr    = csnreshape(flat, shape)
-    rows:CsnArr      = csnmedfilt1d(matrix, 3, 1)
+    rows:CsnArr      = csnmedfilt1d(matrix, 3, -1)
     csnprint rows
 
     ; in place, no new handle: the source is rewritten

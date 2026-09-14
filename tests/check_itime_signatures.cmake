@@ -31,6 +31,7 @@ foreach(line IN LISTS source_lines)
     endif()
 endforeach()
 list(SORT registered)
+list(REMOVE_DUPLICATES registered)
 
 string(FIND "${csd_text}" "; @covers-begin" covers_begin)
 string(FIND "${csd_text}" "; @covers-end" covers_end)

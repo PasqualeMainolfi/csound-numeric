@@ -26,19 +26,19 @@ and returns nothing.
 ```csound
 handle:CsnArr = csntruncate(source:CsnArr, length:i)
 handle:CsnArr = csntruncate(source:CsnArr, length:i, axis:i)
-handle:CsnArr = csntruncate(source:CsnArr, length:k)
-handle:CsnArr = csntruncate(source:CsnArr, length:k, axis:k)
-handle:CsnArr = csntruncate(source:CsnArr, length:k, axis:k, trig:k)
+handle:CsnArr = csntruncate(source:CsnArr, length:k, trig:k)
+handle:CsnArr = csntruncate(source:CsnArr, length:k, trig:k, axis:k)
 csntruncate(source:CsnArr, length:i)
 csntruncate(source:CsnArr, length:i, axis:i)
-csntruncate(source:CsnArr, length:k, axis:k, trig:k)
+csntruncate(source:CsnArr, length:k, trig:k)
+csntruncate(source:CsnArr, length:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to shorten.
 * `length:i / length:k`: the number of elements to keep along the axis.
-* `axis:i / axis:k` (optional, default `-1`): the axis to cut; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to cut. Omit it to truncate every axis; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -62,8 +62,8 @@ csntruncate(source:CsnArr, length:k, axis:k, trig:k)
 ; -----------------------------------------------------------------------------
 ; csntruncate.csd
 ;
-; Without an axis the array is read flat. With one, only that axis is cut and
-; the rank is preserved: a 2 x 3 truncated to 2 on axis 1 is a 2 x 2.
+; Without an axis every axis is truncated. With an explicit -1 only the last
+; axis is cut: a 2 x 3 truncated to 2 becomes a 2 x 2.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -75,14 +75,19 @@ instr 1
     short:CsnArr  = csntruncate(vec, 3)
     short_out:i[] = csntoarray(short)
     n:i           = csnsize(short)
-    prints("flat n = %d, values = %g %g %g\n", n, short_out[0], short_out[1], short_out[2])
+    prints("vector n = %d, values = %g %g %g\n", n, short_out[0], short_out[1], short_out[2])
 
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
-    cut:CsnArr    = csntruncate(mat, 2, 1)
+
+    every:CsnArr  = csntruncate(mat, 1)
+    every_shape:i[] = csnshape(every)
+    prints("omitted: %g x %g\n", every_shape[0], every_shape[1])
+
+    cut:CsnArr    = csntruncate(mat, 2, -1)
     cut_shape:i[] = csnshape(cut)
     cut_out:i[]   = csntoarray(csnflatten(cut))
-    prints("axis 1: %g x %g, values = %g %g %g %g\n", cut_shape[0], cut_shape[1], cut_out[0], cut_out[1], cut_out[2], cut_out[3])
+    prints("axis -1: %g x %g, values = %g %g %g %g\n", cut_shape[0], cut_shape[1], cut_out[0], cut_out[1], cut_out[2], cut_out[3])
 
     ; in place
     csntruncate(vec, 2)

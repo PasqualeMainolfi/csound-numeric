@@ -14,7 +14,7 @@ instr 1
     ; The analysis size is independent of ksmps. csnsnap buffers the audio and
     ; raises kReady only when a complete, 50%-overlapped frame is available.
     frame:CsnArr, kReady = csnsnap(aSignal, 256, 128)
-    spectrum:CsnArr = csnrfft(frame, 256, -1, kReady)
+    spectrum:CsnArr = csnrfft(frame, 256, kReady, -1)
     magnitude:CsnArr = csnabs(spectrum, kReady)
     kPeak = csnmax(magnitude, kReady)
 

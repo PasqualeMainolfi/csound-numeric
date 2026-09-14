@@ -57,7 +57,7 @@ gkMedfilt init 0
 
 instr 1
     kOne init 1
-    Out:CsnArr = csnconvolve1d(ConvX, ConvH, 0, -1, kOne)
+    Out:CsnArr = csnconvolve1d(ConvX, ConvH, 0, kOne)
     if timeinstk() == 12 then
         gkConv1d = 1
     endif
@@ -117,7 +117,7 @@ instr 8
     if timeinstk() >= 4 then
         kAxis = 5
     endif
-    Out:CsnArr = csnmedfilt1d(MedSrc, 3, kAxis, kOne)
+    Out:CsnArr = csnmedfilt1d(MedSrc, 3, kOne, kAxis)
     if timeinstk() == 12 then
         gkMedfilt = 1
     endif

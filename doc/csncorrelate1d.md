@@ -16,7 +16,7 @@ The only difference from [csnconvolve1d](csnconvolve1d.md) is the kernel: here
 it is read back to front, and a complex kernel is conjugated. On a symmetric
 real kernel the two opcodes therefore agree, and on any other they do not.
 
-The kernel must be one-dimensional. With the default axis, `-1`, the source is
+The kernel must be one-dimensional. With the axis omitted, the source is
 read flat; with an axis, every lane along that axis is correlated on its own.
 
 The `edges` argument decides how much of the sliding is kept:
@@ -50,7 +50,8 @@ performance pass from having to reallocate.
 handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr)
 handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr, edges:i)
 handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
+handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -58,7 +59,7 @@ handle:CsnArr = csncorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
 * `x:CsnArr`: the array to correlate.
 * `h:CsnArr`: the kernel; must be 1-D and hold at least one element.
 * `edges:i` (optional, default `0`): `0` FULL, `1` SAME, `2` VALID.
-* `axis:i` (optional, default `-1`): the axis to correlate along; `-1` reads the array flat.
+* `axis:i` (optional): the axis to correlate along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

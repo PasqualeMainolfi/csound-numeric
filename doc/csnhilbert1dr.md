@@ -41,13 +41,14 @@ layout differs from the one it was set up for.
 ```csound
 shifted:CsnArr = csnhilbert1dr(source:CsnArr)
 shifted:CsnArr = csnhilbert1dr(source:CsnArr, axis:i)
-shifted:CsnArr = csnhilbert1dr(source:CsnArr, axis:i, trig:k)
+shifted:CsnArr = csnhilbert1dr(source:CsnArr, trig:k)
+shifted:CsnArr = csnhilbert1dr(source:CsnArr, trig:k, axis:i)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: a real array whose transformed axis has an even extent of at least two.
-* `axis:i` (optional, default `-1`): axis to transform; `-1` is the last axis.
+* `axis:i` (optional): axis to transform. Omit it to use the last axis; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Zero republishes the previous result.
 
 ## Output

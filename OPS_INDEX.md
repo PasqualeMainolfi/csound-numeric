@@ -8,10 +8,11 @@ only run at init, and the element types accepted, `real, complex` or
 `real only`. The five opcodes that read a complex array and hand back its parts
 are marked `complex only`, since a real input has nothing for them to do.
 
-Conventions that apply throughout: an optional axis argument defaults to `-1`,
-meaning the array is read flat; opcodes that publish a new handle usually have
+Conventions that apply throughout: explicit negative axes count from the end,
+so `-1` is always the last axis; omitting an axis selects the opcode's documented
+flat, all-axes, or last-axis default; opcodes that publish a new handle usually have
 an in-place sibling under the same name that writes back into its source and
-returns nothing; most k-rate forms take an optional trailing trigger, and a zero
+returns nothing; k-rate forms put the trigger before an explicit optional axis, and a zero
 trigger republishes the previous result instead of recomputing. A trigger that
 is the only k-rate argument is required to select the performance overload;
 side-effecting opcodes simply do nothing when it is zero. See the README for the

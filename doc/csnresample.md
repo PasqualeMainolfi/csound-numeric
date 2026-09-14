@@ -31,8 +31,8 @@ Real only.
 handle:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i)
 handle:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i, fill:i)
 handle:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i, fill:i, axis:i)
-handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, axis:k)
-handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, axis:k, trig:k)
+handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, trig:k)
+handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -42,7 +42,7 @@ handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, a
 * `mode:i`: `0` linear, `1` nearest, `2` previous, `3` next, `4` monotone cubic.
 * `bounds:i`: `0` error, `1` clamp, `2` fill, `3` extrapolate.
 * `fill:i` (optional, default `0`): the value used outside the source when `bounds` is `2`.
-* `axis:i / axis:k` (optional, default `-1`): the axis to resample; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to resample. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

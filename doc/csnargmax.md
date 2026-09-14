@@ -22,14 +22,14 @@ Real only — ordering has no meaning over the complex field.
 ```csound
 handle:CsnArr = csnargmax(source:CsnArr)
 handle:CsnArr = csnargmax(source:CsnArr, axis:i)
-handle:CsnArr = csnargmax(source:CsnArr, axis:k)
-handle:CsnArr = csnargmax(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnargmax(source:CsnArr, trig:k)
+handle:CsnArr = csnargmax(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to scan.
-* `axis:i / axis:k` (optional, default `-1`): the axis to search along; `-1` searches the whole array.
+* `axis:i / axis:k` (optional): the axis to search along. Omit it to search the flattened array; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

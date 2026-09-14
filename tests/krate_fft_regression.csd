@@ -30,8 +30,8 @@ StftBack@global:CsnArr = csnzeros(array(16))
 
 instr 1
     kTrig init 1
-    OneSpec = csnrfft(OneSrc, 8, -1, kTrig)
-    OneBack = csnirfft(OneSpec, 8, -1, kTrig)
+    OneSpec = csnrfft(OneSrc, 8, kTrig)
+    OneBack = csnirfft(OneSpec, 8, kTrig)
 
     TwoSpec = csnrfft2(TwoSrc, 4, 4, kTrig)
     TwoBack = csnirfft2(TwoSpec, 4, 4, kTrig)

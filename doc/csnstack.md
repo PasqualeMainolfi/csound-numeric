@@ -39,8 +39,9 @@ result:CsnArr = csnstack(trig:k, axis:k, first:CsnArr, second:CsnArr, ...)
 
 * `trig:k`: required k-rate trigger. Zero keeps the previous result; a non-zero
   value allows the operation to publish an updated stack.
-* `axis:i / axis:k`: position of the new axis, in the inclusive range
-  `[0, source dimensions]`.
+* `axis:i / axis:k`: position of the new axis, in the inclusive positive range
+  `[0, source dimensions]`; negative values count from the end of the result,
+  so `-1` inserts the new last axis.
 * `first:CsnArr, second:CsnArr, ...`: two or more arrays with identical shape,
   dimensionality and element type.
 
@@ -84,10 +85,10 @@ instr 1
     csnprint(by_rows)
 
     kTrig init 1
-    kAxis init 1
+    kAxis init -1
     kOnce init 1
     by_columns:CsnArr = csnstack(kTrig, kAxis, a, b, c)
-    prints("axis 1:\n")
+    prints("axis -1:\n")
     csnprint(by_columns, kOnce)
     kOnce = 0
 endin

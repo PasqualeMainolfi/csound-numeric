@@ -27,9 +27,9 @@ instr 1
     ; stacked along an axis
     shape:i[]       = fillarray(2, 3)
     mat:CsnArr      = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
-    stacked:CsnArr  = csnconcat(mat, mat, 0)
+    stacked:CsnArr  = csnconcat(mat, mat, -2)
     stacked_shape:i[] = csnshape(stacked)
-    prints("axis 0: %g x %g\n", stacked_shape[0], stacked_shape[1])
+    prints("axis -2: %g x %g\n", stacked_shape[0], stacked_shape[1])
 
     ; concatenating with an empty array gives back the other operand
     cap:i[]         = fillarray(4)

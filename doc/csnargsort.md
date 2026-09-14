@@ -25,14 +25,14 @@ Real only — ordering has no meaning over the complex field.
 ```csound
 handle:CsnArr = csnargsort(source:CsnArr)
 handle:CsnArr = csnargsort(source:CsnArr, axis:i)
-handle:CsnArr = csnargsort(source:CsnArr, axis:k)
-handle:CsnArr = csnargsort(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnargsort(source:CsnArr, trig:k)
+handle:CsnArr = csnargsort(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to order.
-* `axis:i / axis:k` (optional, default `-1`): the axis to order along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to order along. Omit it to use the last axis; explicit negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

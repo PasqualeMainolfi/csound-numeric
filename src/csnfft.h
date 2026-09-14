@@ -61,8 +61,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     MYFLT *fft_size;
-    MYFLT *axis; // -1 last axis (as numpy)
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     CSN_SCRATCH buffer;
@@ -173,8 +173,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -217,9 +217,8 @@ typedef struct {
     CSNREF *source_handle_b;
     MYFLT *arg_a; // mode for convolve1d and correlate1d
                   // mode for convolve and correlate N-D
-    MYFLT *arg_b; // axis for convolve1d and correlate1d
-                  // trig for convolve and correlate N-D
-    MYFLT *arg_c; // trig for convolve1d and correlate1d
+    MYFLT *arg_b; // i-axis for 1-D, k-trigger for every k-rate form
+    MYFLT *arg_c; // explicit axis for the 1-D k-rate forms
     // private
     CSN_ARRAY *array;
     K_DATA_FFT k_data_fft_x;
@@ -245,8 +244,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis; // -1 last axis (as numpy)
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     CSN_SCRATCH buffer;
@@ -320,8 +319,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *trig;
+    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
+    MYFLT *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     CSN_ARRAY fft_buffer;
@@ -355,6 +354,14 @@ typedef struct {
 } CSN_HILBERT2;
 
 int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_convolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_correlate1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftcorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fft_k_init(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_rfft_k_init(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_ifft_k_init(CSOUND *csound, CSN_FFT *p);
+int32_t csnarray_irfft_k_init(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_fft2_deinit(CSOUND *csound, CSN_FFT2 *p);
 int32_t csnarray_stft_deinit(CSOUND *csound, CSN_STFT *p);
 int32_t csnarray_istft_deinit(CSOUND *csound, CSN_ISTFT *p);
@@ -419,6 +426,10 @@ int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p);
 
 int32_t csnarray_dcst_deinit(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dct_one_k_init(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dct_two_k_init(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dst_one_k_init(CSOUND *csound, CSN_DCST *p);
+int32_t csnarray_dst_two_k_init(CSOUND *csound, CSN_DCST *p);
 
 int32_t csnarray_dct_one(CSOUND *csound, CSN_DCST *p);
 int32_t csnarray_dct_two(CSOUND *csound, CSN_DCST *p);
@@ -439,6 +450,8 @@ int32_t csnarray_mlogfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
 
 
 int32_t csnarray_hilbert_deinit(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert1d_k_init(CSOUND *csound, CSN_HILBERT *p);
+int32_t csnarray_hilbert1dr_k_init(CSOUND *csound, CSN_HILBERT *p);
 int32_t csnarray_hilbert1d(CSOUND *csound, CSN_HILBERT *p);
 int32_t csnarray_hilbert1d_k(CSOUND *csound, CSN_HILBERT *p);
 int32_t csnarray_hilbert1dr(CSOUND *csound, CSN_HILBERT *p);

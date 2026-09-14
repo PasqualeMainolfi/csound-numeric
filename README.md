@@ -259,16 +259,26 @@ csound --opcode-dir=build example/csnsort.csd
 
 ### Conventions shared by the whole suite
 
-- **Axis argument.** Opcodes that can work along one axis take an optional axis;
-  `-1` (the default) means "the whole array, read flat".
+- **Axis argument.** Explicit axes follow NumPy indexing: `0` is the first axis,
+  `-1` the last, `-2` the penultimate, and valid values run from `-ndim` to
+  `ndim - 1`. Omitting the axis is a separate operation, never an alias for
+  passing `-1`: depending on the opcode it means flatten first, operate on all
+  axes, use the last axis, or is not allowed. Each opcode documents its default.
+  The broad families are: flat for global reductions, cumulative operations,
+  normalisation, moving statistics, interpolation/resampling and 1-D
+  convolution; all axes for flip, pad and truncate; last axis for FFT-like
+  transforms, difference and sorting. Structural operations such as take,
+  slice and stack require an axis.
 - **In-place forms.** Where it makes sense, the opcode that publishes a new
   handle also has a sibling under the same name that writes back into its source
   and returns nothing: `csnnormalize(data)` normalizes in place, while
   `Norm:CsnArr = csnnormalize(data)` leaves the source alone.
 - **Rate overloads.** The i-rate and k-rate forms share a name; Csound picks the
   overload from the rate of the arguments you pass.
-- **Trigger.** Most k-rate forms take an optional trailing trigger. A zero
-  trigger skips the pass entirely and republishes the previous result. Where
+- **Trigger.** Most k-rate forms take a trigger. When an axis may be omitted,
+  the no-axis overload ends with the trigger and the explicit-axis overload is
+  written `..., trigger, axis`; this keeps omission distinct from `axis = -1`.
+  A zero trigger skips the pass entirely and republishes the previous result. Where
   the trigger is the only k-rate argument, as in `csnprint`, it is required so
   Csound can distinguish the performance overload from the init-time one.
   `csnprint`, `csnsave` and `csnload` have no previous computed result to
@@ -294,8 +304,9 @@ is what the opcode computes, not a transliteration of its call.
 
 Four differences apply throughout and are not repeated in every row:
 
-- **Axis.** The optional axis defaults to `-1`, meaning "read the whole array
-  flat". NumPy spells that `axis=None`; NumPy's own `-1` means the last axis.
+- **Axis.** As in NumPy, a supplied negative axis counts from the end, so `-1`
+  always means the last axis. Axis omission is represented by a separate
+  overload and may mean flat, all axes, or last axis according to the operation.
 - **Booleans.** csnum has no boolean element type. The comparisons, the `is*`
   predicates and the logical operations return a real array of `0` and `1` where
   NumPy returns `bool_`, and any of them is accepted as a mask.

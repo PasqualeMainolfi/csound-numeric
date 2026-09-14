@@ -15,7 +15,8 @@ The usual arguments are a period of `2*pi` and a discontinuity threshold of
 continuous curve that can be differentiated, which is how an instantaneous
 frequency is recovered from a phase.
 
-The scan follows one axis; `-1`, the default, reads the array flat.
+The scan follows one axis. Omitting it reads the array flat; an explicit `-1`
+selects the last axis.
 
 Two forms share the name. The one with an output publishes a new handle and
 leaves the source alone; the one without an output rewrites the source in place
@@ -26,10 +27,12 @@ and returns nothing.
 ```csound
 handle:CsnArr = csnunwrap(source:CsnArr, period:i, discont:i)
 handle:CsnArr = csnunwrap(source:CsnArr, period:i, discont:i, axis:i)
-handle:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, axis:k, trig:k)
+handle:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, trig:k)
+handle:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, trig:k, axis:k)
 csnunwrap(source:CsnArr, period:i, discont:i)
 csnunwrap(source:CsnArr, period:i, discont:i, axis:i)
-csnunwrap(source:CsnArr, period:k, discont:k, axis:k, trig:k)
+csnunwrap(source:CsnArr, period:k, discont:k, trig:k)
+csnunwrap(source:CsnArr, period:k, discont:k, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -37,7 +40,7 @@ csnunwrap(source:CsnArr, period:k, discont:k, axis:k, trig:k)
 * `source:CsnArr`: the wrapped sequence.
 * `period:i / period:k`: the period to add or subtract, typically `2*pi`.
 * `discont:i / discont:k`: the step size above which a jump counts as a wrap, typically `pi`.
-* `axis:i / axis:k` (optional, default `-1`): the axis to scan along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to scan along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k`: k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

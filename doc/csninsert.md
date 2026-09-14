@@ -40,7 +40,7 @@ csninsert(source:CsnArr, data:CsnArr, axis:k, index:k, trig:k)
 * `source:CsnArr`: the array that is written into.
 * `value:i / value:k / value:Complex`: the single element to insert.
 * `data:CsnArr`: the block to insert; must match `source` on every axis other than `axis`.
-* `axis:i / axis:k`: the axis the block is inserted along.
+* `axis:i / axis:k`: the axis the block is inserted along; negative values count from the end.
 * `index:i / index:k`: where to insert. Valid from `0` to the extent, end included.
 * `trig:k` (optional, default `1`): k-rate trigger. Nothing is inserted on a zero trigger.
 

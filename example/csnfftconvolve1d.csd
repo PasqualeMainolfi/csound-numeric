@@ -48,7 +48,7 @@ instr 1
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
     ones:CsnArr   = csnfromarray(array(1, 1))
-    rows:CsnArr   = csnfftconvolve1d(mat, ones, 0, 1)
+    rows:CsnArr   = csnfftconvolve1d(mat, ones, 0, -1)
     csnprint rows
     turnoff
 endin

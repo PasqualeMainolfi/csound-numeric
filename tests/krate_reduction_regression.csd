@@ -78,21 +78,21 @@ instr 3
     kZero = 0
     kAxis0 = 0
     kAxis1 = 1
-    SumAxis0 = csnsum(Mat, kAxis0, kTrig)
-    SumAxis1 = csnsum(Mat, kAxis1, kTrig)
-    ProdAxis0 = csnprod(Mat, kAxis0, kTrig)
-    MinAxis0 = csnmin(Mat, kAxis0, kTrig)
-    MaxAxis0 = csnmax(Mat, kAxis0, kTrig)
-    VarAxis0 = csnvar(Mat, kAxis0, kTrig)
-    StdAxis0 = csnstd(Mat, kAxis0, kTrig)
-    MedianAxis0 = csnmedian(Mat, kAxis0, kTrig)
+    SumAxis0 = csnsum(Mat, kTrig, kAxis0)
+    SumAxis1 = csnsum(Mat, kTrig, kAxis1)
+    ProdAxis0 = csnprod(Mat, kTrig, kAxis0)
+    MinAxis0 = csnmin(Mat, kTrig, kAxis0)
+    MaxAxis0 = csnmax(Mat, kTrig, kAxis0)
+    VarAxis0 = csnvar(Mat, kTrig, kAxis0)
+    StdAxis0 = csnstd(Mat, kTrig, kAxis0)
+    MedianAxis0 = csnmedian(Mat, kTrig, kAxis0)
     ; Never triggered: keeps the source copy the init pass published.
-    GatedAxis0 = csnsum(Mat, kAxis0, kZero)
+    GatedAxis0 = csnsum(Mat, kZero, kAxis0)
 
     ; argmin/argmax yield one row of source coordinates per reduced position,
     ; so the result is 2-D whatever the source's rank.
-    ArgMinAxis0 = csnargmin(Peaks, kAxis0, kTrig)
-    ArgMaxAxis0 = csnargmax(Peaks, kAxis0, kTrig)
+    ArgMinAxis0 = csnargmin(Peaks, kTrig, kAxis0)
+    ArgMaxAxis0 = csnargmax(Peaks, kTrig, kAxis0)
 endin
 
 ; Complex scalar reductions: same in/out types as the i-rate .c overloads, so

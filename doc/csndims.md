@@ -12,8 +12,9 @@ so on up to the 8 dimensions csnum arrays can carry.
 It is the value that decides how many bracket pairs a
 [csntoarray](csntoarray.md) output needs, how many coordinates
 [csnget](csnget.md) and [csnset](csnset.md) expect, and which axes are legal
-arguments elsewhere: a valid axis runs from `0` to `csndims - 1`, with `-1`
-meaning "the whole array, read flat" wherever an axis is optional.
+arguments elsewhere: a valid axis runs from `-csndims` to `csndims - 1`.
+Negative axes count from the end (`-1` is the last); omitting an optional axis
+selects the operation's documented flat, all-axes, or last-axis default.
 
 ## Syntax
 

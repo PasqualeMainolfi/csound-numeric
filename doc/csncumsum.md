@@ -24,14 +24,14 @@ Both real and complex arrays are accepted.
 ```csound
 handle:CsnArr = csncumsum(source:CsnArr)
 handle:CsnArr = csncumsum(source:CsnArr, axis:i)
-handle:CsnArr = csncumsum(source:CsnArr, axis:k)
-handle:CsnArr = csncumsum(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csncumsum(source:CsnArr, trig:k)
+handle:CsnArr = csncumsum(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to accumulate.
-* `axis:i / axis:k` (optional, default `-1`): the axis to accumulate along; `-1` reads the array flat.
+* `axis:i / axis:k` (optional): the axis to accumulate along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

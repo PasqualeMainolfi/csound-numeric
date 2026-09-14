@@ -121,7 +121,7 @@ RtCompressOut@global:CsnArr  = csnempty(array(0))
 instr 6
     csnrtlock RtCompressSrc, 1
     kTrig init 1
-    RtCompressOut = csncompress(RtCompressSrc, RtCompressMask, -1, kTrig)
+    RtCompressOut = csncompress(RtCompressSrc, RtCompressMask, kTrig)
     if timeinstk() == 12 then
         gkCompressReached = 1
     endif

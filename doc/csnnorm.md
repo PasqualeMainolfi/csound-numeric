@@ -29,15 +29,14 @@ value:k = csnnorm(source:CsnArr, order:k)
 value:k = csnnorm(source:CsnArr, order:k, trig:k)
 handle:CsnArr = csnnorm(source:CsnArr, axis:i)
 handle:CsnArr = csnnorm(source:CsnArr, axis:i, order:i)
-handle:CsnArr = csnnorm(source:CsnArr, axis:k, order:k)
-handle:CsnArr = csnnorm(source:CsnArr, axis:k, order:k, trig:k)
+handle:CsnArr = csnnorm(source:CsnArr, order:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to measure.
 * `order:i / order:k` (optional, default `1`): the norm order; must be >= 1.
-* `axis:i / axis:k`: the axis to measure along. Required for the array form, and it comes before `order`.
+* `axis:i / axis:k`: the axis to measure along. It comes before `order` at i-rate and after the trigger at k-rate; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

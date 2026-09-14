@@ -47,13 +47,14 @@ from the result with `csnabs`, `csnangle`, `csnunwrap` and `csndiff`.
 ```csound
 analytic:CsnArr = csnhilbert1d(source:CsnArr)
 analytic:CsnArr = csnhilbert1d(source:CsnArr, axis:i)
-analytic:CsnArr = csnhilbert1d(source:CsnArr, axis:i, trig:k)
+analytic:CsnArr = csnhilbert1d(source:CsnArr, trig:k)
+analytic:CsnArr = csnhilbert1d(source:CsnArr, trig:k, axis:i)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: a real array whose transformed axis has an even extent of at least two.
-* `axis:i` (optional, default `-1`): axis to transform; `-1` is the last axis.
+* `axis:i` (optional): axis to transform. Omit it to use the last axis; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Zero republishes the previous result.
 
 ## Output

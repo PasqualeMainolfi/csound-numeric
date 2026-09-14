@@ -37,7 +37,7 @@ endin
 instr 2
     kTwo init 2
     kOne init 1
-    TruncOut = csntruncate(Grid, kTwo, 1)
+    TruncOut = csntruncate(Grid, kTwo, kOne, 1)
     TruncAllOut = csntruncate(Grid, kOne)
 endin
 
@@ -54,7 +54,8 @@ endin
 
 instr 4
     kTwo init 2
-    csntruncate InPlaceGrid, kTwo, 1
+    kOne init 1
+    csntruncate InPlaceGrid, kTwo, kOne, 1
 
     kShape[] init 1
     kShape[0] = 6

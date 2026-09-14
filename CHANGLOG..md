@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.0] -
+
+- Make axis handling uniform across the API: explicit negative axes now use NumPy indexing (`-1` is always the last axis), while omission is represented by a distinct overload with an operation-specific `flat`, `all axes`, or `last axis` default; k-rate overloads place the trigger before an explicit optional axis
+
 ## [0.1.2] - 2026-09-14
 
 - Add matrix solving, inversion and determinant on a shared LU decomposition with partial pivoting, real and complex (*csnsolve*, *csninv*, *csndet*)

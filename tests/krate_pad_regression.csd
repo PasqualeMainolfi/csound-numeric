@@ -36,7 +36,6 @@ instr 1
     kValue = -7
     kAxis0 = 0
     kAxis1 = 1
-    kAllAxes = -1
     CValue:Complex = init(5, 6, 0)
 
     ; A zero trigger keeps the source copy published by the .k init pass.
@@ -45,20 +44,20 @@ instr 1
     ; 1-D pad: the single axis grows by before + after.
     PadFlatOut = csnpad(Flat, kBefore, kAfter, kValue, kPulse)
 
-    ; 2-D pads on one axis, and the -1 request that pads every axis.
-    PadAxis0Out = csnpad(Block, kBefore, kAfter, kValue, kAxis0, kPulse)
-    PadAxis1Out = csnpad(Block, kBefore, kAfter, kValue, kAxis1, kPulse)
-    PadAllAxesOut = csnpad(Block, kBefore, kAfter, kValue, kAllAxes, kPulse)
+    ; 2-D pads on one explicit axis, and the omitted-axis form that pads all.
+    PadAxis0Out = csnpad(Block, kBefore, kAfter, kValue, kPulse, kAxis0)
+    PadAxis1Out = csnpad(Block, kBefore, kAfter, kValue, kPulse, kAxis1)
+    PadAllAxesOut = csnpad(Block, kBefore, kAfter, kValue, kPulse)
 
     ; A logically empty source contributes no extent, so only padding is left.
     PadEmptyOut = csnpad(EmptyFlat, kBefore, kAfter, kValue, kPulse)
 
     PadComplexOut = csnpad(ComplexFlat, kBefore, kAfter, CValue, kPulse)
-    PadComplexAxisOut = csnpad(ComplexBlock, kBefore, kAfter, CValue, kAxis1, kPulse)
+    PadComplexAxisOut = csnpad(ComplexBlock, kBefore, kAfter, CValue, kPulse, kAxis1)
 
     ; In-place forms rewrite the source array itself, once per pulse.
     csnpad(PadInFlat, kBefore, kAfter, kValue, kPulse)
-    csnpad(PadInBlock, kBefore, kAfter, kValue, kAxis0, kPulse)
+    csnpad(PadInBlock, kBefore, kAfter, kValue, kPulse, kAxis0)
     csnpad(PadInComplex, kBefore, kAfter, CValue, kPulse)
 endin
 

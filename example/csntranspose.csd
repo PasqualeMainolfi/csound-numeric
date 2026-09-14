@@ -24,8 +24,8 @@ instr 1
     tr_out:i[]     = csntoarray(csnflatten(tr))
     prints("shape = %g x %g, flat = %g %g %g %g %g %g\n", tr_shape[0], tr_shape[1], tr_out[0], tr_out[1], tr_out[2], tr_out[3], tr_out[4], tr_out[5])
 
-    ; the same thing said as an explicit permutation
-    axes:i[]       = fillarray(1, 0)
+    ; the same permutation using negative axis indices
+    axes:i[]       = fillarray(-1, -2)
     perm:CsnArr    = csntranspose(mat, axes)
     perm_out:i[]   = csntoarray(csnflatten(perm))
     prints("explicit  = %g %g %g %g %g %g\n", perm_out[0], perm_out[1], perm_out[2], perm_out[3], perm_out[4], perm_out[5])

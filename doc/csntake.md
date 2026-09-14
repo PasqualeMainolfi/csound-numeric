@@ -31,7 +31,7 @@ value:Complex = csntake(source:CsnArr, index:k)
 ## Arguments
 
 * `source:CsnArr`: the array to read.
-* `axis:i / axis:k`: the axis to select along, from `0` to `csndims - 1`. Only in the three-argument form, which needs a 2-D or higher array.
+* `axis:i / axis:k`: the axis to select along, from `-csndims` to `csndims - 1`; negative values count from the end. Only in the three-argument form, which needs a 2-D or higher array.
 * `index:i / index:k`: the position along `axis`, or the flat index in the two-argument form.
 
 ## Output

@@ -28,14 +28,13 @@ result:k = csnmean(source:CsnArr, trig:k)
 result:Complex = csnmean(source:CsnArr)
 result:Complex = csnmean(source:CsnArr, trig:k)
 handle:CsnArr = csnmean(source:CsnArr, axis:i)
-handle:CsnArr = csnmean(source:CsnArr, axis:k)
-handle:CsnArr = csnmean(source:CsnArr, axis:k, trig:k)
+handle:CsnArr = csnmean(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to reduce.
-* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number.
+* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output

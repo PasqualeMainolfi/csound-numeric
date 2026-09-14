@@ -80,8 +80,8 @@ Promoted@global:CsnArr = csntocomplex(Quad)
 MovGated@global:CsnArr = csnfromarray(giSeq)
 MovMeanIn@global:CsnArr = csnfromarray(giSeq)
 
-Sorted@global:CsnArr = csnsort(V, -1)
-Argsorted@global:CsnArr = csnargsort(V, -1)
+Sorted@global:CsnArr = csnsort(V)
+Argsorted@global:CsnArr = csnargsort(V)
 SortedAxis@global:CsnArr = csnsort(Mat, 1)
 Projected@global:CsnArr = csnproject(A, B)
 Rejected@global:CsnArr = csnreject(A, B)
@@ -89,16 +89,16 @@ Crossed@global:CsnArr = csncross(B, YAxis)
 Reflected@global:CsnArr = csnreflect(A, B)
 PairDist@global:CsnArr = csnpairdist(A, B)
 Outer@global:CsnArr = csnouter(B, YAxis)
-Grad@global:CsnArr = csngrad(V, -1)
-Diff@global:CsnArr = csndiff(V, -1)
-CumSum@global:CsnArr = csncumsum(V, -1)
-CumProd@global:CsnArr = csncumprod(V, -1)
+Grad@global:CsnArr = csngrad(V)
+Diff@global:CsnArr = csndiff(V)
+CumSum@global:CsnArr = csncumsum(V)
+CumProd@global:CsnArr = csncumprod(V)
 Absolute@global:CsnArr = csnabs(Signed)
 Floored@global:CsnArr = csnfloor(Signed)
 Ceiled@global:CsnArr = csnceil(Signed)
 Signs@global:CsnArr = csnsign(Signed)
 NotV@global:CsnArr = csnlogicnot(V)
-Normalized@global:CsnArr = csnnormalize(A, -1, 2)
+Normalized@global:CsnArr = csnnormalize(A, 2)
 NormAxis@global:CsnArr = csnnorm(Mat, 1, 2)
 
 /* In-place overloads: no output handle, the source is rewritten. */
@@ -127,47 +127,47 @@ instr 1
        init pass, and the k init has to tolerate that instead of rejecting it. */
     kOrder = 2
 
-    Sorted = csnsort(V, kAllAxes, kTrig)
-    Argsorted = csnargsort(V, kAllAxes, kTrig)
-    SortedAxis = csnsort(Mat, kAxis1, kTrig)
+    Sorted = csnsort(V, kTrig)
+    Argsorted = csnargsort(V, kTrig)
+    SortedAxis = csnsort(Mat, kTrig, kAxis1)
     Projected = csnproject(A, B, kTrig)
     Rejected = csnreject(A, B, kTrig)
     Crossed = csncross(B, YAxis, kTrig)
     Reflected = csnreflect(A, B, kTrig)
     PairDist = csnpairdist(A, B, kTrig)
     Outer = csnouter(B, YAxis, kTrig)
-    Grad = csngrad(V, kAllAxes, kTrig)
-    Diff = csndiff(V, kAllAxes, kTrig)
-    CumSum = csncumsum(V, kAllAxes, kTrig)
-    CumProd = csncumprod(V, kAllAxes, kTrig)
+    Grad = csngrad(V, kTrig)
+    Diff = csndiff(V, kTrig)
+    CumSum = csncumsum(V, kTrig)
+    CumProd = csncumprod(V, kTrig)
     Absolute = csnabs(Signed, kTrig)
     ComplexAbsolute = csnabs(ComplexQuad, kTrig)
     Floored = csnfloor(Signed, kTrig)
     Ceiled = csnceil(Signed, kTrig)
     Signs = csnsign(Signed, kTrig)
     NotV = csnlogicnot(V, kTrig)
-    Normalized = csnnormalize(A, kAllAxes, kOrder, kTrig)
-    NormAxis = csnnorm(Mat, kAxis1, kOrder, kTrig)
+    Normalized = csnnormalize(A, kOrder, kTrig)
+    NormAxis = csnnorm(Mat, kOrder, kTrig, kAxis1)
     Product = csnmatmul(MatA, MatB, kTrig)
 
     /* Deliberately a plain k assignment, not `init`: the window still reads 0
        during the init pass, which the k init must tolerate. */
     kWindow = 3
-    MovMedian = csnmovmedian(Seq, kWindow, kAllAxes, kTrig)
+    MovMedian = csnmovmedian(Seq, kWindow, kTrig)
     /* Known at init and grown mid-note without doubling: the median scratch
        has to follow the window it now needs, not the capacity it started with. */
     kGrowWindow init 2
     if timeinstk() >= 3 then
         kGrowWindow = 3
     endif
-    MovMedianGrow = csnmovmedian(Seq, kGrowWindow, kAllAxes, kTrig)
-    MovMin = csnmovmin(Seq, kWindow, kAllAxes, kTrig)
-    MovMax = csnmovmax(Seq, kWindow, kAllAxes, kTrig)
-    MovMean = csnmovmean(Seq, kWindow, kAllAxes, kTrig)
-    MovVar = csnmovvar(Seq, kWindow, kAllAxes, kTrig)
-    csnmovmedian(MovGated, kWindow, kAllAxes, kOff)
+    MovMedianGrow = csnmovmedian(Seq, kGrowWindow, kTrig)
+    MovMin = csnmovmin(Seq, kWindow, kTrig)
+    MovMax = csnmovmax(Seq, kWindow, kTrig)
+    MovMean = csnmovmean(Seq, kWindow, kTrig)
+    MovVar = csnmovvar(Seq, kWindow, kTrig)
+    csnmovmedian(MovGated, kWindow, kOff)
     kOnce = (timeinstk() == 2 ? 1 : 0)
-    csnmovmean(MovMeanIn, kWindow, kAllAxes, kOnce)
+    csnmovmean(MovMeanIn, kWindow, kOnce)
 
     kSliceAxis = 0
     kSliceStart = 1
@@ -186,14 +186,14 @@ instr 1
     kPercent = 50
     kQuant = 0.5
     kAxis0 = 0
-    PercAxis = csnpercentile(Square, kPercent, kAxis0, kTrig)
-    QuantAxis = csnquantile(Square, kQuant, kAxis1, kTrig)
+    PercAxis = csnpercentile(Square, kPercent, kTrig, kAxis0)
+    QuantAxis = csnquantile(Square, kQuant, kTrig, kAxis1)
 
     Spread = csndiag(Quad, kTrig)
     Extracted = csndiag(Square, kTrig)
 
-    csnsort(SortInPlace, kAllAxes, kTrig)
-    csnnormalize(NormInPlace, kAllAxes, kOrder, kTrig)
+    csnsort(SortInPlace, kTrig)
+    csnnormalize(NormInPlace, kOrder, kTrig)
 
     Frozen = csnabs(Signed, kOff)
 endin

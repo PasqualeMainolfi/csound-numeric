@@ -25,10 +25,10 @@ instr 1
     csnprint(by_rows)
 
     kTrig init 1
-    kAxis init 1
+    kAxis init -1
     kOnce init 1
     by_columns:CsnArr = csnstack(kTrig, kAxis, a, b, c)
-    prints("axis 1:\n")
+    prints("axis -1:\n")
     csnprint(by_columns, kOnce)
     kOnce = 0
 endin

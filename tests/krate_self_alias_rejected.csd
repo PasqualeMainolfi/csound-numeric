@@ -20,7 +20,7 @@ giShape[] = array(2, 3)
 
 Flat@global:CsnArr = csnfromarray(giValues)
 Source@global:CsnArr = csnreshape(Flat, giShape)
-Flipped@global:CsnArr = csnflip(Source, -1)
+Flipped@global:CsnArr = csnflip(Source)
 
 instr 1
     kAxis = -1

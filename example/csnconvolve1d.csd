@@ -40,10 +40,10 @@ instr 1
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
     ones:CsnArr   = csnfromarray(array(1, 1))
 
-    cols:CsnArr   = csnconvolve1d(mat, ones, 0, 0)
+    cols:CsnArr   = csnconvolve1d(mat, ones, 0, -2)
     csnprint cols
 
-    rows:CsnArr   = csnconvolve1d(mat, ones, 0, 1)
+    rows:CsnArr   = csnconvolve1d(mat, ones, 0, -1)
     csnprint rows
     turnoff
 endin

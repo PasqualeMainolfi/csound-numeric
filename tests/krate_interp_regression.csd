@@ -82,8 +82,8 @@ endin
 ; axis passes have to agree value by value.
 instr 2
     InterpFlat = csninterp(Query, Xd, Yd, 0, 1)
-    InterpAxis0 = csninterp(QueryMat, Xd, Yd, 0, 1, 0)
-    InterpAxis1 = csninterp(QueryMat, Xd, Yd, 0, 1, 1)
+    InterpAxis0 = csninterp(QueryMat, Xd, Yd, 0, 1, 0, 1, 0)
+    InterpAxis1 = csninterp(QueryMat, Xd, Yd, 0, 1, 0, 1, 1)
     InterpCache = csninterp(CacheQuery, Xd, CacheTable, 0, 1)
 endin
 
@@ -95,8 +95,8 @@ instr 3
     ResOne = csnresample(Ramp, 1, 0, 1)
     ResNearest = csnresample(Ramp, 7, 1, 1)
     ResCubic = csnresample(Ramp, 7, 4, 1)
-    ResAxis0 = csnresample(Grid, 3, 0, 1, 0, 0)
-    ResAxis1 = csnresample(Grid, 5, 0, 1, 0, 1)
+    ResAxis0 = csnresample(Grid, 3, 0, 1, 0, 1, 0)
+    ResAxis1 = csnresample(Grid, 5, 0, 1, 0, 1, 1)
     ResFlat = csnresample(Grid, 3, 0, 1)
     ResLen = csnresample(Ramp, gkLength, 0, 1)
 endin

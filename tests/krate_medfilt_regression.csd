@@ -60,21 +60,21 @@ instr 1
     kTouch  = (timeinstk() == 3 ? 1 : 0)
 
     ; --- output forms: the source never changes, so neither may the result ---
-    Out1d  = csnmedfilt1d(Src1d, 3, -1, kAlways)
+    Out1d  = csnmedfilt1d(Src1d, 3, kAlways)
     OutNd  = csnmedfilt(Mat, 3, kAlways)
     OutNdS = csnmedfilt(Mat, giKcol, kAlways)
 
     ; a zero trigger republishes what the init pass computed
-    Zero1d = csnmedfilt1d(Src1d, 3, -1, kNever)
+    Zero1d = csnmedfilt1d(Src1d, 3, kNever)
 
     ; --- in place, triggered on every pass: filter once, then hold ---
-    csnmedfilt1d(In1d, 3, -1, kAlways)
+    csnmedfilt1d(In1d, 3, kAlways)
     csnmedfilt(MatIn, 3, kAlways)
     csnmedfilt(MatInS, giKcol, kAlways)
 
     ; --- in place, with a write from another opcode on the third pass ---
     csnclip(In1dW, kLow, kHigh1d, kTouch)
-    csnmedfilt1d(In1dW, 3, -1, kAlways)
+    csnmedfilt1d(In1dW, 3, kAlways)
 
     csnclip(MatInW, kLow, kHighNd, kTouch)
     csnmedfilt(MatInW, 3, kAlways)

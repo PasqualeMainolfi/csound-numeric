@@ -11,10 +11,12 @@ Run one with the plugin in place:
 csound --opcode-dir=build example/csnsort.csd
 ```
 
-Conventions that apply throughout: an optional axis argument defaults to `-1`,
-meaning the array is read flat; opcodes that publish a new handle usually have an
+Conventions that apply throughout: explicit axes use NumPy indexing (`-1` is
+the last axis, `-2` the penultimate), while omitting the axis selects the
+operation's documented flat, all-axes, or last-axis default; opcodes that publish a new handle usually have an
 in-place sibling under the same name that writes back into its source and returns
-nothing; most k-rate forms take an optional trailing trigger, and a zero trigger
+nothing; when an axis is optional, k-rate forms put the trigger before an
+explicit axis, and a zero trigger
 republishes the previous result instead of recomputing. A trigger that is the
 only k-rate argument is required to select the performance overload, and
 side-effecting opcodes such as `csnprint` simply do nothing when it is zero. See the

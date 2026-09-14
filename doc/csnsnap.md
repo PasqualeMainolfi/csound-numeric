@@ -36,7 +36,7 @@ runs once per completed frame:
 
 ```csound
 frame:CsnArr, kready = csnsnap(asig, 1024, 256)
-spectrum:CsnArr = csnrfft(frame, 1024, -1, kready)
+spectrum:CsnArr = csnrfft(frame, 1024, kready, -1)
 magnitude:CsnArr = csnabs(spectrum, kready)
 ```
 

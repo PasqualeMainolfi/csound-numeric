@@ -169,7 +169,7 @@ instr 9
     kOne init 1
     kAll init -1
     kWin = timeinstk() < 3 ? 2 : 9
-    MedOut:CsnArr = csnmovmedian(RtMedSrc, kWin, kAll, kOne)
+    MedOut:CsnArr = csnmovmedian(RtMedSrc, kWin, kOne)
     csnrtlock MedOut
     if timeinstk() == 12 then
         gkMedLateLock = 1
@@ -181,7 +181,7 @@ instr 10
     kAll init -1
     kWin = timeinstk() < 3 ? 2 : 9
     csnrtlockstart
-    MedBlock:CsnArr = csnmovmedian(RtMedSrc, kWin, kAll, kOne)
+    MedBlock:CsnArr = csnmovmedian(RtMedSrc, kWin, kOne)
     csnrtlockend
     if timeinstk() == 12 then
         gkMedBlock = 1
@@ -193,7 +193,7 @@ instr 11
     kOne init 1
     kAll init -1
     kWin = timeinstk() < 3 ? 2 : 9
-    csnmovmedian RtMedIn, kWin, kAll, kOne
+    csnmovmedian RtMedIn, kWin, kOne
     if timeinstk() == 12 then
         gkMedInPlace = 1
     endif
@@ -220,7 +220,7 @@ instr 12
     kAll init -1
     kWin init 3
     csnresize RtLateSrc, giShapeEight
-    LateOut:CsnArr = csnmovmedian(RtLateSrc, kWin, kAll, kOne)
+    LateOut:CsnArr = csnmovmedian(RtLateSrc, kWin, kOne)
     kLock = timeinstk() == 2 ? 1 : 0
     csnrtlock RtLateSrc, kLock
     kShape[] init 1
@@ -236,7 +236,7 @@ instr 13
     kOne init 1
     kAll init -1
     kWin init 3
-    UnlockedOut:CsnArr = csnmovmedian(RtUnlockSrc, kWin, kAll, kOne)
+    UnlockedOut:CsnArr = csnmovmedian(RtUnlockSrc, kWin, kOne)
     csnrtunlock UnlockedOut
     csnrtunlock RtUnlockSrc
     kShape[] init 1
@@ -252,7 +252,7 @@ instr 14
     kOne init 1
     kAll init -1
     kWin init 3
-    InheritedOut:CsnArr = csnmovmedian(RtInheritSrc, kWin, kAll, kOne)
+    InheritedOut:CsnArr = csnmovmedian(RtInheritSrc, kWin, kOne)
     csnrtunlock RtInheritSrc
     kShape[] init 1
     kShape[0] = timeinstk() < 4 ? 8 : 40
@@ -304,7 +304,7 @@ instr 17
     csnrtlock RtSortSrc
     kOne init 1
     kAll init -1
-    csnsort RtSortSrc, kAll, kOne
+    csnsort RtSortSrc, kOne
     kShape[] init 1
     kShape[0] = timeinstk() < 3 ? 8 : 15
     csnresize RtSortSrc, kShape, kOne
@@ -389,7 +389,7 @@ instr 22
         kThresh = 1.5
     endif
     Mask:CsnArr = csngt(RtCompressFitsSrc, kThresh, kOne)
-    Kept:CsnArr = csncompress(RtCompressFitsSrc, Mask, -1, kOne)
+    Kept:CsnArr = csncompress(RtCompressFitsSrc, Mask, kOne)
     if timeinstk() == 12 then
         gkCompressFits = 1
     endif

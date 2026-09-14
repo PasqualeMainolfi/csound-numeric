@@ -14,7 +14,7 @@ instr 1
     ; This result inherits the mark. Its fixed shape allocates at init and
     ; therefore needs no allocation on the performance thread.
     kTrig init 1
-    spectrum:CsnArr = csnrfft(source, 4, -1, kTrig)
+    spectrum:CsnArr = csnrfft(source, 4, kTrig, -1)
     kSize = csnsize(spectrum)
     if timeinstk() == 2 then
         printf("locked fixed-size spectrum: %d bins\n", 1, kSize)

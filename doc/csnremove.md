@@ -34,7 +34,7 @@ handle:CsnArr = csnremove(source:CsnArr, axis:k, index:k, trig:k)
 
 * `source:CsnArr`: the array to remove from. The one-element form modifies it; the block form does not.
 * `index:i / index:k`: the flat index of the element, or the index along `axis` of the block.
-* `axis:i / axis:k`: the axis the block is dropped from.
+* `axis:i / axis:k`: the axis the block is dropped from; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Nothing is removed on a zero trigger.
 
 ## Output

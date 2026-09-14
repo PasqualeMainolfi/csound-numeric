@@ -11,7 +11,7 @@ position: `y[n] = sum over j of x[n - j] * h[j]`, which is what a FIR filter,
 an envelope smoother or an impulse response applied by hand all compute. It is
 `np.convolve` with an axis argument.
 
-The kernel must be one-dimensional. With the default axis, `-1`, the source is
+The kernel must be one-dimensional. With the axis omitted, the source is
 read flat and the result is a vector. With an axis, every lane along that axis
 is convolved on its own and the others are left alone, so a 2×3 matrix
 convolved along axis 0 comes back with three columns, each the convolution of
@@ -47,7 +47,8 @@ performance pass from having to reallocate.
 handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr)
 handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i)
 handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
+handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -55,7 +56,7 @@ handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i, trig:k)
 * `x:CsnArr`: the array to convolve.
 * `h:CsnArr`: the kernel; must be 1-D and hold at least one element.
 * `edges:i` (optional, default `0`): `0` FULL, `1` SAME, `2` VALID.
-* `axis:i` (optional, default `-1`): the axis to convolve along; `-1` reads the array flat.
+* `axis:i` (optional): the axis to convolve along. Omit it to read the array flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -112,10 +113,10 @@ instr 1
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
     ones:CsnArr   = csnfromarray(array(1, 1))
 
-    cols:CsnArr   = csnconvolve1d(mat, ones, 0, 0)
+    cols:CsnArr   = csnconvolve1d(mat, ones, 0, -2)
     csnprint cols
 
-    rows:CsnArr   = csnconvolve1d(mat, ones, 0, 1)
+    rows:CsnArr   = csnconvolve1d(mat, ones, 0, -1)
     csnprint rows
     turnoff
 endin

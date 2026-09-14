@@ -25,22 +25,22 @@ and returns nothing.
 
 ```csound
 handle:CsnArr = csnnormalize(source:CsnArr)
-handle:CsnArr = csnnormalize(source:CsnArr, axis:i)
-handle:CsnArr = csnnormalize(source:CsnArr, axis:i, order:i)
-handle:CsnArr = csnnormalize(source:CsnArr, axis:k, order:k)
-handle:CsnArr = csnnormalize(source:CsnArr, axis:k, order:k, trig:k)
+handle:CsnArr = csnnormalize(source:CsnArr, order:i)
+handle:CsnArr = csnnormalize(source:CsnArr, order:i, axis:i)
+handle:CsnArr = csnnormalize(source:CsnArr, order:k, trig:k)
+handle:CsnArr = csnnormalize(source:CsnArr, order:k, trig:k, axis:k)
 csnnormalize(source:CsnArr)
-csnnormalize(source:CsnArr, axis:i)
-csnnormalize(source:CsnArr, axis:i, order:i)
-csnnormalize(source:CsnArr, axis:k, order:k)
-csnnormalize(source:CsnArr, axis:k, order:k, trig:k)
+csnnormalize(source:CsnArr, order:i)
+csnnormalize(source:CsnArr, order:i, axis:i)
+csnnormalize(source:CsnArr, order:k, trig:k)
+csnnormalize(source:CsnArr, order:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to normalise.
-* `axis:i / axis:k` (optional, default `-1`): the axis to normalise along; `-1` scales the whole array by one factor.
 * `order:i / order:k` (optional, default `1`): the norm order; must be >= 1.
+* `axis:i / axis:k` (optional): the axis to normalise along. Omit it to scale the whole array by one factor; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
@@ -80,15 +80,15 @@ instr 1
     total:i       = csnsum(weights)
     prints("order 1 = %.4f %.4f %.4f, sum = %g\n", weights_out[0], weights_out[1], weights_out[2], total)
 
-    unit:CsnArr   = csnnormalize(vec, -1, 2)
+    unit:CsnArr   = csnnormalize(vec, 2)
     unit_out:i[]  = csntoarray(unit)
     length:i      = csnnorm(unit, 2)
     prints("order 2 = %.4f %.4f %.4f, length = %g\n", unit_out[0], unit_out[1], unit_out[2], length)
 
-    ; per row, so every row comes out the same length
+    ; axis -1 is the last axis: every row comes out the same length
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 40, 50, 60)), shape)
-    rows:CsnArr   = csnnormalize(mat, 1, 2)
+    rows:CsnArr   = csnnormalize(mat, 2, -1)
     row_norms:CsnArr = csnnorm(rows, 1, 2)
     row_out:i[]   = csntoarray(row_norms)
     prints("row lengths after = %g %g\n", row_out[0], row_out[1])

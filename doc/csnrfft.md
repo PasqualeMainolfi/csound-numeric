@@ -25,14 +25,15 @@ real-time marked by default and the spectrum inherits that mark.
 ```csound
 spectrum:CsnArr = csnrfft(source:CsnArr, nfft:i)
 spectrum:CsnArr = csnrfft(source:CsnArr, nfft:i, axis:i)
-spectrum:CsnArr = csnrfft(source:CsnArr, nfft:i, axis:i, trig:k)
+spectrum:CsnArr = csnrfft(source:CsnArr, nfft:i, trig:k)
+spectrum:CsnArr = csnrfft(source:CsnArr, nfft:i, trig:k, axis:i)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: real input array.
 * `nfft:i`: transform length, a positive power of two.
-* `axis:i` (optional, default `-1`): transform axis; `-1` means the last axis.
+* `axis:i` (optional): transform axis. Omit it to use the last axis; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Zero republishes the previous result.
 
 ## Output
@@ -63,7 +64,7 @@ instr 1
     ; The analysis size is independent of ksmps. csnsnap buffers the audio and
     ; raises kReady only when a complete, 50%-overlapped frame is available.
     frame:CsnArr, kReady = csnsnap(aSignal, 256, 128)
-    spectrum:CsnArr = csnrfft(frame, 256, -1, kReady)
+    spectrum:CsnArr = csnrfft(frame, 256, kReady, -1)
     magnitude:CsnArr = csnabs(spectrum, kReady)
     kPeak = csnmax(magnitude, kReady)
 

@@ -26,15 +26,14 @@ value:i = csnquantile(source:CsnArr, q:i)
 value:k = csnquantile(source:CsnArr, q:k)
 value:k = csnquantile(source:CsnArr, q:k, trig:k)
 handle:CsnArr = csnquantile(source:CsnArr, q:i, axis:i)
-handle:CsnArr = csnquantile(source:CsnArr, q:k, axis:k)
-handle:CsnArr = csnquantile(source:CsnArr, q:k, axis:k, trig:k)
+handle:CsnArr = csnquantile(source:CsnArr, q:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to reduce.
 * `q:i / q:k`: the quantile, from 0 to 1.
-* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number.
+* `axis:i / axis:k` (optional): the axis to reduce along. Omitted, the whole array is reduced to one number; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
