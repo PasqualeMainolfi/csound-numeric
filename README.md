@@ -236,7 +236,10 @@ csound --opcode-dir=build example/csnsort.csd
 - **Complex**: real / imaginary parts, angle, conjugate, conversion to and from
   real arrays.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
-  matrix, STFT/ISTFT, frequency-coordinate arrays, and FFT shift/unshift.
+  matrix, STFT/ISTFT, frequency-coordinate arrays, FFT shift/unshift, and the
+  DCT-I/II and DST-I/II at any length.
+- **Cepstral and mel analysis**: mel-frequency cepstral coefficients in one
+  opcode, and the triangular mel filterbank itself, linear or logarithmic.
 - **Convolution and correlation**: convolution and cross-correlation, with a
   1-D kernel flat or along one axis, or with a kernel shaped like the source,
   over NumPy's FULL / SAME / VALID spans — computed directly, or through
@@ -564,6 +567,18 @@ of re-sorting on every k-rate pass.
 | `csnifftshift` | `np.fft.ifftshift` | |
 | `csnstft` | `scipy.signal.stft` | Frames and their coordinates. |
 | `csnistft` | `scipy.signal.istft` | |
+| `csndctone1d` | `scipy.fft.dct(x, type=1)` | `norm=None`. Any length. |
+| `csndcttwo1d` | `scipy.fft.dct(x, type=2)` | `norm=None`. Any length. |
+| `csndstone1d` | `scipy.fft.dst(x, type=1)` | `norm=None`. Any length. |
+| `csndsttwo1d` | `scipy.fft.dst(x, type=2)` | `norm=None`. Any length. |
+
+### Cepstral and mel analysis
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnmfcc` | `librosa.feature.mfcc` | HTK mel scale, Slaney-normalized bands, natural log. One argument sets both band and coefficient count. |
+| `csnmfbank` | `librosa.filters.mel` | The matrix itself, `(bands, nfft / 2 + 1)`. |
+| `csnmlogfbank` | — | The same matrix in logarithmic scale. |
 
 ### Convolution and correlation
 

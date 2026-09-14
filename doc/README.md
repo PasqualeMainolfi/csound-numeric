@@ -261,6 +261,16 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnrfftfreq](csnrfftfreq.md) - coordinates for a one-sided real spectrum
 - [csnfftshift](csnfftshift.md) - moves zero frequency to the centre of an axis
 - [csnifftshift](csnifftshift.md) - restores native FFT ordering
+- [csndctone1d](csndctone1d.md) - DCT-I along one axis
+- [csndcttwo1d](csndcttwo1d.md) - DCT-II along one axis
+- [csndstone1d](csndstone1d.md) - DST-I along one axis
+- [csndsttwo1d](csndsttwo1d.md) - DST-II along one axis
+
+## Cepstral and mel analysis
+
+- [csnmfcc](csnmfcc.md) - mel-frequency cepstral coefficients of a signal
+- [csnmfbank](csnmfbank.md) - triangular mel filterbank matrix
+- [csnmlogfbank](csnmlogfbank.md) - the same matrix in logarithmic scale
 
 ## Convolution and correlation
 

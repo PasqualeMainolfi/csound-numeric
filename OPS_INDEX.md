@@ -280,6 +280,27 @@ accept k-rate lengths and do not require powers of two.
 - **csnfftshift** - moves zero frequency to the centre of an axis (i, k — real, complex)
 - **csnifftshift** - restores native FFT ordering (i, k — real, complex)
 
+The four trigonometric transforms below take their length from the array rather
+than from an argument, so they accept any length: the symmetric extension each
+one builds is always even, which is all the transform needs. Accuracy does not
+depend on the length, only the time does.
+
+- **csndctone1d** - DCT-I along one axis (i, k — real input; real output)
+- **csndcttwo1d** - DCT-II along one axis (i, k — real input; real output)
+- **csndstone1d** - DST-I along one axis (i, k — real input; real output)
+- **csndsttwo1d** - DST-II along one axis (i, k — real input; real output)
+
+## Cepstral and mel analysis
+
+Band edges are placed on the HTK mel scale. The filterbank triangles are
+evaluated at each bin's centre frequency instead of being built from rounded bin
+edges, so a band narrower than the bin spacing keeps fractional weight from its
+neighbours rather than collapsing. `nfft` is a power of two, as everywhere else.
+
+- **csnmfcc** - mel-frequency cepstral coefficients of a signal (i, k — real input; real output)
+- **csnmfbank** - triangular mel filterbank matrix (i — real output)
+- **csnmlogfbank** - the same matrix in logarithmic scale (i — real output)
+
 ## Convolution and correlation
 
 The kernel is flipped for a convolution and read as it stands, conjugated, for
