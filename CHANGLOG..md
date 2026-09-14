@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0] -
+## [0.1.3] - 2026-09-15
 
 - Make axis handling uniform across the API: explicit negative axes now use NumPy indexing (`-1` is always the last axis), while omission is represented by a distinct overload with an operation-specific `flat`, `all axes`, or `last axis` default; k-rate overloads place the trigger before an explicit optional axis
 
