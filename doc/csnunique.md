@@ -90,6 +90,7 @@ i 1 0 0.1
 * [csnargunique](csnargunique.md)
 * [csnsort](csnsort.md)
 * [csncnteq](csncnteq.md)
+* [csnbincount](csnbincount.md)
 
 ## Credits
 

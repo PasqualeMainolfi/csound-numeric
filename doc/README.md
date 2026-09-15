@@ -93,6 +93,7 @@ support of each opcode.
 - [csncompress](csncompress.md) - keeps the entries a 1-D mask marks, along an axis or flat
 - [csnselect](csnselect.md) - keeps the elements a mask marks, as a flat array
 - [csnindexof](csnindexof.md) - coordinates of the first element equal to a scalar, or an empty array
+- [csnbincount](csnbincount.md) - counts every non-negative integer bin, optionally accumulating weights
 - [csnargwhere](csnargwhere.md) - coordinates of the elements matching a value array
 - [csnargnonzero](csnargnonzero.md) - coordinates of the non-zero elements
 - [csnargisnan](csnargisnan.md) - coordinates of the NaN elements

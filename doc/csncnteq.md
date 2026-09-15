@@ -13,6 +13,8 @@ and without publishing a mask.
 Use it when only the count matters. When the *positions* matter,
 [csnargwhere](csnargwhere.md) returns all of them, while
 [csnindexof](csnindexof.md) returns only the first.
+[csnbincount](csnbincount.md) counts every value at once when the source is a
+vector of non-negative integers.
 
 Real only. Equality is exact, so a NaN is never counted, and a value that is the
 result of floating-point arithmetic may not compare equal to the literal you
@@ -92,6 +94,7 @@ i 1 0 0.1
 * [csncntnz](csncntnz.md)
 * [csncntnan](csncntnan.md)
 * [csneq](csneq.md)
+* [csnbincount](csnbincount.md)
 * [csnindexof](csnindexof.md)
 * [csnargwhere](csnargwhere.md)
 

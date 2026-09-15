@@ -393,6 +393,22 @@ instr 2
     iIndexofMissing:CsnArr = csnindexof(iSelectSource, iMissingNeedle)
     assert(csnsize(iIndexofMissing) == 0 && csnisempty(iIndexofMissing) == 1)
 
+    ; NumPy-style bincount includes every bin through max(source), including
+    ; zero-count gaps. Weights are accumulated at the source value's bin.
+    iBinSource:CsnArr = csnfromarray(array(0, 1, 1, 3))
+    iBinCounts:CsnArr = csnbincount(iBinSource)
+    iBinCountValues[] = csntoarray(iBinCounts)
+    assert(csndims(iBinCounts) == 1 && csnsize(iBinCounts) == 4)
+    assert(iBinCountValues[0] == 1 && iBinCountValues[1] == 2 && iBinCountValues[2] == 0 && iBinCountValues[3] == 1)
+
+    iBinWeights:CsnArr = csnfromarray(array(0.5, 1, 2, 4))
+    iWeightedCounts:CsnArr = csnbincount(iBinSource, iBinWeights)
+    iWeightedCountValues[] = csntoarray(iWeightedCounts)
+    assert(iWeightedCountValues[0] == 0.5 && iWeightedCountValues[1] == 3 && iWeightedCountValues[2] == 0 && iWeightedCountValues[3] == 4)
+
+    iEmptyBins:CsnArr = csnbincount(csnempty(array(0)))
+    assert(csndims(iEmptyBins) == 1 && csnsize(iEmptyBins) == 0 && csnisempty(iEmptyBins) == 1)
+
     iSparseValues[] = fillarray(0, 2, 0, 3)
     iSparse:CsnArr = csnfromarray(iSparseValues)
     iArgnonzero:CsnArr = csnargnonzero(iSparse)
@@ -2364,7 +2380,7 @@ e
 ; above.  tests/check_itime_signatures.cmake keeps it exactly synchronized
 ; with src/csnum.c and rejects dotted opcode calls in executable Csound code.
 ; @covers-begin
-; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnindexof csnargwhere
+; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnindexof csnbincount csnbincount.w csnargwhere
 ; csnargnonzero csnargisnan csnargunique csnunique csngt csnlt csnne csnge csnisnan csnisinf csnisfin
 ; csnle csneq csncnteq csncntnz csncntnan csnmin csnmax csnmedian
 ; csnmin.ax csnmax.ax csnmedian.ax csnargmin csnargmax csnfloor csnceil csnround

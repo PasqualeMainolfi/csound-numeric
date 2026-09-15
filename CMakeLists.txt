@@ -341,6 +341,23 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_indexof_regression.csd")
         add_test(
+            NAME csnum_krate_bincount_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_bincount_regression.csd")
+        add_test(
+            NAME csnum_bincount_error_recovery
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/bincount_error_recovery.csd")
+        set_tests_properties(csnum_bincount_error_recovery PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum registry alive after every bincount validation error"
+            TIMEOUT 60)
+        add_test(
             NAME csnum_krate_file_reload_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

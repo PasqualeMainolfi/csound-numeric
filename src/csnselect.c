@@ -81,7 +81,7 @@ static int32_t argwhere_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CS
     }
     *source_array = source_slot->array;
 
-    if (data_array != NULL) {
+    if (data_handle != INVALID_HANDLE) {
         CSN_SLOT *data_slot = get_slot(reg, data_handle);
         if (data_slot == NULL) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
@@ -2651,7 +2651,6 @@ int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Wanted value is not a number");
     }
 
-
     int32_t res = OK;
     const char *err = NULL;
 
@@ -2699,6 +2698,269 @@ int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
 
     SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, p->array, wanted_value, 0.0);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t bincount_validate_and_find_size(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_arr, uint32_t *result_size) {
+    if (source_arr->ndim != 1U) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Bincount source must be 1-D, got %u-D", source_arr->ndim);
+    }
+
+    uint32_t max_bin = 0;
+    for (size_t i = 0; i < source_arr->size; ++i) {
+        double value = source_arr->data[i];
+        if (!isfinite(value) || trunc(value) != value || value < 0.0 || value >= (double) CSN_MAX_ELEMS) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Bincount source must contain non-negative integer values smaller than %zu", (size_t) CSN_MAX_ELEMS);
+        }
+
+        uint32_t bin = (uint32_t) value;
+        if (bin > max_bin) max_bin = bin;
+    }
+
+    *result_size = source_arr->size == 0 ? 0U : max_bin + 1U;
+    return OK;
+}
+
+static void bincount_assign_value(const CSN_ARRAY *source_arr, const CSN_ARRAY *weights_arr, CSN_ARRAY *arr) {
+    if (arr->size > 0) {
+        memset(arr->data, 0, sizeof(double) * arr->size);
+    }
+
+    for (size_t i = 0; i < source_arr->size; ++i) {
+        uint32_t bin = (uint32_t) source_arr->data[i];
+        arr->data[bin] += weights_arr == NULL ? 1.0 : weights_arr->data[i];
+    }
+}
+
+int32_t csnarray_bincount_no_w_deinit(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t weights_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *weights_arr = NULL;
+    res = argwhere_body(csound, NULL, reg, &source_arr, &weights_arr, source_handle, weights_handle);
+    if (res != OK) goto done;
+
+    if (weights_arr->ndim != 1U || weights_arr->size != source_arr->size) {
+        res = csound->InitError(csound, "[csnarray] Weights array must be 1-D and have the same length as the source");
+        goto done;
+    }
+
+    if (weights_arr->itype != CSN_REAL || source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] Bincount source and weights must be real arrays");
+        goto done;
+    }
+
+    uint32_t result_size = 0;
+    res = bincount_validate_and_find_size(csound, NULL, source_arr, &result_size);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = result_size;
+    const uint32_t protect[2] = { source_handle, weights_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    bincount_assign_value(source_arr, weights_arr, arr);
+
+    SET_KDATA_BEGIN(p, reg);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, weights_handle, weights_arr, p->array, 0.0, 0.0);
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    res = argwhere_body(csound, NULL, reg, &source_arr, NULL, source_handle, 0);
+    if (res != OK) goto done;
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] Bincount source must be a real array");
+        goto done;
+    }
+
+    uint32_t result_size = 0;
+    res = bincount_validate_and_find_size(csound, NULL, source_arr, &result_size);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = result_size;
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    bincount_assign_value(source_arr, NULL, arr);
+
+    SET_KDATA_BEGIN(p, reg);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, p->array, 0.0, 0.0);
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_bincount_k(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    res = argwhere_body(csound, &p->h, reg, &source_arr, NULL, source_handle, 0);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
+        if (res_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, res_slot->array, 0.0, 0.0)) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    if (source_arr->itype != CSN_REAL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Source/Weights array must be real array");
+        goto done;
+    }
+
+    uint32_t result_size = 0;
+    res = bincount_validate_and_find_size(csound, &p->h, source_arr, &result_size);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = result_size;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, req_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    bincount_assign_value(source_arr, NULL, p->array);
+
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, p->array, 0.0, 0.0);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_bincount_w_k(CSOUND *csound, CSN_ARGWHERE *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t weights_handle = p->data_handle->id;
+
+
+    int32_t res = OK;
+    const char *err = NULL;
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, weights_handle);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *weights_arr = NULL;
+    res = argwhere_body(csound, &p->h, reg, &source_arr, &weights_arr, source_handle, weights_handle);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
+        if (res_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, weights_handle, weights_arr, res_slot->array, 0.0, 0.0)) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    if (weights_arr->ndim != 1U || weights_arr->size != source_arr->size) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Weights array must be 1-D and have the same length as the source");
+        goto done;
+    }
+
+    if (weights_arr->itype != CSN_REAL || source_arr->itype != CSN_REAL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Bincount source and weights must be real arrays");
+        goto done;
+    }
+
+    uint32_t result_size = 0;
+    res = bincount_validate_and_find_size(csound, &p->h, source_arr, &result_size);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = result_size;
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, req_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    bincount_assign_value(source_arr, weights_arr, p->array);
+
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, weights_handle, weights_arr, p->array, 0.0, 0.0);
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
     p->is_published = true;
 
 done:

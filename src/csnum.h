@@ -970,6 +970,7 @@ typedef struct {
     CSNREF *source_handle; // array source
     CSNREF *data_handle;   // array of values (source array will compared with data_handle)
                            // mask in csnselect
+                           // weights in bincount
     MYFLT *trig;
     // private
     CSN_ARRAY *array;
@@ -978,6 +979,19 @@ typedef struct {
     CSN_WHERE_VERSION_K_STATE versions;
     bool is_published;
 } CSN_ARGWHERE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_BINCOUNT_NO_WEIGHTS;
 
 typedef struct {
     OPDS h;
@@ -2109,6 +2123,9 @@ int32_t csnarray_isinf(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isfin(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_indexof_deinit(CSOUND *csound, CSN_ARGWHERE_INDEX *p);
 int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
+int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
+int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p);
+int32_t csnarray_bincount_no_w_deinit(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
@@ -2411,6 +2428,9 @@ int32_t csnarray_isinf_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isfin_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_indexof_k_init(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
 int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
+int32_t csnarray_bincount_k(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
+int32_t csnarray_bincount_w_k(CSOUND *csound, CSN_ARGWHERE *p);
+
 
 // REDUCTION
 int32_t csnarray_sum_k(CSOUND *csound, CSN_REDUCTION *p);
