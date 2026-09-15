@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 int32_t from_ftable_to_csnarray(CSOUND *csound, CSN_FROM_FTABLE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
@@ -1895,4 +1894,3 @@ done:
     csound->UnlockMutex(reg->mutex);
     return res;
 }
-

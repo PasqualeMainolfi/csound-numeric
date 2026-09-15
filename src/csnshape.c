@@ -3,14 +3,12 @@
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 // return matrix n x n
 static int32_t csnarray_identity_helper(CSOUND *csound, CSN_IDENTITY *p, bool is_ktime) {
@@ -1837,4 +1835,3 @@ done:
     csound->UnlockMutex(reg->mutex);
     return res;
 }
-

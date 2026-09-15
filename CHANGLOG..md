@@ -3,6 +3,7 @@
 ## [0.1.4] - 
 
 - Refactor the former monolithic `csnum.c` into category-focused implementation units for creation, shape transforms, indexing and mutation, selection, statistics, element-wise math, vector operations, signal utilities, interpolation, file I/O, audio bridging, and filtering; keep the complete `OENTRY` inventory centralized in `csnum.c` and make cross-module dependencies explicit through an internal interface
+- Add first-occurrence lookup by scalar value, returning the element's full coordinate vector or an empty array when it is absent (*csnindexof*)
 
 ## [0.1.3] - 2026-09-15
 

@@ -1,5 +1,6 @@
 /* Opcode implementations for the select family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
@@ -10,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 /* The single definition of every comparison. The counting pass and the filling
    pass both go through here, so they cannot disagree about what matches.
@@ -48,6 +48,18 @@ static size_t count_elements_from_array(const CSN_ARRAY *source_arr, const CSN_A
     return count;
 }
 
+static int32_t get_linear_index_first_occurence(const CSN_ARRAY *source_arr, const double wanted, CSN_COMPARE_MODE mode) {
+    int32_t index = -1;
+    for (size_t linear = 0; linear < source_arr->size; ++linear) {
+        double value = source_arr->data[linear];
+        if (compare_match(value, wanted, mode)) {
+            index = (int32_t) linear;
+            break;
+        }
+    }
+    return index;
+}
+
 static size_t count_elements_from_value(const CSN_ARRAY *source_arr, double cmp_value, CSN_COMPARE_MODE mode) {
     size_t count = 0;
     for (size_t linear = 0; linear < source_arr->size; ++linear) {
@@ -62,27 +74,26 @@ static int32_t argwhere_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CS
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
     }
 
-    CSN_SLOT *data_slot = get_slot(reg, data_handle);
-    if (data_slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
-    }
-
     CSN_ARRAY *source_arr = source_slot->array;
 
     if (source_arr->itype != CSN_REAL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] This operation is not implemented for complex arrays");
     }
+    *source_array = source_slot->array;
 
-    CSN_ARRAY *data_arr = data_slot->array;
-
-    uint32_t data_ndim = data_arr->ndim;
-
-    if (data_ndim != 1U) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Data array must be 1-D, got %u-D", data_ndim);
+    if (data_array != NULL) {
+        CSN_SLOT *data_slot = get_slot(reg, data_handle);
+        if (data_slot == NULL) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) data_handle);
+        }
+        CSN_ARRAY *data_arr = data_slot->array;
+        uint32_t data_ndim = data_arr->ndim;
+        if (data_ndim != 1U) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Data array must be 1-D, got %u-D", data_ndim);
+        }
+        *data_array = data_slot->array;
     }
 
-    *source_array = source_slot->array;
-    *data_array = data_slot->array;
     return OK;
 }
 
@@ -108,6 +119,20 @@ static void argwhere_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, CS
         }
 
         match++;
+    }
+}
+
+static void indexof_assign_value(CSN_ARRAY *source_arr, const double wanted, CSN_ARRAY *arr) {
+    for (size_t linear = 0; linear < source_arr->size; ++linear) {
+        double value = source_arr->data[linear];
+        if (value == wanted) {
+            uint32_t src_coords[CSN_MAX_DIMS] = {0};
+            from_linear_to_coords(src_coords, source_arr->shape, linear, source_arr->ndim);
+            for (size_t j = 0; j < source_arr->ndim; ++j) {
+                arr->data[j] = (double) src_coords[j];
+            }
+            break;
+        }
     }
 }
 
@@ -2539,3 +2564,144 @@ done:
     return res;
 }
 
+int32_t csnarray_indexof_deinit(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    double wanted_value = (double) *p->value;
+    if (!IS_VALID_VALUE(wanted_value)) {
+        return csound->InitError(csound, "[csnarray] Wanted value is not a number");
+    }
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_ARRAY *source_arr = NULL;
+    res = argwhere_body(csound, NULL, reg, &source_arr, NULL, source_handle, 0);
+    if (res != OK) goto done;
+
+    int32_t index = get_linear_index_first_occurence(source_arr, wanted_value, EQUAL);
+    uint32_t found = (uint32_t) (index != -1);
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[1] = { source_arr->ndim * found };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    if (found) {
+        indexof_assign_value(source_arr, wanted_value, p->array);
+    } else {
+        reset_empty_csnarray(p->array, new_ndim, new_shape, CSN_REAL);
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_indexof_k_init(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    res = argwhere_body(csound, NULL, reg, &source_arr, NULL, source_handle, 0);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[1] = { 1U };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    reset_empty_csnarray(p->array, new_ndim, new_shape, CSN_REAL);
+
+    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p, reg);
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+    double wanted_value = (double) *p->value;
+    if (!IS_VALID_VALUE(wanted_value)) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Wanted value is not a number");
+    }
+
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_ARRAY *source_arr = NULL;
+    res = argwhere_body(csound, &p->h, reg, &source_arr, NULL, source_handle, 0);
+    if (res != OK) goto done;
+
+    if (p->is_published) {
+        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
+        if (slot_res != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, slot_res->array, wanted_value, 0.0)) {
+            p->handle->id = owned_handle;
+            goto done;
+        }
+    }
+
+    int32_t index = get_linear_index_first_occurence(source_arr, wanted_value, EQUAL);
+    uint32_t found = (uint32_t) (index != -1);
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[1] = { source_arr->ndim * found };
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    if (found) {
+        indexof_assign_value(source_arr, wanted_value, p->array);
+    } else {
+        reset_empty_csnarray(p->array, new_ndim, new_shape, CSN_REAL);
+    }
+
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, p->array, wanted_value, 0.0);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}

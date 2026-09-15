@@ -383,6 +383,16 @@ instr 2
     assert(iArgwhereValues[0][0] == 0 && iArgwhereValues[0][1] == 0)
     assert(iArgwhereValues[1][0] == 1 && iArgwhereValues[1][1] == 1)
 
+    iIndexNeedle = 4
+    iIndexof:CsnArr = csnindexof(iSelectSource, iIndexNeedle)
+    iIndexofValues[] = csntoarray(iIndexof)
+    assert(csndims(iIndexof) == 1 && csnsize(iIndexof) == 2)
+    assert(iIndexofValues[0] == 1 && iIndexofValues[1] == 1)
+
+    iMissingNeedle = 99
+    iIndexofMissing:CsnArr = csnindexof(iSelectSource, iMissingNeedle)
+    assert(csnsize(iIndexofMissing) == 0 && csnisempty(iIndexofMissing) == 1)
+
     iSparseValues[] = fillarray(0, 2, 0, 3)
     iSparse:CsnArr = csnfromarray(iSparseValues)
     iArgnonzero:CsnArr = csnargnonzero(iSparse)
@@ -2354,7 +2364,7 @@ e
 ; above.  tests/check_itime_signatures.cmake keeps it exactly synchronized
 ; with src/csnum.c and rejects dotted opcode calls in executable Csound code.
 ; @covers-begin
-; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnargwhere
+; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnindexof csnargwhere
 ; csnargnonzero csnargisnan csnargunique csnunique csngt csnlt csnne csnge csnisnan csnisinf csnisfin
 ; csnle csneq csncnteq csncntnz csncntnan csnmin csnmax csnmedian
 ; csnmin.ax csnmax.ax csnmedian.ax csnargmin csnargmax csnfloor csnceil csnround

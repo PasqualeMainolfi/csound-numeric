@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 static void init_value_for_reduction(double *value, CSN_REDUCTION_MODE mode) {
     switch (mode) {
@@ -3273,4 +3272,3 @@ int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
 int32_t csnarray_quantile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p) {
     return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, false, (double) *p->quantity, NULL, p->registry, p->trig, &p->scratch);
 }
-

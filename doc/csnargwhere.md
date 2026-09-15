@@ -92,6 +92,7 @@ i 1 0 0.1
 
 ## See also
 
+* [csnindexof](csnindexof.md)
 * [csnargnonzero](csnargnonzero.md)
 * [csnargisnan](csnargisnan.md)
 * [csneq](csneq.md)

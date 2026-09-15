@@ -4,14 +4,12 @@
 #include "csnregistry.h"
 #include "csnfile.h"
 #include <float.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
@@ -382,4 +380,3 @@ int32_t csnarray_show_k(CSOUND *csound, CSN_SHOW *p) {
     csound->Message(csound, "%s", p->pbuffer.data);
     return OK;
 }
-

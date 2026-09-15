@@ -217,7 +217,7 @@ csound --opcode-dir=build example/csnsort.csd
 - **Shape and layout**: reshape, flatten, transpose, flip, roll, pad, truncate,
   head, resize, concat, insert, remove, push, pop.
 - **Indexing**: element get/set, slices, gathers, and the index-returning
-  searches (`argwhere`, `argnonzero`, `argisnan`).
+  searches (`indexof`, `argwhere`, `argnonzero`, `argisnan`).
 - **Elementwise math**: the four operations plus power, log, divmod, hypot; the
   usual transcendental and rounding functions; degree/radian conversion; phase
   wrap and unwrap.
@@ -310,10 +310,9 @@ Four differences apply throughout and are not repeated in every row:
 - **Booleans.** csnum has no boolean element type. The comparisons, the `is*`
   predicates and the logical operations return a real array of `0` and `1` where
   NumPy returns `bool_`, and any of them is accepted as a mask.
-- **Index results.** `csnargmin`, `csnargmax`, `csnargsort`, `csnargwhere` and
-  friends return **coordinates**, one row per result with one column per
-  dimension, where NumPy returns flat indices unless you call
-  `np.unravel_index`.
+- **Index results.** `csnindexof`, `csnargmin`, `csnargmax`, `csnargsort`,
+  `csnargwhere` and friends return **coordinates**, one per source dimension,
+  where NumPy often returns flat indices unless you call `np.unravel_index`.
 - **Broadcasting.** There is none. Binary opcodes take two arrays of the same
   shape, or an array and a scalar. `csnstack` likewise requires equal shapes.
 
@@ -398,6 +397,7 @@ entry means the operation lives outside NumPy proper.
 | `csnputmask` | `np.putmask` | |
 | `csncompress` | `np.compress` | |
 | `csnselect` | `np.extract` | `a[mask]`, flattened. |
+| `csnindexof` | `np.argwhere(a == value)[0]` | First matching coordinate; an empty array when no element matches. |
 | `csnargwhere` | `np.argwhere(np.isin(a, v))` | Coordinates of the elements matching a value array. |
 | `csnargnonzero` | `np.argwhere(a)` | |
 | `csnargisnan` | `np.argwhere(np.isnan(a))` | |

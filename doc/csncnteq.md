@@ -11,7 +11,8 @@ value. It is [csneq](csneq.md) followed by [csnsum](csnsum.md), done in one pass
 and without publishing a mask.
 
 Use it when only the count matters. When the *positions* matter,
-[csnargwhere](csnargwhere.md) is the opcode to reach for.
+[csnargwhere](csnargwhere.md) returns all of them, while
+[csnindexof](csnindexof.md) returns only the first.
 
 Real only. Equality is exact, so a NaN is never counted, and a value that is the
 result of floating-point arithmetic may not compare equal to the literal you
@@ -91,6 +92,7 @@ i 1 0 0.1
 * [csncntnz](csncntnz.md)
 * [csncntnan](csncntnan.md)
 * [csneq](csneq.md)
+* [csnindexof](csnindexof.md)
 * [csnargwhere](csnargwhere.md)
 
 ## Credits

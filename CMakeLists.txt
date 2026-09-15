@@ -334,6 +334,13 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_mask_regression.csd")
         add_test(
+            NAME csnum_krate_indexof_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_indexof_regression.csd")
+        add_test(
             NAME csnum_krate_file_reload_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

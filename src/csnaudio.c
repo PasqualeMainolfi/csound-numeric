@@ -3,7 +3,6 @@
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -558,6 +557,3 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
 
     return OK;
 }
-
-
-

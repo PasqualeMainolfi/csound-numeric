@@ -1229,6 +1229,8 @@ static OENTRY localops[] = {
     { "csnmedfilt.s.k",        S(CSN_MEDFILT_ND_ARR),         0, ":CsnArr;",                 ":CsnArr;i[]P",                  (SUBR) csnarray_medfilt_arr,                 (SUBR) csnarray_medfilt_arr_k,          (SUBR) csnarray_medfilt_ndarr_deinit,    NULL, 0 },
     { "csnmedfilt.s.in",       S(CSN_MEDFILT_ND_ARR_IN),      0, "",                         ":CsnArr;i[]",                   (SUBR) csnarray_medfilt_arr_in,              NULL,                                   (SUBR) csnarray_medfilt_ndarr_in_deinit, NULL, 0 },
     { "csnmedfilt.s.in.k",     S(CSN_MEDFILT_ND_ARR_IN),      0, "",                         ":CsnArr;i[]P",                  (SUBR) csnarray_medfilt_arr_in_k_init,       (SUBR) csnarray_medfilt_arr_in_k,       (SUBR) csnarray_medfilt_ndarr_in_deinit, NULL, 0 },
+    { "csnindexof",            S(CSN_ARGWHERE_INDEX),         0, ":CsnArr;",                  ":CsnArr;i",                     (SUBR) csnarray_indexof,                     NULL,                                   (SUBR) csnarray_indexof_deinit,          NULL, 0 },
+    { "csnindexof.k",          S(CSN_ARGWHERE_INDEX),         0, ":CsnArr;",                  ":CsnArr;kP",                    (SUBR) csnarray_indexof_k_init,              (SUBR) csnarray_indexof_k,                                   (SUBR) csnarray_indexof_deinit,          NULL, 0 },
     // ---
     // REAL AND COMPLEX
     { "csnempty",              S(CSN_ARR_INIT),               0, ":CsnArr;",                 "i[]o",                          (SUBR) create_empty_csnarray,                NULL,                                   (SUBR) create_csnarray_deinit,           NULL, 0 },

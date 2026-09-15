@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 static double bessel_i0(double beta) {
     double ax = fabs(beta);
@@ -287,4 +286,3 @@ int32_t csnarray_blackman_k(CSOUND *csound, CSN_WINDOW *p) {
 int32_t csnarray_kaiser_k(CSOUND *csound, CSN_WINDOW *p) {
     return window_function_k_helper(csound, p, W_KAISER);
 }
-

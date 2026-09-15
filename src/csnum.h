@@ -982,6 +982,20 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
+    CSNREF *handle; // index -> [axis 0, axis 1, ..., index]
+    // inputs
+    CSNREF *source_handle; // array source
+    MYFLT *value;
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_published;
+} CSN_ARGWHERE_INDEX;
+
+typedef struct {
+    OPDS h;
+    // outputs
     CSNREF *handle;
     // inputs
     CSNREF *source_handle; // mask
@@ -2093,6 +2107,8 @@ int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p);
 int32_t csnarray_isnan(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isinf(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isfin(CSOUND *csound, CSN_UNARYOP *p); // return mask
+int32_t csnarray_indexof_deinit(CSOUND *csound, CSN_ARGWHERE_INDEX *p);
+int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
@@ -2393,6 +2409,8 @@ int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p);
 int32_t csnarray_isnan_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isinf_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isfin_k(CSOUND *csound, CSN_UNARYOP *p); // return mask
+int32_t csnarray_indexof_k_init(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
+int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
 
 // REDUCTION
 int32_t csnarray_sum_k(CSOUND *csound, CSN_REDUCTION *p);

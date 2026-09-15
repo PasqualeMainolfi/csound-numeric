@@ -3,14 +3,12 @@
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 static int32_t get_index_offset(CSOUND *csound, OPDS *perf_h, size_t *offset, uint32_t ndim, const CSN_ARRAY *arr, const MYFLT *indexes) {
     size_t temp_offset = 0;
@@ -3286,4 +3284,3 @@ int32_t csnarray_clip_in_k(CSOUND *csound, CSN_CLIP_IN *p) {
     csound->UnlockMutex(reg->mutex);
     return res;
 }
-
