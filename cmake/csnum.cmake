@@ -6,6 +6,18 @@ if(BUILD_CSNUM_OPCODES)
 
     set(CSNUM_SOURCES
         src/csnum.c
+        src/csncreate.c
+        src/csnshape.c
+        src/csnindex.c
+        src/csnselect.c
+        src/csnstats.c
+        src/csnmath.c
+        src/csnvector.c
+        src/csnsignal.c
+        src/csninterp.c
+        src/csnio.c
+        src/csnaudio.c
+        src/csnfilter.c
         src/csnregistry.c
         src/csnfile.c
         src/csnset.c

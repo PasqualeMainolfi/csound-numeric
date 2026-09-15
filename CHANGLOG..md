@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.4] - 
+
+- Refactor the former monolithic `csnum.c` into category-focused implementation units for creation, shape transforms, indexing and mutation, selection, statistics, element-wise math, vector operations, signal utilities, interpolation, file I/O, audio bridging, and filtering; keep the complete `OENTRY` inventory centralized in `csnum.c` and make cross-module dependencies explicit through an internal interface
+
 ## [0.1.3] - 2026-09-15
 
 - Make axis handling uniform across the API: explicit negative axes now use NumPy indexing (`-1` is always the last axis), while omission is represented by a distinct overload with an operation-specific `flat`, `all axes`, or `last axis` default; k-rate overloads place the trigger before an explicit optional axis
