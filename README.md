@@ -83,7 +83,8 @@ The suite runs the regression `.csd` files under `tests/` through Csound's
 signature is covered by the i-time regression file. The real-time lock files
 are scored on a final marker instead of the assertion tally: the refusals they
 provoke on purpose are performance errors, which the runner counts as failed
-assertions.
+assertions. The `.npy` tests cover file-format decoding and the i-rate/k-rate
+`csnsave`/`csnload` paths, including a float32 input file.
 
 ---
 
@@ -250,8 +251,8 @@ csound --opcode-dir=build example/csnsort.csd
   next, monotone cubic PCHIP, with error / clamp / fill / extrapolate boundary
   policies) and `csnresample`.
 - **Windows**: Hann, Hamming, Bartlett, Blackman, Kaiser.
-- **Persistence**: `csnsave` and `csnload` write an array to a `.csn` file and
-  read it back, shape and element type included.
+- **Persistence**: `csnsave` and `csnload` use `.csn` for csnum's own format or
+  `.npy` for NumPy interoperability, preserving shape and real/complex type.
 - **Audio bridge**: `csnfromaudio` / `csntoaudio` move one control period between
   an audio signal and an array, `csnpack` / `csnunpack` do the same for a whole
   `a[]` as a `channels x ksmps` matrix, and `csnsnap` / `csnstream` slice a stream
@@ -362,8 +363,8 @@ entry means the operation lives outside NumPy proper.
 
 | csnum | NumPy | Notes |
 | --- | --- | --- |
-| `csnsave` | `np.save` | Own `.csn` container, not `.npy`. |
-| `csnload` | `np.load` | |
+| `csnsave` | `np.save` | A `.npy` path writes a NumPy file (`float64` or `complex128`); `.csn` writes csnum's own format. |
+| `csnload` | `np.load` | A `.npy` path reads supported numeric dtypes and C/Fortran order; `.csn` reads csnum's own format. |
 
 ### Shape and layout
 
@@ -845,19 +846,31 @@ another variable is Csound's to perform.
 
 ## Saving and loading
 
-`csnsave` and `csnload` move an array to and from a `.csn` file. The path must
-carry that extension; anything else is refused before a file is opened.
+`csnsave` and `csnload` select the file format from the path extension. Use
+`.csn` for csnum's own format or `.npy` to exchange arrays with NumPy. Other
+extensions are rejected before a file is opened; the same i-rate and k-rate
+opcode forms work with both formats.
 
-The format is a fixed 64-byte header followed by the raw payload: a `CSDN`
-magic, a major and minor version, the element type, the dimension count, the
-element count, the shape, and the payload length in bytes. Everything that
-matters is therefore restored, not inferred — a 2×3 array comes back 2×3, and a
-complex array comes back complex rather than as twice as many reals.
+The `.csn` format has a fixed 64-byte `CSDN` header followed by the raw array
+payload. It records the version, element type, dimension count, shape, element
+count and byte count. The loader checks these fields and restores the original
+shape and real/complex type.
 
-Every field is validated on the way in. A truncated file, a shape whose element
-count contradicts the declared payload length, an unknown element type, or a
-version this build does not know are all rejected with a message naming the
-field, rather than producing a plausible-looking array from garbage.
+For `.npy`, `csnsave` writes a NumPy 3.0 file containing C-order `float64` or
+`complex128` values. NumPy's `np.load` can read it. `csnload` accepts `.npy`
+versions 1.0, 2.0 and 3.0 with numeric `bool`, signed/unsigned integers of
+1/2/4/8 bytes, `float16`/`float32`/`float64`, or `complex64`/`complex128`.
+It handles little, big and native byte order and converts Fortran-order payloads
+to csnum's C-order layout. Real values become `double`; complex values become
+pairs of `double`. Integer values beyond the exact range of `double` can lose
+precision. Structured/object dtypes, scalar arrays with `shape=()`, and headers
+over 10,000 bytes are not supported; csnum arrays have at most eight dimensions.
+As with `.csn`, the element count must match the shape; an empty array with a
+nonzero reserved shape cannot be saved as `.npy`.
+
+Malformed headers, unsupported dtypes and incomplete payloads are rejected.
+The [csnsave](doc/csnsave.md) and [csnload](doc/csnload.md) references give the
+full argument and trigger behavior.
 
 At k-rate the trigger is the whole contract: it fires, the file is read. There
 is deliberately no caching between triggers, not even on an unchanged path.
@@ -873,7 +886,21 @@ csnsave(data, "analysis.csn")
 
 back:CsnArr = csnload("analysis.csn")
 values:i[]  = csntoarray(back) // 1 2 3 4 5 6
+
+csnsave(data, "analysis.npy") // np.load("analysis.npy") can read this file
+from_numpy:CsnArr = csnload("analysis.npy")
 ```
+
+NumPy can also write the input file:
+
+```python
+import numpy as np
+values = np.asfortranarray(np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32))
+np.save("incoming.npy", values)
+```
+
+`csnload("incoming.npy")` returns the same 2×3 shape with C-order `double`
+values.
 
 At k-rate, reloading a file another process keeps rewriting. Until the first
 trigger fires the handle still holds the empty array the init pass published,
@@ -882,7 +909,7 @@ so a consumer that cannot read an empty extent belongs behind the trigger too:
 ```csound
 instr 1
     trig:k       = metro(10)
-    table:CsnArr = csnload("live.csn", trig)
+    table:CsnArr = csnload("live.npy", trig)
     n:k          = csnsize(table)
 endin
 ```

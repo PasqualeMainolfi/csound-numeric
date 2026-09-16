@@ -57,8 +57,8 @@ support of each opcode.
 
 ## Persistence
 
-- [csnsave](csnsave.md) - writes an array to a `.csn` file
-- [csnload](csnload.md) - reads an array back from a `.csn` file
+- [csnsave](csnsave.md) - writes an array to a `.csn` or NumPy `.npy` file
+- [csnload](csnload.md) - reads a `.csn` or supported numeric `.npy` file
 
 ## Shape and layout
 

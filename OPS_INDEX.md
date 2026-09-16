@@ -51,14 +51,13 @@ handle model and the k-rate versioning.
 
 ## Persistence
 
-Both take a path that must end in `.csn`. The format stores the element type,
-the shape and the payload, so an array survives the round trip unchanged; a
-file written by a newer major or minor version is refused rather than guessed
-at. Unlike the rest of the suite, a zero trigger here does not republish a
-previous result — it simply does not touch the disk.
+Both accept `.csn` (csnum's own format) or `.npy` (NumPy format), selected by
+the path extension. `.npy` writes `float64` or `complex128`; the loader also
+converts supported boolean, integer and lower-precision floating/complex dtypes,
+including Fortran-order files. A zero trigger does not touch the disk.
 
-- **csnsave** - writes an array to a `.csn` file (i, k — real, complex)
-- **csnload** - reads an array back from a `.csn` file (i, k — real, complex)
+- **csnsave** - writes an array to a `.csn` or `.npy` file (i, k — real, complex)
+- **csnload** - reads a `.csn` or supported numeric `.npy` file (i, k — real, complex)
 
 ## Shape and layout
 

@@ -2,24 +2,25 @@
 
 ## Abstract
 
-Write an array to a `.csn` file.
+Write an array to a `.csn` or NumPy `.npy` file.
 
 ## Description
 
-`csnsave` writes an array to disk in csnum's own format: a fixed 64-byte header —
-a `CSDN` magic, a major and minor version, the element type, the dimension count,
-the element count, the shape, and the payload length — followed by the raw
-payload.
+`csnsave` selects the format from the path extension. A `.csn` path writes
+csnum's own format: a fixed 64-byte `CSDN` header with version, real/complex
+type, dimension count, shape, element count and payload byte count, followed by
+the raw `double` payload. A `.npy` path writes a NumPy 3.0 file with C-order
+`float64` or `complex128` values. NumPy's `np.load` can read that file.
 
-Everything that matters is therefore stored, not inferred. A `2×3` array comes
-back `2×3` from [csnload](csnload.md), and a complex array comes back complex
-rather than as twice as many reals.
+Both formats preserve shape and real/complex type on a round trip through
+[csnload](csnload.md) when the element count matches the product of the shape.
+The `.npy` writer checks this before saving. A logically empty array with a
+nonzero reserved shape cannot be saved as `.npy`; an array with a zero-sized
+extent can.
 
-The path must end in `.csn`; anything else is refused before a file is opened.
-
-At k-rate the trigger is the whole contract: it fires, the file is written.
-Unlike the rest of the suite a zero trigger here does not republish a previous
-result — there is nothing to republish, so it simply does not touch the disk.
+Only `.csn` and `.npy` paths are accepted. At k-rate a zero trigger leaves the
+disk untouched. On a nonzero trigger, a write can be skipped when the same
+array version was already written to the same path by this opcode instance.
 
 ## Syntax
 
@@ -31,8 +32,8 @@ csnsave(handle:CsnArr, path:S, trig:k)
 ## Arguments
 
 * `handle:CsnArr`: the array to write.
-* `path:S`: destination path; must end in `.csn`.
-* `trig:k`: k-rate trigger. The file is written on a non-zero trigger and left alone on a zero one.
+* `path:S`: destination path; must end in `.csn` or `.npy`.
+* `trig:k`: k-rate trigger. A zero trigger skips the write; an unchanged array and path may also skip a repeat write.
 
 ## Output
 
@@ -55,9 +56,8 @@ None.
 ; -----------------------------------------------------------------------------
 ; csnsave.csd
 ;
-; csnsave stores the element type and the shape alongside the payload, so the
-; round trip through csnload is lossless: a 2 x 3 complex array comes back a
-; 2 x 3 complex array.
+; csnsave chooses csnum's format or NumPy's format by extension. Both preserve
+; shape and real/complex type through csnload.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -75,12 +75,18 @@ instr 1
     back_out:i[]  = csntoarray(csnflatten(back))
     prints("dims = %d, size = %d, values = %g %g %g %g %g %g\n", dims, size, back_out[0], back_out[1], back_out[2], back_out[3], back_out[4], back_out[5])
 
+    csnsave(mat, "csnsave_example.npy")
+    back_npy:CsnArr = csnload("csnsave_example.npy")
+    npy_out:i[] = csntoarray(csnflatten(back_npy))
+    prints("NumPy round trip: first = %g, last = %g\n", npy_out[0], npy_out[5])
+
     ; the element type survives too
     cpx:CsnArr    = csntocomplex(csnflatten(mat))
     csnsave(cpx, "csnsave_example_c.csn")
     back_cpx:CsnArr = csnload("csnsave_example_c.csn")
     itype:i       = csntype(back_cpx)
     prints("complex round trip itype = %d\n", itype)
+    csnsave(cpx, "csnsave_example_c.npy")
     turnoff
 endin
 

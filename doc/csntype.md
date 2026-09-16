@@ -10,10 +10,10 @@ Return the element type of an array: 0 for real, 1 for complex.
 one double per element, `1` for a complex array, two doubles per element.
 
 Use it to branch on data whose provenance is not fixed — an array read from a
-`.csn` file, one handed over by another instrument, or the result of an operation
-that promotes a real operand to complex. The opcodes that only make sense over
-the reals, ordering comparisons, sorting, rounding, the windows, interpolation,
-refuse a complex array, and this is how to check before calling one.
+`.csn` or `.npy` file, one handed over by another instrument, or the result of
+an operation that promotes a real operand to complex. Ordering comparisons,
+sorting, rounding, windows and interpolation refuse complex arrays; this is
+how to check before calling one.
 
 ## Syntax
 

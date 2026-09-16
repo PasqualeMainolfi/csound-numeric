@@ -6,10 +6,19 @@
 #include <stdint.h>
 
 #define CSN_FILE_EXT ".csn"
+#define CSN_FILE_NPY_EXT ".npy"
+#define CSN_MAGIC_SIZE 4
+#define CSN_MAGIC_NUMPY_SIZE 6
+#define CSN_NUMPY_MAX_HEADER_SIZE 10000
+#define CSN_NUMPY_MAGIC "\x93NUMPY"
 #define CSN_MAGIC "CSDN"
 #define CSN_FILE_VERSION_MAJOR 1
 #define CSN_FILE_VERSION_MINOR 0
+#define CSN_FILE_NUMPY_VERSION_MAJOR 3
+#define CSN_FILE_NUMPY_VERSION_MINOR 0
 #define CSN_ERROR_MESSAGE_SIZE 128
+#define CSN_NUMPY_DOUBLE "<f8"
+#define CSN_NUMPY_COMPLEX "<c16"
 
 
 typedef enum {
@@ -46,6 +55,28 @@ typedef struct {
     uint64_t data_bytes;          // 8 bytes
 } CSN_FILE_HEADER;
 
+typedef struct {
+    ITEM_TYPE itype;
+    char kind;
+    char endian;
+    uint32_t item_size;
+} CSN_NUMPY_DESCR;
+
+typedef struct {
+    uint8_t magic[CSN_MAGIC_NUMPY_SIZE];
+    uint8_t major;
+    uint8_t minor;
+    uint32_t header_length;
+    char dict[CSN_NUMPY_MAX_HEADER_SIZE + 1];
+    uint64_t data_bytes;
+    size_t padding_len;
+    uint32_t dim;
+    uint32_t shape[CSN_MAX_DIMS];
+    size_t size;
+    CSN_NUMPY_DESCR descr;
+    bool fortran_order;
+} CSN_FILE_NUMPY_HEADER;
+
 CSN_FILE_ERROR_CODE csnfile_save_array_to_file(CSN_ARRAY *arr, const char *path);
 CSN_FILE_ERROR_CODE csnfile_load_array_from_file(CSOUND *csound, CSN_FILE_HEADER *header, double **data, size_t *data_capacity, const char *path);
 void csnfile_dispatch_error(const char **error_message, CSN_FILE_ERROR_CODE error_code);
@@ -63,5 +94,10 @@ typedef struct {
 } CSN_PRINT_BUFFER;
 
 int32_t csnfile_show_array(CSOUND *csound, CSN_PRINT_BUFFER *buffer, const CSN_ARRAY *arr);
+
+CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char *path);
+CSN_FILE_ERROR_CODE csnfile_load_array_from_numpy_file(CSOUND *csound, CSN_FILE_NUMPY_HEADER *header, double **data, size_t *data_capacity, const char *path);
+
+CSN_FILE_ERROR_CODE csnfile_save_array(CSN_ARRAY *arr, const char *path, const char *ext);
 
 #endif

@@ -132,6 +132,18 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/csnum.cmake)
 
 if(BUILD_TESTING)
     if(UNIX)
+        add_executable(csnum_numpy_file_test tests/numpy_file_test.c src/csnfile.c)
+        target_include_directories(csnum_numpy_file_test PRIVATE src ${CSOUND_INCLUDE_DIR} ${CSOUND_EXTRA_INCLUDE_DIRS})
+        target_compile_definitions(csnum_numpy_file_test PRIVATE CSOUNDAPI7 CS_API_VERSION_MAJOR=7)
+        if(CSNUM_CS_TYPE_ARG_4ARG)
+            target_compile_definitions(csnum_numpy_file_test PRIVATE CS_TYPE_ARG_4ARG)
+        endif()
+        if(USE_DOUBLE)
+            target_compile_definitions(csnum_numpy_file_test PRIVATE USE_DOUBLE)
+        endif()
+        set_property(TARGET csnum_numpy_file_test PROPERTY C_STANDARD 11)
+        add_test(NAME csnum_numpy_file COMMAND csnum_numpy_file_test ${CMAKE_CURRENT_BINARY_DIR}/csnum_numpy_fixture.npy)
+
         add_executable(csnum_broadcast_iterator_test tests/broadcast_iterator_test.c)
         target_include_directories(csnum_broadcast_iterator_test PRIVATE src ${CSOUND_INCLUDE_DIR} ${CSOUND_EXTRA_INCLUDE_DIRS})
         target_compile_definitions(csnum_broadcast_iterator_test PRIVATE CSOUNDAPI7 CS_API_VERSION_MAJOR=7)
@@ -156,6 +168,18 @@ if(BUILD_TESTING)
 
     find_program(CSOUND_EXECUTABLE NAMES csound)
     if(CSOUND_EXECUTABLE)
+        add_test(
+            NAME csnum_numpy_opcode_fixture
+            COMMAND csnum_numpy_file_test ${CMAKE_CURRENT_BINARY_DIR}/csnum_opcode_float32.npy --write-f4)
+        set_tests_properties(csnum_numpy_opcode_fixture PROPERTIES FIXTURES_SETUP csnum_numpy_float32)
+        add_test(
+            NAME csnum_numpy_opcode_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/numpy_opcode_regression.csd")
+        set_tests_properties(csnum_numpy_opcode_regression PROPERTIES FIXTURES_REQUIRED csnum_numpy_float32)
         add_test(
             NAME csnum_printing_regression
             COMMAND "${CMAKE_COMMAND}"

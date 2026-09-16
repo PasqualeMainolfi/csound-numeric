@@ -22,8 +22,8 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     }
 
     const char *dot = strrchr(p->path->data, '.');
-    if (dot == NULL || strcmp(dot, CSN_FILE_EXT) != 0) {
-        return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s]", CSN_FILE_EXT);
+    if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
+        return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     CSN_SLOT *slot = get_slot(reg, source_handle);
@@ -33,7 +33,7 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     CSN_ARRAY *arr = slot->array;
 
     const char *path = p->path->data;
-    CSN_FILE_ERROR_CODE err_code = csnfile_save_array_to_file(arr, path);
+    CSN_FILE_ERROR_CODE err_code = csnfile_save_array(arr, path, dot);
     if (err_code != CSN_FILE_NO_ERROR) {
         const char *err_message = NULL;
         csnfile_dispatch_error(&err_message, err_code);
@@ -42,6 +42,11 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
 
     return OK;
 }
+
+typedef union {
+    CSN_FILE_HEADER csn_header;
+    CSN_FILE_NUMPY_HEADER numpy_header;
+} CSNFH;
 
 int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     CSN_REGISTRY *reg = get_registry(csound);
@@ -52,8 +57,8 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     }
 
     const char *dot = strrchr(p->path->data, '.');
-    if (dot == NULL || strcmp(dot, CSN_FILE_EXT) != 0) {
-        return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s]", CSN_FILE_EXT);
+    if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
+        return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     int32_t res = OK;
@@ -66,24 +71,52 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     }
     size_t buffer_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
 
-    CSN_FILE_HEADER header = {0};
-    CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_file(csound, &header, &buffer, &buffer_capacity, path);
-    if (err_code != CSN_FILE_NO_ERROR) {
-        csound->Free(csound, buffer);
-        const char *err_message = NULL;
-        csnfile_dispatch_error(&err_message, err_code);
-        return csound->InitError(csound, "[csnarray] %s", err_message);
-    };
+    bool is_numpy = false;
+    CSNFH header = {0};
+    if (strcmp(dot, CSN_FILE_EXT) == 0) {
+        CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_file(csound, &header.csn_header, &buffer, &buffer_capacity, path);
+        if (err_code != CSN_FILE_NO_ERROR) {
+            csound->Free(csound, buffer);
+            const char *err_message = NULL;
+            csnfile_dispatch_error(&err_message, err_code);
+            return csound->InitError(csound, "[csnarray] %s", err_message);
+        };
+    } else {
+        is_numpy = true;
+        CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_numpy_file(csound, &header.numpy_header, &buffer, &buffer_capacity, path);
+        if (err_code != CSN_FILE_NO_ERROR) {
+            csound->Free(csound, buffer);
+            const char *err_message = NULL;
+            csnfile_dispatch_error(&err_message, err_code);
+            return csound->InitError(csound, "[csnarray] %s", err_message);
+        };
+    }
+
+    uint32_t ndim = 0;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    ITEM_TYPE itype = CSN_REAL;
+    size_t size = 0;
+    if (!is_numpy) {
+        ndim = header.csn_header.dim;
+        memcpy(shape, header.csn_header.shape, sizeof(shape));
+        itype = (ITEM_TYPE) header.csn_header.dtype;
+        size = header.csn_header.size;
+    } else {
+        ndim = header.numpy_header.dim;
+        memcpy(shape, header.numpy_header.shape, sizeof(shape));
+        itype = (ITEM_TYPE) header.numpy_header.descr.itype;
+        size = header.numpy_header.size;
+    }
 
     csound->LockMutex(reg->mutex);
-    if (create_csnarray_locked(csound, reg, &p->h, header.dim, header.shape, &p->array, p->handle, NULL, 0, &err, (ITEM_TYPE) header.dtype) != OK) {
+    if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, NULL, 0, &err, itype) != OK) {
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
 
     CSN_ARRAY *arr = p->array;
-    if (header.size > 0) {
-        memcpy(arr->data, buffer, (size_t) header.data_bytes);
+    if (size > 0) {
+        memcpy(arr->data, buffer, size * itype * sizeof(double));
         update_array_data_version(&arr->version);
     }
 
@@ -133,8 +166,8 @@ int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p) {
     }
 
     const char *dot = strrchr(p->path->data, '.');
-    if (dot == NULL || strcmp(dot, CSN_FILE_EXT) != 0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s]", CSN_FILE_EXT);
+    if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     CHECK_KTRIG(p->trig);
@@ -154,7 +187,7 @@ int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p) {
         if (is_same_array && is_same_path && is_same_array_id) return OK;
     }
 
-    CSN_FILE_ERROR_CODE err_code = csnfile_save_array_to_file(arr, path);
+    CSN_FILE_ERROR_CODE err_code = csnfile_save_array(arr, path, dot);
     if (err_code != CSN_FILE_NO_ERROR) {
         const char *err_message = NULL;
         csnfile_dispatch_error(&err_message, err_code);
@@ -229,8 +262,8 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
     }
 
     const char *dot = strrchr(p->path->data, '.');
-    if (dot == NULL || strcmp(dot, CSN_FILE_EXT) != 0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s]", CSN_FILE_EXT);
+    if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     int32_t res = OK;
@@ -247,31 +280,60 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
     double *buffer = (double *) p->buffer_scratch.scratch;
     size_t capacity = p->buffer_scratch.scratch_capacity;
 
-    CSN_FILE_HEADER header = {0};
-    CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_file(csound, &header, &buffer, &capacity, path);
-    p->buffer_scratch.scratch = buffer;
-    p->buffer_scratch.scratch_capacity = capacity;
-    if (err_code != CSN_FILE_NO_ERROR) {
-        const char *err_message = NULL;
-        csnfile_dispatch_error(&err_message, err_code);
-        return csound->PerfError(csound, &p->h, "[csnarray] %s", err_message);
+    CSNFH header = {0};
+    bool is_numpy = false;
+    if (strcmp(dot, CSN_FILE_EXT) == 0) {
+        CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_file(csound, &header.csn_header, &buffer, &capacity, path);
+        p->buffer_scratch.scratch = buffer;
+        p->buffer_scratch.scratch_capacity = capacity;
+        if (err_code != CSN_FILE_NO_ERROR) {
+            const char *err_message = NULL;
+            csnfile_dispatch_error(&err_message, err_code);
+            return csound->PerfError(csound, &p->h, "[csnarray] %s", err_message);
+        }
+    } else {
+        is_numpy = true;
+        CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_numpy_file(csound, &header.numpy_header, &buffer, &capacity, path);
+        p->buffer_scratch.scratch = buffer;
+        p->buffer_scratch.scratch_capacity = capacity;
+        if (err_code != CSN_FILE_NO_ERROR) {
+            const char *err_message = NULL;
+            csnfile_dispatch_error(&err_message, err_code);
+            return csound->PerfError(csound, &p->h, "[csnarray] %s", err_message);
+        }
+    }
+
+    uint32_t ndim = 0;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    ITEM_TYPE itype = CSN_REAL;
+    size_t size = 0;
+    if (!is_numpy) {
+        ndim = header.csn_header.dim;
+        memcpy(shape, header.csn_header.shape, sizeof(shape));
+        itype = (ITEM_TYPE) header.csn_header.dtype;
+        size = header.csn_header.size;
+    } else {
+        ndim = header.numpy_header.dim;
+        memcpy(shape, header.numpy_header.shape, sizeof(shape));
+        itype = (ITEM_TYPE) header.numpy_header.descr.itype;
+        size = header.numpy_header.size;
     }
 
     csound->LockMutex(reg->mutex);
     size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, header.dim, header.shape) != OK) {
+    if (get_array_size_from_shape(&req_size, ndim, shape) != OK) {
         csound->UnlockMutex(reg->mutex);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
-    ITEM_TYPE itype = (ITEM_TYPE) header.dtype;
+
     CSN_ARRAY *arr = NULL;
     size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, header.dim, header.shape, logical_size, itype, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, ndim, shape, logical_size, itype, err);
     if (res != OK) goto done;
     p->array = arr;
 
-    if (header.size > 0) {
-        memcpy(arr->data, buffer, (size_t) header.data_bytes);
+    if (size > 0) {
+        memcpy(arr->data, buffer, size * itype * sizeof(double));
         update_array_data_version(&arr->version);
     }
 
