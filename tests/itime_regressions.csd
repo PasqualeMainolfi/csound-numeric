@@ -409,6 +409,36 @@ instr 2
     iEmptyBins:CsnArr = csnbincount(csnempty(array(0)))
     assert(csndims(iEmptyBins) == 1 && csnsize(iEmptyBins) == 0 && csnisempty(iEmptyBins) == 1)
 
+    ; Searchsorted returns insertion points in an ascending 1-D source. Left
+    ; stops before an equal run; right stops after it.
+    iSearchSource:CsnArr = csnfromarray(array(1, 3, 3, 5))
+    iSearchQueries:CsnArr = csnfromarray(array(0, 1, 3, 4, 6))
+    iSearchLeft:CsnArr = csnsearchsorted(iSearchSource, iSearchQueries)
+    iSearchRight:CsnArr = csnsearchsorted(iSearchSource, iSearchQueries, 1)
+    iSearchLeftValues[] = csntoarray(iSearchLeft)
+    iSearchRightValues[] = csntoarray(iSearchRight)
+    assert(iSearchLeftValues[0] == 0 && iSearchLeftValues[1] == 0 && iSearchLeftValues[2] == 1 && iSearchLeftValues[3] == 3 && iSearchLeftValues[4] == 4)
+    assert(iSearchRightValues[0] == 0 && iSearchRightValues[1] == 1 && iSearchRightValues[2] == 3 && iSearchRightValues[3] == 3 && iSearchRightValues[4] == 4)
+    assert(csnsearchsorted(iSearchSource, 3) == 1)
+    assert(csnsearchsorted(iSearchSource, 3, 1) == 3)
+
+    iSearchEmptySource:CsnArr = csnempty(array(0))
+    iSearchInEmpty:CsnArr = csnsearchsorted(iSearchEmptySource, iSearchQueries)
+    iSearchInEmptyValues[] = csntoarray(iSearchInEmpty)
+    assert(iSearchInEmptyValues[0] == 0 && iSearchInEmptyValues[4] == 0)
+    iSearchNoQueries:CsnArr = csnsearchsorted(iSearchSource, csnempty(array(0)))
+    assert(csndims(iSearchNoQueries) == 1 && csnsize(iSearchNoQueries) == 0)
+
+    ; The shared total-order comparator places NaN after positive infinity.
+    iSearchInf = exp(1000)
+    iSearchNaN = sqrt(-1)
+    iSearchSpecialValues[] = fillarray(1, iSearchInf, iSearchNaN)
+    iSearchSpecial:CsnArr = csnfromarray(iSearchSpecialValues)
+    assert(csnsearchsorted(iSearchSpecial, iSearchInf) == 1)
+    assert(csnsearchsorted(iSearchSpecial, iSearchInf, 1) == 2)
+    assert(csnsearchsorted(iSearchSpecial, iSearchNaN) == 2)
+    assert(csnsearchsorted(iSearchSpecial, iSearchNaN, 1) == 3)
+
     iSparseValues[] = fillarray(0, 2, 0, 3)
     iSparse:CsnArr = csnfromarray(iSparseValues)
     iArgnonzero:CsnArr = csnargnonzero(iSparse)
@@ -2380,7 +2410,7 @@ e
 ; above.  tests/check_itime_signatures.cmake keeps it exactly synchronized
 ; with src/csnum.c and rejects dotted opcode calls in executable Csound code.
 ; @covers-begin
-; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnindexof csnbincount csnbincount.w csnargwhere
+; csnrand csnrandint csnshuffle csnarange csnlinspace csnlogspace csngeomspace csnclip csnclip.in csnindexof csnbincount csnbincount.w csnsearchsorted csnsearchsorted.s csnargwhere
 ; csnargnonzero csnargisnan csnargunique csnunique csngt csnlt csnne csnge csnisnan csnisinf csnisfin
 ; csnle csneq csncnteq csncntnz csncntnan csnmin csnmax csnmedian
 ; csnmin.ax csnmax.ax csnmedian.ax csnargmin csnargmax csnfloor csnceil csnround

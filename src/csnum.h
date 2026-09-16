@@ -996,6 +996,37 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle; // must be sorted 1D (in doc)
+    CSNREF *data_handle;
+    MYFLT *side; // 0 -> left, 1 -> right
+    MYFLT *trig;
+    // private
+    CSN_ARRAY *array;
+    K_DATA k_data;
+    bool is_right_search_side;
+    bool is_published;
+} CSN_SEARCHSORTED_ARR;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *index;
+    // inputs
+    CSNREF *source_handle; // must be sorted 1D (in doc)
+    MYFLT *value;
+    MYFLT *side; // 0 -> left, 1 -> right
+    MYFLT *trig;
+    // private
+    K_DATA k_data;
+    bool is_right_search_side;
+    bool is_published;
+} CSN_SEARCHSORTED_SCALAR;
+
+typedef struct {
+    OPDS h;
+    // outputs
     CSNREF *handle; // index -> [axis 0, axis 1, ..., index]
     // inputs
     CSNREF *source_handle; // array source
@@ -2126,6 +2157,9 @@ int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index
 int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p);
 int32_t csnarray_bincount_no_w_deinit(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
+int32_t csnarray_searchsorted_a_deinit(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
+int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
+int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 
 // REDUCTION
 int32_t csnarray_sum(CSOUND *csound, CSN_REDUCTION *p);
@@ -2430,7 +2464,9 @@ int32_t csnarray_indexof_k_init(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // retur
 int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
 int32_t csnarray_bincount_k(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 int32_t csnarray_bincount_w_k(CSOUND *csound, CSN_ARGWHERE *p);
-
+int32_t csnarray_searchsorted_arr_k(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
+int32_t csnarray_searchsorted_scalar_k_init(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
+int32_t csnarray_searchsorted_scalar_k(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 
 // REDUCTION
 int32_t csnarray_sum_k(CSOUND *csound, CSN_REDUCTION *p);

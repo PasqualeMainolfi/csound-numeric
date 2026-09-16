@@ -1,5 +1,6 @@
 /* Opcode implementations for the select family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnset.h"
 #include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
@@ -2961,6 +2962,268 @@ int32_t csnarray_bincount_w_k(CSOUND *csound, CSN_ARGWHERE *p) {
 
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, weights_handle, weights_arr, p->array, 0.0, 0.0);
     SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+int32_t csnarray_searchsorted_a_deinit(CSOUND *csound, CSN_SEARCHSORTED_ARR *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t data_handle = p->data_handle->id;
+    if (!IS_VALID_ZERO_ONE((double) *p->side)) {
+        return csound->InitError(csound, "[csnarray] Side should be 0 for left or 1 for right");
+    }
+    p->is_right_search_side = (uint32_t) *p->side == 1U;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    CSN_SLOT *data_slot = get_slot(reg, data_handle);
+    if (data_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", data_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    CSN_ARRAY *data_arr = data_slot->array;
+
+    if (source_arr->itype != CSN_REAL || data_arr->itype != CSN_REAL || source_arr->ndim != 1U || data_arr->ndim != 1U) {
+        res = csound->InitError(csound, "[csnarray] Searchsorted requires 1-D real arrays");
+        goto done;
+    }
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) data_arr->size;
+    const uint32_t protect[2] = { source_handle, data_handle };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    CSN_ARRAY *arr = p->array;
+    for (size_t i = 0; i < data_arr->size; i++) {
+        double wanted_in = data_arr->data[i];
+        size_t index = 0;
+        binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, p->is_right_search_side);
+        arr->data[i] = (double) index;
+    }
+
+    SET_KDATA_BEGIN(p, reg);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, arr, 0.0, 0.0);
+    p->is_published = false;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    double wanted_in = (double) *p->value;
+    if (!IS_VALID_ZERO_ONE((double) *p->side)) {
+        return csound->InitError(csound, "[csnarray] Side should be 0 for left or 1 for right");
+    }
+    bool is_right_side = (uint32_t) *p->side == 1U;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL || source_arr->ndim != 1U) {
+        res = csound->InitError(csound, "[csnarray] Searchsorted requires a 1-D real array");
+        goto done;
+    }
+
+    size_t index = 0;
+    binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, is_right_side);
+    *p->index = (MYFLT) index;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+int32_t csnarray_searchsorted_scalar_k_init(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+    if (!IS_VALID_ZERO_ONE((double) *p->side)) {
+        return csound->InitError(csound, "[csnarray] Side should be 0 for left or 1 for right");
+    }
+    p->is_right_search_side = (uint32_t) *p->side == 1U;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    if (source_arr->itype != CSN_REAL || source_arr->ndim != 1U) {
+        res = csound->InitError(csound, "[csnarray] Searchsorted requires a 1-D real array");
+        goto done;
+    }
+
+    double wanted_in = (double) *p->value;
+    size_t index = 0;
+    binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, p->is_right_search_side);
+    *p->index = (MYFLT) index;
+
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, wanted_in, 0.0);
+    p->k_data.registry = reg;
+    p->k_data.prev_axis_u = (uint32_t) index;
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+int32_t csnarray_searchsorted_arr_k(CSOUND *csound, CSN_SEARCHSORTED_ARR *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    uint32_t owned_handle = p->k_data.owned_handle;
+    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+
+    uint32_t source_handle = p->source_handle->id;
+    uint32_t data_handle = p->data_handle->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+
+    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, data_handle);
+    if (res != OK) return res;
+
+    CHECK_KTRIG(p->trig);
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    CSN_SLOT *data_slot = get_slot(reg, data_handle);
+    if (data_slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", data_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+    CSN_ARRAY *data_arr = data_slot->array;
+
+    if (source_arr->itype != CSN_REAL || data_arr->itype != CSN_REAL || source_arr->ndim != 1U || data_arr->ndim != 1U) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Searchsorted requires 1-D real arrays");
+        goto done;
+    }
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) data_arr->size;
+
+    CSN_SLOT *reuse_slot = get_slot(reg, p->k_data.owned_handle);
+    if (p->is_published && reuse_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, reuse_slot->array, 0.0, 0.0)) {
+        p->handle->id = p->k_data.owned_handle;
+        goto done;
+    }
+
+    size_t req_size = 0;
+    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
+    }
+
+    CSN_ARRAY *arr = NULL;
+    size_t logical_size = data_arr->size == 0 ? 0 : req_size;
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, source_arr->itype, err);
+    if (res != OK) goto done;
+    p->array = arr;
+
+    for (size_t i = 0; i < data_arr->size; i++) {
+        double wanted_in = data_arr->data[i];
+        size_t index = 0;
+        binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, p->is_right_search_side);
+        arr->data[i] = (double) index;
+    }
+
+    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, data_handle, data_arr, p->array, 0.0, 0.0);
+    p->is_published = true;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_searchsorted_scalar_k(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    double wanted_in = (double) *p->value;
+
+    CHECK_KTRIG(p->trig);
+
+    int32_t res = OK;
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *source_slot = get_slot(reg, source_handle);
+    if (source_slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr = source_slot->array;
+
+    if (source_arr->itype != CSN_REAL || source_arr->ndim != 1U) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Searchsorted requires a 1-D real array");
+        goto done;
+    }
+
+    if (p->is_published) {
+        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        bool is_same_wanted = p->k_data.prev_scalar_param == wanted_in;
+        if (is_same_source && is_same_wanted) {
+            *p->index = (MYFLT) p->k_data.prev_axis_u;
+            goto done;
+        }
+    }
+
+    size_t index = 0;
+    binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, p->is_right_search_side);
+    *p->index = (MYFLT) index;
+
+    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_slot->array, 0, NULL, NULL, wanted_in, 0.0);
+    p->k_data.prev_axis_u = (uint32_t) index;
     p->is_published = true;
 
 done:

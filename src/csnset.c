@@ -7,13 +7,14 @@
 #include <string.h>
 
 
-void binary_search(size_t *index, bool *founded, size_t low, const double *data, double value, size_t size) {
+void binary_search(size_t *index, bool *founded, size_t low, const double *data, double value, size_t size, bool right_side) {
     size_t left = low;
     size_t right = size;
 
     while (left < right) {
         size_t center = left + (right - left) / 2;
-        if (compare_double(&data[center], &value) < 0) {
+        int comp = compare_double(&data[center], &value);
+        if (comp < 0 || (right_side && comp == 0)) {
             left = center + 1;
         } else {
             right = center;
@@ -21,8 +22,13 @@ void binary_search(size_t *index, bool *founded, size_t low, const double *data,
     }
 
     if (index != NULL) *index = left;
+
     if (founded != NULL) {
-        *founded = left < size && compare_double(&data[left], &value) == 0;
+        if (!right_side) {
+            *founded = left < size && compare_double(&data[left], &value) == 0;
+        } else {
+            *founded = left > low && compare_double(&data[left - 1], &value) == 0;
+        }
     }
 }
 
@@ -317,7 +323,7 @@ static int32_t set_insert_remove_helper(CSOUND *csound, CSNSET_UNARYOP_IN *p, OP
 
     size_t index = 0;
     bool founded = false;
-    binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size);
+    binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size, false);
 
     if (is_insert) {
         if (founded) goto done;
@@ -406,7 +412,7 @@ int32_t csnarray_setcontains(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
 
     size_t index = 0;
     bool founded = false;
-    binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size);
+    binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size, false);
 
     *p->value = founded ? FL(1.0) : FL(0.0);
 
@@ -430,7 +436,7 @@ int32_t csnarray_setcontains_k_init(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     if (res != OK) goto done;
 
     bool founded = false;
-    binary_search(NULL, &founded, 0, source_arr->data, value, source_arr->size);
+    binary_search(NULL, &founded, 0, source_arr->data, value, source_arr->size, false);
     *p->value = founded ? FL(1.0) : FL(0.0);
 
     SET_KDATA_WITH_ID_BEGIN(p, reg, source_arr->shape, 1U, CSN_REAL, source_handle);
@@ -471,7 +477,7 @@ int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
 
     size_t index = 0;
     bool founded = false;
-    binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size);
+    binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size, false);
 
     double result_temp = (double) founded;
     *p->value = (MYFLT) result_temp;
@@ -566,7 +572,7 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
                 double value = source_arr_b->data[i];
                 bool founded = false;
                 size_t index = 0;
-                binary_search(&index, &founded, 0, buffer, value, count);
+                binary_search(&index, &founded, 0, buffer, value, count, false);
                 if (!founded) {
                     memmove(buffer + index + 1, buffer + index, sizeof(double) * (count - index));
                     buffer[index] = value;
@@ -581,7 +587,7 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
                 for (size_t i = 0; i < source_a_size; i++) {
                     double value = source_arr_a->data[i];
                     bool founded = false;
-                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                     if (founded) {
                         buffer[count] = value;
                         count++;
@@ -595,7 +601,7 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
                 for (size_t i = 0; i < source_a_size; i++) {
                     double value = source_arr_a->data[i];
                     bool founded = false;
-                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                     if (!founded) {
                         buffer[count] = value;
                         count++;
@@ -609,7 +615,7 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
                 for (size_t i = 0; i < source_a_size; i++) {
                     double value_a = source_arr_a->data[i];
                     bool founded_a = false;
-                    binary_search(NULL, &founded_a, 0, source_arr_b->data, value_a, source_b_size);
+                    binary_search(NULL, &founded_a, 0, source_arr_b->data, value_a, source_b_size, false);
                     if (!founded_a) {
                         buffer[count] = value_a;
                         count++;
@@ -618,10 +624,10 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
                 for (size_t i = 0; i < source_b_size; i++) {
                     double value_b = source_arr_b->data[i];
                     bool founded_b = false;
-                    binary_search(NULL, &founded_b, 0, source_arr_a->data, value_b, source_a_size);
+                    binary_search(NULL, &founded_b, 0, source_arr_a->data, value_b, source_a_size, false);
                     if (!founded_b) {
                         size_t index = 0;
-                        binary_search(&index, &founded_b, 0, buffer, value_b, count);
+                        binary_search(&index, &founded_b, 0, buffer, value_b, count, false);
                         memmove(buffer + index + 1, buffer + index, sizeof(double) * (count - index));
                         count++;
                         buffer[index] = value_b;
@@ -712,7 +718,7 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
                 double value = source_arr_b->data[i];
                 bool founded = false;
                 size_t index = 0;
-                binary_search(&index, &founded, 0, buffer, value, count);
+                binary_search(&index, &founded, 0, buffer, value, count, false);
                 if (!founded) {
                     memmove(buffer + index + 1, buffer + index, sizeof(double) * (count - index));
                     buffer[index] = value;
@@ -727,7 +733,7 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
                 for (size_t i = 0; i < source_a_size; i++) {
                     double value = source_arr_a->data[i];
                     bool founded = false;
-                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                     if (founded) {
                         buffer[count] = value;
                         count++;
@@ -741,7 +747,7 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
                 for (size_t i = 0; i < source_a_size; i++) {
                     double value = source_arr_a->data[i];
                     bool founded = false;
-                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                    binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                     if (!founded) {
                         buffer[count] = value;
                         count++;
@@ -755,7 +761,7 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
                 for (size_t i = 0; i < source_a_size; i++) {
                     double value_a = source_arr_a->data[i];
                     bool founded_a = false;
-                    binary_search(NULL, &founded_a, 0, source_arr_b->data, value_a, source_b_size);
+                    binary_search(NULL, &founded_a, 0, source_arr_b->data, value_a, source_b_size, false);
                     if (!founded_a) {
                         buffer[count] = value_a;
                         count++;
@@ -764,10 +770,10 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
                 for (size_t i = 0; i < source_b_size; i++) {
                     double value_b = source_arr_b->data[i];
                     bool founded_b = false;
-                    binary_search(NULL, &founded_b, 0, source_arr_a->data, value_b, source_a_size);
+                    binary_search(NULL, &founded_b, 0, source_arr_a->data, value_b, source_a_size, false);
                     if (!founded_b) {
                         size_t index = 0;
-                        binary_search(&index, &founded_b, 0, buffer, value_b, count);
+                        binary_search(&index, &founded_b, 0, buffer, value_b, count, false);
                         memmove(buffer + index + 1, buffer + index, sizeof(double) * (count - index));
                         count++;
                         buffer[index] = value_b;
@@ -871,7 +877,7 @@ static int32_t set_binaryop_predicate_helper(CSOUND *csound, CSNSET_BINARYOP_PRE
             for (size_t i = 0; i < source_a_size; i++) {
                 double value = source_arr_a->data[i];
                 bool founded = false;
-                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                 if (!founded) {
                     result = false;
                     break;
@@ -882,7 +888,7 @@ static int32_t set_binaryop_predicate_helper(CSOUND *csound, CSNSET_BINARYOP_PRE
             for (size_t i = 0; i < source_b_size; i++) {
                 double value = source_arr_b->data[i];
                 bool founded = false;
-                binary_search(NULL, &founded, 0, source_arr_a->data, value, source_a_size);
+                binary_search(NULL, &founded, 0, source_arr_a->data, value, source_a_size, false);
                 if (!founded) {
                     result = false;
                     break;
@@ -893,7 +899,7 @@ static int32_t set_binaryop_predicate_helper(CSOUND *csound, CSNSET_BINARYOP_PRE
             for (size_t i = 0; i < source_a_size; i++) {
                 double value = source_arr_a->data[i];
                 bool founded = false;
-                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                 if (founded) {
                     result = false;
                     break;
@@ -964,7 +970,7 @@ static int32_t set_binaryop_predicate_k_helper(CSOUND *csound, CSNSET_BINARYOP_P
             for (size_t i = 0; i < source_a_size; i++) {
                 double value = source_arr_a->data[i];
                 bool founded = false;
-                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                 if (!founded) {
                     result = false;
                     break;
@@ -975,7 +981,7 @@ static int32_t set_binaryop_predicate_k_helper(CSOUND *csound, CSNSET_BINARYOP_P
             for (size_t i = 0; i < source_b_size; i++) {
                 double value = source_arr_b->data[i];
                 bool founded = false;
-                binary_search(NULL, &founded, 0, source_arr_a->data, value, source_a_size);
+                binary_search(NULL, &founded, 0, source_arr_a->data, value, source_a_size, false);
                 if (!founded) {
                     result = false;
                     break;
@@ -986,7 +992,7 @@ static int32_t set_binaryop_predicate_k_helper(CSOUND *csound, CSNSET_BINARYOP_P
             for (size_t i = 0; i < source_a_size; i++) {
                 double value = source_arr_a->data[i];
                 bool founded = false;
-                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size);
+                binary_search(NULL, &founded, 0, source_arr_b->data, value, source_b_size, false);
                 if (founded) {
                     result = false;
                     break;

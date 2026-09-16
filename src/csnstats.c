@@ -2008,7 +2008,7 @@ static void sw_push(CSN_SORTED_SLIDING_WINDOW *w, double x) {
         return;
     }
     size_t pos = 0;
-    binary_search(&pos, NULL, 0, w->sorted, x, w->count);
+    binary_search(&pos, NULL, 0, w->sorted, x, w->count, false);
     memmove(w->sorted + pos + 1, w->sorted + pos, sizeof(double) * (w->count - pos));
     w->sorted[pos] = x;
     w->count++;
@@ -2020,7 +2020,7 @@ static void sw_pop(CSN_SORTED_SLIDING_WINDOW *w, double x) {
         return;
     }
     size_t pos = 0;
-    binary_search(&pos, NULL, 0, w->sorted, x, w->count);
+    binary_search(&pos, NULL, 0, w->sorted, x, w->count, false);
     memmove(w->sorted + pos, w->sorted + pos + 1, sizeof(double) * (w->count - pos - 1));
     w->count--;
 }
@@ -2034,14 +2034,14 @@ static void sw_replace(CSN_SORTED_SLIDING_WINDOW *w, double out, double in) {
 
     double *s = w->sorted;
     size_t po;
-    binary_search(&po, NULL, 0, s, out, w->count);
+    binary_search(&po, NULL, 0, s, out, w->count, false);
     size_t pi;
     if (in > out) {
-        binary_search(&pi, NULL, po + 1, s, in, w->count);
+        binary_search(&pi, NULL, po + 1, s, in, w->count, false);
         memmove(s + po, s + po + 1, (pi - po - 1) * sizeof(double));
         s[pi - 1] = in;
     } else if (in < out) {
-        binary_search(&pi, NULL, 0, s, in, po);
+        binary_search(&pi, NULL, 0, s, in, po, false);
         memmove(s + pi + 1, s + pi, (po - pi) * sizeof(double));
         s[pi] = in;
     }

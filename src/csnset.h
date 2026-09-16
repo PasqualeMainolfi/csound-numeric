@@ -77,7 +77,7 @@ typedef struct {
 } CSNSET_BINARYOP_PREDICATE;
 
 
-void binary_search(size_t *index, bool *founded, size_t low, const double *data, double value, size_t size);
+void binary_search(size_t *index, bool *founded, size_t low, const double *data, double value, size_t size, bool right_side);
 
 int32_t csnarray_set_binaryop_deinit(CSOUND *csound, CSNSET_BINARYOP *p);
 int32_t csnarray_set_binaryop_p_deinit(CSOUND *csound, CSNSET_BINARYOP_PREDICATE *p);

@@ -94,6 +94,7 @@ previous result — it simply does not touch the disk.
 - **csnselect** - keeps the elements a mask marks, as a flat array (i, k — real, complex)
 - **csnindexof** - coordinates of the first element equal to a scalar, or an empty array (i, k — real only)
 - **csnbincount** - counts every non-negative integer bin, optionally accumulating weights (i, k — real only)
+- **csnsearchsorted** - insertion indices in an ascending 1-D array, left or right of equal values (i, k — real only)
 - **csnargwhere** - coordinates of the elements matching a value array (i, k — real only)
 - **csnargnonzero** - coordinates of the non-zero elements (i, k — real only)
 - **csnargisnan** - coordinates of the NaN elements (i, k — real only)

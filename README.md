@@ -217,8 +217,8 @@ csound --opcode-dir=build example/csnsort.csd
 - **Shape and layout**: reshape, flatten, transpose, flip, roll, pad, truncate,
   head, resize, concat, insert, remove, push, pop.
 - **Indexing**: element get/set, slices, gathers, integer-bin counting
-  (`bincount`), and the index-returning searches (`indexof`, `argwhere`,
-  `argnonzero`, `argisnan`).
+  (`bincount`), insertion-point search (`searchsorted`), and the
+  index-returning searches (`indexof`, `argwhere`, `argnonzero`, `argisnan`).
 - **Elementwise math**: the four operations plus power, log, divmod, hypot; the
   usual transcendental and rounding functions; degree/radian conversion; phase
   wrap and unwrap.
@@ -400,6 +400,7 @@ entry means the operation lives outside NumPy proper.
 | `csnselect` | `np.extract` | `a[mask]`, flattened. |
 | `csnindexof` | `np.argwhere(a == value)[0]` | First matching coordinate; an empty array when no element matches. |
 | `csnbincount` | `np.bincount` | 1-D non-negative integer source; optional weights, but no `minlength`. |
+| `csnsearchsorted` | `np.searchsorted` | Ascending 1-D real source; `side` is `0` for left and `1` for right; no `sorter`. |
 | `csnargwhere` | `np.argwhere(np.isin(a, v))` | Coordinates of the elements matching a value array. |
 | `csnargnonzero` | `np.argwhere(a)` | |
 | `csnargisnan` | `np.argwhere(np.isnan(a))` | |
@@ -971,6 +972,15 @@ bins:CsnArr     = csnfromarray(array(0, 1, 1, 3))
 counts:CsnArr   = csnbincount(bins) // 1 2 0 1
 weights:CsnArr  = csnfromarray(array(0.5, 1, 2, 4))
 weighted:CsnArr = csnbincount(bins, weights) // 0.5 3 0 4
+```
+
+Find where values can be inserted without disturbing ascending order:
+
+```csound
+sorted:CsnArr = csnfromarray(array(1, 3, 3, 5))
+wanted:CsnArr = csnfromarray(array(0, 3, 4, 6))
+left:CsnArr   = csnsearchsorted(sorted, wanted)    // 0 1 3 4
+right:CsnArr  = csnsearchsorted(sorted, wanted, 1) // 0 3 3 4
 ```
 
 Reshape to 2×3 and reduce along an axis:
