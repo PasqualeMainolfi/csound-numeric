@@ -7,6 +7,9 @@
 - Add NumPy-style counting of non-negative integer bins, optionally accumulating one weight per source element, at init and k-rate (*csnbincount*)
 - Add NumPy-style insertion-point search in ascending one-dimensional arrays, for scalar or array queries, with left/right duplicate placement and version-aware k-rate forms (*csnsearchsorted*)
 - Add opcode reference pages, runnable examples, NumPy correspondence, inventory entries, and i-rate/k-rate regression coverage for the new selection APIs
+- Add shared N-D broadcast and axis-slice iterators; migrate indexing, selection, shape transforms, interpolation, filters, FFT helpers, statistics and vector operations to incremental coordinate/offset traversal, and remove the per-element linear-to-coordinates and coordinates-to-offset helpers
+- Broadcast elementwise array/array arithmetic, comparisons, logical operations and `csndivmod` using NumPy's right-aligned shape rules; keep a logically empty input empty even when its shape reserves capacity
+- Make matrix-product batch broadcasting handle zero-sized extents correctly and preserve logical emptiness; add iterator, three-dimensional reduction and batched-matrix regression coverage
 
 ## [0.1.3] - 2026-09-15
 

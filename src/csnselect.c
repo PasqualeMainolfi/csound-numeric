@@ -98,10 +98,12 @@ static int32_t argwhere_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CS
     return OK;
 }
 
-static void argwhere_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, CSN_ARRAY *arr) {
+static int32_t argwhere_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, CSN_ARRAY *arr) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, source_arr->ndim, source_arr->shape, source_arr->size, NULL) != OK) return NOTOK;
     size_t match = 0;
-    for (size_t linear = 0; linear < source_arr->size; ++linear) {
-        double value = source_arr->data[linear];
+    while (BROADCAST_ITER_NEXT(&it)) {
+        double value = source_arr->data[it.linear_index];
         bool found = false;
         for (size_t i = 0; i < data_arr->size; ++i) {
             if (value == data_arr->data[i]) {
@@ -112,29 +114,28 @@ static void argwhere_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, CS
 
         if (!found) continue;
 
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        from_linear_to_coords(src_coords, source_arr->shape, linear, source_arr->ndim);
-
         for (size_t j = 0; j < source_arr->ndim; ++j) {
-            arr->data[match * source_arr->ndim + j] = (double) src_coords[j];
+            arr->data[match * source_arr->ndim + j] = (double) it.coords[j];
         }
 
         match++;
     }
+    return OK;
 }
 
-static void indexof_assign_value(CSN_ARRAY *source_arr, const double wanted, CSN_ARRAY *arr) {
-    for (size_t linear = 0; linear < source_arr->size; ++linear) {
-        double value = source_arr->data[linear];
+static int32_t indexof_assign_value(CSN_ARRAY *source_arr, const double wanted, CSN_ARRAY *arr) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, source_arr->ndim, source_arr->shape, source_arr->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        double value = source_arr->data[it.linear_index];
         if (value == wanted) {
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-            from_linear_to_coords(src_coords, source_arr->shape, linear, source_arr->ndim);
             for (size_t j = 0; j < source_arr->ndim; ++j) {
-                arr->data[j] = (double) src_coords[j];
+                arr->data[j] = (double) it.coords[j];
             }
             break;
         }
     }
+    return OK;
 }
 
 int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
@@ -167,7 +168,10 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-    argwhere_assign_value(source_arr, data_arr, arr);
+    if (argwhere_assign_value(source_arr, data_arr, arr) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid selection iterator layout");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -268,7 +272,10 @@ int32_t csnarray_argwhere_k(CSOUND *csound, CSN_ARGWHERE *p) {
 
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
-    argwhere_assign_value(source_arr, data_arr, arr);
+    if (argwhere_assign_value(source_arr, data_arr, arr) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid selection iterator layout");
+        goto done;
+    }
     p->array = arr;
 
     SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
@@ -279,19 +286,19 @@ done:
     return res;
 }
 
-static void argselect_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPARE_MODE mode) {
+static int32_t argselect_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPARE_MODE mode) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, source_arr->ndim, source_arr->shape, source_arr->size, NULL) != OK) return NOTOK;
     size_t match = 0;
-    for (size_t linear = 0; linear < source_arr->size; ++linear) {
-        if (compare_match(source_arr->data[linear], 0.0, mode)) {
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-            from_linear_to_coords(src_coords, source_arr->shape, linear, source_arr->ndim);
-
+    while (BROADCAST_ITER_NEXT(&it)) {
+        if (compare_match(source_arr->data[it.linear_index], 0.0, mode)) {
             for (size_t j = 0; j < source_arr->ndim; ++j) {
-                arr->data[match * source_arr->ndim + j] = (double) src_coords[j];
+                arr->data[match * source_arr->ndim + j] = (double) it.coords[j];
             }
             match++;
         }
     }
+    return OK;
 }
 
 /* Shared by csnargnonzero and csnargisnan: both select elements by a predicate
@@ -330,7 +337,10 @@ static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_CO
     }
 
     CSN_ARRAY *arr = p->array;
-    argselect_assign_value(source_arr, arr, mode);
+    if (argselect_assign_value(source_arr, arr, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid selection iterator layout");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -433,7 +443,10 @@ static int32_t csnarray_argselect_k_helper(CSOUND *csound, CSN_ARGWHERE *p, CSN_
     if (res != OK) goto done;
 
     p->array = arr;
-    argselect_assign_value(source_arr, arr, mode);
+    if (argselect_assign_value(source_arr, arr, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid selection iterator layout");
+        goto done;
+    }
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, 0.0, 0.0);
 
     SET_KDATA_END(p, new_shape, 2U, CSN_REAL);
@@ -666,15 +679,20 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, source_arr->ndim, source_shape, source_arr->size, NULL) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid unique-index iterator layout");
+        goto done;
+    }
     for (size_t i = 0; i < count; ++i) {
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
         ARRAY_ELEMENT *elem = &temp[i];
-        from_linear_to_coords(src_coords, source_shape, elem->linear_index, source_arr->ndim);
+        if (ND_ITER_SEEK(&it, elem->linear_index) != OK) {
+            res = csound->InitError(csound, "[csnarray] Unique index is out of range");
+            goto done;
+        }
 
         for (size_t j = 0; j < source_ndim; ++j) {
-            arr->data[i * source_ndim + j] = (double) src_coords[j];
+            arr->data[i * source_ndim + j] = (double) it.coords[j];
         }
     }
 
@@ -803,14 +821,20 @@ int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p) {
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, source_arr->ndim, source_shape, source_arr->size, NULL) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid unique-index iterator layout");
+        goto done;
+    }
     for (size_t i = 0; i < count; ++i) {
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
         ARRAY_ELEMENT *elem = &p->scratch.scratch[i];
-        from_linear_to_coords(src_coords, source_shape, elem->linear_index, source_arr->ndim);
+        if (ND_ITER_SEEK(&it, elem->linear_index) != OK) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unique index is out of range");
+            goto done;
+        }
 
         for (size_t j = 0; j < source_ndim; ++j) {
-            arr->data[i * source_ndim + j] = (double) src_coords[j];
+            arr->data[i * source_ndim + j] = (double) it.coords[j];
         }
     }
 
@@ -1714,7 +1738,6 @@ static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CS
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
     }
     CSN_ARRAY *source_arr = source_slot->array;
-    uint32_t *source_shape = source_arr->shape;
     uint32_t source_ndim = source_arr->ndim;
 
     CSN_SLOT *mask_slot = get_slot(reg, mask_handle);
@@ -1743,7 +1766,7 @@ static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CS
     return OK;
 }
 
-static void compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
+static int32_t compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
     if (axis_out == -1) {
         for (size_t i = 0; i < count_true; i++) {
             size_t index = indexes[i];
@@ -1755,13 +1778,15 @@ static void compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t 
             }
         }
     } else {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        for (size_t i = 0; i < dst_size; i++) {
-            from_linear_to_coords(dst_coords, arr->shape, i, ndim);
-            memcpy(src_coords, dst_coords, sizeof(dst_coords));
-            src_coords[axis_out] = indexes[dst_coords[axis_out]];
-            size_t src_off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        CSN_BROADCAST_ITER it;
+        if (ND_ITER_INIT(&it, ndim, arr->shape, dst_size, NULL) != OK) return NOTOK;
+        while (BROADCAST_ITER_NEXT(&it)) {
+            size_t i = it.linear_index;
+            size_t src_off = 0;
+            for (uint32_t d = 0; d < ndim; ++d) {
+                uint32_t coord = d == (uint32_t) axis_out ? indexes[it.coords[d]] : it.coords[d];
+                src_off += (size_t) coord * source_arr->strides[d];
+            }
             if (itype == CSN_REAL) {
                 arr->data[i] = source_arr->data[src_off];
             } else {
@@ -1770,6 +1795,7 @@ static void compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t 
             }
         }
     }
+    return OK;
 }
 
 int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
@@ -1820,7 +1846,10 @@ int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
     }
 
     size_t size = p->array->size;
-    compress_assign_value(p->array, source_arr, count_true, size, indexes, axis_out, new_dim, itype);
+    if (compress_assign_value(p->array, source_arr, count_true, size, indexes, axis_out, new_dim, itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid compress iterator layout");
+        goto done;
+    }
     update_array_data_version(&p->array->version);
 
 done:
@@ -1960,7 +1989,10 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
     if (res != OK) goto done;
     p->array = arr;
 
-    compress_assign_value(p->array, source_arr, count_true, p->array->size, indexes_temp, axis_out, new_dim, itype);
+    if (compress_assign_value(p->array, source_arr, count_true, p->array->size, indexes_temp, axis_out, new_dim, itype) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid compress iterator layout");
+        goto done;
+    }
     SET_KDATA_END(p, new_shape, new_dim, itype);
     p->k_data.prev_axis_u = axis_out;
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -2281,18 +2313,17 @@ static int32_t stack_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint3
     return OK;
 }
 
-static void stack_assign_value(CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *sources) {
-    uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-    uint32_t src_coords[CSN_MAX_DIMS] = {0};
-    for (size_t linear = 0; linear < stacked->size; linear++) {
-        from_linear_to_coords(dst_coords, stacked->shape, linear, stacked->ndim);
-        uint32_t source_index = dst_coords[axis];
-        for (uint32_t i = 0, j = 0; i < stacked->ndim; i++) {
-            if (i == axis) continue;
-            src_coords[j++] = dst_coords[i];
-        }
+static int32_t stack_assign_value(CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *sources) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, stacked->ndim, stacked->shape, stacked->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        uint32_t source_index = it.coords[axis];
         const CSN_ARRAY *source = &sources[source_index];
-        size_t src_offset = from_coords_to_offset(src_coords, source->strides, source->ndim);
+        size_t src_offset = 0;
+        for (uint32_t i = 0, j = 0; i < stacked->ndim; ++i) {
+            if (i != axis) src_offset += (size_t) it.coords[i] * source->strides[j++];
+        }
         if (stacked->itype == CSN_REAL) {
             stacked->data[linear] = source->data[src_offset];
         } else {
@@ -2300,6 +2331,7 @@ static void stack_assign_value(CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *sou
             stacked->data[linear * 2 + 1] = source->data[src_offset * 2 + 1];
         }
     }
+    return OK;
 }
 
 int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
@@ -2371,7 +2403,10 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
         goto done;
     }
 
-    stack_assign_value(p->array, axis, sources);
+    if (stack_assign_value(p->array, axis, sources) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid stack iterator layout");
+        goto done;
+    }
 
 done:
     if (sources != NULL) csound->Free(csound, sources);
@@ -2513,7 +2548,7 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
 
     if (p->is_published) {
         bool is_same_args_versions = true;
-        for (uint32_t i = 0, j = 0; i < p->nargs; i++) {
+        for (int32_t i = 0; i < p->nargs; i++) {
             CSNREF *shandle = (CSNREF *) p->source_handles[i];
             CSN_SLOT *temp_slot = get_slot(reg, shandle->id);
             if (temp_slot != NULL) {
@@ -2554,7 +2589,10 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
     if (res != OK) goto done;
     p->array = arr;
 
-    stack_assign_value(p->array, axis, p->buffer_sources.scratch);
+    if (stack_assign_value(p->array, axis, p->buffer_sources.scratch) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid stack iterator layout");
+        goto done;
+    }
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     p->k_data.prev_axis_u = axis;
@@ -2599,7 +2637,10 @@ int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
     }
 
     if (found) {
-        indexof_assign_value(source_arr, wanted_value, p->array);
+        if (indexof_assign_value(source_arr, wanted_value, p->array) != OK) {
+            res = csound->InitError(csound, "[csnarray] Invalid index iterator layout");
+            goto done;
+        }
     } else {
         reset_empty_csnarray(p->array, new_ndim, new_shape, CSN_REAL);
     }
@@ -2692,7 +2733,10 @@ int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
     p->array = arr;
 
     if (found) {
-        indexof_assign_value(source_arr, wanted_value, p->array);
+        if (indexof_assign_value(source_arr, wanted_value, p->array) != OK) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid index iterator layout");
+            goto done;
+        }
     } else {
         reset_empty_csnarray(p->array, new_ndim, new_shape, CSN_REAL);
     }

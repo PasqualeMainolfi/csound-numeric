@@ -314,8 +314,11 @@ Four differences apply throughout and are not repeated in every row:
 - **Index results.** `csnindexof`, `csnargmin`, `csnargmax`, `csnargsort`,
   `csnargwhere` and friends return **coordinates**, one per source dimension,
   where NumPy often returns flat indices unless you call `np.unravel_index`.
-- **Broadcasting.** There is none. Binary opcodes take two arrays of the same
-  shape, or an array and a scalar. `csnstack` likewise requires equal shapes.
+- **Broadcasting.** Elementwise binary arithmetic, comparisons and logical
+  operations broadcast array shapes from the right, as in NumPy; an extent of
+  `1` can expand to its partner's extent. `csnmatmul` broadcasts batch axes.
+  Operations with different semantics, such as `csnstack`, `csnpairdist` and
+  `csnwhere`, still have their own exact-shape requirements.
 
 An em dash in the NumPy column means there is no NumPy counterpart; a `scipy.`
 entry means the operation lives outside NumPy proper.

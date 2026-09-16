@@ -12,6 +12,7 @@
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
 #define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
 #define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))
+#define CSN_MAX_BROADCAST_INPUTS 4
 
 #define SET_ARRAY_KIND(csnarr, arr_kind)                                  \
     do {                                                                  \
@@ -374,6 +375,34 @@ typedef struct {
 CSN_AXIS_SPEC csn_normalize_axis(const MYFLT *axis_in, uint32_t ndim, CSN_AXIS_DEFAULT omitted_default);
 CSN_AXIS_SPEC csn_normalize_axis_value(double axis, uint32_t ndim);
 /* ---------- */
+
+typedef struct {
+    uint32_t ndim;
+    uint32_t shape[CSN_MAX_DIMS];
+    uint32_t coords[CSN_MAX_DIMS];
+    size_t offsets[CSN_MAX_BROADCAST_INPUTS];
+    size_t strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS];
+    size_t linear_index;
+    size_t size;
+    size_t n_inputs;
+    bool is_index_zero;
+} CSN_BROADCAST_ITER;
+
+typedef struct {
+    uint32_t ndim;
+    uint32_t shape[CSN_MAX_DIMS];
+    uint32_t coords[CSN_MAX_DIMS];
+    size_t inner_strides[CSN_MAX_DIMS];
+    size_t outer_strides[CSN_MAX_DIMS];
+    size_t src_base;
+    size_t dst_base;
+    size_t src_axis_stride;
+    size_t dst_axis_stride;
+    size_t axis_size;
+    size_t linear_index;
+    size_t slice_count;
+    bool is_index_zero;
+} CSN_AXIS_SLICE_ITER;
 
 typedef struct {
     double *sorted;
@@ -2010,8 +2039,6 @@ bool csn_slot_rt_locked(CSN_REGISTRY *reg, uint32_t handle);
 int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size, bool rt_locked);
 int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size);
 int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
-void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim);
-uint32_t from_coords_to_offset(uint32_t *coords, const size_t *strides, uint32_t ndim);
 void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z);
 void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype);
 void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
@@ -2020,7 +2047,7 @@ void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, doub
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
 void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
-void pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
+int32_t pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
@@ -2158,6 +2185,7 @@ int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p);
 int32_t csnarray_bincount_no_w_deinit(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 int32_t csnarray_searchsorted_a_deinit(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
+int32_t csnarray_searchsorted_s_deinit(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
 int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 

@@ -4,18 +4,25 @@
 /* Internal interface between csnum's category translation units.
    Opcode names and signatures remain defined by the OENTRY table in csnum.c. */
 #include "csnum.h"
+#include <stdint.h>
 
+int compare_double_from_array_elem(const void *a, const void *b);
+size_t sliding_median_scratch_size(size_t win_size);
+const char *get_out_name(OPDS *h);
+const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_t ndim);
+double median_of_scratch(double *scratch, size_t n);
+double nearest(double x, double x0, double x1, double y0, double y1);
 bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
 bool CAN_REUSE_LAST_RESULT(const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
-int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, uint32_t source_handle, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed, bool rt_locked);
-int32_t CHECK_SELF_ALIAS_CELL_LOCAL(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, uint32_t new_ndim, const uint32_t *new_shape, ITEM_TYPE new_itype);
 bool IS_VALID_INDEX(double index);
 bool IS_VALID_SHIFT(double shift);
 bool IS_VALID_VALUE_INT32(double value);
+bool SOURCE_HAS_MOVED(const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *arr);
+bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
+bool BROADCAST_ITER_NEXT(CSN_BROADCAST_ITER *it);
+bool AXIS_SLICE_ITER_NEXT(CSN_AXIS_SLICE_ITER *it);
 void PUBLISH_DERIVED_RESULT(K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
 void PUBLISH_ELEMENTWISE(K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
-bool SOURCE_HAS_MOVED(const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *arr);
-int compare_double_from_array_elem(const void *a, const void *b);
 void complex_acos(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_acosh(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_asin(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
@@ -26,7 +33,6 @@ void complex_cos(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_cosh(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_exp(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_log(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
-int32_t complex_pow(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT base, CSN_COMPLEXDAT exponent);
 void complex_scalar_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, double b);
 void complex_sign(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_sin(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
@@ -34,7 +40,19 @@ void complex_sinh(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_sqrt(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_tan(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_tanh(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
+void fill_csnarray(CSN_ARRAY *array, double value);
+void fill_csnarray_complex(CSN_ARRAY *array, double re, double im);
+void fisher_yates(PCG32_STATE *rng, double *data, size_t size);
 void complexdat_to_rect(const COMPLEXDAT *c, double *re, double *im);
+void sliding_median_slice(double *dst, const double *src, double *scratch, size_t n, size_t stride, size_t win_size, CSN_MEDIAN_EDGES edge);
+int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, const CSN_ARRAY *dst, uint32_t axis);
+int32_t BROADCAST_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], uint32_t n_inputs);
+int32_t ND_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t *strides);
+int32_t ND_ITER_SEEK(CSN_BROADCAST_ITER *it, size_t linear_index);
+int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, uint32_t source_handle, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed, bool rt_locked);
+int32_t CHECK_SELF_ALIAS_CELL_LOCAL(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, uint32_t new_ndim, const uint32_t *new_shape, ITEM_TYPE new_itype);
+int32_t BROADCAST_INIT(uint32_t *out_ndim, uint32_t *out_shape, size_t *out_size, size_t out_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], const CSN_ARRAY *const sources[], uint32_t n_inputs);
+int32_t complex_pow(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT base, CSN_COMPLEXDAT exponent);
 int32_t create_csnarray_init(CSOUND *csound,const OPDS *h,uint32_t ndim,const uint32_t *shape,CSN_ARRAY **p_array,CSNREF *p_handle,ITEM_TYPE itype);
 int32_t create_empty_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_full_csnarray_k_init(CSOUND *csound, CSN_FULL *p);
@@ -241,21 +259,11 @@ int32_t csnarray_where_in_hh_k_init(CSOUND *csound, CSN_WHERE_HH_IN *p);
 int32_t csnarray_where_in_hs_k_init(CSOUND *csound, CSN_WHERE_HS_IN *p);
 int32_t csnarray_window_function_k_init(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_wrap_angle_k_init(CSOUND *csound, CSN_ANGLE *p);
-void fill_csnarray(CSN_ARRAY *array, double value);
-void fill_csnarray_complex(CSN_ARRAY *array, double re, double im);
-void fisher_yates(PCG32_STATE *rng, double *data, size_t size);
 int32_t from_array_to_csnarray_k_init(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_complexarray_to_csnarray_k_init(CSOUND *csound, CSN_FROM_ARRAY *p);
-const char *get_out_name(OPDS *h);
-bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
-double median_of_scratch(double *scratch, size_t n);
-double nearest(double x, double x0, double x1, double y0, double y1);
-int32 opunary_ax_in_k_deinit(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
+int32_t opunary_ax_in_k_deinit(CSOUND *csound, CSN_UNARYOP_AX_IN *p);
 int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32_t *out_ndim, uint32_t *out_shape);
 int32_t parse_shape_array_k(CSOUND *csound, OPDS *h, const ARRAYDAT *p_shape, uint32_t *out_ndim, uint32_t *out_shape);
 int32_t rt_growth_refused(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *arr, size_t required_size);
-const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_t ndim);
-size_t sliding_median_scratch_size(size_t win_size);
-void sliding_median_slice(double *dst, const double *src, double *scratch, size_t n, size_t stride, size_t win_size, CSN_MEDIAN_EDGES edge);
 
 #endif

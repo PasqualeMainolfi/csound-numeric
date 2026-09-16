@@ -682,7 +682,6 @@ int32_t csnarray_remap_k(CSOUND *csound, CSN_REMAP *p) {
 
     CSN_ARRAY *source_arr = slot_source->array;
     size_t source_size = source_arr->size;
-    uint32_t *source_shape = source_arr->shape;
 
     CSN_ARRAY *x_data = slot_x->array;
     size_t x_data_size = x_data->size;
@@ -767,30 +766,13 @@ int32_t csnarray_remap_k(CSOUND *csound, CSN_REMAP *p) {
         res = remap_slice(csound, &p->h, arr->data, 1U, x_data->data, y_data->data, x_data_size, source_arr->data, source_size, 1U, p->ibounds, p->imode, p->fill_value);
         if (res != OK) goto done;
     } else {
-            uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-            uint32_t reduced_ndim = 0;
-            size_t slice_count = 1;
-            for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-                if (i != (uint32_t) axis) {
-                    reduced_shape[reduced_ndim++] = source_arr->shape[i];
-                    slice_count *= source_arr->shape[i];
-                }
+            CSN_AXIS_SLICE_ITER it;
+            if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) {
+                res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible remap array shapes/ranks");
+                goto done;
             }
-
-            size_t src_stride = source_arr->strides[axis];
-
-            for (size_t linear = 0; linear < slice_count; ++linear) {
-                uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-                uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-                from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-                for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-                    src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-                }
-
-                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-                size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_arr->ndim);
-                res = remap_slice(csound, &p->h, arr->data + dst_base, arr->strides[axis], x_data->data, y_data->data, x_data_size, source_arr->data + src_base, source_shape[axis], src_stride, p->ibounds, p->imode, p->fill_value);
+            while (AXIS_SLICE_ITER_NEXT(&it)) {
+                res = remap_slice(csound, &p->h, arr->data + it.dst_base, it.dst_axis_stride, x_data->data, y_data->data, x_data_size, source_arr->data + it.src_base, it.axis_size, it.src_axis_stride, p->ibounds, p->imode, p->fill_value);
                 if (res != OK) goto done;
             }
     }
@@ -866,37 +848,16 @@ static int32_t resample_run(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, CSN_AR
         return remap_slice(csound, perf_h, arr->data, 1U, x_data, source_arr->data, source_arr->size, x_source, new_length, 1U, ibounds, imode, fill_value);
     }
 
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Incompatible resample array shapes/ranks");
     }
-
-    const size_t data_size = (size_t) source_arr->shape[axis];
-    const size_t src_stride = source_arr->strides[axis];
-    const size_t dst_stride = arr->strides[axis];
-
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        for (size_t i = 0; i < it.axis_size; ++i) {
+            y_scratch[i] = source_arr->data[it.src_base + i * it.src_axis_stride];
         }
 
-        const size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        const size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_arr->ndim);
-
-        for (size_t i = 0; i < data_size; ++i) {
-            y_scratch[i] = source_arr->data[src_base + i * src_stride];
-        }
-
-        int32_t res = remap_slice(csound, perf_h, arr->data + dst_base, dst_stride, x_data, y_scratch, data_size, x_source, new_length, 1U, ibounds, imode, fill_value);
+        int32_t res = remap_slice(csound, perf_h, arr->data + it.dst_base, it.dst_axis_stride, x_data, y_scratch, it.axis_size, x_source, new_length, 1U, ibounds, imode, fill_value);
         if (res != OK) return res;
     }
 
@@ -1247,7 +1208,7 @@ static int32_t truncate_assign_shape(CSOUND *csound, OPDS *perf_h, const uint32_
     return OK;
 }
 
-static void truncate_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t *new_shape, uint32_t new_ndim, int32_t axis) {
+static int32_t truncate_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t *new_shape, uint32_t new_ndim, int32_t axis) {
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
     size_t source_size = source_arr->size;
@@ -1255,10 +1216,11 @@ static void truncate_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_
        two doubles per element, so each one is scaled by itype. */
     ITEM_TYPE itype = source_arr->itype;
     if (axis == -1) {
-        uint32_t coords[CSN_MAX_DIMS] = {0};
-        for (size_t i = 0; i < arr->size; i++) {
-            from_linear_to_coords(coords, new_shape, i, new_ndim);
-            size_t src_offset = from_coords_to_offset(coords, source_arr->strides, source_ndim);
+        CSN_BROADCAST_ITER it;
+        if (ND_ITER_INIT(&it, new_ndim, new_shape, arr->size, source_arr->strides) != OK) return NOTOK;
+        while (BROADCAST_ITER_NEXT(&it)) {
+            size_t i = it.linear_index;
+            size_t src_offset = it.offsets[0];
             arr->data[i * itype] = source_arr->data[src_offset * itype];
             if (itype == CSN_COMPLEX) {
                 arr->data[i * itype + 1] = source_arr->data[src_offset * itype + 1];
@@ -1283,6 +1245,7 @@ static void truncate_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_
         /* axis == 0 || CSN_HEAD_ARR: the kept elements are already a prefix */
         memcpy(arr->data, source_arr->data, sizeof(double) * arr->size * itype);
     }
+    return OK;
 }
 
 static int32_t truncate_assign_value_in(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, uint32_t new_ndim, const uint32_t *new_shape, int32_t axis) {
@@ -1296,10 +1259,13 @@ static int32_t truncate_assign_value_in(CSOUND *csound, OPDS *perf_h, CSN_ARRAY 
     /* Same element/double distinction as truncate_assign_value. */
     ITEM_TYPE itype = source_arr->itype;
     if (axis == -1) {
-        uint32_t coords[CSN_MAX_DIMS] = {0};
-        for (size_t i = 0; i < new_size; i++) {
-            from_linear_to_coords(coords, new_shape, i, new_ndim);
-            size_t src_offset = from_coords_to_offset(coords, source_arr->strides, source_ndim);
+        CSN_BROADCAST_ITER it;
+        if (ND_ITER_INIT(&it, new_ndim, new_shape, new_size, source_arr->strides) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid truncate iterator layout");
+        }
+        while (BROADCAST_ITER_NEXT(&it)) {
+            size_t i = it.linear_index;
+            size_t src_offset = it.offsets[0];
             source_arr->data[i * itype] = source_arr->data[src_offset * itype];
             if (itype == CSN_COMPLEX) {
                 source_arr->data[i * itype + 1] = source_arr->data[src_offset * itype + 1];
@@ -1368,7 +1334,10 @@ static int32_t truncate_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MODE 
         goto done;
     }
 
-    truncate_assign_value(p->array, source_arr, new_shape, new_ndim, axis);
+    if (truncate_assign_value(p->array, source_arr, new_shape, new_ndim, axis) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid truncate iterator layout");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -1672,7 +1641,10 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
     if (res != OK) goto done;
     p->array = arr;
 
-    truncate_assign_value(p->array, source_arr, new_shape, new_ndim, axis);
+    if (truncate_assign_value(p->array, source_arr, new_shape, new_ndim, axis) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid truncate iterator layout");
+        goto done;
+    }
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data.prev_axis_u = axis;

@@ -19,11 +19,17 @@ giA[] = array(1, 2, 3, 4)
 giB[] = array(10, 20, 30, 40)
 giBase[] = array(2, 2, 2, 2)
 giPowers[] = array(2, 4, 8, 16)
+giGrid[] = array(1, 2, 3, 4, 5, 6)
+giGridShape[] = array(2, 3)
+giRow[] = array(2, 3, 4)
 
 A@global:CsnArr = csnfromarray(giA)
 B@global:CsnArr = csnfromarray(giB)
 Base@global:CsnArr = csnfromarray(giBase)
 Powers@global:CsnArr = csnfromarray(giPowers)
+GridFlat@global:CsnArr = csnfromarray(giGrid)
+Grid@global:CsnArr = csnreshape(GridFlat, giGridShape)
+Row@global:CsnArr = csnfromarray(giRow)
 
 Sum@global:CsnArr = csnadd(A, B)
 Diff@global:CsnArr = csnsubtract(A, B)
@@ -41,6 +47,7 @@ CompAdd@global:CsnArr = csnadd(A, 0)
    the aliased operand's layout: this one accumulates one A per control period. */
 Acc@global:CsnArr = csnfromarray(giA)
 Frozen@global:CsnArr = csnmul(A, 5)
+GridQ@global:CsnArr, GridR@global:CsnArr csndivmod Grid, Row
 
 instr 1
     kTrig init 1
@@ -59,6 +66,7 @@ instr 1
     LogOr = csnlogicor(A, B, kTrig)
     Logged = csnlog(Powers, Base, kTrig)
     Acc = csnadd(Acc, A, kTrig)
+    GridQ, GridR csndivmod Grid, Row, kTrig
 
     /* Gated off for the whole note: keeps whatever the init pass published,
        which is a copy of the array operand, not the product. */
@@ -98,6 +106,12 @@ instr 2
     iSumShape[] = csnshape(Sum)
     assert(lenarray(iSumShape) == 1 && iSumShape[0] == 4)
     assert(csnsize(Sum) == 4 && csnsize(Acc) == 4)
+    iGridCell00[] = array(0, 0)
+    iGridCell11[] = array(1, 1)
+    assert(csnget(GridQ, iGridCell00) == 0 && csnget(GridR, iGridCell00) == 1)
+    assert(csnget(GridQ, iGridCell11) == 1 && csnget(GridR, iGridCell11) == 2)
+    iGridShape[] = csnshape(GridQ)
+    assert(iGridShape[0] == 2 && iGridShape[1] == 3)
 endin
 </CsInstruments>
 

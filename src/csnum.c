@@ -16,6 +16,235 @@
 #include <stdbool.h>
 
 
+/* --- BROADCAST SECTION --- */
+
+static inline int32_t broadcast_strides(uint32_t const ndim_in, const uint32_t *shape_in, const size_t *strides_in, uint32_t const ndim_out, const uint32_t *shape_out, size_t *strides_out) {
+    if (ndim_in == 0 || ndim_in > ndim_out || ndim_out > CSN_MAX_DIMS) return NOTOK;
+    int32_t shift = (int32_t) ndim_out - (int32_t) ndim_in;
+    for (uint32_t d = 0; d < ndim_out; d++) {
+        int32_t sd = (int32_t) d - shift;
+
+        if (sd < 0) {
+            strides_out[d] = 0;
+            continue;
+        }
+
+        uint32_t src_dim = shape_in[sd];
+        uint32_t dst_dim = shape_out[d];
+
+        if (src_dim == dst_dim) {
+            strides_out[d] = strides_in[sd];
+        } else if (src_dim == 1) {
+            strides_out[d] = 0;
+        } else {
+            return NOTOK;
+        }
+    }
+
+    return OK;
+}
+
+static inline int32_t broadcast_shape(const uint32_t *dims, const uint32_t shapes[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], uint32_t n_inputs, uint32_t *out_ndim, uint32_t *out_shape) {
+    uint32_t new_ndim = 0;
+    for (uint32_t i = 0; i < n_inputs; i++) {
+        new_ndim = new_ndim >= dims[i] ? new_ndim : dims[i];
+    }
+    *out_ndim = new_ndim;
+
+    for (uint32_t d = 0; d < new_ndim; ++d) {
+        uint32_t result_dim = 1;
+        for (uint32_t input = 0; input < n_inputs; ++input) {
+            uint32_t in_ndim = dims[input];
+            uint32_t dim = d < in_ndim ? shapes[input][in_ndim - 1 - d] : 1;
+            if (dim != 1) {
+                if (result_dim != 1 && result_dim != dim) return NOTOK;
+                result_dim = dim;
+            }
+        }
+        out_shape[new_ndim - 1 - d] = result_dim;
+    }
+
+    return OK;
+}
+
+/* Plan on the stack. A logically empty source makes the result empty even if
+   its shape still describes reserved capacity. */
+int32_t BROADCAST_INIT(uint32_t *out_ndim, uint32_t *out_shape, size_t *out_size, size_t out_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], const CSN_ARRAY *const sources[], uint32_t n_inputs) {
+    if (out_ndim == NULL || out_shape == NULL || out_size == NULL || out_strides == NULL || sources == NULL || n_inputs == 0 || n_inputs > CSN_MAX_BROADCAST_INPUTS) return NOTOK;
+
+    uint32_t dims[CSN_MAX_BROADCAST_INPUTS] = {0};
+    uint32_t shapes[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
+    uint32_t planned_ndim = 0;
+    uint32_t planned_shape[CSN_MAX_DIMS] = {0};
+    size_t planned_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    bool any_empty = false;
+
+    for (uint32_t i = 0; i < n_inputs; i++) {
+        const CSN_ARRAY *s = sources[i];
+        if (s == NULL || s->ndim == 0 || s->ndim > CSN_MAX_DIMS) return NOTOK;
+        size_t physical_size = 0;
+        if (get_array_size_from_shape(&physical_size, s->ndim, s->shape) != OK || (s->size != 0 && s->size != physical_size)) {
+            return NOTOK;
+        }
+        any_empty |= s->size == 0;
+        dims[i] = s->ndim;
+        memcpy(shapes[i], s->shape, sizeof(s->shape));
+    }
+
+    if (broadcast_shape(dims, shapes, n_inputs, &planned_ndim, planned_shape) != OK) return NOTOK;
+
+    size_t physical_size = 0;
+    if (get_array_size_from_shape(&physical_size, planned_ndim, planned_shape) != OK) return NOTOK;
+
+    for (uint32_t i = 0; i < n_inputs; i++) {
+        if (broadcast_strides(dims[i], shapes[i], sources[i]->strides, planned_ndim, planned_shape, planned_strides[i]) != OK) return NOTOK;
+    }
+
+    *out_ndim = planned_ndim;
+    *out_size = any_empty ? 0 : physical_size;
+    memcpy(out_shape, planned_shape, sizeof(planned_shape));
+    memcpy(out_strides, planned_strides, sizeof(planned_strides));
+    return OK;
+}
+
+int32_t BROADCAST_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], uint32_t n_inputs) {
+    if (it == NULL || shape == NULL || strides == NULL || n_inputs == 0 || n_inputs > CSN_MAX_BROADCAST_INPUTS) return NOTOK;
+    memset(it, 0, sizeof(*it));
+    size_t physical_size = 0;
+    if (get_array_size_from_shape(&physical_size, ndim, shape) != OK || logical_size > physical_size) return NOTOK;
+
+    it->is_index_zero = true;
+    it->ndim = ndim;
+    it->n_inputs = n_inputs;
+    it->size = logical_size;
+    for (uint32_t d = 0; d < ndim; ++d) {
+        it->shape[d] = shape[d];
+        for (uint32_t i = 0; i < n_inputs; ++i) {
+            it->strides[i][d] = strides[i][d];
+        }
+    }
+
+    return OK;
+}
+
+/* Coordinate traversal is the one-input case of the broadcast iterator.
+   Optional strides give the current input offset as well as the coordinates. */
+int32_t ND_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t *strides) {
+    size_t plan[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    if (strides != NULL) {
+        if (ndim > CSN_MAX_DIMS) return NOTOK;
+        memcpy(plan[0], strides, sizeof(size_t) * ndim);
+    }
+    return BROADCAST_ITER_INIT(it, ndim, shape, logical_size, plan, 1);
+}
+
+/* Random-access coordinate lookup for sorted or selected linear indexes.
+   The next sequential call advances to the following element. */
+int32_t ND_ITER_SEEK(CSN_BROADCAST_ITER *it, size_t linear_index) {
+    if (it == NULL || it->ndim == 0 || it->ndim > CSN_MAX_DIMS || linear_index >= it->size) return NOTOK;
+    size_t remaining = linear_index;
+    memset(it->offsets, 0, sizeof(it->offsets));
+    for (uint32_t d = it->ndim; d-- > 0;) {
+        if (it->shape[d] == 0) return NOTOK;
+        it->coords[d] = (uint32_t) (remaining % it->shape[d]);
+        remaining /= it->shape[d];
+        for (uint32_t input = 0; input < it->n_inputs; ++input) {
+            it->offsets[input] += (size_t) it->coords[d] * it->strides[input][d];
+        }
+    }
+    it->linear_index = linear_index;
+    it->is_index_zero = false;
+    return OK;
+}
+
+int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, const CSN_ARRAY *dst, uint32_t axis) {
+    if (it == NULL || src == NULL || dst == NULL || src->ndim == 0 || src->ndim > CSN_MAX_DIMS
+        || dst->ndim == 0 || dst->ndim > CSN_MAX_DIMS || axis >= src->ndim) return NOTOK;
+
+    bool is_reduction = dst->ndim + 1U == src->ndim;
+    if (!is_reduction && dst->ndim != src->ndim) return NOTOK;
+    for (uint32_t d = 0; d < src->ndim; ++d) {
+        if (d == axis) continue;
+        uint32_t j = is_reduction && d > axis ? d - 1U : d;
+        if (src->shape[d] != dst->shape[j]) return NOTOK;
+    }
+
+    memset(it, 0, sizeof(*it));
+    it->slice_count = 1;
+    it->is_index_zero = true;
+    for (uint32_t d = 0; d < src->ndim; ++d) {
+        if (d == axis) continue;
+        uint32_t r = it->ndim++;
+        uint32_t j = is_reduction && d > axis ? d - 1U : d;
+        it->shape[r] = src->shape[d];
+        it->inner_strides[r] = src->strides[d];
+        it->outer_strides[r] = dst->strides[j];
+
+        it->slice_count *= src->shape[d];
+    }
+    it->src_axis_stride = src->strides[axis];
+    it->dst_axis_stride = is_reduction ? 0 : dst->strides[axis];
+    it->axis_size = src->shape[axis];
+    if (src->size == 0 || dst->size == 0 || it->axis_size == 0) it->slice_count = 0;
+
+    return OK;
+}
+
+bool BROADCAST_ITER_NEXT(CSN_BROADCAST_ITER *it) {
+    if (it->linear_index >= it->size) return false;
+    if (it->is_index_zero) {
+        it->is_index_zero = false;
+        return true;
+    }
+
+    it->linear_index++;
+
+    for (uint32_t d = it->ndim; d-- > 0;) {
+        ++it->coords[d];
+
+        for (uint32_t i = 0; i < it->n_inputs; ++i) {
+            it->offsets[i] += it->strides[i][d];
+        }
+
+        if (it->coords[d] < it->shape[d]) return true;
+        it->coords[d] = 0;
+
+        for (uint32_t i = 0; i < it->n_inputs; ++i) {
+            it->offsets[i] -= it->strides[i][d] * (size_t) it->shape[d];
+        }
+    }
+
+    return false;
+}
+
+bool AXIS_SLICE_ITER_NEXT(CSN_AXIS_SLICE_ITER *it) {
+    if (it->linear_index >= it->slice_count) return false;
+    if (it->is_index_zero) {
+        it->is_index_zero = false;
+        return true;
+    }
+
+    it->linear_index++;
+
+    for (uint32_t d = it->ndim; d-- > 0;) {
+        ++it->coords[d];
+        it->src_base += it->inner_strides[d];
+        it->dst_base += it->outer_strides[d];
+
+        if (it->coords[d] < it->shape[d]) return true;
+        it->coords[d] = 0;
+
+        it->src_base -= it->inner_strides[d] * (size_t) it->shape[d];
+        it->dst_base -= it->outer_strides[d] * (size_t) it->shape[d];
+    }
+
+    return false;
+}
+
+
+/* --- END BROADCAST SECTION --- */
+
+
 CSN_AXIS_SPEC csn_normalize_axis_value(double value, uint32_t ndim) {
     CSN_AXIS_SPEC spec = { .kind = CSN_AXIS_INVALID, .index = 0U };
 
@@ -663,21 +892,6 @@ int32_t CHECK_SELF_ALIAS_CELL_LOCAL(CSOUND *csound, OPDS *h, const K_DATA *k_dat
         return csn_locked_perf_error(csound, h, "[csnarray] Input array %u is also this opcode's own output, so the result must keep its %s layout, not %s: assign the result to a different handle", owned, shape_str(abuf, sizeof(abuf), source_arr->shape, source_arr->ndim), shape_str(bbuf, sizeof(bbuf), new_shape, new_ndim));
     }
     return OK;
-}
-
-void from_linear_to_coords(uint32_t *coords, const uint32_t *shape, size_t linear, uint32_t ndim) {
-    for (uint32_t i = ndim; i-- > 0;) {
-        coords[i] = (uint32_t) (linear % shape[i]);
-        linear /= shape[i];
-    }
-}
-
-uint32_t from_coords_to_offset(uint32_t *coords, const size_t *strides, uint32_t ndim) {
-    size_t src_offset = 0;
-    for (uint32_t i = 0; i < ndim; ++i) {
-        src_offset += (size_t) coords[i] * strides[i];
-    }
-    return src_offset;
 }
 
 int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32_t *out_ndim, uint32_t *out_shape) {

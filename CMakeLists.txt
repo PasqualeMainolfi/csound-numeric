@@ -131,6 +131,22 @@ endfunction()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/csnum.cmake)
 
 if(BUILD_TESTING)
+    if(UNIX)
+        add_executable(csnum_broadcast_iterator_test tests/broadcast_iterator_test.c)
+        target_include_directories(csnum_broadcast_iterator_test PRIVATE src ${CSOUND_INCLUDE_DIR} ${CSOUND_EXTRA_INCLUDE_DIRS})
+        target_compile_definitions(csnum_broadcast_iterator_test PRIVATE CSOUNDAPI7 CS_API_VERSION_MAJOR=7)
+        if(CSNUM_CS_TYPE_ARG_4ARG)
+            target_compile_definitions(csnum_broadcast_iterator_test PRIVATE CS_TYPE_ARG_4ARG)
+        endif()
+        if(USE_DOUBLE)
+            target_compile_definitions(csnum_broadcast_iterator_test PRIVATE USE_DOUBLE)
+        endif()
+        target_link_libraries(csnum_broadcast_iterator_test PRIVATE ${CMAKE_DL_LIBS})
+        add_dependencies(csnum_broadcast_iterator_test csnum)
+        set_property(TARGET csnum_broadcast_iterator_test PROPERTY C_STANDARD 11)
+        add_test(NAME csnum_broadcast_iterator COMMAND csnum_broadcast_iterator_test $<TARGET_FILE:csnum>)
+    endif()
+
     add_test(
         NAME csnum_itime_signature_coverage
         COMMAND "${CMAKE_COMMAND}"

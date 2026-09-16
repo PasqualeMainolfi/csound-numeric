@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
 static int32_t check_dot_shape(const uint32_t *shape_a, const uint32_t *shape_b, size_t dim_a, size_t dim_b) {
     size_t bk = (dim_b >= 2) ? dim_b - 2 : 0;
@@ -28,58 +27,38 @@ static inline void item_set(CSN_ARRAY *arr, size_t off, CSN_COMPLEXDAT z) {
     if (arr->itype == CSN_COMPLEX) arr->data[off * 2 + 1] = z.im;
 }
 
-static void get_dot_inner_accum(CSN_COMPLEXDAT *acc, uint32_t *a_coords, uint32_t *b_coords, uint32_t off_dim_a, uint32_t off_dim_b, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, uint32_t source_dim_a, uint32_t source_dim_b, uint32_t loop_dim) {
+static void get_dot_inner_accum(CSN_COMPLEXDAT *acc, size_t base_a, size_t base_b, size_t stride_a, size_t stride_b, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, uint32_t loop_dim) {
     acc->re = 0.0;
     acc->im = 0.0;
     for (uint32_t k = 0; k < loop_dim; ++k) {
-        a_coords[off_dim_a] = k;
-        b_coords[off_dim_b] = k;
-        size_t off_a = from_coords_to_offset(a_coords, source_arr_a->strides, source_dim_a);
-        size_t off_b = from_coords_to_offset(b_coords, source_arr_b->strides, source_dim_b);
+        size_t off_a = base_a + (size_t) k * stride_a;
+        size_t off_b = base_b + (size_t) k * stride_b;
         CSN_COMPLEXDAT prod = {0};
         complex_prod(&prod, item_at(source_arr_a, off_a), item_at(source_arr_b, off_b));
         complex_add(acc, *acc, prod);
     }
 }
 
-static void dot_inner(CSN_ARRAY *out_arr, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, CSN_VECOP_MODE mode) {
+static int32_t dot_inner(CSN_ARRAY *out_arr, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, CSN_VECOP_MODE mode) {
     uint32_t source_dim_a = source_arr_a->ndim;
     uint32_t source_dim_b = source_arr_b->ndim;
     uint32_t *source_shape_a = source_arr_a->shape;
     uint32_t ka_dim  = source_shape_a[source_dim_a - 1];
-    size_t bk = (source_dim_b >= 2) ? source_dim_b - 2 : 0;
-    for (size_t linear = 0; linear < out_arr->size; linear++) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t a_coords[CSN_MAX_DIMS]   = {0};
-        uint32_t b_coords[CSN_MAX_DIMS]   = {0};
-
-        from_linear_to_coords(dst_coords, out_arr->shape, linear, out_arr->ndim);
-        uint32_t d = 0;
-        CSN_COMPLEXDAT acc = { 0.0, 0.0 };
-
-        switch (mode) {
-            case CSN_DOT:
-                for (uint32_t i = 0; i + 1 < source_dim_a; ++i) {
-                    a_coords[i] = dst_coords[d++];
-                }
-
-                for (uint32_t i = 0; i < source_dim_b; ++i) {
-                    if (i != bk) b_coords[i] = dst_coords[d++];
-                }
-
-                get_dot_inner_accum(&acc, a_coords, b_coords, source_dim_a - 1, bk, source_arr_a, source_arr_b, source_dim_a, source_dim_b, ka_dim);
-                item_set(out_arr, linear, acc);
-                break;
-            case CSN_INNER:
-                memcpy(a_coords, dst_coords, sizeof(uint32_t) * (source_dim_a - 1));
-                memcpy(b_coords, dst_coords + (source_dim_a - 1), sizeof(uint32_t) * (source_dim_b - 1));
-                get_dot_inner_accum(&acc, a_coords, b_coords, source_dim_a - 1, source_dim_b - 1, source_arr_a, source_arr_b, source_dim_a, source_dim_b, ka_dim);
-                item_set(out_arr, linear, acc);
-                break;
-            default:
-                break;
-        }
+    uint32_t bk = mode == CSN_DOT ? (source_dim_b >= 2 ? source_dim_b - 2 : 0) : source_dim_b - 1;
+    size_t plan[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    uint32_t d = 0;
+    for (uint32_t i = 0; i + 1 < source_dim_a; ++i) plan[0][d++] = source_arr_a->strides[i];
+    for (uint32_t i = 0; i < source_dim_b; ++i) {
+        if (i != bk) plan[1][d++] = source_arr_b->strides[i];
     }
+    CSN_BROADCAST_ITER it;
+    if (BROADCAST_ITER_INIT(&it, out_arr->ndim, out_arr->shape, out_arr->size, plan, 2) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        CSN_COMPLEXDAT acc = { 0.0, 0.0 };
+        get_dot_inner_accum(&acc, it.offsets[0], it.offsets[1], source_arr_a->strides[source_dim_a - 1], source_arr_b->strides[bk], source_arr_a, source_arr_b, ka_dim);
+        item_set(out_arr, it.linear_index, acc);
+    }
+    return OK;
 }
 
 static int32_t vec_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle_a, uint32_t source_handle_b, CSN_ARRAY **source_array_a, CSN_ARRAY **source_array_b) {
@@ -195,7 +174,9 @@ static int32_t vec_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_
     switch(mode) {
         case CSN_DOT:
         case CSN_INNER:
-            dot_inner(arr, source_arr_a, source_arr_b, mode);
+            if (dot_inner(arr, source_arr_a, source_arr_b, mode) != OK) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid dot/inner iteration shape");
+            }
             break;
         case CSN_OUTER:
             for (size_t i = 0; i < size_a; ++i) {
@@ -338,6 +319,7 @@ static int32_t csnarray_vec_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_VECOP_MO
     }
 
     CSN_ARRAY *arr = p->array;
+    if (source_arr_a->size == 0 || source_arr_b->size == 0) arr->size = 0;
     res = vec_assign_value(csound, NULL, source_arr_a, source_arr_b, arr, mode);
 
 done:
@@ -384,9 +366,9 @@ static int32_t csnarray_vec_k_init_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_V
         goto done;
     }
 
+    p->array->size = source_arr_a->size;
     if (source_arr_a->size > 0) {
         memcpy(p->array->data, source_arr_a->data, sizeof(double) * source_arr_a->size * itype);
-        p->array->size = source_arr_a->size;
     }
 
     SET_KDATA_BEGIN(p, reg);
@@ -743,26 +725,18 @@ static double norm_from_scratch(const double *arr, size_t size, double order, IT
     return pow(acc, 1.0 / order);
 }
 
-static void norm_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double *scratch, int32_t axis, uint32_t run_size, ITEM_TYPE itype, double order) {
-    for (size_t linear = 0; linear < destination->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
-
+static int32_t norm_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double *scratch, int32_t axis, uint32_t run_size, ITEM_TYPE itype, double order) {
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, destination, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
         for (uint32_t k = 0; k < run_size; ++k) {
-            /* k walks the reduced axis; the surviving axes take the
-               destination's own coordinates. */
-            for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-                src_coords[i] = (i == (uint32_t) axis) ? k : dst_coords[j++];
-            }
-            size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+            size_t off = it.src_base + (size_t) k * it.src_axis_stride;
             scratch[k * itype] = source_arr->data[off * itype];
             if (itype == CSN_COMPLEX) scratch[k * 2 + 1] = source_arr->data[off * 2 + 1];
         }
-
-        destination->data[linear] = norm_from_scratch(scratch, run_size, order, itype);
+        destination->data[it.dst_base] = norm_from_scratch(scratch, run_size, order, itype);
     }
+    return OK;
 }
 
 int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
@@ -824,7 +798,10 @@ int32_t csnarray_norm(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-    norm_assign_value(source_arr, arr, scratch, axis, run, itype, order);
+    if (norm_assign_value(source_arr, arr, scratch, axis, run, itype, order) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid norm iteration shape");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -903,7 +880,10 @@ int32_t csnarray_norm_k_init(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     /* With the order still unset the output keeps its shape and stays zeroed;
        the first triggered pass fills it. */
     if (order >= 1.0) {
-        norm_assign_value(source_arr, arr, scratch, axis, run, itype, order);
+        if (norm_assign_value(source_arr, arr, scratch, axis, run, itype, order) != OK) {
+            res = csound->InitError(csound, "[csnarray] Invalid norm iteration shape");
+            goto done;
+        }
     }
     SET_KDATA_BEGIN(p, reg);
     p->scratch.scratch = scratch;
@@ -983,7 +963,10 @@ int32_t csnarray_norm_k(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
-    norm_assign_value(source_arr, arr, p->scratch.scratch, axis, run, itype, order);
+    if (norm_assign_value(source_arr, arr, p->scratch.scratch, axis, run, itype, order) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid norm iteration shape");
+        goto done;
+    }
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) axis, order);
 
@@ -1235,52 +1218,36 @@ static int32_t unary_ax_assign_value(CSN_SCRATCH *scratch, CSN_ARRAY *source_arr
         return OK;
     }
 
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
-    }
-
-    size_t src_stride = source_arr->strides[axis];
-    size_t dst_stride = arr->strides[axis];
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) return NOTOK;
     if ((mode == CSN_SORT || mode == CSN_ARGSORT) && source_arr->shape[axis] == 0U) return OK;
 
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_arr->ndim);
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
         switch (mode) {
             case CSN_NORMALIZE:
-                normalize_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, source_arr->shape[axis], src_stride, order, itype);
+                normalize_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, it.axis_size, src_stride, order, itype);
                 break;
             case CSN_DIFF:
-                diff_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, source_arr->shape[axis], src_stride, dst_stride, itype);
+                diff_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, it.axis_size, src_stride, dst_stride, itype);
                 break;
             case CSN_GRADIENT:
-                gradient_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, source_arr->shape[axis], src_stride, itype);
+                gradient_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, it.axis_size, src_stride, itype);
                 break;
             case CSN_CUMSUM:
             case CSN_CUMPROD: {
                 bool is_cumsum = mode == CSN_CUMSUM;
-                cumsumprod_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, source_arr->shape[axis], src_stride, is_cumsum, itype);
+                cumsumprod_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, it.axis_size, src_stride, is_cumsum, itype);
                 break;
             }
             case CSN_SORT:
-                sort_slice((double *) scratch->scratch, arr->data + dst_base, source_arr->data + src_base, source_arr->shape[axis], src_stride);
+                sort_slice((double *) scratch->scratch, arr->data + dst_base, source_arr->data + src_base, it.axis_size, src_stride);
                 break;
             case CSN_ARGSORT:
-                argsort_slice((ARRAY_ELEMENT *) scratch->scratch, arr->data + dst_base, source_arr->data + src_base, source_arr->shape[axis], src_stride);
+                argsort_slice((ARRAY_ELEMENT *) scratch->scratch, arr->data + dst_base, source_arr->data + src_base, it.axis_size, src_stride);
                 break;
         }
     }
@@ -1387,7 +1354,7 @@ done:
     return res;
 }
 
-int32 opunary_ax_in_k_deinit(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
+int32_t opunary_ax_in_k_deinit(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
     if (p->scratch.scratch != NULL) {
         csound->Free(csound, p->scratch.scratch);
     }
@@ -1881,7 +1848,7 @@ static int32_t matmul_assign_shape_and_dim(CSOUND *csound, OPDS *perf_h, CSN_ARR
             char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Batch shapes %s and %s cannot be broadcast together: outside the last two axes, aligned from the right, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_a_dim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_b_dim));
         }
-        box->batch_shape[box->batch_ndim - 1 - i] = ea > eb ? ea : eb;
+        box->batch_shape[box->batch_ndim - 1 - i] = ea == 1U ? eb : ea;
     }
 
     uint32_t out_ndim = 0;
@@ -1898,7 +1865,8 @@ static int32_t matmul_assign_shape_and_dim(CSOUND *csound, OPDS *perf_h, CSN_ARR
     return OK;
 }
 
-static void matmul_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, CSN_ARRAY *arr, CSN_MATMUL_LAYOUT *box) {
+static int32_t matmul_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, CSN_ARRAY *arr, CSN_MATMUL_LAYOUT *box) {
+    if (arr->size == 0) return OK;
     size_t batch_count = 1;
     for (uint32_t i = 0; i < box->batch_ndim; ++i) {
         batch_count *= box->batch_shape[i];
@@ -1909,21 +1877,23 @@ static void matmul_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b
     size_t b_row_stride = box->b_strides[box->b_dim - 2];
     size_t b_col_stride = box->b_strides[box->b_dim - 1];
 
-    for (size_t batch = 0; batch < batch_count; ++batch) {
-        uint32_t batch_coords[CSN_MAX_DIMS] = {0};
-        from_linear_to_coords(batch_coords, box->batch_shape, batch, box->batch_ndim);
-
-        size_t a_base = 0;
-        for (uint32_t i = 0; i < box->a_batch_ndim; ++i) {
-            uint32_t c = box->a_shape[i] == 1U ? 0U : batch_coords[box->batch_ndim - box->a_batch_ndim + i];
-            a_base += (size_t) c * box->a_strides[i];
-        }
-
-        size_t b_base = 0;
-        for (uint32_t i = 0; i < box->b_batch_ndim; ++i) {
-            uint32_t c = box->b_shape[i] == 1U ? 0U : batch_coords[box->batch_ndim - box->b_batch_ndim + i];
-            b_base += (size_t) c * box->b_strides[i];
-        }
+    uint32_t iter_shape[CSN_MAX_DIMS] = {1};
+    size_t plan[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    for (uint32_t d = 0; d < box->batch_ndim; ++d) iter_shape[d] = box->batch_shape[d];
+    for (uint32_t i = 0; i < box->a_batch_ndim; ++i) {
+        uint32_t d = box->batch_ndim - box->a_batch_ndim + i;
+        if (box->a_shape[i] != 1U) plan[0][d] = box->a_strides[i];
+    }
+    for (uint32_t i = 0; i < box->b_batch_ndim; ++i) {
+        uint32_t d = box->batch_ndim - box->b_batch_ndim + i;
+        if (box->b_shape[i] != 1U) plan[1][d] = box->b_strides[i];
+    }
+    CSN_BROADCAST_ITER it;
+    if (BROADCAST_ITER_INIT(&it, box->batch_ndim == 0 ? 1 : box->batch_ndim, iter_shape, batch_count, plan, 2) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t batch = it.linear_index;
+        size_t a_base = it.offsets[0];
+        size_t b_base = it.offsets[1];
 
         for (uint32_t r = 0; r < box->rows; ++r) {
             for (uint32_t c = 0; c < box->cols; ++c) {
@@ -1940,6 +1910,7 @@ static void matmul_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b
             }
         }
     }
+    return OK;
 }
 
 int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p) {
@@ -1979,7 +1950,11 @@ int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p) {
     }
 
     CSN_ARRAY *arr = p->array;
-    matmul_assign_value(source_arr_a, source_arr_b, arr, &box);
+    if (source_arr_a->size == 0 || source_arr_b->size == 0) arr->size = 0;
+    if (matmul_assign_value(source_arr_a, source_arr_b, arr, &box) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid matmul batch iteration shape");
+        goto done;
+    }
     SET_KDATA_BEGIN(p, reg);
 
 done:
@@ -2039,7 +2014,10 @@ int32_t csnarray_matmul_k(CSOUND *csound, CSN_BINOP_HH *p) {
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, box.new_dim, box.new_shape, logical_size, itype, err);
     if (res != OK) goto done;
 
-    matmul_assign_value(source_arr_a, source_arr_b, arr, &box);
+    if (matmul_assign_value(source_arr_a, source_arr_b, arr, &box) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid matmul batch iteration shape");
+        goto done;
+    }
     SET_KDATA_END(p, box.new_shape, box.new_dim, itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, arr, 0.0, 0.0);
 
@@ -2241,14 +2219,10 @@ static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, MYFLT *out_v
         goto done;
     }
 
-    uint32_t coords[2] = { 0, 0 };
     uint32_t n = source_shape[0] < source_shape[1] ? source_shape[0] : source_shape[1];
     CSN_COMPLEXDAT sum = { 0.0, 0.0 };
     for (uint32_t i = 0; i < n; i++) {
-        coords[0] = i;
-        coords[1] = i;
-
-        size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+        size_t off = (size_t) i * (source_arr->strides[0] + source_arr->strides[1]);
         complex_add(&sum, sum, item_at(source_arr, off));
     }
 
@@ -2304,14 +2278,10 @@ static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_r
         return res;
     }
 
-    uint32_t coords[2] = { 0, 0 };
     uint32_t n = source_shape[0] < source_shape[1] ? source_shape[0] : source_shape[1];
     CSN_COMPLEXDAT sum = { 0.0, 0.0 };
     for (uint32_t i = 0; i < n; i++) {
-        coords[0] = i;
-        coords[1] = i;
-
-        size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+        size_t off = (size_t) i * (source_arr->strides[0] + source_arr->strides[1]);
         complex_add(&sum, sum, item_at(source_arr, off));
     }
 
@@ -2373,15 +2343,12 @@ static int32_t diag_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_AR
    the diagonal of a matrix is being read out, 2 means a vector is being spread
    over the diagonal of a fresh matrix. */
 static void diag_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, uint32_t new_dim, uint32_t *new_shape) {
-    uint32_t coords[2] = { 0, 0 };
     for (uint32_t i = 0; i < new_shape[0]; i++) {
-        coords[0] = i;
-        coords[1] = i;
         if (new_dim == 1) {
-            size_t off = from_coords_to_offset(coords, source_arr->strides, 2U);
+            size_t off = (size_t) i * (source_arr->strides[0] + source_arr->strides[1]);
             item_set(arr, i, item_at(source_arr, off));
         } else {
-            size_t off = from_coords_to_offset(coords, arr->strides, 2U);
+            size_t off = (size_t) i * (arr->strides[0] + arr->strides[1]);
             item_set(arr, off, item_at(source_arr, i));
         }
     }
@@ -2484,4 +2451,3 @@ done:
     csound->UnlockMutex(reg->mutex);
     return res;
 }
-

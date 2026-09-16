@@ -516,18 +516,15 @@ int32_t csnarray_flatten_in_k(CSOUND *csound, CSN_RESHAPE_IN *p) {
     return res;
 }
 
-static void transpose_data_assign(const double *source, double *destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, ITEM_TYPE itype) {
-    for (size_t linear = 0; linear < size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, shape, linear, ndim);
-
+static int32_t transpose_data_assign(const double *source, double *destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, ITEM_TYPE itype) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, ndim, shape, size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        size_t src_index = 0;
         for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[axes[i]] = dst_coords[i];
+            src_index += (size_t) it.coords[i] * strides[axes[i]];
         }
-
-        size_t src_index = from_coords_to_offset(src_coords, strides, ndim);
         if (itype == CSN_REAL) {
             destination[linear] = source[src_index];
         } else {
@@ -535,6 +532,7 @@ static void transpose_data_assign(const double *source, double *destination, siz
             destination[linear * 2 + 1] = source[src_index * 2 + 1];
         }
     }
+    return OK;
 }
 
 static int32_t transpose_axes_assign(const ARRAYDAT *shape, uint32_t *axes, uint32_t ndim) {
@@ -613,7 +611,10 @@ int32_t csnarray_transpose(CSOUND *csound, CSN_RESHAPE *p) {
 
     CSN_ARRAY *dst = p->array;
     dst->size = arr->size;
-    transpose_data_assign(arr->data, dst->data, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    if (transpose_data_assign(arr->data, dst->data, arr->size, ndim, shape, arr->strides, axes, arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        goto done;
+    }
     SET_KDATA_BEGIN(p, reg);
 
 done:
@@ -688,7 +689,10 @@ int32_t csnarray_transpose_k(CSOUND *csound, CSN_RESHAPE *p) {
     if (res != OK) goto done;
     p->array = dst;
 
-    transpose_data_assign(source_arr->data, dst->data, source_arr->size, ndim, shape, source_arr->strides, axes, source_arr->itype);
+    if (transpose_data_assign(source_arr->data, dst->data, source_arr->size, ndim, shape, source_arr->strides, axes, source_arr->itype) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid transpose iterator layout");
+        goto done;
+    }
 
     SET_KDATA_END(p, shape, ndim, itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, dst, 0.0, 0.0);
@@ -757,7 +761,10 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     }
 
     compute_strides(shape, strides, ndim);
-    transpose_data_assign(arr->data, data, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    if (transpose_data_assign(arr->data, data, arr->size, ndim, shape, arr->strides, axes, arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        goto done;
+    }
 
     memcpy(arr->data, data, sizeof(double) * arr->size * arr->itype);
     memset(arr->shape, 0, sizeof(arr->shape));
@@ -840,7 +847,10 @@ int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
     for (uint32_t i = 0; i < ndim; ++i) {
         shape[i] = arr->shape[axes[i]];
     }
-    transpose_data_assign(arr->data, p->scratch.scratch, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    if (transpose_data_assign(arr->data, p->scratch.scratch, arr->size, ndim, shape, arr->strides, axes, arr->itype) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        goto done;
+    }
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
 
     compute_strides(shape, strides, ndim);
@@ -926,7 +936,10 @@ int32_t csnarray_transpose_in_k(CSOUND *csound, CSN_RESHAPE_IN *p) {
         goto done;
     }
 
-    transpose_data_assign(arr->data, p->scratch.scratch, arr->size, ndim, shape, arr->strides, axes, arr->itype);
+    if (transpose_data_assign(arr->data, p->scratch.scratch, arr->size, ndim, shape, arr->strides, axes, arr->itype) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid transpose iterator layout");
+        goto done;
+    }
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
 
     memset(arr->shape, 0, sizeof(arr->shape));
@@ -952,27 +965,16 @@ done:
 }
 
 
-static void flip_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, double *buffer, uint32_t *dest_shape, uint32_t ndim, uint32_t axis) {
-    for (size_t linear = 0; linear < source->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, dest_shape, linear, ndim);
-
-        // flip coords
+static int32_t flip_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, double *buffer, uint32_t *dest_shape, uint32_t ndim, uint32_t axis) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, ndim, dest_shape, source->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        size_t src_index = 0;
         for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[i] = dst_coords[i];
+            uint32_t coord = axis == UINT32_MAX || axis == i ? source->shape[i] - 1U - it.coords[i] : it.coords[i];
+            src_index += (size_t) coord * source->strides[i];
         }
-
-        if (axis == -1) {
-            for (uint32_t i = 0; i < ndim; ++i) {
-                src_coords[i] = source->shape[i] - 1 - src_coords[i];
-            }
-        } else {
-            src_coords[axis] = source->shape[axis] - 1 - src_coords[axis];
-        }
-
-        size_t src_index = from_coords_to_offset(src_coords, source->strides, ndim);
         if (source->itype == CSN_REAL) {
             if (buffer == NULL) {
                 destination->data[linear] = source->data[src_index];
@@ -989,6 +991,7 @@ static void flip_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, double 
             }
         }
     }
+    return OK;
 }
 
 static int32_t csnarray_flip_init_helper(CSOUND *csound, CSN_FLIP_ROLL *p, const MYFLT *axis_in) {
@@ -1028,7 +1031,10 @@ static int32_t csnarray_flip_init_helper(CSOUND *csound, CSN_FLIP_ROLL *p, const
 
     CSN_ARRAY *dst = p->array;
     dst->size = arr->size;
-    flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip);
+    if (flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid flip iterator layout");
+        goto done;
+    }
     SET_KDATA_BEGIN(p, reg);
     p->k_data.prev_axis_u = axis_flip;
 
@@ -1089,7 +1095,10 @@ int32_t csnarray_flip_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, ndim, arr->shape, arr->size, arr->itype, err);
     if (res != OK) goto done;
 
-    flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip);
+    if (flip_assign_value(arr, dst, NULL, dst->shape, ndim, axis_flip) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid flip iterator layout");
+        goto done;
+    }
     SET_KDATA_END(p, arr->shape, ndim, arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, axis_value, 0.0);
     /* Through the int32_t, because the all-axes marker is -1 and converting
@@ -1139,7 +1148,10 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
         goto done;
     }
 
-    flip_assign_value(arr, NULL, data, arr->shape, ndim, axis_flip);
+    if (flip_assign_value(arr, NULL, data, arr->shape, ndim, axis_flip) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid flip iterator layout");
+        goto done;
+    }
     memcpy(arr->data, data, sizeof(double) * arr->size * arr->itype);
     update_array_data_version(&arr->version);
 
@@ -1196,7 +1208,10 @@ int32_t csnarray_flip_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
         goto done;
     }
 
-    flip_assign_value(arr, NULL, data, arr->shape, ndim, axis_flip);
+    if (flip_assign_value(arr, NULL, data, arr->shape, ndim, axis_flip) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid flip iterator layout");
+        goto done;
+    }
     memcpy(arr->data, data, sizeof(double) * arr->size * arr->itype);
     p->scratch.scratch = data;
     p->scratch.scratch_capacity = s_capacity;
@@ -1252,7 +1267,10 @@ int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     }
 
     memset(p->scratch.scratch, 0, sizeof(double) * p->scratch.scratch_capacity);
-    flip_assign_value(arr, NULL, p->scratch.scratch, arr->shape, ndim, axis_flip);
+    if (flip_assign_value(arr, NULL, p->scratch.scratch, arr->shape, ndim, axis_flip) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid flip iterator layout");
+        goto done;
+    }
 
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
     memset(p->k_data.prev_shape, 0, sizeof(p->k_data.prev_shape));
@@ -1294,26 +1312,16 @@ static void roll_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, double 
     }
 }
 
-static void rollaxis_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, double *buffer, uint32_t *dest_shape, uint32_t ndim, int32_t shift, int32_t axis) {
-    for (size_t linear = 0; linear < source->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, dest_shape, linear, ndim);
-
+static int32_t rollaxis_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, double *buffer, uint32_t *dest_shape, uint32_t ndim, int32_t shift, int32_t axis) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, ndim, dest_shape, source->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        size_t src_index = 0;
         for (uint32_t i = 0; i < ndim; ++i) {
-            src_coords[i] = dst_coords[i];
+            uint32_t coord = axis == -1 || axis == (int32_t) i ? wrap_index((int64_t) it.coords[i] - shift, source->shape[i]) : it.coords[i];
+            src_index += (size_t) coord * source->strides[i];
         }
-
-        if (axis == -1) {
-            for (uint32_t i = 0; i < ndim; ++i) {
-                src_coords[i] = wrap_index((int64_t) dst_coords[i] - shift, (uint32_t) source->shape[i]);
-            }
-        } else {
-            src_coords[axis] = wrap_index((int64_t) dst_coords[axis] - shift, (uint32_t) source->shape[axis]);
-        }
-
-        size_t src_index = from_coords_to_offset(src_coords, source->strides, ndim);
         if (source->itype == CSN_REAL) {
             if (destination == NULL) {
                 buffer[linear] = source->data[src_index];
@@ -1330,6 +1338,7 @@ static void rollaxis_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, dou
             }
         }
     }
+    return OK;
 }
 
 int32_t csnarray_roll(CSOUND *csound, CSN_FLIP_ROLL *p) {
@@ -1608,7 +1617,10 @@ int32_t csnarray_rollaxis(CSOUND *csound, CSN_FLIP_ROLL *p) {
 
     CSN_ARRAY *dst = p->array;
     dst->size = arr->size;
-    rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll);
+    if (rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid roll iterator layout");
+        goto done;
+    }
     SET_KDATA_BEGIN(p, reg);
     p->k_data.prev_roll_shift = shift;
     p->k_data.prev_axis_u = axis_roll;
@@ -1663,7 +1675,10 @@ int32_t csnarray_rollaxis_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &dst, &p->k_data, NULL, ndim, arr->shape, arr->size, arr->itype, err);
     if (res != OK) goto done;
 
-    rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll);
+    if (rollaxis_assign_value(arr, dst, NULL, dst->shape, ndim, shift, axis_roll) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid roll iterator layout");
+        goto done;
+    }
     SET_KDATA_END(p, arr->shape, ndim, arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, arr, 0, NULL, dst, shift_value, axis_value);
     p->k_data.prev_axis_u = axis_roll;
@@ -1715,7 +1730,10 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
         goto done;
     }
 
-    rollaxis_assign_value(arr, NULL, data, arr->shape, ndim, shift, axis_roll);
+    if (rollaxis_assign_value(arr, NULL, data, arr->shape, ndim, shift, axis_roll) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid roll iterator layout");
+        goto done;
+    }
     memcpy(arr->data, data, sizeof(double) * arr->size * arr->itype);
     update_array_data_version(&arr->version);
 
@@ -1770,7 +1788,10 @@ int32_t csnarray_rollaxis_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     p->scratch.scratch = data;
     p->scratch.scratch_capacity = capacity;
 
-    rollaxis_assign_value(arr, NULL, p->scratch.scratch, arr->shape, ndim, shift, axis_roll);
+    if (rollaxis_assign_value(arr, NULL, p->scratch.scratch, arr->shape, ndim, shift, axis_roll) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid roll iterator layout");
+        goto done;
+    }
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
     SET_KDATA_WITH_ID_BEGIN(p, reg, arr->shape, ndim, arr->itype, source_handle);
     p->k_data.prev_size = arr->size;
@@ -1822,7 +1843,10 @@ int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
         goto done;
     }
 
-    rollaxis_assign_value(arr, NULL, p->scratch.scratch, arr->shape, ndim, shift, axis_roll);
+    if (rollaxis_assign_value(arr, NULL, p->scratch.scratch, arr->shape, ndim, shift, axis_roll) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid roll iterator layout");
+        goto done;
+    }
     SET_KDATA_NO_ID_END(p, arr->shape, ndim, arr->itype);
     memcpy(arr->data, p->scratch.scratch, sizeof(double) * arr->size * arr->itype);
     p->k_data.prev_size = arr->size;

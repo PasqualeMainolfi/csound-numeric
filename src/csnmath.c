@@ -1,5 +1,6 @@
 /* Opcode implementations for the math family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
@@ -11,56 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int32_t broadcast_shape(const CSN_ARRAY *a, const CSN_ARRAY *b,  uint32_t *out_shape, uint32_t *out_ndim) {
-    uint32_t n = (a->ndim > b->ndim) ? a->ndim : b->ndim;
-    if (n > CSN_MAX_DIMS) {
-        return NOTOK;
-    }
-
-    for (uint32_t i = 0; i < n; i++) {
-        uint32_t ea = (i < a->ndim) ? a->shape[a->ndim - 1 - i] : 1;
-        uint32_t eb = (i < b->ndim) ? b->shape[b->ndim - 1 - i] : 1;
-
-        if (ea != eb && ea != 1 && eb != 1) {
-            return NOTOK;
-        }
-
-        out_shape[n - 1 - i] = (ea > eb) ? ea : eb;
-    }
-
-    *out_ndim = n;
-    return OK;
-}
-
-/* Where a destination coordinate reads from inside one operand. An axis of
-   extent 1 is stretched, so it always reads index 0; leading axes the operand
-   lacks are skipped. */
-static size_t broadcast_offset(const CSN_ARRAY *arr, const uint32_t *dst_coords, uint32_t out_ndim) {
-    size_t off = 0;
-    uint32_t lead = out_ndim - arr->ndim;
-
-    for (uint32_t i = 0; i < arr->ndim; i++) {
-        uint32_t c = (arr->shape[i] == 1) ? 0 : dst_coords[lead + i];
-        off += (size_t) c * arr->strides[i];
-    }
-
-    return off;
-}
-
-static int32_t binop_hh_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_arr_a, const CSN_ARRAY *source_arr_b, CSN_ARRAY *arr, ITEM_TYPE itype, CSN_BINOP_MODE mode) {
-    bool same_shape = source_arr_a->ndim == source_arr_b->ndim
-        && memcmp(source_arr_a->shape, source_arr_b->shape, sizeof(uint32_t) * source_arr_a->ndim) == 0;
-
-    for (size_t i = 0; i < arr->size; i++) {
-        size_t off_a = i;
-        size_t off_b = i;
-
-        if (!same_shape) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            from_linear_to_coords(dst_coords, arr->shape, i, arr->ndim);
-            off_a = broadcast_offset(source_arr_a, dst_coords, arr->ndim);
-            off_b = broadcast_offset(source_arr_b, dst_coords, arr->ndim);
-        }
+static int32_t binop_hh_assign_value(CSOUND *csound, OPDS *perf_h, CSN_BROADCAST_ITER *it, const CSN_ARRAY *source_arr_a, const CSN_ARRAY *source_arr_b, CSN_ARRAY *arr, ITEM_TYPE itype, CSN_BINOP_MODE mode) {
+    while (BROADCAST_ITER_NEXT(it)) {
+        size_t i = it->linear_index;
+        size_t off_a = it->offsets[0];
+        size_t off_b = it->offsets[1];
 
         double a = source_arr_a->data[off_a];
         double b = source_arr_b->data[off_b];
@@ -213,13 +169,24 @@ static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BIN
     CSN_ARRAY *source_arr_a = source_slot_a->array;
     CSN_ARRAY *source_arr_b = source_slot_b->array;
 
-    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    size_t new_size = 0;
     uint32_t new_ndim = 0;
-    if (broadcast_shape(source_arr_a, source_arr_b, new_shape, &new_ndim) != OK) {
-        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
+    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
+
+    char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
         res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
         goto done;
     }
+
+    CSN_BROADCAST_ITER it = {0};
+    if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
+        goto done;
+    }
+
 
     bool is_logic = (mode == CSN_LOGICAL_AND_HH || mode == CSN_LOGICAL_OR_HH);
     if (is_logic) {
@@ -252,9 +219,10 @@ static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BIN
         res = csound->InitError(csound, "[csnarray] %s", err);
         goto done;
     }
+    set_csnarray_layout(p->array, new_ndim, new_shape, new_size, itype);
 
     CSN_ARRAY *arr = p->array;
-    res = binop_hh_assign_value(csound, NULL, source_arr_a, source_arr_b, arr, itype, mode);
+    res = binop_hh_assign_value(csound, NULL, &it, source_arr_a, source_arr_b, arr, itype, mode);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -362,12 +330,22 @@ static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_B
     CSN_ARRAY *source_arr_a = source_slot_a->array;
     CSN_ARRAY *source_arr_b = source_slot_b->array;
 
-    uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_ndim = 0;
-    if (broadcast_shape(source_arr_a, source_arr_b, new_shape, &new_ndim) != OK) {
-        char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
+    size_t new_size = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
+    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
+
+    char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
+        goto done;
+    }
+
+    CSN_BROADCAST_ITER it = {0};
+    if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
+        goto done;
     }
 
     bool is_logic = (mode == CSN_LOGICAL_AND_HH || mode == CSN_LOGICAL_OR_HH);
@@ -396,13 +374,7 @@ static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_B
     bool type_mode = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX;
     ITEM_TYPE itype = type_mode ? CSN_COMPLEX : CSN_REAL;
 
-    size_t requested_size = 0;
-    if (get_array_size_from_shape(&requested_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    size_t logical_size = (source_arr_a->size == 0 && source_arr_b->size == 0) ? 0 : requested_size;
+    size_t logical_size = new_size;
 
     /* Unlike the permuting opcodes, an elementwise binop may feed on its own
        output (X = csnadd(X, B)): each result cell is written once from the cell
@@ -434,7 +406,7 @@ static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_B
     if (res != OK) goto done;
     p->array = arr;
 
-    res = binop_hh_assign_value(csound, &p->h, source_arr_a, source_arr_b, arr, itype, mode);
+    res = binop_hh_assign_value(csound, &p->h, &it, source_arr_a, source_arr_b, arr, itype, mode);
     if (res != OK) goto done;
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     p->k_data.prev_size = arr->size;
@@ -2053,12 +2025,7 @@ static void unwrap_slice(double *dst, const double *src, size_t n, size_t stride
     }
 }
 
-static int32_t angle_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg,
-                          uint32_t source_handle, CSN_ARRAY **source_array,
-                          double in_period, double in_discount,
-                          const MYFLT *axis_in, double *out_period,
-                          double *out_discount, int32_t *out_axis,
-                          CSN_COMPLEXOP_MODE mode) {
+static int32_t angle_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, double in_period, double in_discount, const MYFLT *axis_in, double *out_period, double *out_discount, int32_t *out_axis, CSN_COMPLEXOP_MODE mode) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -2129,29 +2096,12 @@ static int32_t angle_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *sourc
         if (axis == -1) {
             unwrap_slice(arr->data, source_arr->data, source_arr->size, 1, period, discount);
         } else {
-            uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-            uint32_t reduced_ndim = 0;
-            size_t slice_count = 1;
-            for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-                if (i != (uint32_t) axis) {
-                    reduced_shape[reduced_ndim++] = source_arr->shape[i];
-                    slice_count *= source_arr->shape[i];
-                }
+            CSN_AXIS_SLICE_ITER it;
+            if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Incompatible array shapes/ranks");
             }
-
-            size_t src_stride = source_arr->strides[axis];
-            for (size_t linear = 0; linear < slice_count; ++linear) {
-                uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-                uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-                from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-                for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-                    src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-                }
-
-                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-                size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_arr->ndim);
-                unwrap_slice(arr->data + dst_base, source_arr->data + src_base, source_arr->shape[axis], src_stride, period, discount);
+            while (AXIS_SLICE_ITER_NEXT(&it)) {
+                unwrap_slice(arr->data + it.dst_base, source_arr->data + it.src_base, it.axis_size, it.src_axis_stride, period, discount);
             }
         }
     }
@@ -2330,29 +2280,12 @@ static int32_t angle_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
         if (axis == -1) {
             unwrap_slice(source_arr->data, source_arr->data, source_arr->size, 1, period, discount);
         } else {
-            uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-            uint32_t reduced_ndim = 0;
-            size_t slice_count = 1;
-            for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-                if (i != (uint32_t) axis) {
-                    reduced_shape[reduced_ndim++] = source_arr->shape[i];
-                    slice_count *= source_arr->shape[i];
-                }
+            CSN_AXIS_SLICE_ITER it;
+            if (AXIS_ITER_SLICE_INIT(&it, source_arr, source_arr, (uint32_t) axis) != OK) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Incompatible array shapes/ranks");
             }
-
-            size_t src_stride = source_arr->strides[axis];
-            for (size_t linear = 0; linear < slice_count; ++linear) {
-                uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-                uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-                from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-                for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-                    src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-                }
-
-                size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-                size_t dst_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-                unwrap_slice(source_arr->data + dst_base, source_arr->data + src_base, source_arr->shape[axis], src_stride, period, discount);
+            while (AXIS_SLICE_ITER_NEXT(&it)) {
+                unwrap_slice(source_arr->data + it.dst_base, source_arr->data + it.src_base, it.axis_size, it.src_axis_stride, period, discount);
             }
         }
     }
@@ -2904,10 +2837,18 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p) {
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_ndim = 0;
+    size_t new_size = 0;
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
 
-    if (broadcast_shape(source_arr_a, source_arr_b, new_shape, &new_ndim) != OK) {
+    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
         char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
         res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
+        goto done;
+    }
+    CSN_BROADCAST_ITER it;
+    if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid broadcast iterator layout");
         goto done;
     }
 
@@ -2924,24 +2865,12 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p) {
 
     CSN_ARRAY *q_arr = p->array_a;
     CSN_ARRAY *r_arr = p->array_b;
-    size_t size = q_arr->size;
+    set_csnarray_layout(q_arr, new_ndim, new_shape, new_size, CSN_REAL);
+    set_csnarray_layout(r_arr, new_ndim, new_shape, new_size, CSN_REAL);
 
-    bool same_shape = source_arr_a->ndim == source_arr_b->ndim
-        && memcmp(source_arr_a->shape, source_arr_b->shape, sizeof(uint32_t) * source_arr_a->ndim) == 0;
-
-    for (size_t i = 0; i < size; i++) {
-        size_t off_a = i;
-        size_t off_b = i;
-
-        if (!same_shape) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            from_linear_to_coords(dst_coords, new_shape, i, new_ndim);
-            off_a = broadcast_offset(source_arr_a, dst_coords, new_ndim);
-            off_b = broadcast_offset(source_arr_b, dst_coords, new_ndim);
-        }
-
-        double a = source_arr_a->data[off_a];
-        double b = source_arr_b->data[off_b];
+    while (BROADCAST_ITER_NEXT(&it)) {
+        double a = source_arr_a->data[it.offsets[0]];
+        double b = source_arr_b->data[it.offsets[1]];
         if (b == 0.0) {
             res = csound->InitError(csound, "[csnarray] Division by zero");
             goto done;
@@ -2950,8 +2879,8 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p) {
         double q = floor(a / b);
         double r = a - q * b;
 
-        q_arr->data[i] = q;
-        r_arr->data[i] = r;
+        q_arr->data[it.linear_index] = q;
+        r_arr->data[it.linear_index] = r;
     }
 
 done:
@@ -3075,8 +3004,11 @@ int32_t csnarray_divmod_hh_k_init(CSOUND *csound, CSN_DIVMOD_HH *p) {
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_ndim = 0;
+    size_t new_size = 0;
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
 
-    if (broadcast_shape(source_arr_a, source_arr_b, new_shape, &new_ndim) != OK) {
+    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
         char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
         res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
         goto done;
@@ -3210,48 +3142,34 @@ static int32_t csnarray_divmod_hh_k_helper(CSOUND *csound, CSN_DIVMOD_HH *p) {
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     uint32_t new_ndim = 0;
+    size_t new_size = 0;
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {{0}};
+    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
 
-    if (broadcast_shape(source_arr_a, source_arr_b, new_shape, &new_ndim) != OK) {
+    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
         char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
         csound->UnlockMutex(reg->mutex);
         return csound->PerfError(csound, &p->h, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
     }
-
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
+    CSN_BROADCAST_ITER it;
+    if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
         csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid broadcast iterator layout");
     }
 
     CSN_ARRAY *q_arr = NULL;
-    size_t logical_size = source_arr_a->size == 0 ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &q_arr, &p->k_data, &owned_handle_a, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &q_arr, &p->k_data, &owned_handle_a, new_ndim, new_shape, new_size, CSN_REAL, err);
     if (res != OK) goto done;
     p->array_a = q_arr;
 
     CSN_ARRAY *r_arr = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &r_arr, &p->k_data, &owned_handle_b, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &r_arr, &p->k_data, &owned_handle_b, new_ndim, new_shape, new_size, CSN_REAL, err);
     if (res != OK) goto done;
     p->array_b = r_arr;
 
-    size_t size = q_arr->size;
-
-    bool same_shape = source_arr_a->ndim == source_arr_b->ndim
-        && memcmp(source_arr_a->shape, source_arr_b->shape, sizeof(uint32_t) * source_arr_a->ndim) == 0;
-
-    for (size_t i = 0; i < size; i++) {
-        size_t off_a = i;
-        size_t off_b = i;
-
-        if (!same_shape) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            from_linear_to_coords(dst_coords, new_shape, i, new_ndim);
-            off_a = broadcast_offset(source_arr_a, dst_coords, new_ndim);
-            off_b = broadcast_offset(source_arr_b, dst_coords, new_ndim);
-        }
-
-        double a = source_arr_a->data[off_a];
-        double b = source_arr_b->data[off_b];
+    while (BROADCAST_ITER_NEXT(&it)) {
+        double a = source_arr_a->data[it.offsets[0]];
+        double b = source_arr_b->data[it.offsets[1]];
         if (b == 0.0) {
             csound->UnlockMutex(reg->mutex);
             return csound->PerfError(csound, &p->h, "[csnarray] Division by zero");
@@ -3260,8 +3178,8 @@ static int32_t csnarray_divmod_hh_k_helper(CSOUND *csound, CSN_DIVMOD_HH *p) {
         double q = floor(a / b);
         double r = a - q * b;
 
-        q_arr->data[i] = q;
-        r_arr->data[i] = r;
+        q_arr->data[it.linear_index] = q;
+        r_arr->data[it.linear_index] = r;
     }
 
     memset(p->k_data.prev_shape, 0, sizeof(uint32_t) * CSN_MAX_DIMS);

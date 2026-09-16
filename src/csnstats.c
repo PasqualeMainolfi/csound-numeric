@@ -338,39 +338,26 @@ static void dispatch_value_for_reductioncomp(CSN_COMPLEXDAT *value, const CSN_CO
     };
 }
 
-static void accumulate_reduction_axis_helper(double *value, CSN_ARRAY *out_arr, const CSN_ARRAY *source_arr, uint32_t *src_coords, const uint32_t *dst_coords, CSN_REDUCTION_MODE mode, uint32_t axis) {
+static void accumulate_reduction_axis_helper(double *value, const CSN_ARRAY *source_arr, size_t src_base, size_t axis_stride, CSN_REDUCTION_MODE mode, uint32_t axis) {
     init_value_for_reduction(value, mode);
     for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            if (i == axis)
-                src_coords[i] = k;
-            else
-                src_coords[i] = dst_coords[j++];
-        }
-        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        size_t off = src_base + (size_t) k * axis_stride;
         dispatch_value_for_reduction(value, source_arr->data[off], mode, k);
     }
 
     /* The divisor is how many elements were folded, which lives on the source:
        out_arr has one axis fewer, so out_arr->shape[axis] is a different
        extent entirely, and reads past the rank when axis is the last one. */
-    (void) out_arr;
     if (mode == RED_MEAN || mode == RED_RMS) {
         double mean = *value / (double) source_arr->shape[axis];
         *value = mode == RED_RMS ? sqrt(mean) : mean;
     }
 }
 
-static void accumulate_reductioncomp_axis_helper(CSN_COMPLEXDAT *c, CSN_ARRAY *out_arr, const CSN_ARRAY *source_arr, uint32_t *src_coords, const uint32_t *dst_coords, CSN_REDUCTION_MODE mode, uint32_t axis) {
+static void accumulate_reductioncomp_axis_helper(CSN_COMPLEXDAT *c, const CSN_ARRAY *source_arr, size_t src_base, size_t axis_stride, CSN_REDUCTION_MODE mode, uint32_t axis) {
     init_value_for_reductioncomp(c, mode);
     for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            if (i == axis)
-                src_coords[i] = k;
-            else
-                src_coords[i] = dst_coords[j++];
-        }
-        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        size_t off = src_base + (size_t) k * axis_stride;
         CSN_COMPLEXDAT x = { source_arr->data[off * 2], source_arr->data[off * 2 + 1] };
         dispatch_value_for_reductioncomp(c, x, mode, k);
     }
@@ -378,7 +365,6 @@ static void accumulate_reductioncomp_axis_helper(CSN_COMPLEXDAT *c, CSN_ARRAY *o
     /* The divisor is how many elements were folded, which lives on the source:
        out_arr has one axis fewer, so out_arr->shape[axis] is a different
        extent entirely, and reads past the rank when axis is the last one. */
-    (void) out_arr;
     if (mode == RED_MEAN) {
         CSN_COMPLEXDAT den = { (double) source_arr->shape[axis], 0.0 };
         complex_div(c, *c, den);
@@ -461,20 +447,19 @@ static int32_t accumulate_reduction_body(CSOUND *csound, OPDS *perf_h, CSN_REGIS
     return OK;
 }
 
-static void accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
+static int32_t accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
     if (destination != NULL) {
-        for (size_t linear = 0; linear < destination->size; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
+        CSN_AXIS_SLICE_ITER it;
+        if (AXIS_ITER_SLICE_INIT(&it, source_arr, destination, (uint32_t) axis) != OK) return NOTOK;
+        while (AXIS_SLICE_ITER_NEXT(&it)) {
+            size_t linear = it.dst_base;
             if (source_arr->itype == CSN_REAL) {
                 double value = 0.0;
-                accumulate_reduction_axis_helper(&value, destination, source_arr, src_coords, dst_coords, mode, axis);
+                accumulate_reduction_axis_helper(&value, source_arr, it.src_base, it.src_axis_stride, mode, (uint32_t) axis);
                 destination->data[linear] = value;
             } else {
                 CSN_COMPLEXDAT c = { 0.0, 0.0 };
-                accumulate_reductioncomp_axis_helper(&c, destination, source_arr, src_coords, dst_coords, mode, axis);
+                accumulate_reductioncomp_axis_helper(&c, source_arr, it.src_base, it.src_axis_stride, mode, (uint32_t) axis);
                 destination->data[linear * 2] = c.re;
                 destination->data[linear * 2 + 1] = c.im;
             }
@@ -492,6 +477,7 @@ static void accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY
             out_complex_value->isPolar = 0;
         }
     }
+    return OK;
 }
 
 /* axis == -1 collapses to out_value; any other axis builds an array through
@@ -532,7 +518,10 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNR
         arr = *out_array;
     }
 
-    accumulation_reduction_assign_value(source_arr, arr, axis, out_value, out_complex_value, mode);
+    if (accumulation_reduction_assign_value(source_arr, arr, axis, out_value, out_complex_value, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid reduction iterator layout");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -578,7 +567,10 @@ static int32_t csnarray_accumulate_reduction_k_init_helper(CSOUND *csound, const
     } else {
         /* Scalar forms publish a usable value already at i-time, so a gated
            .c.k overload is not left holding an unwritten output. */
-        accumulation_reduction_assign_value(source_arr, NULL, axis, out_value, out_complex_value, mode);
+        if (accumulation_reduction_assign_value(source_arr, NULL, axis, out_value, out_complex_value, mode) != OK) {
+            res = csound->InitError(csound, "[csnarray] Invalid reduction iterator layout");
+            goto done;
+        }
     }
 
     /* The scalar forms own no slot, so owned_handle stays 0 and the itype has
@@ -645,7 +637,10 @@ static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *
         *out_array = arr;
     }
 
-    accumulation_reduction_assign_value(source_arr, arr, axis, out_value, out_complex_value, mode);
+    if (accumulation_reduction_assign_value(source_arr, arr, axis, out_value, out_complex_value, mode) != OK) {
+        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid reduction iterator layout");
+        goto done;
+    }
 
     if (arr != NULL) {
         memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
@@ -942,19 +937,12 @@ int compare_double(const void *a, const void *b) {
 }
 
 // Welford algo
-static int32_t stdvar_calculation_helper(double *value, uint32_t *src_coords, const uint32_t *dst_coords, const CSN_ARRAY *source_arr, uint32_t size, uint32_t axis, CSN_REDUCTION_MODE mode) {
+static int32_t stdvar_calculation_helper(double *value, const CSN_ARRAY *source_arr, uint32_t size, size_t src_base, size_t axis_stride, CSN_REDUCTION_MODE mode) {
     double mean = 0.0;
     CSN_COMPLEXDAT meancomp = { 0.0, 0.0 };
     double m_two = 0.0;
     for (uint32_t k = 0; k < size; ++k) {
-        /* Place this slice's coordinates: k along the reduced axis, and the
-           destination's coordinates across the axes that survive. Without this
-           every output element would reduce the slice at the origin. */
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == axis) ? k : dst_coords[j++];
-        }
-
-        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        size_t off = src_base + (size_t) k * axis_stride;
         if (source_arr->itype == CSN_REAL) {
             double x = source_arr->data[off];
             double delta = x - mean;
@@ -1059,18 +1047,17 @@ static int32_t stdvar_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_
 
 static int32_t stdvar_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *destination, MYFLT *out_value, int32_t axis, CSN_REDUCTION_MODE mode) {
     if (destination != NULL) {
-        for (size_t linear = 0; linear < destination->size; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
-            uint32_t axis_size = source_arr->shape[axis];
+        CSN_AXIS_SLICE_ITER it;
+        if (AXIS_ITER_SLICE_INIT(&it, source_arr, destination, (uint32_t) axis) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid variance iterator layout");
+        }
+        while (AXIS_SLICE_ITER_NEXT(&it)) {
             double value = 0.0;
             /* NOTOK -> empty extension */
-            if (stdvar_calculation_helper(&value, src_coords, dst_coords, source_arr, axis_size, axis, mode) != OK) {
+            if (stdvar_calculation_helper(&value, source_arr, it.axis_size, it.src_base, it.src_axis_stride, mode) != OK) {
                 return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Variance is undefined over an empty extent (axis %d has 0 elements)", axis);
             }
-            destination->data[linear] = value;
+            destination->data[it.dst_base] = value;
         }
     } else {
         size_t size = source_arr->size;
@@ -1301,19 +1288,13 @@ static inline bool argminmax_better(double x, double best, bool best_is_nan, CSN
     return (mode == RED_ARGMIN) ? (x < best) : (x > best);
 }
 
-static void dispatch_argminmax(const CSN_ARRAY *source_arr, uint32_t axis, uint32_t *src_coords, const uint32_t *dst_coords, CSN_REDUCTION_MODE mode) {
-    for (uint32_t i = 0, j = 0; i < source_arr->ndim; i++) {
-        if (i == axis) continue;
-        src_coords[i] = dst_coords[j++];
-    }
-
+static uint32_t dispatch_argminmax(const CSN_ARRAY *source_arr, uint32_t axis, size_t src_base, CSN_REDUCTION_MODE mode) {
     uint32_t best_index = 0;
     double best_value = (mode == RED_ARGMIN) ? DBL_MAX : -DBL_MAX;
     bool best_is_nan = false;
 
     for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
-        src_coords[axis] = k;
-        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
+        size_t off = src_base + (size_t) k * source_arr->strides[axis];
         double x = source_arr->data[off];
         if (argminmax_better(x, best_value, best_is_nan, mode)) {
             best_value = x;
@@ -1321,11 +1302,11 @@ static void dispatch_argminmax(const CSN_ARRAY *source_arr, uint32_t axis, uint3
             best_index = k;
         }
     }
-    src_coords[axis] = best_index;
+    return best_index;
 }
 
-static void dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, uint32_t *src_coords, CSN_REDUCTION_MODE mode) {
-    uint32_t best_index = 0;
+static size_t dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, CSN_REDUCTION_MODE mode) {
+    size_t best_index = 0;
     double best_value = (mode == RED_ARGMIN) ? DBL_MAX : -DBL_MAX;
 
     bool best_is_nan = false;
@@ -1334,11 +1315,11 @@ static void dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, uint32_t *s
         if (argminmax_better(x, best_value, best_is_nan, mode)) {
             best_value = x;
             best_is_nan = isnan(x) != 0;
-            best_index = (uint32_t) linear;
+            best_index = linear;
         }
     }
 
-    from_linear_to_coords(src_coords, source_arr->shape, best_index, source_arr->ndim);
+    return best_index;
 }
 
 static int32_t argminmax_body(CSOUND *csound, OPDS *perf_h, uint32_t source_handle, CSN_REGISTRY *reg, CSN_ARRAY **source_array, const MYFLT *axis_in, int32_t *out_axis) {
@@ -1364,25 +1345,34 @@ static int32_t argminmax_body(CSOUND *csound, OPDS *perf_h, uint32_t source_hand
     return OK;
 }
 
-static void argminmax_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, size_t count, uint32_t ndim, uint32_t *shape, CSN_REDUCTION_MODE mode) {
+static int32_t argminmax_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, size_t count, uint32_t ndim, uint32_t *shape, CSN_REDUCTION_MODE mode) {
+    if (destination->size == 0) return OK;
     if (axis != -1) {
+        size_t reduced_strides[CSN_MAX_DIMS] = {0};
+        for (uint32_t d = 0, j = 0; d < source_arr->ndim; ++d) {
+            if (d != (uint32_t) axis) reduced_strides[j++] = source_arr->strides[d];
+        }
+        CSN_BROADCAST_ITER it;
+        if (ndim > 0 && ND_ITER_INIT(&it, ndim, shape, count, reduced_strides) != OK) return NOTOK;
         for (size_t linear = 0; linear < count; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, shape, linear, ndim);
-            dispatch_argminmax(source_arr, axis, src_coords, dst_coords, mode);
-            for (uint32_t d = 0; d < source_arr->ndim; ++d) {
-                destination->data[linear * source_arr->ndim + d] = (double) src_coords[d];
+            if (ndim > 0 && !BROADCAST_ITER_NEXT(&it)) return NOTOK;
+            uint32_t best = dispatch_argminmax(source_arr, (uint32_t) axis, ndim > 0 ? it.offsets[0] : 0, mode);
+            for (uint32_t d = 0, j = 0; d < source_arr->ndim; ++d) {
+                uint32_t coord = d == (uint32_t) axis ? best : it.coords[j++];
+                destination->data[linear * source_arr->ndim + d] = (double) coord;
             }
         }
     } else {
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        dispatch_argminmax_all_axes(source_arr, src_coords, mode);
+        if (source_arr->size == 0) return OK;
+        CSN_BROADCAST_ITER it;
+        if (ND_ITER_INIT(&it, source_arr->ndim, source_arr->shape, source_arr->size, NULL) != OK) return NOTOK;
+        size_t best = dispatch_argminmax_all_axes(source_arr, mode);
+        if (ND_ITER_SEEK(&it, best) != OK) return NOTOK;
         for (uint32_t d = 0; d < source_arr->ndim; ++d) {
-            destination->data[d] = (double) src_coords[d];
+            destination->data[d] = (double) it.coords[d];
         }
     }
+    return OK;
 }
 
 static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
@@ -1431,7 +1421,10 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
     }
 
     CSN_ARRAY *arr = p->array;
-    argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode);
+    if (argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid argmin/argmax iteration shape");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -1558,7 +1551,10 @@ static int32_t argminmax_k_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTIO
     res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 2U, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
-    argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode);
+    if (argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid argmin/argmax iteration shape");
+        goto done;
+    }
     SET_KDATA_END(p, new_shape, 2U, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) axis, 0.0);
     p->k_data.prev_size = arr->size;
@@ -1612,23 +1608,16 @@ double median_of_scratch(double *scratch, size_t n) {
     return 0.5 * (scratch[n / 2 - 1] + scratch[n / 2]);
 }
 
-static void median_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double *scratch, size_t run_size, int32_t axis) {
-    for (size_t linear = 0; linear < destination->size; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, destination->shape, linear, destination->ndim);
-
-        for (uint32_t k = 0; k < run_size; ++k) {
-            for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-                src_coords[i] = (i == (uint32_t) axis) ? k : dst_coords[j++];
-            }
-            uint32_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-            scratch[k] = source_arr->data[off];
+static int32_t median_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double *scratch, size_t run_size, int32_t axis) {
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, destination, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        for (size_t k = 0; k < run_size; ++k) {
+            scratch[k] = source_arr->data[it.src_base + k * it.src_axis_stride];
         }
-
-        destination->data[linear] = median_of_scratch(scratch, run_size);
+        destination->data[it.dst_base] = median_of_scratch(scratch, run_size);
     }
+    return OK;
 }
 
 static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value) {
@@ -1677,7 +1666,10 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
     }
 
     CSN_ARRAY *arr = *out_array;
-    median_assign_value(source_arr, arr, scratch, run, axis);
+    if (median_assign_value(source_arr, arr, scratch, run, axis) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid median iteration shape");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -1836,7 +1828,10 @@ int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double 
     res = NEED_TO_UPDATE_SLOT(csound, h, &arr, k_data, NULL, source_ndim - 1, new_shape, logical_size, source_arr->itype, err);
     if (res != OK) goto done;
 
-    median_assign_value(source_arr, arr, *scratch, runs_size, axis);
+    if (median_assign_value(source_arr, arr, *scratch, runs_size, axis) != OK) {
+        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid median iteration shape");
+        goto done;
+    }
     *out_array = arr;
 
     memset(k_data->prev_shape, 0, sizeof(k_data->prev_shape));
@@ -2153,53 +2148,36 @@ static int32_t movstats_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
         return OK;
     }
 
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_shape[i];
-            slice_count *= source_shape[i];
-        }
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Incompatible array shapes/ranks");
     }
-
-    size_t src_stride = source_arr->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_ndim);
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
+        size_t src_stride = it.src_axis_stride;
         switch (mode) {
             case CSN_MOVMEAN:
-                movmean_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, itype);
+                movmean_slice(arr->data + dst_base * itype, source_arr->data + src_base * itype, it.axis_size, src_stride, winsize, itype);
                 break;
             case CSN_MOVMEDIAN:
-                sliding_median_slice(arr->data + dst_base, source_arr->data + src_base, median_buffer, source_shape[axis], src_stride, winsize, CSN_MEDIAN_EDGE_SHRINK);
+                sliding_median_slice(arr->data + dst_base, source_arr->data + src_base, median_buffer, it.axis_size, src_stride, winsize, CSN_MEDIAN_EDGE_SHRINK);
                 break;
             case CSN_MOVSTD:
-                if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, RED_STD, itype) != OK) {
+                if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, it.axis_size, src_stride, winsize, RED_STD, itype) != OK) {
                     return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Division by zero in movvar");
                 };
                 break;
             case CSN_MOVVAR:
-                if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, source_shape[axis], src_stride, winsize, RED_VAR, itype) != OK) {
+                if (movstdvar_slice(arr->data + dst_base, source_arr->data + src_base * itype, it.axis_size, src_stride, winsize, RED_VAR, itype) != OK) {
                     return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Division by zero in movvar");
                 };
                 break;
             case CSN_MOVMIN:
-                movminmax_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, RED_MIN);
+                movminmax_slice(arr->data + dst_base, source_arr->data + src_base, it.axis_size, src_stride, winsize, RED_MIN);
                 break;
             case CSN_MOVMAX:
-                movminmax_slice(arr->data + dst_base, source_arr->data + src_base, source_shape[axis], src_stride, winsize, RED_MAX);
+                movminmax_slice(arr->data + dst_base, source_arr->data + src_base, it.axis_size, src_stride, winsize, RED_MAX);
                 break;
         }
     }
@@ -2599,31 +2577,13 @@ static int32_t movstats_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY 
         return OK;
     }
 
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_shape[i];
-            slice_count *= source_shape[i];
-        }
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, source_arr, (uint32_t) axis) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Incompatible array shapes/ranks");
     }
-
-    size_t src_stride = source_arr->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-        if (dispatch_movstats(source_arr->data + src_base * itype, src_copy + src_base * itype, source_shape[axis], src_stride, winsize, median_buffer, mode, itype) != OK) {
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_base = it.src_base;
+        if (dispatch_movstats(source_arr->data + it.dst_base * itype, src_copy + src_base * itype, it.axis_size, it.src_axis_stride, winsize, median_buffer, mode, itype) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Division by zero");
         };
     }
@@ -2873,16 +2833,9 @@ static void dispatch_value_for_perquant_reduction(double *value, const double *x
     *value = x[lo] + f * (x[hi] - x[lo]);
 }
 
-static void accumulate_perquant_reduction_axis_helper(double *value, double q, double *buffer, const CSN_ARRAY *source_arr, uint32_t *src_coords, const uint32_t *dst_coords, bool is_percentile, uint32_t axis) {
+static void accumulate_perquant_reduction_axis_helper(double *value, double q, double *buffer, const CSN_ARRAY *source_arr, size_t src_base, size_t axis_stride, bool is_percentile, uint32_t axis) {
     for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            if (i == axis)
-                src_coords[i] = k;
-            else
-                src_coords[i] = dst_coords[j++];
-        }
-        size_t off = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        buffer[k] = source_arr->data[off];
+        buffer[k] = source_arr->data[src_base + (size_t) k * axis_stride];
     }
     qsort(buffer, (size_t) source_arr->shape[axis], sizeof(double), compare_double);
     dispatch_value_for_perquant_reduction(value, buffer, (size_t) source_arr->shape[axis], is_percentile, q);
@@ -2974,14 +2927,15 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF
             res = csound->InitError(csound, "Memory allocation failed");
             goto done;
         }
-        for (size_t linear = 0; linear < arr->size; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+        CSN_AXIS_SLICE_ITER it;
+        if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) {
+            res = csound->InitError(csound, "[csnarray] Invalid percentile/quantile iteration shape");
+            goto done;
+        }
+        while (AXIS_SLICE_ITER_NEXT(&it)) {
             double value = 0.0;
-            accumulate_perquant_reduction_axis_helper(&value, q, buffer, source_arr, src_coords, dst_coords, is_percentile, (uint32_t) axis);
-            arr->data[linear] = value;
+            accumulate_perquant_reduction_axis_helper(&value, q, buffer, source_arr, it.src_base, it.src_axis_stride, is_percentile, (uint32_t) axis);
+            arr->data[it.dst_base] = value;
         }
     } else {
         buffer = csound->Calloc(csound, sizeof(double) * source_arr->size);
@@ -3211,14 +3165,15 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *sr
         res = csn_scratch_reserve(csound, h, csn_slot_rt_locked(reg, k_data->owned_handle), buffer_ref, r_size, sizeof(double));
         if (res != OK) goto done;
 
-        for (size_t linear = 0; linear < arr->size; ++linear) {
-            uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-            uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-            from_linear_to_coords(dst_coords, arr->shape, linear, arr->ndim);
+        CSN_AXIS_SLICE_ITER it;
+        if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, (uint32_t) axis) != OK) {
+            res = csn_locked_perf_error(csound, h, "[csnarray] Invalid percentile/quantile iteration shape");
+            goto done;
+        }
+        while (AXIS_SLICE_ITER_NEXT(&it)) {
             double value = 0.0;
-            accumulate_perquant_reduction_axis_helper(&value, q, *buffer, source_arr, src_coords, dst_coords, is_percentile, (uint32_t) axis);
-            arr->data[linear] = value;
+            accumulate_perquant_reduction_axis_helper(&value, q, *buffer, source_arr, it.src_base, it.src_axis_stride, is_percentile, (uint32_t) axis);
+            arr->data[it.dst_base] = value;
         }
 
         if (k_data != NULL) {

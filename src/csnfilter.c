@@ -3,113 +3,93 @@
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "arrays.h"
 
-static void medfilt1d_assign_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_SCRATCH *kernel, size_t kernel_size, int32_t axis) {
+static int32_t medfilt1d_assign_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_SCRATCH *kernel, size_t kernel_size, int32_t axis) {
     if (axis == -1) {
         sliding_median_slice(y->data, x->data, kernel->scratch, x->size, 1U, kernel_size, CSN_MEDIAN_EDGE_ZERO);
-        return;
+        return OK;
     }
 
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < x->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = x->shape[i];
-            slice_count *= x->shape[i];
-        }
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, x, y, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        sliding_median_slice(y->data + it.dst_base, x->data + it.src_base, kernel->scratch, it.axis_size, it.src_axis_stride, kernel_size, CSN_MEDIAN_EDGE_ZERO);
     }
-
-    size_t src_stride = x->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < x->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, x->strides, x->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, y->strides, y->ndim);
-        sliding_median_slice(y->data + dst_base, x->data + src_base, kernel->scratch, x->shape[axis], src_stride, kernel_size, CSN_MEDIAN_EDGE_ZERO);
-    }
+    return OK;
 }
 
 /* The box of kernel_shape is centred on each element and what falls outside the
    array counts as zero, as scipy.signal.medfilt does. kernel is the gather
    buffer, one cell per kernel element. */
-static void medfilt_assign_value(CSN_ARRAY *y, CSN_ARRAY *x, double *kernel, size_t kernel_size, uint32_t *kernel_shape) {
-    uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-    uint32_t knl_coords[CSN_MAX_DIMS] = {0};
-    uint32_t src_coords[CSN_MAX_DIMS] = {0};
-    for (size_t linear = 0; linear < y->size; ++linear) {
-        from_linear_to_coords(dst_coords, y->shape, linear, y->ndim);
+static int32_t medfilt_assign_value(CSN_ARRAY *y, CSN_ARRAY *x, double *kernel, size_t kernel_size, uint32_t *kernel_shape) {
+    CSN_BROADCAST_ITER dst_it, kernel_start;
+    if (ND_ITER_INIT(&dst_it, y->ndim, y->shape, y->size, NULL) != OK
+        || ND_ITER_INIT(&kernel_start, x->ndim, kernel_shape, kernel_size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&dst_it)) {
         size_t count = 0;
-        for (size_t i = 0; i < kernel_size; i++) {
-            from_linear_to_coords(knl_coords, kernel_shape, i, x->ndim);
+        CSN_BROADCAST_ITER kernel_it = kernel_start;
+        while (BROADCAST_ITER_NEXT(&kernel_it)) {
             bool valid = true;
+            size_t src_offset = 0;
             for (uint32_t d = 0; d < x->ndim; d++) {
-                int64_t coord = (int64_t) dst_coords[d] + knl_coords[d] - (int64_t) (kernel_shape[d] / 2);
+                int64_t coord = (int64_t) dst_it.coords[d] + kernel_it.coords[d] - (int64_t) (kernel_shape[d] / 2);
                 if (coord < 0 || coord >= (int64_t) x->shape[d]) {
                     valid = false;
                     break;
                 }
-                src_coords[d] = (uint32_t) coord;
+                src_offset += (size_t) coord * x->strides[d];
             }
 
             if (valid) {
-                size_t src_offset = from_coords_to_offset(src_coords, x->strides, x->ndim);
                 kernel[count++] = x->data[src_offset];
             } else {
                 kernel[count++] = 0.0;
             }
         }
-        y->data[linear] = median_of_scratch(kernel, count);
+        y->data[dst_it.linear_index] = median_of_scratch(kernel, count);
     }
+    return OK;
 }
 
 /* The N-D filter gathers a box around each element, so unlike the 1-D one it
    cannot read the array it is rewriting: src_copy holds the source as it was
    when the pass started. */
-static void medfilt_in_assign_value(CSN_ARRAY *x, double *kernel, double *src_copy, size_t kernel_size, uint32_t *kernel_shape) {
+static int32_t medfilt_in_assign_value(CSN_ARRAY *x, double *kernel, double *src_copy, size_t kernel_size, uint32_t *kernel_shape) {
     memcpy(src_copy, x->data, sizeof(double) * x->size);
 
-    uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-    uint32_t knl_coords[CSN_MAX_DIMS] = {0};
-    uint32_t src_coords[CSN_MAX_DIMS] = {0};
-    for (size_t linear = 0; linear < x->size; ++linear) {
-        from_linear_to_coords(dst_coords, x->shape, linear, x->ndim);
+    CSN_BROADCAST_ITER dst_it, kernel_start;
+    if (ND_ITER_INIT(&dst_it, x->ndim, x->shape, x->size, NULL) != OK
+        || ND_ITER_INIT(&kernel_start, x->ndim, kernel_shape, kernel_size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&dst_it)) {
         size_t count = 0;
-        for (size_t i = 0; i < kernel_size; i++) {
-            from_linear_to_coords(knl_coords, kernel_shape, i, x->ndim);
+        CSN_BROADCAST_ITER kernel_it = kernel_start;
+        while (BROADCAST_ITER_NEXT(&kernel_it)) {
             bool valid = true;
+            size_t src_offset = 0;
             for (uint32_t d = 0; d < x->ndim; d++) {
-                int64_t coord = (int64_t) dst_coords[d] + knl_coords[d] - (int64_t) (kernel_shape[d] / 2);
+                int64_t coord = (int64_t) dst_it.coords[d] + kernel_it.coords[d] - (int64_t) (kernel_shape[d] / 2);
                 if (coord < 0 || coord >= (int64_t) x->shape[d]) {
                     valid = false;
                     break;
                 }
-                src_coords[d] = (uint32_t) coord;
+                src_offset += (size_t) coord * x->strides[d];
             }
 
             if (valid) {
-                size_t src_offset = from_coords_to_offset(src_coords, x->strides, x->ndim);
                 kernel[count++] = src_copy[src_offset];
             } else {
                 kernel[count++] = 0.0;
             }
         }
-        x->data[linear] = median_of_scratch(kernel, count);
+        x->data[dst_it.linear_index] = median_of_scratch(kernel, count);
     }
+    return OK;
 }
 
 int32_t csnarray_medfilt_deinit(CSOUND *csound, CSN_MEDFILT *p) {
@@ -178,7 +158,10 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
         goto done;
     }
 
-    medfilt1d_assign_value(p->array, source_arr, &p->buffer, kernel_size, axis);
+    if (medfilt1d_assign_value(p->array, source_arr, &p->buffer, kernel_size, axis) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible array shapes/ranks");
+        goto done;
+    }
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     p->k_data.prev_axis_i = axis;
@@ -199,38 +182,15 @@ int32_t csnarray_medfilt1d_k_init(CSOUND *csound, CSN_MEDFILT *p) {
 }
 
 static int32_t medfilt1d_in_assign_value(CSN_ARRAY *source_arr, double *median_buffer, int32_t axis, size_t winsize) {
-    double *source = source_arr->data;
-
     if (axis == -1) {
-        sliding_median_slice(source_arr->data, source, median_buffer, source_arr->size, 1U, winsize, CSN_MEDIAN_EDGE_ZERO);
+        sliding_median_slice(source_arr->data, source_arr->data, median_buffer, source_arr->size, 1U, winsize, CSN_MEDIAN_EDGE_ZERO);
         return OK;
     }
 
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_shape[i];
-            slice_count *= source_shape[i];
-        }
-    }
-
-    size_t src_stride = source_arr->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_ndim);
-        sliding_median_slice(source_arr->data + src_base, source + src_base, median_buffer, source_shape[axis], src_stride, winsize, CSN_MEDIAN_EDGE_ZERO);
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, source_arr, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        sliding_median_slice(source_arr->data + it.dst_base, source_arr->data + it.src_base, median_buffer, it.axis_size, it.src_axis_stride, winsize, CSN_MEDIAN_EDGE_ZERO);
     }
 
     return OK;
@@ -281,7 +241,10 @@ static int32_t csnarray_medfilt1d_in_init_helper(CSOUND *csound, CSN_MEDFILT_IN 
     }
     p->buffer.scratch_capacity = sliding_median_scratch_size(kernel_size);
 
-    medfilt1d_in_assign_value(source_arr, p->buffer.scratch, axis, kernel_size);
+    if (medfilt1d_in_assign_value(source_arr, p->buffer.scratch, axis, kernel_size) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible array shapes/ranks");
+        goto done;
+    }
     update_array_data_version(&source_arr->version);
 
 done:
@@ -361,7 +324,10 @@ int32_t csnarray_medfilt1d_k(CSOUND *csound, CSN_MEDFILT *p) {
     if (res != OK) goto done;
     p->array = arr;
 
-    medfilt1d_assign_value(p->array, source_arr, &p->buffer, kernel_size, axis);
+    if (medfilt1d_assign_value(p->array, source_arr, &p->buffer, kernel_size, axis) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Incompatible array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
     PUBLISH_DERIVED_RESULT(&p->k_data, source_handle, source_arr, p->array);
@@ -446,7 +412,10 @@ int32_t csnarray_medfilt1d_in_k(CSOUND *csound, CSN_MEDFILT_IN *p) {
     bool is_same_axis = axis == p->k_data.prev_axis_i;
     if (is_same_axis && !moved) goto done;
 
-    medfilt1d_in_assign_value(source_arr, p->buffer.scratch, axis, kernel_size);
+    if (medfilt1d_in_assign_value(source_arr, p->buffer.scratch, axis, kernel_size) != OK) {
+        res = csound->PerfError(csound, &p->h, "[csnarray] Incompatible array shapes/ranks");
+        goto done;
+    }
     PUBLISH_INPLACE_WRITE(&p->k_data, source_handle, source_arr, false, false, false);
     p->k_data.prev_axis_i = axis;
 
@@ -564,7 +533,10 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, uint32_t source_
     }
     buffer->scratch_capacity = kernel_cap;
 
-    medfilt_assign_value(*p_array, source_arr, (double *) buffer->scratch, *kernel_total_size, kernel_shape);
+    if (medfilt_assign_value(*p_array, source_arr, (double *) buffer->scratch, *kernel_total_size, kernel_shape) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid median-filter iterator layout");
+        goto done;
+    }
     SET_FROM_KDATA_WITH_ID_BEGIN(*k_data, reg, new_shape, new_ndim, CSN_REAL, p_handle->id);
     set_array_version(&k_data->prev_output_version, &(*p_array)->version);
 
@@ -655,7 +627,10 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, uint32_t source_handle
     buffer->scratch_capacity = kernel_cap;
 
     double *kernel = (double *) buffer->scratch;
-    medfilt_in_assign_value(source_arr, kernel, kernel + gather, kernel_total_size, kernel_shape);
+    if (medfilt_in_assign_value(source_arr, kernel, kernel + gather, kernel_total_size, kernel_shape) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid median-filter iterator layout");
+        goto done;
+    }
     update_array_data_version(&source_arr->version);
 
 done:
@@ -734,7 +709,10 @@ static int32_t csnarray_medfilt_k_helper(CSOUND *csound, OPDS *h, uint32_t sourc
     if (res != OK) goto done;
     *p_array = arr;
 
-    medfilt_assign_value(arr, source_arr, (double *) buffer->scratch, kernel_total_size, kernel_shape);
+    if (medfilt_assign_value(arr, source_arr, (double *) buffer->scratch, kernel_total_size, kernel_shape) != OK) {
+        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid median-filter iterator layout");
+        goto done;
+    }
     SET_FROM_KDATA_END_WITH_ID(*k_data, p_handle, new_shape, source_ndim, CSN_REAL);
     PUBLISH_DERIVED_RESULT(k_data, source_handle, source_arr, arr);
 
@@ -890,7 +868,10 @@ static int32_t csnarray_medfilt_in_k_helper(CSOUND *csound, OPDS *h, uint32_t so
     if (res != OK) goto done;
 
     double *kernel = (double *) buffer->scratch;
-    medfilt_in_assign_value(source_arr, kernel, kernel + gather, kernel_total_size, kernel_shape);
+    if (medfilt_in_assign_value(source_arr, kernel, kernel + gather, kernel_total_size, kernel_shape) != OK) {
+        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid median-filter iterator layout");
+        goto done;
+    }
     PUBLISH_INPLACE_WRITE(k_data, source_handle, source_arr, false, false, false);
 
 done:
@@ -906,4 +887,3 @@ int32_t csnarray_medfilt_in_k(CSOUND *csound, CSN_MEDFILT_ND_IN *p) {
 int32_t csnarray_medfilt_arr_in_k(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *p) {
     return csnarray_medfilt_in_k_helper(csound, &p->h, p->source_handle->id, &p->k_data, &p->buffer, p->trig, p->kernel_total_size, p->kernel_shape);
 }
-

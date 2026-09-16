@@ -1,6 +1,7 @@
 #include "csnregistry.h"
 #include "csnfft.h"
 #include "csnum.h"
+#include "csnum_internal.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -82,34 +83,14 @@ static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARR
     return OK;
 }
 
-static void fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
-    }
+static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
+    CSN_AXIS_SLICE_ITER it = {0};
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, fft_buffer, axis) != OK) return NOTOK;
 
     uint32_t *source_shape = source_arr->shape;
     uint32_t nfft_copy = source_shape[axis] < nfft ? source_shape[axis] : nfft;
 
-    size_t src_stride = source_arr->strides[axis];
-    size_t dst_stride = fft_buffer->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, fft_buffer->strides, source_arr->ndim);
-
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
         /* Only the zero-padding tail needs clearing; everything below it is
            about to be overwritten by the copy. With no padding, which is the
            usual case, this clears nothing. */
@@ -122,12 +103,12 @@ static void fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buf
            in the scratch layout as it stands, so it moves as one block instead
            of a strided slice_get per sample. That covers any 1-D array and any
            N-D array transformed along its last axis. */
-        const double *src_slice = source_arr->data + src_base * source_arr->itype;
-        if (sizeof(MYFLT) == sizeof(double) && src_stride == 1 && ((mode == CSNRFFT && source_arr->itype == CSN_REAL) || (mode == CSNFFT && source_arr->itype == CSN_COMPLEX))) {
+        const double *src_slice = source_arr->data + it.src_base * source_arr->itype;
+        if (sizeof(MYFLT) == sizeof(double) && it.src_axis_stride == 1 && ((mode == CSNRFFT && source_arr->itype == CSN_REAL) || (mode == CSNFFT && source_arr->itype == CSN_COMPLEX))) {
             memcpy(temp_buffer, src_slice, sizeof(double) * filled);
         } else {
             for (uint32_t i = 0; i < nfft_copy; i++) {
-                CSN_COMPLEXDAT z = slice_get(src_slice, i, src_stride, source_arr->itype);
+                CSN_COMPLEXDAT z = slice_get(src_slice, i, it.src_axis_stride, source_arr->itype);
                 if (mode == CSNRFFT) {
                     temp_buffer[i] = (MYFLT) z.re;
                 } else {
@@ -143,8 +124,8 @@ static void fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buf
             csound->ComplexFFT(csound, temp_buffer, (int32_t) nfft);
         }
 
-        double *dst_slice = fft_buffer->data + dst_base * CSN_COMPLEX;
-        if (sizeof(MYFLT) == sizeof(double) && dst_stride == 1) {
+        double *dst_slice = fft_buffer->data + it.dst_base * CSN_COMPLEX;
+        if (sizeof(MYFLT) == sizeof(double) && it.dst_axis_stride == 1) {
             /* Bin i lands at dst[2i], dst[2i+1] -- the same offsets the packed
                scratch already uses for the interior bins, so they move as one
                block. Only DC and Nyquist need placing, the real transform
@@ -178,22 +159,17 @@ static void fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buf
                         y.re = (double) temp_buffer[i * 2];
                         y.im = (double) temp_buffer[i * 2 + 1];
                 }
-                slice_put(dst_slice, i, dst_stride, CSN_COMPLEX, y);
+                slice_put(dst_slice, i, it.dst_axis_stride, CSN_COMPLEX, y);
             }
         }
     }
+
+    return OK;
 }
 
-static void ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
-    }
+static int32_t ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, fft_buffer, axis) != OK) return NOTOK;
 
     uint32_t *source_shape = source_arr->shape;
     uint32_t nfft_copy = nfft;
@@ -203,19 +179,11 @@ static void ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
         nfft_copy = source_shape[axis] < nfft / 2U + 1U ? source_shape[axis] : nfft / 2U + 1U;
     }
 
-    size_t src_stride = source_arr->strides[axis];
-    size_t dst_stride = fft_buffer->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, fft_buffer->strides, source_arr->ndim);
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
 
         /* The inverse packing is scattered -- DC in slot 0, Nyquist folded
            into slot 1 -- so the scratch may be left unzeroed only when the
@@ -293,6 +261,7 @@ static void ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
             }
         }
     }
+    return OK;
 }
 
 static void fft_assign_layout(size_t *out_size, size_t *work_size, uint32_t *new_ndim, uint32_t *new_shape, CSN_ARRAY *source_arr, uint32_t nfft, CSN_FFT_MODE mode, uint32_t axis) {
@@ -423,7 +392,10 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axis
         goto done;
     }
     CSN_ARRAY *fft_buffer = p->array;
-    fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis_spec.index, mode);
+    if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis_spec.index, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -517,7 +489,10 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     p->array = fft_buffer;
 
     MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
-    fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode);
+    if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -584,7 +559,10 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axi
     }
 
     CSN_ARRAY *fft_buffer = p->array;
-    ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode);
+    if (ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        goto done;
+    }
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -684,7 +662,10 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
     p->array = fft_buffer;
 
     MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
-    ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode);
+    if (ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        goto done;
+    }
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -1660,30 +1641,15 @@ int32_t csnarray_fftshift_deinit(CSOUND *csound, CSN_FFTSHIFT *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
-static void fftshift_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t axis, CSN_FFT_MODE mode) {
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
-    }
-
-    size_t src_stride = source_arr->strides[axis];
-    size_t dst_stride = arr->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        uint32_t slice_size = source_arr->shape[axis];
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, arr->strides, source_arr->ndim);
+static int32_t fftshift_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t axis, CSN_FFT_MODE mode) {
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, arr, axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
+        uint32_t slice_size = it.axis_size;
         uint32_t shift_offset = mode == CSNFFTSHIFT ? (slice_size + 1) / 2 : (slice_size / 2);
         for (uint32_t i = 0; i < slice_size; i++) {
             size_t src_index = (i + shift_offset) % slice_size;
@@ -1691,6 +1657,7 @@ static void fftshift_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_
             slice_put(arr->data + dst_base * source_arr->itype, i, dst_stride, source_arr->itype, z);
         }
     }
+    return OK;
 }
 
 static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT_MODE mode) {
@@ -1731,7 +1698,10 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
         goto done;
     }
 
-    fftshift_assign_value(p->array, source_arr, axis,  mode);
+    if (fftshift_assign_value(p->array, source_arr, axis, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible FFT-shift array shapes/ranks");
+        goto done;
+    }
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -1851,7 +1821,10 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
     if (res != OK) goto done;
     p->array = arr;
 
-    fftshift_assign_value(p->array, source_arr, axis,  mode);
+    if (fftshift_assign_value(p->array, source_arr, axis, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible FFT-shift array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_END(p, new_shape, new_ndim, source_arr->itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -2686,62 +2659,42 @@ static void corrconv_loop(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, size_t src_b
     }
 }
 
-static void corrconv1d_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
+static int32_t corrconv1d_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
     if (axis == -1) {
         corrconv_loop(y, x, h, 0, 0, 1U, 1U, out_size, start_offset, axis, mode);
-        return;
+        return OK;
     }
 
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < x->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = x->shape[i];
-            slice_count *= x->shape[i];
-        }
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, x, y, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        corrconv_loop(y, x, h, it.src_base, it.dst_base, it.src_axis_stride, it.dst_axis_stride, out_size, start_offset, axis, mode);
     }
-
-    size_t src_stride = x->strides[axis];
-    size_t dst_stride = y->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < x->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, x->strides, x->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, y->strides, y->ndim);
-        corrconv_loop(y, x, h, src_base, dst_base, src_stride, dst_stride, out_size, start_offset, axis, mode);
-    }
+    return OK;
 }
 
-static void corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64_t *start_offset, CSN_CORRCONV_MODE mode) {
-    uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-    uint32_t knl_coords[CSN_MAX_DIMS] = {0};
-    uint32_t src_coords[CSN_MAX_DIMS] = {0};
-    for (size_t linear = 0; linear < y->size; ++linear) {
-        from_linear_to_coords(dst_coords, y->shape, linear, y->ndim);
+static int32_t corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64_t *start_offset, CSN_CORRCONV_MODE mode) {
+    CSN_BROADCAST_ITER dst_it, kernel_start;
+    if (ND_ITER_INIT(&dst_it, y->ndim, y->shape, y->size, NULL) != OK
+        || ND_ITER_INIT(&kernel_start, h->ndim, h->shape, h->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&dst_it)) {
         CSN_COMPLEXDAT y_value = { .re = 0.0, .im = 0.0 };
-        for (size_t i = 0; i < h->size; i++) {
-            from_linear_to_coords(knl_coords, h->shape, i, h->ndim);
+        CSN_BROADCAST_ITER kernel_it = kernel_start;
+        while (BROADCAST_ITER_NEXT(&kernel_it)) {
             bool valid = true;
+            size_t src_offset = 0;
             for (uint32_t d = 0; d < h->ndim; d++) {
-                int64_t coord = (int64_t) dst_coords[d] + start_offset[d] - (int64_t) knl_coords[d];
+                int64_t coord = (int64_t) dst_it.coords[d] + start_offset[d] - (int64_t) kernel_it.coords[d];
                 if (coord < 0 || coord >= (int64_t) x->shape[d]) {
                     valid = false;
                     break;
                 }
-                src_coords[d] = (uint32_t) coord;
+                src_offset += (size_t) coord * x->strides[d];
             }
 
             if (!valid) continue;
 
-            size_t src_offset = from_coords_to_offset(src_coords, x->strides, x->ndim);
-            size_t knl_offset = i;
+            size_t knl_offset = kernel_it.linear_index;
 
             size_t knl_compute = mode == CSN_CONVOLUTION ? (size_t) knl_offset : h->size - 1 - knl_offset;
             CSN_COMPLEXDAT x_value = slice_get(x->data, src_offset, 1U, x->itype);
@@ -2755,8 +2708,9 @@ static void corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64
                 y_value.re += x_value.re * h_value.re;
             }
         }
-        slice_put(y->data, linear, 1U, y->itype, y_value);
+        slice_put(y->data, dst_it.linear_index, 1U, y->itype, y_value);
     }
+    return OK;
 }
 
 static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT *axis_in, CSN_CORRCONV_MODE mode) {
@@ -2824,7 +2778,10 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
         goto done;
     }
 
-    corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    if (corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible convolution array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -2951,7 +2908,10 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     if (res != OK) goto done;
     p->array = arr;
 
-    corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    if (corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible convolution array shapes/ranks");
+        goto done;
+    }
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
@@ -3019,7 +2979,10 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
         goto done;
     }
 
-    corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    if (corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid convolution iterator layout");
+        goto done;
+    }
 
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -3108,7 +3071,10 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     if (res != OK) goto done;
     p->array = arr;
 
-    corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    if (corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid convolution iterator layout");
+        goto done;
+    }
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
@@ -3155,9 +3121,13 @@ static int32_t allocate_and_zero_pad_before(CSOUND *csound, OPDS *h, bool is_per
 
     if (source->itype == CSN_COMPLEX) {
         COMPLEXDAT value = { .real = 0.0, .imag = 0.0, .isPolar = 0 };
-        pad_assign_value(source, dest, 0.0, &value, axis, 0);
+        if (pad_assign_value(source, dest, 0.0, &value, axis, 0) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] Invalid FFT pad iterator layout");
+        }
     } else {
-        pad_assign_value(source, dest, 0.0, NULL, axis, 0);
+        if (pad_assign_value(source, dest, 0.0, NULL, axis, 0) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] Invalid FFT pad iterator layout");
+        }
     }
     return OK;
 }
@@ -3182,14 +3152,18 @@ static int32_t allocate_and_zero_pad_before_ndims(CSOUND *csound, OPDS *h, bool 
        than the source reads past its extent. -1 pads them all. */
     if (source->itype == CSN_COMPLEX) {
         COMPLEXDAT value = { .real = 0.0, .imag = 0.0, .isPolar = 0 };
-        pad_assign_value(source, dest, 0.0, &value, -1, 0);
+        if (pad_assign_value(source, dest, 0.0, &value, -1, 0) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] Invalid FFT pad iterator layout");
+        }
     } else {
-        pad_assign_value(source, dest, 0.0, NULL, -1, 0);
+        if (pad_assign_value(source, dest, 0.0, NULL, -1, 0) != OK) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, h, "[csnarray] Invalid FFT pad iterator layout");
+        }
     }
     return OK;
 }
 
-static void fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, int32_t axis, CSN_CORRCONV_MODE mode) {
+static int32_t fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, int32_t axis, CSN_CORRCONV_MODE mode) {
     uint32_t *source_shape = source_arr_a->shape;
 
     if (axis == -1) {
@@ -3202,32 +3176,16 @@ static void fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY 
             y->data[i * 2] = result.re;
             y->data[i * 2 + 1] = result.im;
         }
-        return;
+        return OK;
     }
 
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr_a->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr_a->shape[i];
-            slice_count *= source_arr_a->shape[i];
-        }
-    }
-
-    size_t src_stride = source_arr_a->strides[axis];
-    size_t dst_stride = y->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr_a->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr_a->strides, source_arr_a->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, y->strides, source_arr_a->ndim);
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr_a, y, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
         for (uint32_t i = 0; i < source_shape[axis]; i++) {
             CSN_COMPLEXDAT a = slice_get(source_arr_a->data + src_base * CSN_COMPLEX, i, src_stride, CSN_COMPLEX);
             CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
@@ -3237,6 +3195,7 @@ static void fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY 
             slice_put(y->data + dst_base * CSN_COMPLEX, i, dst_stride, CSN_COMPLEX, result);
         }
     }
+    return OK;
 }
 
 /* Cuts the published result out of the padded inverse transform.
@@ -3248,7 +3207,7 @@ static void fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY 
    publish. The read wraps, because a correlation's negative lags sit at the
    end of a circular buffer rather than before its start; for a convolution the
    window never reaches the wrap and the modulo costs nothing. */
-static void fftcorrconv_crop(CSN_ARRAY *y, CSN_ARRAY *source_arr, size_t out_size, int64_t start_offset, size_t fft_size, int32_t axis) {
+static int32_t fftcorrconv_crop(CSN_ARRAY *y, CSN_ARRAY *source_arr, size_t out_size, int64_t start_offset, size_t fft_size, int32_t axis) {
     size_t start = (size_t) start_offset;
 
     if (axis == -1) {
@@ -3256,38 +3215,23 @@ static void fftcorrconv_crop(CSN_ARRAY *y, CSN_ARRAY *source_arr, size_t out_siz
             size_t at = (start + i) % fft_size;
             slice_put(y->data, i, 1U, y->itype, slice_get(source_arr->data, at, 1U, source_arr->itype));
         }
-        return;
+        return OK;
     }
 
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
-    }
-
-    size_t src_stride = source_arr->strides[axis];
-    size_t dst_stride = y->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, y->strides, y->ndim);
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, y, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
         for (size_t i = 0; i < out_size; i++) {
             size_t at = (start + i) % fft_size;
             CSN_COMPLEXDAT value = slice_get(source_arr->data + src_base * source_arr->itype, at, src_stride, source_arr->itype);
             slice_put(y->data + dst_base * y->itype, i, dst_stride, y->itype, value);
         }
     }
+    return OK;
 }
 
 /* The N-D spectra have the same shape and are both complex and contiguous, so
@@ -3309,19 +3253,19 @@ static void fftcorrconv_prod_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_AR
    modulus per axis. Every axis wraps for a correlation and none of them does
    for a convolution, so the modulo is written once and costs nothing in the
    case that never reaches it. */
-static void fftcorrconv_crop_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr, const size_t *fft_sizes, const int64_t *start_offset) {
-    for (size_t linear = 0; linear < y->size; linear++) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, y->shape, linear, y->ndim);
+static int32_t fftcorrconv_crop_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr, const size_t *fft_sizes, const int64_t *start_offset) {
+    CSN_BROADCAST_ITER dst_it;
+    if (ND_ITER_INIT(&dst_it, y->ndim, y->shape, y->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&dst_it)) {
+        size_t src_offset = 0;
         for (uint32_t d = 0; d < y->ndim; d++) {
-            src_coords[d] = (uint32_t) (((size_t) dst_coords[d] + (size_t) start_offset[d]) % fft_sizes[d]);
+            size_t coord = ((size_t) dst_it.coords[d] + (size_t) start_offset[d]) % fft_sizes[d];
+            src_offset += coord * source_arr->strides[d];
         }
 
-        size_t src_offset = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        slice_put(y->data, linear, 1U, y->itype, slice_get(source_arr->data, src_offset, 1U, source_arr->itype));
+        slice_put(y->data, dst_it.linear_index, 1U, y->itype, slice_get(source_arr->data, src_offset, 1U, source_arr->itype));
     }
+    return OK;
 }
 
 /* The transform buffers are private arrays, so they carry the mark as their own
@@ -3678,11 +3622,26 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT
     double *temp_buffer_h = (double *) p->buffer_h.scratch;
     double *temp_buffer_ifft = (double *) p->buffer_ifft.scratch;
     uint32_t converted_axis = axis == -1 ? 0 : (uint32_t) axis;
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode);
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode);
-    fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode);
-    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode);
-    fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis);
+    if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
+    if (fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
+    if (fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible convolution spectrum shapes/ranks");
+        goto done;
+    }
+    if (ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        goto done;
+    }
+    if (fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible convolution output shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -3811,11 +3770,20 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     /* Forward: the last axis reads the padded operand and is the one-sided
        pass when the operands are real; the axes before it run in place on the
        spectrum, each at its own length. */
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
+    if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
+    if (fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
     for (int32_t axis = (int32_t) last_axis - 1; axis >= 0; axis--) {
-        fft_assign_value(csound, NULL, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
-        fft_assign_value(csound, NULL, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
+        if (fft_assign_value(csound, NULL, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT) != OK
+            || fft_assign_value(csound, NULL, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT) != OK) {
+            res = csound->InitError(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
+            goto done;
+        }
     }
 
     fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
@@ -3824,11 +3792,20 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
        last, so the pass that widens the spectrum back is the pass that writes
        the padded result. */
     for (uint32_t axis = 0; axis < last_axis; axis++) {
-        ifft_assign_value(csound, NULL, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT);
+        if (ifft_assign_value(csound, NULL, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT) != OK) {
+            res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+            goto done;
+        }
     }
-    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode);
+    if (ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        goto done;
+    }
 
-    fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset);
+    if (fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid convolution crop iterator layout");
+        goto done;
+    }
 
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -3982,11 +3959,23 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     double *temp_buffer_h = (double *) p->buffer_h.scratch;
     double *temp_buffer_ifft = (double *) p->buffer_ifft.scratch;
     uint32_t converted_axis = axis == -1 ? 0 : (uint32_t) axis;
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode);
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode);
-    fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode);
-    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode);
-    fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis);
+    if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode) != OK
+        || fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
+    if (fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible convolution spectrum shapes/ranks");
+        goto done;
+    }
+    if (ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        goto done;
+    }
+    if (fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible convolution output shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_END(p, new_shape, new_ndim, p->array->itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -4117,11 +4106,17 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     /* Forward: the last axis reads the padded operand and is the one-sided
        pass when the operands are real; the axes before it run in place on the
        spectrum, each at its own length. */
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
-    fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode);
+    if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode) != OK
+        || fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
     for (int32_t axis = (int32_t) last_axis - 1; axis >= 0; axis--) {
-        fft_assign_value(csound, &p->h, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
-        fft_assign_value(csound, &p->h, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT);
+        if (fft_assign_value(csound, &p->h, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT) != OK
+            || fft_assign_value(csound, &p->h, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT) != OK) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
+            goto done;
+        }
     }
 
     fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
@@ -4130,11 +4125,20 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
        last, so the pass that widens the spectrum back is the pass that writes
        the padded result. */
     for (uint32_t axis = 0; axis < last_axis; axis++) {
-        ifft_assign_value(csound, &p->h, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT);
+        if (ifft_assign_value(csound, &p->h, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT) != OK) {
+            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+            goto done;
+        }
     }
-    ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode);
+    if (ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        goto done;
+    }
 
-    fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset);
+    if (fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid convolution crop iterator layout");
+        goto done;
+    }
 
     SET_KDATA_END(p, new_shape, ndim, p->array->itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -4196,31 +4200,13 @@ static int32_t get_dct_size(int32_t start_size, CSN_DCST_MODE dcst_mode) {
 }
 
 static int32_t dcst1d_from_fft_assign_value(CSN_ARRAY *dcst_buffer, CSN_ARRAY *fft_buffer, CSN_DCST_MODE mode, int32_t axis) {
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    /* Driven by the array being filled, not by the spectrum: the two carry the
-       same off-axis extents, but only this one bounds the writes. */
-    for (uint32_t i = 0; i < dcst_buffer->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = dcst_buffer->shape[i];
-            slice_count *= dcst_buffer->shape[i];
-        }
-    }
-
-    size_t src_stride = fft_buffer->strides[axis];
-    size_t dst_stride = dcst_buffer->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < dcst_buffer->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, fft_buffer->strides, dcst_buffer->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, dcst_buffer->strides, dcst_buffer->ndim);
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, fft_buffer, dcst_buffer, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
         uint32_t n = dcst_buffer->shape[axis];
         for (uint32_t i = 0; i < n; i++) {
             CSN_COMPLEXDAT y = {0};
@@ -4265,29 +4251,13 @@ static int32_t dcst1d_from_fft_assign_value(CSN_ARRAY *dcst_buffer, CSN_ARRAY *f
 }
 
 static int32_t dcst1d_extend_source(CSN_ARRAY *dcst_buffer, CSN_ARRAY *source_arr, int32_t axis, CSN_DCST_MODE mode) {
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < source_arr->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = source_arr->shape[i];
-            slice_count *= source_arr->shape[i];
-        }
-    }
-
-    size_t src_stride = source_arr->strides[axis];
-    size_t dst_stride = dcst_buffer->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < source_arr->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, source_arr->strides, source_arr->ndim);
-        size_t dst_base = from_coords_to_offset(src_coords, dcst_buffer->strides, source_arr->ndim);
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, source_arr, dcst_buffer, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_base = it.src_base;
+        size_t dst_base = it.dst_base;
+        size_t src_stride = it.src_axis_stride;
+        size_t dst_stride = it.dst_axis_stride;
         uint32_t n_embedded = dcst_buffer->shape[axis];
         uint32_t n_source = source_arr->shape[axis];
         for (uint32_t i = 0; i < n_source; i++) {
@@ -4409,7 +4379,10 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const MYFLT *axis_in, 
     }
 
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
-    fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode);
+    if (fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
 
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -4512,7 +4485,10 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
 
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
     MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
-    fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode);
+    if (fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
 
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -4770,10 +4746,8 @@ static int32_t mel_apply_filter_bank(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *ou
     size_t src_stride = stft->strides[0];
     size_t dst_stride = out_log_mel->strides[0];
     for (uint32_t frame = 0; frame < nframes; frame++) {
-        uint32_t src_coords[2] = { 0U, frame };
-        uint32_t dst_coords[2] = { 0U, frame };
-        size_t src_base = from_coords_to_offset(src_coords, stft->strides, 2U);
-        size_t dst_base = from_coords_to_offset(dst_coords, out_log_mel->strides, 2U);
+        size_t src_base = (size_t) frame * stft->strides[1];
+        size_t dst_base = (size_t) frame * out_log_mel->strides[1];
 
         for (uint32_t mel = 0; mel < nmels; mel++) {
             const CSN_MEL_FILTER *filter = &fbank[mel];
@@ -4838,10 +4812,8 @@ static int32_t mfcc_apply_dct(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *out, cons
     size_t dst_stride = out->strides[0];
 
     for (uint32_t frame = 0; frame < nframes; frame++) {
-        uint32_t src_coords[2] = { 0U, frame };
-        uint32_t dst_coords[2] = { 0U, frame };
-        size_t src_base = from_coords_to_offset(src_coords, log_mel->strides, 2U);
-        size_t dst_base = from_coords_to_offset(dst_coords, out->strides, 2U);
+        size_t src_base = (size_t) frame * log_mel->strides[1];
+        size_t dst_base = (size_t) frame * out->strides[1];
 
         for (uint32_t k = 0; k < ncoef; k++) {
             const double *row = matrix + (size_t) k * (size_t) nmels;
@@ -5110,8 +5082,7 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
     size_t bin_stride = p->array->strides[1];
     for (uint32_t i = 0; i < nmfcc; i++) {
         const CSN_MEL_FILTER *filter = &fbank[i];
-        uint32_t row_coords[2] = { i, 0U };
-        size_t row_base = from_coords_to_offset(row_coords, p->array->strides, 2U);
+        size_t row_base = (size_t) i * p->array->strides[0];
         double *row = p->array->data + row_base * p->array->itype;
 
         if (is_log) {
@@ -5176,27 +5147,11 @@ int32_t csnarray_hilbert_deinit(CSOUND *csound, CSN_HILBERT *p) {
 }
 
 static int32_t hilbert_assign_value(CSN_ARRAY *fft_buffer, double *kernel, int32_t axis, bool is_analytic) {
-    uint32_t reduced_shape[CSN_MAX_DIMS] = {0};
-    uint32_t reduced_ndim = 0;
-    size_t slice_count = 1;
-    for (uint32_t i = 0; i < fft_buffer->ndim; ++i) {
-        if (i != (uint32_t) axis) {
-            reduced_shape[reduced_ndim++] = fft_buffer->shape[i];
-            slice_count *= fft_buffer->shape[i];
-        }
-    }
-
-    size_t src_stride = fft_buffer->strides[axis];
-    for (size_t linear = 0; linear < slice_count; ++linear) {
-        uint32_t src_coords[CSN_MAX_DIMS] = {0};
-        uint32_t dst_coords[CSN_MAX_DIMS] = {0};
-
-        from_linear_to_coords(dst_coords, reduced_shape, linear, reduced_ndim);
-        for (uint32_t i = 0, j = 0; i < fft_buffer->ndim; ++i) {
-            src_coords[i] = (i == (uint32_t) axis) ? 0 : dst_coords[j++];
-        }
-
-        size_t src_base = from_coords_to_offset(src_coords, fft_buffer->strides, fft_buffer->ndim);
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, fft_buffer, fft_buffer, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        size_t src_base = it.src_base;
+        size_t src_stride = it.src_axis_stride;
         uint32_t n = fft_buffer->shape[axis];
         for (uint32_t i = 0; i < n; i++) {
             CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, i, src_stride, fft_buffer->itype);
@@ -5277,7 +5232,10 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const MYF
     }
 
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
-    fft_assign_value(csound, fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode);
+    if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
 
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -5287,8 +5245,11 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const MYF
         goto done;
     }
 
-    hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic);
-    ifft_assign_value(csound, ifft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, ifft_out_size, axis, inv_mode);
+    if (hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic) != OK
+        || ifft_assign_value(csound, ifft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, ifft_out_size, axis, inv_mode) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -5378,7 +5339,10 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
         }
     }
 
-    fft_assign_value(csound, p->k_data_fft.fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode);
+    if (fft_assign_value(csound, p->k_data_fft.fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
 
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -5396,8 +5360,11 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
     if (res != OK) goto done;
     p->array = arr;
 
-    hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic);
-    ifft_assign_value(csound, p->k_data_ifft.fft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, iout_size, axis, inv_mode);
+    if (hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic) != OK
+        || ifft_assign_value(csound, p->k_data_ifft.fft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, iout_size, axis, inv_mode) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible Hilbert array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -5440,21 +5407,22 @@ int32_t csnarray_hilbert1dr_k(CSOUND *csound, CSN_HILBERT *p) {
 /* Forward on both axes, the two masks, then back. Columns first and rows
    second on the way in, reversed on the way out, so each axis sees exactly one
    forward and one inverse and the two normalizations cancel. */
-static void hilbert2_transform(CSOUND *csound, CSN_HILBERT2 *p, CSN_ARRAY *source_arr) {
+static int32_t hilbert2_transform(CSOUND *csound, CSN_HILBERT2 *p, CSN_ARRAY *source_arr) {
     MYFLT *temp = (MYFLT *) p->fft_temp_buffer.scratch;
     double *h_rows = (double *) p->kernel_buffer.scratch;
     double *h_cols = h_rows + p->nrows;
     uint32_t nrows = p->nrows;
     uint32_t ncols = p->ncols;
 
-    fft_assign_value(csound, NULL, &p->intermediate, source_arr, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNFFT);
-    fft_assign_value(csound, NULL, p->array, &p->intermediate, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNFFT);
+    if (fft_assign_value(csound, NULL, &p->intermediate, source_arr, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNFFT) != OK
+        || fft_assign_value(csound, NULL, p->array, &p->intermediate, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNFFT) != OK) return NOTOK;
 
-    hilbert_assign_value(p->array, h_rows, 0, true);
-    hilbert_assign_value(p->array, h_cols, 1, true);
+    if (hilbert_assign_value(p->array, h_rows, 0, true) != OK
+        || hilbert_assign_value(p->array, h_cols, 1, true) != OK) return NOTOK;
 
-    ifft_assign_value(csound, NULL, &p->intermediate, p->array, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNIFFT);
-    ifft_assign_value(csound, NULL, p->array, &p->intermediate, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNIFFT);
+    if (ifft_assign_value(csound, NULL, &p->intermediate, p->array, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNIFFT) != OK
+        || ifft_assign_value(csound, NULL, p->array, &p->intermediate, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNIFFT) != OK) return NOTOK;
+    return OK;
 }
 
 /* The two-dimensional analytic signal. The mask is the outer product of the
@@ -5540,7 +5508,10 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     p->nrows = (uint32_t) nrows;
     p->ncols = (uint32_t) ncols;
 
-    hilbert2_transform(csound, p, source_arr);
+    if (hilbert2_transform(csound, p, source_arr) != OK) {
+        res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_BEGIN(p, reg);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
@@ -5626,7 +5597,10 @@ static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     if (res != OK) goto done;
     p->array = arr;
 
-    hilbert2_transform(csound, p, source_arr);
+    if (hilbert2_transform(csound, p, source_arr) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible Hilbert array shapes/ranks");
+        goto done;
+    }
 
     SET_KDATA_END(p, new_shape, new_ndim, CSN_COMPLEX);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
