@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.4] - 
+## [0.1.4] - 2026-09-16
 
 - Let `csnsave` and `csnload` select csnum's `.csn` or NumPy's `.npy` format by path extension at i-rate and k-rate. `.npy` writes C-order float64/complex128 and reads supported numeric dtypes, byte orders and Fortran-order arrays, converting them to csnum's double-based layout; add opcode and file-format regression coverage and update the reference, examples and NumPy correspondence table
 - Refactor the former monolithic `csnum.c` into category-focused implementation units for creation, shape transforms, indexing and mutation, selection, statistics, element-wise math, vector operations, signal utilities, interpolation, file I/O, audio bridging, and filtering; keep the complete `OENTRY` inventory centralized in `csnum.c` and make cross-module dependencies explicit through an internal interface
