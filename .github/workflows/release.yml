@@ -3,6 +3,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch: {}   # allow manual runs to test the build
 
 permissions:

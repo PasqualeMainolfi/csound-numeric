@@ -235,7 +235,7 @@
         "csnfftconvolve",
         "csnfftcorrelate"
     ],
-    "version": "0.1.4",
+    "version": "0.1.5",
     "short_description": "Numpy-style opcodes for Csound",
     "long_description": "A Csound 7 plugin that brings a NumPy-style array vocabulary into the orchestra language, with .csn and NumPy .npy file support",
     "author": "Pasquale Mainolfi",
@@ -245,25 +245,25 @@
     "binaries": [
         {
             "platform": "linux-x86_64",
-            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.4/csnum-csound7-linux-x86_64.zip",
+            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.5/csnum-csound7-linux-x86_64.zip",
             "extractpath": "libcsnum.so",
             "csound_version": ">=7.0"
         },
         {
             "platform": "macos-arm64",
-            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.4/csnum-csound7-macos-universal.zip",
+            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.5/csnum-csound7-macos-universal.zip",
             "extractpath": "libcsnum.dylib",
             "csound_version": ">=7.0"
         },
         {
             "platform": "macos-x86_64",
-            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.4/csnum-csound7-macos-universal.zip",
+            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.5/csnum-csound7-macos-universal.zip",
             "extractpath": "libcsnum.dylib",
             "csound_version": ">=7.0"
         },
         {
             "platform": "windows-x86_64",
-            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.4/csnum-csound7-windows-x86_64.zip",
+            "url": "https://github.com/PasqualeMainolfi/csound-numeric/releases/download/v0.1.5/csnum-csound7-windows-x86_64.zip",
             "extractpath": "csnum.dll",
             "csound_version": ">=7.0"
         }

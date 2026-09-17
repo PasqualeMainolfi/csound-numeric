@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.5] - 2026-09-17
+
+- Fix the release builds against the pinned Csound 7 beta.17 headers and MSVC, so the Linux, macOS universal, and Windows archives can be generated
+- Trigger the release workflow when a GitHub release is published as well as when a version tag is pushed
+
 ## [0.1.4] - 2026-09-16
 
 - Let `csnsave` and `csnload` select csnum's `.csn` or NumPy's `.npy` format by path extension at i-rate and k-rate. `.npy` writes C-order float64/complex128 and reads supported numeric dtypes, byte orders and Fortran-order arrays, converting them to csnum's double-based layout; add opcode and file-format regression coverage and update the reference, examples and NumPy correspondence table
