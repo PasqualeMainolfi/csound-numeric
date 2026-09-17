@@ -1,4 +1,4 @@
-if(NOT BUILD_csnum_OPCODES OR NOT BUILD_csnum_VIEWER)
+if(NOT TARGET csnum)
     return()
 endif()
 
@@ -32,6 +32,9 @@ add_custom_target(csnum_release_package
             "${csnum_RELEASE_STAGE}/licenses"
     COMMAND "${CMAKE_COMMAND}" -E copy
             "$<TARGET_FILE:csnum>" "${csnum_RELEASE_STAGE}/"
+    COMMAND "${CMAKE_COMMAND}" -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+            "${csnum_RELEASE_STAGE}/licenses/LICENSE"
     COMMAND "${CMAKE_COMMAND}" -E chdir "${csnum_RELEASE_STAGE}"
             "${CMAKE_COMMAND}" -E tar cf
             "${csnum_RELEASE_DIR}/${csnum_RELEASE_NAME}"
@@ -39,4 +42,5 @@ add_custom_target(csnum_release_package
             "$<TARGET_FILE_NAME:csnum>"
             licenses
     COMMENT "Packaging ${csnum_RELEASE_NAME} for Risset"
+    DEPENDS csnum
     VERBATIM)

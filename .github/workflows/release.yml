@@ -1,0 +1,133 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}   # allow manual runs to test the build
+
+permissions:
+  contents: read
+
+env:
+  # Csound source ref to take headers from. Pinned to the Csound 7 tag whose
+  # headers this plugin was built and verified against (also the runtime Csound).
+  CSOUND_REF: 7.0.0-beta.17
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `platform` must match the archive name in csnum_release.cmake.
+          # Ubuntu 22.04 keeps the Linux binary compatible with glibc 2.35.
+          - { os: ubuntu-22.04,   platform: linux-x86_64,   arch: "" }
+          - { os: macos-latest,   platform: macos-universal, arch: "arm64;x86_64" }
+          - { os: windows-latest, platform: windows-x86_64, arch: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone Csound headers
+        uses: actions/checkout@v4
+        with:
+          repository: csound/csound
+          ref: ${{ env.CSOUND_REF }}
+          path: csound-src
+
+      - name: Configure
+        shell: bash
+        run: |
+          args=(-S . -B build -DCMAKE_BUILD_TYPE=Release -DCSOUND_INCLUDE_DIR="${GITHUB_WORKSPACE}/csound-src/include")
+          [ -n "${{ matrix.arch }}" ] && args+=(-DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}")
+          cmake "${args[@]}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package for Risset
+        run: cmake --build build --config Release --target csnum_release_package
+
+      - name: Verify archive name and contents
+        shell: bash
+        run: |
+          set -e
+          zip="build/dist/csnum-csound7-${{ matrix.platform }}.zip"
+          [ -f "$zip" ] || { echo "missing $zip"; ls -R build/dist; exit 1; }
+          case "${{ runner.os }}" in
+            Windows) plugin=csnum.dll;      ;;
+            macOS)   plugin=libcsnum.dylib; ;;
+            *)       plugin=libcsnum.so;    ;;
+          esac
+          # `cmake -E tar t` avoids depending on unzip/7z being on PATH.
+          cmake -E tar tf "$zip" > listing.txt
+          cat listing.txt
+          for f in "$plugin" licenses/LICENSE; do
+            grep -qx "$f" listing.txt || { echo "missing from archive: $f"; exit 1; }
+          done
+          if [ "${{ runner.os }}" = macOS ]; then
+            lipo "build/dist/csnum-release/$plugin" -verify_arch arm64
+            lipo "build/dist/csnum-release/$plugin" -verify_arch x86_64
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csnum-csound7-${{ matrix.platform }}
+          path: build/dist/csnum-csound7-${{ matrix.platform }}.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Risset manifest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          manifest = json.load(open("risset.json", encoding="utf-8"))
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag != "v" + manifest["version"]:
+              raise SystemExit(f"risset.json version does not match tag {tag}")
+
+          expected = {
+              "linux-x86_64": ("linux-x86_64", "libcsnum.so"),
+              "macos-arm64": ("macos-universal", "libcsnum.dylib"),
+              "macos-x86_64": ("macos-universal", "libcsnum.dylib"),
+              "windows-x86_64": ("windows-x86_64", "csnum.dll"),
+          }
+          binaries = manifest["binaries"]
+          entries = {binary["platform"]: binary for binary in binaries}
+          if len(entries) != len(binaries) or entries.keys() != expected.keys():
+              raise SystemExit("risset.json has missing or duplicate platforms")
+          for platform, (archive, plugin) in expected.items():
+              binary = entries[platform]
+              suffix = f"/releases/download/{tag}/csnum-csound7-{archive}.zip"
+              if not binary["url"].endswith(suffix) or binary["extractpath"] != plugin:
+                  raise SystemExit(f"risset.json binary does not match {platform} asset")
+          PY
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: csnum-csound7-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          for platform in linux-x86_64 macos-universal windows-x86_64; do
+            test -f "dist/csnum-csound7-${platform}.zip" || exit 1
+          done
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          fail_on_unmatched_files: true
