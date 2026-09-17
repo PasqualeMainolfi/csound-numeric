@@ -827,7 +827,7 @@ int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p) {
         goto done;
     }
     for (size_t i = 0; i < count; ++i) {
-        ARRAY_ELEMENT *elem = &p->scratch.scratch[i];
+        ARRAY_ELEMENT *elem = &((ARRAY_ELEMENT *) p->scratch.scratch)[i];
         if (ND_ITER_SEEK(&it, elem->linear_index) != OK) {
             res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unique index is out of range");
             goto done;

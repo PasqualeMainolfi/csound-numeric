@@ -759,14 +759,18 @@ int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
    reallocating, and a marked source that needs more is refused instead of
    letting tabinit allocate. Csound's own copy-on-write detach of a shared
    output array stays outside this guarantee. */
-static int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out, size_t items) {
-    if (h->perf == NULL || items == 0) return OK;
-    return csound_array_ensure_capacity(csound, out, items, h->insdshead);
-}
-
 static bool krate_array_output_fits(const ARRAYDAT *out, size_t items) {
     return out->data != NULL && out->arrayMemberSize > 0
         && out->allocated / (size_t) out->arrayMemberSize >= items;
+}
+
+static int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out, size_t items) {
+    if (h->perf == NULL || items == 0) return OK;
+    if (items > (size_t) INT32_MAX) return NOTOK;
+    int32_t logical_size = out->dimensions == 1 && out->sizes != NULL ? out->sizes[0] : 0;
+    tabinit(csound, out, (int32_t) items, h->insdshead);
+    if (out->dimensions == 1 && out->sizes != NULL) out->sizes[0] = logical_size;
+    return krate_array_output_fits(out, items) ? OK : NOTOK;
 }
 
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
@@ -1447,4 +1451,3 @@ int32_t csnarray_geomspace(CSOUND *csound, CSN_SPACED_SPACE *p) {
 int32_t csnarray_geomspace_k(CSOUND *csound, CSN_SPACED_SPACE *p) {
     return spaced_space_k_helper(csound, p, CSN_GEOMSPACE);
 }
-

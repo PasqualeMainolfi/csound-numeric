@@ -6,6 +6,13 @@
 #include "csnum.h"
 #include <stdint.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#ifndef M_PI_2
+#define M_PI_2 (M_PI / 2.0)
+#endif
+
 int compare_double_from_array_elem(const void *a, const void *b);
 size_t sliding_median_scratch_size(size_t win_size);
 const char *get_out_name(OPDS *h);

@@ -241,7 +241,10 @@ int32_t csnarray_unpack_audio_init(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     }
 
     int32_t nchnls = (int32_t) buffer->shape[0];
-    if (tabinit(csound, p->sig, nchnls, p->h.insdshead) != OK) {
+    tabinit(csound, p->sig, nchnls, p->h.insdshead);
+    if (p->sig->data == NULL || p->sig->sizes == NULL ||
+        p->sig->arrayMemberSize <= 0 ||
+        p->sig->allocated / (size_t) p->sig->arrayMemberSize < (size_t) nchnls) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
