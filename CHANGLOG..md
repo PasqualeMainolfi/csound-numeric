@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+- Add Sabine and Eyring-Norris reverberation time from a volume and its absorbing surfaces, scalar or one time per room, at init and k-rate (*csnt60sab*, *csnt60eyr*)
+- Add the absorption a room needs to reach a target reverberation time and the Schroeder frequency that separates a room's modal region from its diffuse one; either operand may be a scalar or an array, and two arrays pair every volume with every target into a `volumes x targets` matrix (*csnrt60absp*, *csnfschrd*)
+- Add the resonant frequency of a rectangular room for one modal index triple, for a single room or one row per room; the modal orders are any non-negative integers, so modes above the first are reachable (*csnfpqr*)
+- Add the comb feedback gain a delay needs to decay by 60 dB in a given time and its inverse, scalar or array on either side, at init and k-rate; a gain of 1 or more never decays and answers 0 rather than an infinity or a negative time (*csnt60tofbg*, *csnfbgtot60*)
+- Add level summation in decibels by adding powers, over a pair, a whole array, or one axis (*csndbsum*)
+- Add sample/time conversion against an explicit sample rate rather than the orchestra's, scalar and array forms (*csnsamptomillis*, *csnsamptosec*, *csnmillistosamp*, *csnsectosamp*)
+- Add scalar complex arithmetic under the names the array operators already use: *csnadd*, *csnsubtract*, *csnmul*, *csndiv* and *csnpow* with two `:Complex;` operands or one complex and one real on either side, *csnsqrt* on a single one, and *csnabs*, *csnangle* and *csnconj* reading one `:Complex;` value
+- Raise an error on a scalar complex division by zero and on a zero base under a complex power, as the elementwise forms do, instead of answering zero
+- Compute the magnitude of a scalar `:Complex;` with `hypot`, so a component near the top or bottom of the double range neither overflows to infinity nor flushes to zero
+- Add opcode reference pages, runnable examples, inventory entries, NumPy correspondence rows and i-rate/k-rate regression coverage for the room acoustics, feedback-gain and level/time families
+- Extend the `csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`, `csnsqrt`, `csnabs`, `csnangle` and `csnconj` reference pages with their scalar `:Complex;` overloads, and cover those at i-rate and k-rate; the scalar forms are listed on each opcode's own page rather than as separate inventory entries
+- Add `src/csnmeasure.c` as the implementation unit for the room acoustics, feedback-gain and level/time opcodes, keeping the `OENTRY` inventory centralized in `csnum.c` as the other units do
+- Rename `CSN_WHERE_VERSION_K_STATE` to `CSN_THREE_VERSION_K_STATE` and export `IS_VALID_SR` through the internal interface, both now used outside the units that introduced them
+- Fix the k-rate axis of *csnmedfilt1d*, its in-place form and *csncompress*, declared i-rate although the performance pass re-reads and revalidates it on every control period; a k-rate axis could not be passed at all, and the reuse comparison against the stored axis was unreachable
+- Fix the argument order of the k-rate *csnfftconvolve1d* calls in the real-time regression suites, which put the axis before the trigger and left both files failing to parse
+
 ## [0.1.5] - 2026-09-17
 
 - Fix the release builds against the pinned Csound 7 beta.17 headers and MSVC, so the Linux, macOS universal, and Windows archives can be generated

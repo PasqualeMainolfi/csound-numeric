@@ -48,6 +48,7 @@ Out1d@global:CsnArr     = csnempty(giEmpty)
 Zero1d@global:CsnArr    = csnempty(giEmpty)
 OutNd@global:CsnArr     = csnempty(giEmpty2)
 OutNdS@global:CsnArr    = csnempty(giEmpty2)
+OutAx@global:CsnArr     = csnempty(giEmpty2)
 
 instr 1
     kAlways init 1
@@ -78,6 +79,10 @@ instr 1
 
     csnclip(MatInW, kLow, kHighNd, kTouch)
     csnmedfilt(MatInW, 3, kAlways)
+
+    ; --- the axis is a k argument: the filter has to follow it when it moves --
+    kAxis = (timeinstk() >= 3 ? 1 : 0)
+    OutAx = csnmedfilt1d(Mat, 3, kAlways, kAxis)
 endin
 
 instr 2
@@ -91,6 +96,17 @@ instr 2
     ; a zero trigger keeps the result the init pass published
     iZero[] = csntoarray(Zero1d)
     assert(iZero[2] == 8 && iZero[3] == 3 && iZero[4] == 7)
+
+    ; --- the k-rate axis moved from 0 to 1 on the third pass ----------------
+    ; Comparing against both i-rate references is what shows the move
+    ; happened: matching axis 1 alone would also hold if the axis had never
+    ; been read, since the two differ on this matrix.
+    iAxRef1:CsnArr = csnmedfilt1d(Mat, 3, 1)
+    iAxRef0:CsnArr = csnmedfilt1d(Mat, 3, 0)
+    iAxErr = csnmax(csnabs(csnsubtract(OutAx, iAxRef1)))
+    assert(iAxErr == 0)
+    iAxDiff = csnmax(csnabs(csnsubtract(iAxRef0, iAxRef1)))
+    assert(iAxDiff > 0)
 
     ; --- in place: one pass, not one per k-period --------------------------
     ; filtered twice this would read 3, 7, 4 at the same positions

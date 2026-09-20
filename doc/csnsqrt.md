@@ -16,11 +16,14 @@ root is returned instead, and negative reals come back on the imaginary axis.
 Real and complex arrays are both accepted: a complex source is carried through
 the complex form of the function and the result stays complex.
 
+The same name also takes a single `:Complex;` value and answers its principal square root, the one with a non-negative real part.
+
 ## Syntax
 
 ```csound
 handle:CsnArr = csnsqrt(source:CsnArr)
 handle:CsnArr = csnsqrt(source:CsnArr, trig:k)
+root:Complex = csnsqrt(source:Complex)
 ```
 
 ## Arguments

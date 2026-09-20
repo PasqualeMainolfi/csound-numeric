@@ -18,6 +18,12 @@ is how to negate an array: `csnsubtract(0, data)`.
 Real and complex arrays are both accepted, and an operation mixing the two
 promotes the result to complex. A complex scalar is passed as a `:Complex;`.
 
+Besides the array forms, the same name covers scalar complex arithmetic: two
+`:Complex;` values, or one `:Complex;` and one real number on either side. These
+take no handles and no trigger — they are a few floating-point operations, not a
+traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
+operands do, since nothing in its signature could tell the two apart.
+
 ## Syntax
 
 ```csound
@@ -33,6 +39,11 @@ handle:CsnArr = csnsubtract(value:k, b:CsnArr)
 handle:CsnArr = csnsubtract(value:k, b:CsnArr, trig:k)
 handle:CsnArr = csnsubtract(value:Complex, b:CsnArr)
 handle:CsnArr = csnsubtract(value:Complex, b:CsnArr, trig:k)
+dif:Complex = csnsubtract(a:Complex, b:Complex)
+dif:Complex = csnsubtract(a:Complex, b:i)
+dif:Complex = csnsubtract(a:Complex, b:k)
+dif:Complex = csnsubtract(a:i, b:Complex)
+dif:Complex = csnsubtract(a:k, b:Complex)
 ```
 
 ## Arguments

@@ -28,6 +28,7 @@ bool SOURCE_HAS_MOVED(const K_DATA *k_data, uint32_t source_handle, const CSN_AR
 bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
 bool BROADCAST_ITER_NEXT(CSN_BROADCAST_ITER *it);
 bool AXIS_SLICE_ITER_NEXT(CSN_AXIS_SLICE_ITER *it);
+bool IS_VALID_SR(double value);
 void PUBLISH_DERIVED_RESULT(K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
 void PUBLISH_ELEMENTWISE(K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
 void complex_acos(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);

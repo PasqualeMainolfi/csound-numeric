@@ -22,7 +22,8 @@ if(BUILD_CSNUM_OPCODES)
         src/csnfile.c
         src/csnset.c
         src/csnfft.c
-        src/csnlinalg.c)
+        src/csnlinalg.c
+        src/csnmeasure.c)
 
     make_plugin(csnum "${CSNUM_SOURCES}")
 

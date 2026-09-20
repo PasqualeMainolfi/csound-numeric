@@ -254,6 +254,10 @@ natural order, and convolution would reverse them, which flips the sign of
 every odd-order row.
 
 ## Complex arrays
+`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow` and `csnsqrt` also take
+scalar `:Complex;` operands, and `csnabs`, `csnangle` and `csnconj` a single
+one, with no handle and no trigger involved. Those forms are listed on the
+opcode's own page rather than as separate entries here.
 
 - **csnreal** - real parts, as a real array (i, k — complex only)
 - **csnimag** - imaginary parts, as a real array (i, k — complex only)
@@ -351,6 +355,34 @@ length is derived from the operands, never asked for.
 - **csnbartlett** - Bartlett (triangular) window (i, k — real only)
 - **csnblackman** - Blackman window (i, k — real only)
 - **csnkaiser** - Kaiser window with a beta parameter (i, k — real only)
+
+## Room acoustics
+
+Estimates a designer works with before there is any audio. In every one of these
+the operands may be scalars or arrays: `csnt60sab` and `csnt60eyr` answer one
+time per volume, while `csnrt60absp` and `csnfschrd` pair every volume with
+every target when both sides are arrays, giving a `volumes x targets` matrix,
+and `csnt60tofbg` / `csnfbgtot60` pair delays with target times or gains the
+same way.
+
+- **csnt60sab** - Sabine reverberation time from a volume and its absorbing surfaces (i, k — real only)
+- **csnt60eyr** - Eyring-Norris reverberation time, the model that still holds in an absorbent room (i, k — real only)
+- **csnrt60absp** - the absorption a room needs to reach a target reverberation time (i, k — real only)
+- **csnfschrd** - Schroeder frequency, the crossover between the modal and diffuse regions (i, k — real only)
+- **csnfpqr** - resonant frequency of a rectangular room for one modal index triple (i, k — real only)
+- **csnt60tofbg** - the feedback gain a comb of a given delay needs to decay by 60 dB in a given time (i, k — real only)
+- **csnfbgtot60** - the decay time of a comb of a given delay at a given feedback gain (i, k — real only)
+
+## Levels and time conversion
+
+The sample rate is an argument rather than the orchestra's, and is init-time on
+every overload including the k-rate ones.
+
+- **csndbsum** - sums levels in dB by adding their powers, over a pair, an array, or one axis (i, k — real only)
+- **csnsamptomillis** - sample counts into milliseconds at a given rate (i, k — real only)
+- **csnsamptosec** - sample counts into seconds at a given rate (i, k — real only)
+- **csnmillistosamp** - milliseconds into sample counts at a given rate (i, k — real only)
+- **csnsectosamp** - seconds into sample counts at a given rate (i, k — real only)
 
 ## Audio bridge
 

@@ -2416,6 +2416,344 @@ instr 17
     iHilbMatDet = csndet(iHilbMat)
     assert(abs(iHilbMatDet - 1.65343915343927e-07) < 1e-18)
 endin
+
+instr 18
+    ; ------------------------------------------------------------------
+    ; Room acoustics. Sabine wants the surface-weighted absorption
+    ; sum(S*alpha), Eyring wants that sum and the bare total surface, so
+    ; the two disagree by exactly the log term and each pins the other.
+    ; ------------------------------------------------------------------
+    iRoomShape[] = fillarray(2, 2)
+    iVolVals[] = fillarray(100, 200)
+    iSurfVals[] = fillarray(10, 20)
+    iAlphaVals[] = fillarray(0.1, 0.2)
+    iSurfMatVals[] = fillarray(10, 20, 10, 20)
+    iAlphaMatVals[] = fillarray(0.1, 0.2, 0.1, 0.2)
+
+    iVols:CsnArr = csnfromarray(iVolVals)
+    iSurf:CsnArr = csnfromarray(iSurfVals)
+    iAlpha:CsnArr = csnfromarray(iAlphaVals)
+    iSurfMat:CsnArr = csnreshape(csnfromarray(iSurfMatVals), iRoomShape)
+    iAlphaMat:CsnArr = csnreshape(csnfromarray(iAlphaMatVals), iRoomShape)
+
+    ; absorption = 10*0.1 + 20*0.2 = 5, so T60 = 0.161 * 100 / 5
+    iSabS = csnt60sab(100, iSurf, iAlpha)
+    assert(abs(iSabS - 3.22) < 1e-12)
+    ; total surface 30, mean coefficient 5/30
+    iEyrWant = -0.161 * 100 / (30 * log(1 - 5 / 30))
+    iEyrS = csnt60eyr(100, iSurf, iAlpha)
+    assert(abs(iEyrS - iEyrWant) < 1e-12)
+
+    iSabA:CsnArr = csnt60sab(iVols, iSurfMat, iAlphaMat)
+    iSabAVals[] = csntoarray(iSabA)
+    assert(abs(iSabAVals[0] - 3.22) < 1e-12)
+    assert(abs(iSabAVals[1] - 6.44) < 1e-12)
+
+    iEyrA:CsnArr = csnt60eyr(iVols, iSurfMat, iAlphaMat)
+    iEyrAVals[] = csntoarray(iEyrA)
+    assert(abs(iEyrAVals[0] - iEyrWant) < 1e-12)
+    assert(abs(iEyrAVals[1] - 2 * iEyrWant) < 1e-12)
+
+    ; ------------------------------------------------------------------
+    ; Required absorption and the Schroeder frequency. Both read one
+    ; volume against one T60 target, so the four overloads differ only in
+    ; which side arrives as an array; the handle/handle form pairs every
+    ; volume with every target and is therefore 2-D.
+    ; ------------------------------------------------------------------
+    iTgtVals[] = fillarray(2, 4)
+    iTargets:CsnArr = csnfromarray(iTgtVals)
+
+    iAbsSS = csnrt60absp(100, 2)
+    assert(abs(iAbsSS - 8.05) < 1e-12)
+
+    iAbsSH:CsnArr = csnrt60absp(100, iTargets)
+    iAbsSHVals[] = csntoarray(iAbsSH)
+    assert(abs(iAbsSHVals[0] - 8.05) < 1e-12)
+    assert(abs(iAbsSHVals[1] - 4.025) < 1e-12)
+
+    iAbsHS:CsnArr = csnrt60absp(iVols, 2)
+    iAbsHSVals[] = csntoarray(iAbsHS)
+    assert(abs(iAbsHSVals[0] - 8.05) < 1e-12)
+    assert(abs(iAbsHSVals[1] - 16.1) < 1e-12)
+
+    iAbsHH:CsnArr = csnrt60absp(iVols, iTargets)
+    iAbsHHShape[] = csnshape(iAbsHH)
+    assert(iAbsHHShape[0] == 2)
+    assert(iAbsHHShape[1] == 2)
+    iAbsHHVals[][] = csntoarray(iAbsHH)
+    assert(abs(iAbsHHVals[0][0] - 8.05) < 1e-12)
+    assert(abs(iAbsHHVals[0][1] - 4.025) < 1e-12)
+    assert(abs(iAbsHHVals[1][0] - 16.1) < 1e-12)
+    assert(abs(iAbsHHVals[1][1] - 8.05) < 1e-12)
+
+    iFsWant = 2000 * sqrt(2 / 100)
+    iFsSS = csnfschrd(100, 2)
+    assert(abs(iFsSS - iFsWant) < 1e-9)
+
+    iFsSH:CsnArr = csnfschrd(100, iTargets)
+    iFsSHVals[] = csntoarray(iFsSH)
+    assert(abs(iFsSHVals[0] - iFsWant) < 1e-9)
+    assert(abs(iFsSHVals[1] - 2000 * sqrt(4 / 100)) < 1e-9)
+
+    iFsHS:CsnArr = csnfschrd(iVols, 2)
+    iFsHSVals[] = csntoarray(iFsHS)
+    assert(abs(iFsHSVals[0] - iFsWant) < 1e-9)
+    assert(abs(iFsHSVals[1] - 2000 * sqrt(2 / 200)) < 1e-9)
+
+    iFsHH:CsnArr = csnfschrd(iVols, iTargets)
+    iFsHHVals[][] = csntoarray(iFsHH)
+    assert(abs(iFsHHVals[0][0] - iFsWant) < 1e-9)
+    assert(abs(iFsHHVals[1][1] - 2000 * sqrt(4 / 200)) < 1e-9)
+
+    ; ------------------------------------------------------------------
+    ; Modal frequencies. p, q and r are modal orders, not flags, so the
+    ; second-order axial mode has to be accepted and land an octave up.
+    ; ------------------------------------------------------------------
+    iRoomVals[] = fillarray(4, 5, 3)
+    iModeVals[] = fillarray(1, 0, 0)
+    iMode2Vals[] = fillarray(2, 0, 0)
+    iRoomsShape[] = fillarray(2, 3)
+    iRoomsVals[] = fillarray(4, 5, 3, 8, 5, 3)
+
+    iRoom:CsnArr = csnfromarray(iRoomVals)
+    iMode:CsnArr = csnfromarray(iModeVals)
+    iMode2:CsnArr = csnfromarray(iMode2Vals)
+    iRooms:CsnArr = csnreshape(csnfromarray(iRoomsVals), iRoomsShape)
+
+    iFmode = csnfpqr(iRoom, iMode, 343)
+    assert(abs(iFmode - 343 / 2 * 0.25) < 1e-12)
+    iFmode2 = csnfpqr(iRoom, iMode2, 343)
+    assert(abs(iFmode2 - 343 / 2 * 0.5) < 1e-12)
+
+    iFmodes:CsnArr = csnfpqr(iRooms, iMode, 343)
+    iFmodesVals[] = csntoarray(iFmodes)
+    assert(abs(iFmodesVals[0] - 343 / 2 * 0.25) < 1e-12)
+    assert(abs(iFmodesVals[1] - 343 / 2 * 0.125) < 1e-12)
+
+    ; ------------------------------------------------------------------
+    ; Sample/time conversion round-trips, array and scalar forms.
+    ; ------------------------------------------------------------------
+    iSampVals[] = fillarray(48, 96)
+    iSamps:CsnArr = csnfromarray(iSampVals)
+
+    iMillis:CsnArr = csnsamptomillis(iSamps, 48000)
+    iMillisVals[] = csntoarray(iMillis)
+    assert(abs(iMillisVals[0] - 1) < 1e-12)
+    assert(abs(iMillisVals[1] - 2) < 1e-12)
+
+    iSecs:CsnArr = csnsamptosec(iSamps, 48000)
+    iSecsVals[] = csntoarray(iSecs)
+    assert(abs(iSecsVals[0] - 0.001) < 1e-12)
+
+    iBackFromMs:CsnArr = csnmillistosamp(iMillis, 48000)
+    iBackFromMsVals[] = csntoarray(iBackFromMs)
+    assert(abs(iBackFromMsVals[0] - 48) < 1e-9)
+    assert(abs(iBackFromMsVals[1] - 96) < 1e-9)
+
+    iBackFromSec:CsnArr = csnsectosamp(iSecs, 48000)
+    iBackFromSecVals[] = csntoarray(iBackFromSec)
+    assert(abs(iBackFromSecVals[0] - 48) < 1e-9)
+
+    iMsS = csnsamptomillis(48, 48000)
+    assert(abs(iMsS - 1) < 1e-12)
+    iSecS = csnsamptosec(48, 48000)
+    assert(abs(iSecS - 0.001) < 1e-12)
+    iSampFromMs = csnmillistosamp(1, 48000)
+    assert(abs(iSampFromMs - 48) < 1e-9)
+    iSampFromSec = csnsectosamp(0.001, 48000)
+    assert(abs(iSampFromSec - 48) < 1e-9)
+
+    ; ------------------------------------------------------------------
+    ; dB summation is a power sum: two equal levels gain 3.0103 dB, four
+    ; gain 6.0206, whatever the level itself is.
+    ; ------------------------------------------------------------------
+    iLevelVals[] = fillarray(0, 0, 0, 0)
+    iLevels:CsnArr = csnreshape(csnfromarray(iLevelVals), iRoomShape)
+
+    iDbAll = csndbsum(iLevels)
+    assert(abs(iDbAll - 10 * log10(4)) < 1e-12)
+
+    iDbAx:CsnArr = csndbsum(iLevels, 0)
+    iDbAxVals[] = csntoarray(iDbAx)
+    assert(abs(iDbAxVals[0] - 10 * log10(2)) < 1e-12)
+    assert(abs(iDbAxVals[1] - 10 * log10(2)) < 1e-12)
+
+    iDbPair = csndbsum(0, 0)
+    assert(abs(iDbPair - 10 * log10(2)) < 1e-12)
+endin
+
+instr 19
+    ; ------------------------------------------------------------------
+    ; Comb feedback gain and its decay time are inverses of each other:
+    ; g = 10^(-3 d / t60) and t60 = -3 d / log10(g). Asserting the round
+    ; trip is what pins both, and the hs form is where the two operands
+    ; are easiest to confuse, since only one of them is an array.
+    ; ------------------------------------------------------------------
+    iDelayVals[] = fillarray(0.010, 0.023, 0.041)
+    iT60Vals[] = fillarray(1.5, 3.0)
+    iDelays:CsnArr = csnfromarray(iDelayVals)
+    iT60s:CsnArr = csnfromarray(iT60Vals)
+
+    ; scalar/scalar, and back
+    iG = csnt60tofbg(0.010, 1.5)
+    assert(abs(iG - 0.954992586021436) < 1e-12)
+    iBack = csnfbgtot60(0.010, iG)
+    assert(abs(iBack - 1.5) < 1e-12)
+
+    ; a gain that cannot decay has no time: 1 stands still, above 1 it grows
+    iAtOne = csnfbgtot60(0.010, 1)
+    iAbove = csnfbgtot60(0.010, 1.5)
+    assert(iAtOne == 0 && iAbove == 0)
+    ; and the scalar form agrees with the array form on that, which it did
+    ; not while it bypassed the guarded evaluation
+    iGuard:CsnArr = csnfbgtot60(0.010, csnfromarray(array(1, 1.5)))
+    iGuardVals[] = csntoarray(iGuard)
+    assert(iGuardVals[0] == 0 && iGuardVals[1] == 0)
+
+    ; scalar delay, one gain per target time
+    iSH:CsnArr = csnt60tofbg(0.010, iT60s)
+    iSHVals[] = csntoarray(iSH)
+    assert(csndims(iSH) == 1 && csnsize(iSH) == 2)
+    assert(abs(iSHVals[0] - iG) < 1e-12)
+
+    ; one delay per line, one shared target: this must stay one-dimensional
+    iHS:CsnArr = csnt60tofbg(iDelays, 1.5)
+    iHSVals[] = csntoarray(iHS)
+    assert(csndims(iHS) == 1 && csnsize(iHS) == 3)
+    assert(abs(iHSVals[0] - iG) < 1e-12)
+
+    ; the same for the inverse, where the hs form used to pair the delays
+    ; with themselves and answer a 3 x 3 matrix
+    iHSBack:CsnArr = csnfbgtot60(iDelays, 0.7)
+    assert(csndims(iHSBack) == 1 && csnsize(iHSBack) == 3)
+    iHSBackVals[] = csntoarray(iHSBack)
+    iWant0 = -3 * 0.010 / log10(0.7)
+    iWant2 = -3 * 0.041 / log10(0.7)
+    assert(abs(iHSBackVals[0] - iWant0) < 1e-12)
+    assert(abs(iHSBackVals[2] - iWant2) < 1e-12)
+
+    ; both as arrays: every delay against every target
+    iHH:CsnArr = csnt60tofbg(iDelays, iT60s)
+    iHHShape[] = csnshape(iHH)
+    assert(csndims(iHH) == 2)
+    assert(iHHShape[0] == 3 && iHHShape[1] == 2)
+    iHHVals[][] = csntoarray(iHH)
+    assert(abs(iHHVals[0][0] - iG) < 1e-12)
+
+    iHHBack:CsnArr = csnfbgtot60(iDelays, iT60s)
+    iHHBackShape[] = csnshape(iHHBack)
+    assert(iHHBackShape[0] == 3 && iHHBackShape[1] == 2)
+endin
+
+instr 20
+    ; ------------------------------------------------------------------
+    ; Scalar complex arithmetic: the :Complex; overloads of the array
+    ; operators. Three shapes each — complex/complex, complex/real and
+    ; real/complex — and the two degenerate cases have to be refused here
+    ; exactly as the array forms refuse them, not answered with zero.
+    ; ------------------------------------------------------------------
+    iA:Complex = init(3, 4, 0)
+    iB:Complex = init(1, 2, 0)
+
+    iSum:Complex = csnadd(iA, iB)
+    iSumRe = real(iSum)
+    iSumIm = imag(iSum)
+    assert(iSumRe == 4 && iSumIm == 6)
+
+    iDif:Complex = csnsubtract(iA, iB)
+    iDifRe = real(iDif)
+    iDifIm = imag(iDif)
+    assert(iDifRe == 2 && iDifIm == 2)
+
+    ; (3+4i)(1+2i) = 3 + 6i + 4i - 8
+    iPrd:Complex = csnmul(iA, iB)
+    iPrdRe = real(iPrd)
+    iPrdIm = imag(iPrd)
+    assert(iPrdRe == -5 && iPrdIm == 10)
+
+    ; (3+4i)/(1+2i) = (3+4i)(1-2i)/5
+    iQuo:Complex = csndiv(iA, iB)
+    iQuoRe = real(iQuo)
+    iQuoIm = imag(iQuo)
+    assert(abs(iQuoRe - 2.2) < 1e-12 && abs(iQuoIm + 0.4) < 1e-12)
+
+    ; i squared is -1, and the square root brings it back
+    iI:Complex = init(0, 1, 0)
+    iTwo:Complex = init(2, 0, 0)
+    iSq:Complex = csnpow(iI, iTwo)
+    iSqRe = real(iSq)
+    iSqIm = imag(iSq)
+    assert(abs(iSqRe + 1) < 1e-12 && abs(iSqIm) < 1e-12)
+
+    ; sqrt is unary: one operand, no second one to ignore
+    iRoot:Complex = csnsqrt(iA)
+    iRootRe = real(iRoot)
+    iRootIm = imag(iRoot)
+    assert(abs(iRootRe - 2) < 1e-12 && abs(iRootIm - 1) < 1e-12)
+
+    ; --- one operand real, either side -------------------------------------
+    iCR:Complex = csnadd(iA, 10)
+    iCRRe = real(iCR)
+    iCRIm = imag(iCR)
+    assert(iCRRe == 13 && iCRIm == 4)
+
+    iRC:Complex = csnsubtract(10, iA)
+    iRCRe = real(iRC)
+    iRCIm = imag(iRC)
+    assert(iRCRe == 7 && iRCIm == -4)
+
+    iScale:Complex = csnmul(iA, 2)
+    iScaleRe = real(iScale)
+    iScaleIm = imag(iScale)
+    assert(iScaleRe == 6 && iScaleIm == 8)
+
+    iRCP:Complex = csnmul(2, iA)
+    iRCPRe = real(iRCP)
+    iRCPIm = imag(iRCP)
+    assert(iRCPRe == 6 && iRCPIm == 8)
+
+    ; 10/(3+4i) = 10(3-4i)/25
+    iRDiv:Complex = csndiv(10, iA)
+    iRDivRe = real(iRDiv)
+    iRDivIm = imag(iRDiv)
+    assert(abs(iRDivRe - 1.2) < 1e-12 && abs(iRDivIm + 1.6) < 1e-12)
+
+    iCDiv:Complex = csndiv(iA, 2)
+    iCDivRe = real(iCDiv)
+    iCDivIm = imag(iCDiv)
+    assert(iCDivRe == 1.5 && iCDivIm == 2)
+
+    iCPow:Complex = csnpow(iA, 2)
+    iCPowRe = real(iCPow)
+    iCPowIm = imag(iCPow)
+    assert(abs(iCPowRe + 7) < 1e-9 && abs(iCPowIm - 24) < 1e-9)
+
+    iRPow:Complex = csnpow(2, iTwo)
+    iRPowRe = real(iRPow)
+    iRPowIm = imag(iRPow)
+    assert(abs(iRPowRe - 4) < 1e-9 && abs(iRPowIm) < 1e-9)
+
+    ; --- unary --------------------------------------------------------------
+    iAbs = csnabs(iA)
+    assert(iAbs == 5)
+    ; hypot, not re*re + im*im: the square would have overflowed to infinity
+    iHuge:Complex = init(1e200, 1e200, 0)
+    iAbsHuge = csnabs(iHuge)
+    iTwoRoot = sqrt(2)
+    iHugeWant = 1e200 * iTwoRoot
+    assert(abs(iAbsHuge / iHugeWant - 1) < 1e-12)
+
+    iAng = csnangle(iA)
+    iIm = 4
+    iRe = 3
+    iAngWant = taninv2(iIm, iRe)
+    assert(abs(iAng - iAngWant) < 1e-12)
+
+    iConj:Complex = csnconj(iA)
+    iConjRe = real(iConj)
+    iConjIm = imag(iConj)
+    assert(iConjRe == 3 && iConjIm == -4)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -2441,6 +2779,9 @@ i 14 0.26 0.01
 i 15 0.28 0.01
 i 16 0.30 0.01
 i 17 0.32 0.01
+i 18 0.34 0.01
+i 19 0.36 0.01
+i 20 0.38 0.01
 e
 </CsScore>
 
@@ -2491,5 +2832,17 @@ e
 ; csnmedfilt csnmedfilt.in csnmedfilt.s csnmedfilt.s.in csnmedfilt1d csnmedfilt1d.in
 ; csndctone1d csndcttwo1d csndstone1d csndsttwo1d csnmfcc csnmfbank csnmlogfbank
 ; csnhilbert1d csnhilbert1dr csnhilbert2 csnhilbertmat
+; csnt60sab.a csnt60sab.s csnt60eyr.a csnt60eyr.s
+; csnrt60absp.hh csnrt60absp.sh csnrt60absp.hs csnrt60absp.ss
+; csnfschrd.hh csnfschrd.sh csnfschrd.hs csnfschrd.ss
+; csnfpqr csnfpqr.s
+; csnsamptomillis csnsamptomillis.s csnsamptosec csnsamptosec.s
+; csnmillistosamp csnmillistosamp.s csnsectosamp csnsectosamp.s
+; csndbsum csndbsum.s csndbsum.s.s
+; csnt60tofbg.hh csnt60tofbg.sh csnt60tofbg.hs csnt60tofbg.ss
+; csnfbgtot60.hh csnfbgtot60.sh csnfbgtot60.hs csnfbgtot60.ss
+; csnadd.cc csnadd.cr csnadd.rc csnsubtract.cc csnsubtract.cr csnsubtract.rc
+; csnmul.cc csnmul.cr csnmul.rc csndiv.cc csndiv.cr csndiv.rc
+; csnpow.cc csnpow.cr csnpow.rc csnsqrt.c csnabs.c csnangle.c csnconj.c
 ; @covers-end
 </CsoundSynthesizer>

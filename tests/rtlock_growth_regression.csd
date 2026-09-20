@@ -275,7 +275,7 @@ RtConvFreeH@global:CsnArr = csnfromarray(giKernel)
 instr 15
     kOne init 1
     csnrtlockstart
-    ConvOut:CsnArr = csnfftconvolve1d(RtConvX, RtConvH, 1, -1, kOne)
+    ConvOut:CsnArr = csnfftconvolve1d(RtConvX, RtConvH, 1, kOne, -1)
     csnrtlockend
     kTap init 1
     csnpush RtConvH, kTap, kOne
@@ -286,7 +286,7 @@ endin
 
 instr 16
     kOne init 1
-    ConvFree:CsnArr = csnfftconvolve1d(RtConvFreeX, RtConvFreeH, 1, -1, kOne)
+    ConvFree:CsnArr = csnfftconvolve1d(RtConvFreeX, RtConvFreeH, 1, kOne, -1)
     kTap init 1
     csnpush RtConvFreeH, kTap, kOne
     if timeinstk() == 12 then

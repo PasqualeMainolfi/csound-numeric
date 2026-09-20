@@ -24,6 +24,17 @@ FinMask@global:CsnArr = csnfromarray(giSpecial)
 HeldMask@global:CsnArr = csnfromarray(giSpecial)
 SelfMask@global:CsnArr = csnfromarray(giSpecial)
 
+/* csncompress takes its axis at k-rate too, so a mask-driven selection has to
+   follow the axis when it moves. A square source keeps one mask valid for
+   both axes, and the two axes give differently shaped results. */
+giSquare[] = fillarray(1, 2, 3, 4, 5, 6, 7, 8, 9)
+giSqShape[] = fillarray(3, 3)
+giKeep[] = fillarray(1, 0, 1)
+
+Square@global:CsnArr = csnreshape(csnfromarray(giSquare), giSqShape)
+Keep@global:CsnArr = csnfromarray(giKeep)
+CompAx@global:CsnArr = csnempty(giSqShape)
+
 instr 1
     kOne init 1
     kZero init 0
@@ -36,6 +47,9 @@ instr 1
        the next application turns that mask into all zeroes. A result cache
        must therefore never freeze an elementwise self-alias after one pass. */
     SelfMask = csnisnan(SelfMask, kOne)
+
+    kAxis = (timeinstk() >= 3 ? 1 : 0)
+    CompAx = csncompress(Square, Keep, kOne, kAxis)
 endin
 
 instr 2
@@ -67,11 +81,24 @@ instr 10
     assert(csnget(SelfMask, i0) == 0 && csnget(SelfMask, i1) == 0)
     assert(csnget(SelfMask, i2) == 0 && csnget(SelfMask, i3) == 0 && csnget(SelfMask, i4) == 0)
 endin
+
+instr 3
+    ; The axis moved from 0 to 1 on the third pass. Axis 0 keeps rows 0 and 2
+    ; and yields 2x3; axis 1 keeps columns 0 and 2 and yields 3x2, so the
+    ; shape alone says which axis the perf pass actually read.
+    iCompShape[] = csnshape(CompAx)
+    assert(iCompShape[0] == 3 && iCompShape[1] == 2)
+    iCompRef:CsnArr = csncompress(Square, Keep, 1)
+    iCompErr = csnmax(csnabs(csnsubtract(CompAx, iCompRef)))
+    assert(iCompErr == 0)
+endin
+
 </CsInstruments>
 
 <CsScore>
 i1  0    0.3
 i2  0.05 0
+i3  0.1  0
 i10 0.2  0
 </CsScore>
 </CsoundSynthesizer>

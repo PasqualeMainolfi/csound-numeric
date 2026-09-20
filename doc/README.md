@@ -243,6 +243,10 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnhilbertmat](csnhilbertmat.md) - the Hilbert matrix, the textbook ill-conditioned example
 
 ## Complex arrays
+`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow` and `csnsqrt` also take
+scalar `:Complex;` operands, and `csnabs`, `csnangle` and `csnconj` a single
+one, with no handle and no trigger involved. Those forms are listed on the
+opcode's own page rather than as separate entries here.
 
 - [csnreal](csnreal.md) - real parts, as a real array
 - [csnimag](csnimag.md) - imaginary parts, as a real array
@@ -304,6 +308,33 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 - [csnbartlett](csnbartlett.md) - Bartlett (triangular) window
 - [csnblackman](csnblackman.md) - Blackman window
 - [csnkaiser](csnkaiser.md) - Kaiser window with a beta parameter
+
+## Room acoustics
+
+Estimates a designer works with before there is any audio: reverberation time
+from a room's surfaces, the absorption needed to reach a target time, the
+frequency above which a room stops being modal, and the modal frequencies
+themselves.
+
+- [csnt60sab](csnt60sab.md) - Sabine reverberation time from a volume and its absorbing surfaces
+- [csnt60eyr](csnt60eyr.md) - Eyring-Norris reverberation time, the model that still holds in an absorbent room
+- [csnrt60absp](csnrt60absp.md) - the absorption a room needs to reach a target reverberation time
+- [csnfschrd](csnfschrd.md) - Schroeder frequency, the crossover between the modal and diffuse regions
+- [csnfpqr](csnfpqr.md) - resonant frequency of a rectangular room for one modal index triple
+- [csnt60tofbg](csnt60tofbg.md) - the feedback gain a comb of a given delay needs to decay by 60 dB in a given time
+- [csnfbgtot60](csnfbgtot60.md) - the decay time of a comb of a given delay at a given feedback gain
+
+## Levels and time conversion
+
+`csndbsum` adds levels by their powers, which is the only way decibels add. The
+four conversions take the sample rate as an argument rather than reading the
+orchestra's, so material carrying a rate of its own converts against that rate.
+
+- [csndbsum](csndbsum.md) - sums levels in dB by adding their powers, over a pair, an array, or one axis
+- [csnsamptomillis](csnsamptomillis.md) - sample counts into milliseconds at a given rate
+- [csnsamptosec](csnsamptosec.md) - sample counts into seconds at a given rate
+- [csnmillistosamp](csnmillistosamp.md) - milliseconds into sample counts at a given rate
+- [csnsectosamp](csnsectosamp.md) - seconds into sample counts at a given rate
 
 ## Audio bridge
 

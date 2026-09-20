@@ -18,6 +18,14 @@ exponential over an arbitrary base.
 Real and complex arrays are both accepted, and an operation mixing the two
 promotes the result to complex.
 
+Besides the array forms, the same name covers scalar complex arithmetic: two
+`:Complex;` values, or one `:Complex;` and one real number on either side. These
+take no handles and no trigger — they are a few floating-point operations, not a
+traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
+operands do, since nothing in its signature could tell the two apart.
+A scalar complex zero base is an error, as it is elementwise: the power goes through the logarithm, which has no value there.
+
+
 ## Syntax
 
 ```csound
@@ -33,6 +41,11 @@ handle:CsnArr = csnpow(value:k, b:CsnArr)
 handle:CsnArr = csnpow(value:k, b:CsnArr, trig:k)
 handle:CsnArr = csnpow(value:Complex, b:CsnArr)
 handle:CsnArr = csnpow(value:Complex, b:CsnArr, trig:k)
+pow:Complex = csnpow(base:Complex, exponent:Complex)
+pow:Complex = csnpow(base:Complex, exponent:i)
+pow:Complex = csnpow(base:Complex, exponent:k)
+pow:Complex = csnpow(base:i, exponent:Complex)
+pow:Complex = csnpow(base:k, exponent:Complex)
 ```
 
 ## Arguments

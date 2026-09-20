@@ -17,6 +17,12 @@ the array on the left.
 Real and complex arrays are both accepted, and an operation mixing the two
 promotes the result to complex. A complex scalar is passed as a `:Complex;`.
 
+Besides the array forms, the same name covers scalar complex arithmetic: two
+`:Complex;` values, or one `:Complex;` and one real number on either side. These
+take no handles and no trigger — they are a few floating-point operations, not a
+traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
+operands do, since nothing in its signature could tell the two apart.
+
 ## Syntax
 
 ```csound
@@ -27,6 +33,11 @@ handle:CsnArr = csnadd(a:CsnArr, value:k)
 handle:CsnArr = csnadd(a:CsnArr, value:k, trig:k)
 handle:CsnArr = csnadd(a:CsnArr, value:Complex)
 handle:CsnArr = csnadd(a:CsnArr, value:Complex, trig:k)
+sum:Complex = csnadd(a:Complex, b:Complex)
+sum:Complex = csnadd(a:Complex, b:i)
+sum:Complex = csnadd(a:Complex, b:k)
+sum:Complex = csnadd(a:i, b:Complex)
+sum:Complex = csnadd(a:k, b:Complex)
 ```
 
 ## Arguments

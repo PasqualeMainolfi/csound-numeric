@@ -345,6 +345,15 @@ typedef enum {
 } CSNSET_OPS_MODE;
 
 typedef enum {
+    CSNCOMP_ADD = 0,
+    CSNCOMP_SUB,
+    CSNCOMP_PROD,
+    CSNCOMP_DIV,
+    CSNCOMP_POW,
+    CSNCOMP_SQRT
+} CSNCOMPLEX_OPS_MODE;
+
+typedef enum {
      CSN_MEDIAN_EDGE_SHRINK,
      CSN_MEDIAN_EDGE_ZERO
 } CSN_MEDIAN_EDGES;
@@ -441,7 +450,7 @@ typedef struct {
     ARRAY_VERSION prev_a_version;
     ARRAY_VERSION prev_b_version;
     ARRAY_VERSION prev_c_version;
-} CSN_WHERE_VERSION_K_STATE;
+} CSN_THREE_VERSION_K_STATE;
 
 typedef struct {
     uint32_t prev_shape[CSN_MAX_DIMS];
@@ -1005,7 +1014,7 @@ typedef struct {
     CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
-    CSN_WHERE_VERSION_K_STATE versions;
+    CSN_THREE_VERSION_K_STATE versions;
     bool is_published;
 } CSN_ARGWHERE;
 
@@ -1095,7 +1104,7 @@ typedef struct {
     CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
-    CSN_WHERE_VERSION_K_STATE versions;
+    CSN_THREE_VERSION_K_STATE versions;
     bool is_published;
 } CSN_WHERE_HH;
 
@@ -1112,7 +1121,7 @@ typedef struct {
     CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
-    CSN_WHERE_VERSION_K_STATE versions;
+    CSN_THREE_VERSION_K_STATE versions;
     bool is_published;
 } CSN_WHERE_HS;
 
@@ -1126,7 +1135,7 @@ typedef struct {
     // private
     CSN_REGISTRY *registry;
     double prev_scalar_false;
-    CSN_WHERE_VERSION_K_STATE versions;
+    CSN_THREE_VERSION_K_STATE versions;
     bool is_published;
 } CSN_WHERE_HH_IN;
 
@@ -1140,7 +1149,7 @@ typedef struct {
     // private
     CSN_REGISTRY *registry;
     double prev_scalar_false;
-    CSN_WHERE_VERSION_K_STATE versions;
+    CSN_THREE_VERSION_K_STATE versions;
     bool is_published;
 } CSN_WHERE_HS_IN;
 
@@ -2024,6 +2033,58 @@ typedef struct {
     size_t kernel_total_size;
 } CSN_MEDFILT_ND_ARR_IN;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    MYFLT *arg_a;
+    MYFLT *arg_b;
+    MYFLT *arg_c;
+} CSN_NONARR_OP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    COMPLEXDAT *arg_a;
+    COMPLEXDAT *arg_b;
+} CSN_NONARR_CC_OP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    COMPLEXDAT *arg_a;
+    MYFLT *arg_b;
+} CSN_NONARR_CR_OP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    MYFLT *arg_a;
+    COMPLEXDAT *arg_b;
+} CSN_NONARR_RC_OP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    // inputs
+    COMPLEXDAT *arg_a;
+} CSN_NONARR_CROUT_OP;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    // inputs
+    COMPLEXDAT *arg_a;
+} CSN_NONARR_CCOUT_OP;
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
@@ -2051,6 +2112,39 @@ int32_t pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double r
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
+
+// non-arr
+
+int32_t nonarr_complex_add_cc(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_add_cr(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_add_rc(CSOUND *csound, CSN_NONARR_RC_OP *p);
+
+int32_t nonarr_complex_sub_cc(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_sub_cr(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_sub_rc(CSOUND *csound, CSN_NONARR_RC_OP *p);
+
+int32_t nonarr_complex_prod_cc(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_prod_cr(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_prod_rc(CSOUND *csound, CSN_NONARR_RC_OP *p);
+
+int32_t nonarr_complex_div_cc(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_div_cc_k(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_div_cr(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_div_cr_k(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_div_rc(CSOUND *csound, CSN_NONARR_RC_OP *p);
+int32_t nonarr_complex_div_rc_k(CSOUND *csound, CSN_NONARR_RC_OP *p);
+
+int32_t nonarr_complex_pow_cc(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_pow_cc_k(CSOUND *csound, CSN_NONARR_CC_OP *p);
+int32_t nonarr_complex_pow_cr(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_pow_cr_k(CSOUND *csound, CSN_NONARR_CR_OP *p);
+int32_t nonarr_complex_pow_rc(CSOUND *csound, CSN_NONARR_RC_OP *p);
+int32_t nonarr_complex_pow_rc_k(CSOUND *csound, CSN_NONARR_RC_OP *p);
+
+int32_t nonarr_complex_sqrt(CSOUND *csound, CSN_NONARR_CCOUT_OP *p);
+int32_t nonarr_complex_abs(CSOUND *csound, CSN_NONARR_CROUT_OP *p);
+int32_t nonarr_complex_angle(CSOUND *csound, CSN_NONARR_CROUT_OP *p);
+int32_t nonarr_complex_conj(CSOUND *csound, CSN_NONARR_CCOUT_OP *p);
 
 // a-rate
 

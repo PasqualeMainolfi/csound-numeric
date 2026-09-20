@@ -3304,3 +3304,197 @@ int32_t csnarray_divmod_sh_k_init(CSOUND *csound, CSN_DIVMOD_SH *p) {
 int32_t csnarray_divmod_sh_k(CSOUND *csound, CSN_DIVMOD_SH *p) {
     return csnarray_divmod_hs_sh_k_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, p->source_handle, p->scalar, &p->k_data, true, &p->is_published);
 }
+
+/* The scalar complex arithmetic behind the :Complex; overloads of csnadd,
+   csnsubtract, csnmul, csndiv, csnpow and csnsqrt. One operand may be a real
+   number, in which case it enters as a complex with a zero imaginary part —
+   except under multiplication, where scaling is cheaper than a full product.
+
+   perf_h is NULL on the init pass and the opcode's OPDS at perf time, so a
+   degenerate operand is reported at the rate it is found at, and reported at
+   all: division by zero and a zero base under a power have no value, exactly
+   as they have none in the array forms. */
+static int32_t nonarr_complex_ops(CSOUND *csound, OPDS *perf_h, const COMPLEXDAT *ca, const COMPLEXDAT *cb, const MYFLT *ra, const MYFLT *rb, COMPLEXDAT *out, CSNCOMPLEX_OPS_MODE mode) {
+    CSN_COMPLEXDAT result = {0};
+    CSN_COMPLEXDAT a = {0};
+    CSN_COMPLEXDAT b = {0};
+    double real_value = 0.0;
+    if (ca != NULL && cb != NULL) {
+        complexdat_to_rect(ca, &a.re, &a.im);
+        complexdat_to_rect(cb, &b.re, &b.im);
+    } else {
+        /* Exactly one side is complex here, and the other is the real operand. */
+        real_value = ca == NULL ? (double) *ra : (double) *rb;
+        if (ca != NULL) {
+            complexdat_to_rect(ca, &a.re, &a.im);
+            b.re = real_value;
+        } else {
+            complexdat_to_rect(cb, &b.re, &b.im);
+            a.re = real_value;
+        }
+    }
+    switch (mode) {
+        case CSNCOMP_ADD:
+            complex_add(&result, a, b);
+            break;
+        case CSNCOMP_SUB:
+            complex_sub(&result, a, b);
+            break;
+        case CSNCOMP_PROD:
+            if (ca != NULL && cb != NULL) {
+                complex_prod(&result, a, b);
+            } else {
+                if (ca != NULL) complex_scalar_prod(&result, a, real_value);
+                else complex_scalar_prod(&result, b, real_value);
+            }
+            break;
+        case CSNCOMP_DIV:
+            if (complex_div(&result, a, b) != OK) {
+                return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Division by zero");
+            }
+            break;
+        case CSNCOMP_POW:
+            if (complex_pow(&result, a, b) != OK) {
+                return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Zero raised to a complex power is undefined");
+            }
+            break;
+        case CSNCOMP_SQRT:
+        default:
+            /* Unary: nonarr_complex_sqrt handles it without this helper. */
+            break;
+    }
+
+    out->real = (MYFLT) result.re;
+    out->imag = (MYFLT) result.im;
+    out->isPolar = 0;
+
+    return OK;
+}
+
+
+int32_t nonarr_complex_add_cc(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_ADD);
+}
+
+int32_t nonarr_complex_add_cr(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_ADD);
+}
+
+int32_t nonarr_complex_add_rc(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_ADD);
+}
+
+int32_t nonarr_complex_sub_cc(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_SUB);
+}
+
+int32_t nonarr_complex_sub_cr(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_SUB);
+}
+
+int32_t nonarr_complex_sub_rc(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_SUB);
+}
+
+int32_t nonarr_complex_prod_cc(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_PROD);
+}
+
+int32_t nonarr_complex_prod_cr(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_PROD);
+}
+
+int32_t nonarr_complex_prod_rc(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_PROD);
+}
+
+int32_t nonarr_complex_div_cc(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_DIV);
+}
+
+int32_t nonarr_complex_div_cc_k(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, &p->h, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_DIV);
+}
+
+int32_t nonarr_complex_div_cr(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_DIV);
+}
+
+int32_t nonarr_complex_div_cr_k(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, &p->h, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_DIV);
+}
+
+int32_t nonarr_complex_div_rc(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_DIV);
+}
+
+int32_t nonarr_complex_div_rc_k(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, &p->h, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_DIV);
+}
+
+int32_t nonarr_complex_pow_cc(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_POW);
+}
+
+int32_t nonarr_complex_pow_cc_k(CSOUND *csound, CSN_NONARR_CC_OP *p) {
+    return nonarr_complex_ops(csound, &p->h, p->arg_a, p->arg_b, NULL, NULL, p->value, CSNCOMP_POW);
+}
+
+int32_t nonarr_complex_pow_cr(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, NULL, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_POW);
+}
+
+int32_t nonarr_complex_pow_cr_k(CSOUND *csound, CSN_NONARR_CR_OP *p) {
+    return nonarr_complex_ops(csound, &p->h, p->arg_a, NULL, NULL, p->arg_b, p->value, CSNCOMP_POW);
+}
+
+int32_t nonarr_complex_pow_rc(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, NULL, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_POW);
+}
+
+int32_t nonarr_complex_pow_rc_k(CSOUND *csound, CSN_NONARR_RC_OP *p) {
+    return nonarr_complex_ops(csound, &p->h, NULL, p->arg_b, p->arg_a, NULL, p->value, CSNCOMP_POW);
+}
+
+/* Square root takes one operand: there is no second one to pass and none to
+   ignore, so it does not go through the binary helper at all. It cannot fail,
+   and one function serves both rates. */
+int32_t nonarr_complex_sqrt(CSOUND *csound, CSN_NONARR_CCOUT_OP *p) {
+    (void) csound;
+    CSN_COMPLEXDAT z = {0};
+    CSN_COMPLEXDAT result = {0};
+    complexdat_to_rect(p->arg_a, &z.re, &z.im);
+    complex_sqrt(&result, z);
+    p->value->real = (MYFLT) result.re;
+    p->value->imag = (MYFLT) result.im;
+    p->value->isPolar = 0;
+    return OK;
+}
+
+int32_t nonarr_complex_abs(CSOUND *csound, CSN_NONARR_CROUT_OP *p) {
+    (void) csound;
+    CSN_COMPLEXDAT c = {0};
+    complexdat_to_rect(p->arg_a, &c.re, &c.im);
+    /* hypot, as everywhere else: re*re + im*im overflows above 1.3e154 and
+       flushes to zero below 1.5e-162, where the magnitude itself does not. */
+    *p->value = (MYFLT) hypot(c.re, c.im);
+    return OK;
+}
+
+int32_t nonarr_complex_angle(CSOUND *csound, CSN_NONARR_CROUT_OP *p) {
+    (void) csound;
+    CSN_COMPLEXDAT c = {0};
+    complexdat_to_rect(p->arg_a, &c.re, &c.im);
+    *p->value = (MYFLT) atan2(c.im, c.re);
+    return OK;
+}
+
+int32_t nonarr_complex_conj(CSOUND *csound, CSN_NONARR_CCOUT_OP *p) {
+    (void) csound;
+    CSN_COMPLEXDAT c = {0};
+    complexdat_to_rect(p->arg_a, &c.re, &c.im);
+    p->value->real = (MYFLT) c.re;
+    p->value->imag = (MYFLT) -c.im;
+    p->value->isPolar = 0;
+    return OK;
+}

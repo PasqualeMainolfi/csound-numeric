@@ -49,12 +49,36 @@ Acc@global:CsnArr = csnfromarray(giA)
 Frozen@global:CsnArr = csnmul(A, 5)
 GridQ@global:CsnArr, GridR@global:CsnArr csndivmod Grid, Row
 
+/* The scalar complex overloads. A .cc row serves both rates from one
+   signature, so it simply runs every pass; the mixed forms split on the rate
+   of their real operand, and it is the .k rows that are exercised here. */
+gkCRe init 0
+gkCIm init 0
+gkRCRe init 0
+gkRCIm init 0
+gkDivRe init 0
+gkDivIm init 0
+
 instr 1
     kTrig init 1
     kOff init 0
     kTwo init 2
     kHundred init 100
     kOneTwenty init 120
+
+    kTen init 10
+    cA:Complex = init(3, 4, 0)
+    cB:Complex = init(1, 2, 0)
+    cSum:Complex = csnadd(cA, cB)
+    cCR:Complex = csnadd(cA, kTen)
+    cRC:Complex = csnsubtract(kTen, cA)
+    cDiv:Complex = csndiv(kTen, cA)
+    gkCRe = real(cCR)
+    gkCIm = imag(cCR)
+    gkRCRe = real(cRC)
+    gkRCIm = imag(cRC)
+    gkDivRe = real(cDiv)
+    gkDivIm = imag(cDiv)
 
     Sum = csnadd(A, B, kTrig)
     Diff = csnsubtract(A, B, kTrig)
@@ -112,6 +136,18 @@ instr 2
     assert(csnget(GridQ, iGridCell11) == 1 && csnget(GridR, iGridCell11) == 2)
     iGridShape[] = csnshape(GridQ)
     assert(iGridShape[0] == 2 && iGridShape[1] == 3)
+
+    ; --- the k-rate scalar complex overloads --------------------------------
+    iCRRe = i(gkCRe)
+    iCRIm = i(gkCIm)
+    assert(iCRRe == 13 && iCRIm == 4)
+    iRCRe = i(gkRCRe)
+    iRCIm = i(gkRCIm)
+    assert(iRCRe == 7 && iRCIm == -4)
+    ; 10/(3+4i) = 10(3-4i)/25
+    iDivRe = i(gkDivRe)
+    iDivIm = i(gkDivIm)
+    assert(abs(iDivRe - 1.2) < 1e-12 && abs(iDivIm + 1.6) < 1e-12)
 endin
 </CsInstruments>
 

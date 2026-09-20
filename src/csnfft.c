@@ -22,7 +22,7 @@ static inline bool IS_VALID_NMFCC(double value) {
     return IS_VALID_FFT_SIZE(value);
 }
 
-static inline bool IS_VALID_SR(double value) {
+bool IS_VALID_SR(double value) {
     return isfinite(value) && !isnan(value) && trunc(value) == value && value > 0.0 && value <= (double) UINT32_MAX;
 }
 

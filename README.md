@@ -236,7 +236,10 @@ csound --opcode-dir=build example/csnsort.csd
   a factorization — `csnsolve`, `csninv`, `csndet` — and `csnsavgol`, which
   builds a Savitzky-Golay filter for `csncorrelate1d` to apply.
 - **Complex**: real / imaginary parts, angle, conjugate, conversion to and from
-  real arrays.
+  real arrays, and scalar arithmetic on a `:Complex;` value — `csnadd`,
+  `csnsubtract`, `csnmul`, `csndiv`, `csnpow`, `csnsqrt` with two complex
+  operands or one complex and one real, plus `csnabs`, `csnangle` and `csnconj`
+  on a single one.
 - **Fourier analysis**: full and real FFT/IFFT along one axis or across a 2-D
   matrix, STFT/ISTFT, frequency-coordinate arrays, FFT shift/unshift, and the
   DCT-I/II and DST-I/II at any length, the analytic signal in one and two
@@ -253,6 +256,18 @@ csound --opcode-dir=build example/csnsort.csd
 - **Windows**: Hann, Hamming, Bartlett, Blackman, Kaiser.
 - **Persistence**: `csnsave` and `csnload` use `.csn` for csnum's own format or
   `.npy` for NumPy interoperability, preserving shape and real/complex type.
+- **Room acoustics**: reverberation time by Sabine and by Eyring-Norris from a
+  volume and its absorbing surfaces, the absorption a target time demands, the
+  Schroeder frequency that separates a room's modal region from its diffuse one,
+  and the modal frequencies of a rectangular room. Either operand may be an
+  array, so a set of rooms or a range of targets is one call. `csnt60tofbg` and
+  `csnfbgtot60` cross from the room to the reverb that models it: the feedback
+  gain a comb of a given delay needs to decay by 60 dB in a given time, and the
+  decay time a gain actually produces.
+- **Levels and time conversion**: `csndbsum` adds levels in dB by adding their
+  powers — over a pair, a whole array, or one axis — and the four sample/time
+  conversions take the sample rate as an argument rather than reading the
+  orchestra's, so material carrying a rate of its own converts against it.
 - **Audio bridge**: `csnfromaudio` / `csntoaudio` move one control period between
   an audio signal and an array, `csnpack` / `csnunpack` do the same for a whole
   `a[]` as a `channels x ksmps` matrix, and `csnsnap` / `csnstream` slice a stream
@@ -652,6 +667,14 @@ thing NumPy never has to deal with:
 | `csnrtlock` / `csnrtunlock` | Mark a handle as a real-time path, forbidding reallocation at perf time. |
 | `csnrtlockstart` / `csnrtlockend` | The same mark on every array a note creates between the two. |
 | `csnrtlockall` | The same for the whole performance, declared in the orchestra header. |
+| `csnt60sab` / `csnt60eyr` | Reverberation time of a room, Sabine and Eyring-Norris. |
+| `csnrt60absp` | The absorption a room needs to reach a target reverberation time. |
+| `csnfschrd` | Schroeder frequency: where a room stops being modal and becomes diffuse. |
+| `csnfpqr` | Resonant frequency of a rectangular room for one modal index triple. |
+| `csnt60tofbg` / `csnfbgtot60` | Comb feedback gain from a decay time, and the decay time back. |
+| `csndbsum` | Adds levels in dB by adding their powers, over a pair, an array or one axis. |
+| `csnsamptomillis` / `csnsamptosec` | Sample counts into milliseconds or seconds at a given rate. |
+| `csnmillistosamp` / `csnsectosamp` | Milliseconds or seconds into sample counts at a given rate. |
 | `csnfromftable` / `csntoftable` | Csound function table in and out. |
 | `csnfree` | Explicit release of a `@global` handle. |
 | `csnunlikeset` | Drops the set classification. |

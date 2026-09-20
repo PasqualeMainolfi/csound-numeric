@@ -18,11 +18,15 @@ element count as the source.
 For a real array it is the usual rectifier: the sign is dropped and NaN is
 carried through.
 
+The same name also takes a single `:Complex;` value and answers its magnitude, computed with `hypot` so that a component near the top or bottom of the double range neither overflows nor flushes to zero.
+
 ## Syntax
 
 ```csound
 handle:CsnArr = csnabs(source:CsnArr)
 handle:CsnArr = csnabs(source:CsnArr, trig:k)
+value:i = csnabs(source:Complex)
+value:k = csnabs(source:Complex)
 ```
 
 ## Arguments

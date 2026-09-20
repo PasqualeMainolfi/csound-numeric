@@ -16,11 +16,15 @@ polar form: magnitude and phase. Over a spectrum that is the phase curve, and
 
 **Complex only.** A real array has no phase to report, so passing one is refused.
 
+The same name also takes a single `:Complex;` value and answers its argument in radians, in `(-pi, pi]`.
+
 ## Syntax
 
 ```csound
 handle:CsnArr = csnangle(source:CsnArr)
 handle:CsnArr = csnangle(source:CsnArr, trig:k)
+value:i = csnangle(source:Complex)
+value:k = csnangle(source:Complex)
 ```
 
 ## Arguments

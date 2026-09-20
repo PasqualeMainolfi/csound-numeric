@@ -22,6 +22,14 @@ with [csnclip](csnclip.md) or [csncnteq](csncnteq.md).
 Real and complex arrays are both accepted, and an operation mixing the two
 promotes the result to complex.
 
+Besides the array forms, the same name covers scalar complex arithmetic: two
+`:Complex;` values, or one `:Complex;` and one real number on either side. These
+take no handles and no trigger — they are a few floating-point operations, not a
+traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
+operands do, since nothing in its signature could tell the two apart.
+A scalar complex division by zero is an error, as it is elementwise.
+
+
 ## Syntax
 
 ```csound
@@ -37,6 +45,11 @@ handle:CsnArr = csndiv(value:k, b:CsnArr)
 handle:CsnArr = csndiv(value:k, b:CsnArr, trig:k)
 handle:CsnArr = csndiv(value:Complex, b:CsnArr)
 handle:CsnArr = csndiv(value:Complex, b:CsnArr, trig:k)
+quo:Complex = csndiv(a:Complex, b:Complex)
+quo:Complex = csndiv(a:Complex, b:i)
+quo:Complex = csndiv(a:Complex, b:k)
+quo:Complex = csndiv(a:i, b:Complex)
+quo:Complex = csndiv(a:k, b:Complex)
 ```
 
 ## Arguments

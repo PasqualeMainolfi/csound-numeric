@@ -17,11 +17,14 @@ taking a square root.
 **Complex only.** A real array is its own conjugate, so passing one is refused
 rather than answered with a copy.
 
+The same name also takes a single `:Complex;` value and answers its conjugate.
+
 ## Syntax
 
 ```csound
 handle:CsnArr = csnconj(source:CsnArr)
 handle:CsnArr = csnconj(source:CsnArr, trig:k)
+value:Complex = csnconj(source:Complex)
 ```
 
 ## Arguments

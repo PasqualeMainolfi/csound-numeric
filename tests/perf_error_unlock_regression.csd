@@ -73,7 +73,7 @@ endin
 
 instr 3
     kOne init 1
-    Out:CsnArr = csnfftconvolve1d(FftX, FftH, 0, -1, kOne)
+    Out:CsnArr = csnfftconvolve1d(FftX, FftH, 0, kOne, -1)
     if timeinstk() == 12 then
         gkFft1d = 1
     endif

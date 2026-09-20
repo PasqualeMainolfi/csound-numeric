@@ -318,6 +318,13 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_relayout_regression.csd")
         add_test(
+            NAME csnum_measure_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/measure_regression.csd")
+        add_test(
             NAME csnum_krate_reduction_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

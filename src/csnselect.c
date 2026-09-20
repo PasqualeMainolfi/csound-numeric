@@ -1490,7 +1490,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_where_k_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar, K_DATA *k_data, bool *is_published, CSN_WHERE_VERSION_K_STATE *versions, const MYFLT *trig) {
+static int32_t csnarray_where_k_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar, K_DATA *k_data, bool *is_published, CSN_THREE_VERSION_K_STATE *versions, const MYFLT *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REG_HANDLE(csound, h, reg, k_data->owned_handle);
 
@@ -1657,7 +1657,7 @@ static int32_t csnarray_where_k_in_init_helper(CSOUND *csound, CSNREF *source_ha
     return OK;
 }
 
-static int32_t csnarray_where_k_in_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar, CSN_REGISTRY *registry, bool *is_published, CSN_WHERE_VERSION_K_STATE *versions, const MYFLT *trig, double *prev_scalar_false) {
+static int32_t csnarray_where_k_in_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar, CSN_REGISTRY *registry, bool *is_published, CSN_THREE_VERSION_K_STATE *versions, const MYFLT *trig, double *prev_scalar_false) {
     CSN_REGISTRY *reg = registry;
     CHECK_REGISTRY(csound, h, reg);
 
