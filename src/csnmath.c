@@ -1460,7 +1460,7 @@ static void unaryop_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, ITEM_TYP
                 break;
             case CSN_DEG2RAD:
             case CSN_RAD2DEG:
-                arr->data[i] = mode == CSN_DEG2RAD ? a * M_PI / 180.0 : a * 180.0 / M_PI;
+                arr->data[i] = mode == CSN_DEG2RAD ? a * CSN_PI / 180.0 : a * 180.0 / CSN_PI;
                 break;
             default:
                 break;
@@ -2692,7 +2692,7 @@ static int32_t csnarray_unaryop_in_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN
         case CSN_DEG2RAD:
             for (size_t i = 0; i < source_arr->size; i++) {
                 double value = source_arr->data[i];
-                double angle = mode == CSN_DEG2RAD ? value * M_PI / 180.0 : value * 180.0 / M_PI;
+                double angle = mode == CSN_DEG2RAD ? value * CSN_PI / 180.0 : value * 180.0 / CSN_PI;
                 source_arr->data[i] = angle;
             }
             break;
@@ -2769,7 +2769,7 @@ int32_t csnarray_unaryop_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_UNAR
         case CSN_DEG2RAD:
             for (size_t i = 0; i < source_arr->size; i++) {
                 double value = source_arr->data[i];
-                double angle = mode == CSN_DEG2RAD ? value * M_PI / 180.0 : value * 180.0 / M_PI;
+                double angle = mode == CSN_DEG2RAD ? value * CSN_PI / 180.0 : value * 180.0 / CSN_PI;
                 source_arr->data[i] = angle;
             }
             break;

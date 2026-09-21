@@ -1,7 +1,8 @@
 # Changelog
 
-## [0.1.6] - 2026-09-21
- 
+## [0.1.7] - 2026-09-21
+
+- Internal redefinition of *M_PI* to *CSN_PI* and *M_PI_2* to *CSN_PI_2* (no-dep) 
 - Add Sabine and Eyring-Norris reverberation time from a volume and its absorbing surfaces, scalar or one time per room, at init and k-rate (*csnt60sab*, *csnt60eyr*)
 - Add the absorption a room needs to reach a target reverberation time and the Schroeder frequency that separates a room's modal region from its diffuse one; either operand may be a scalar or an array, and two arrays pair every volume with every target into a `volumes x targets` matrix (*csnrt60absp*, *csnfschrd*)
 - Add the resonant frequency of a rectangular room for one modal index triple, for a single room or one row per room; the modal orders are any non-negative integers, so modes above the first are reachable (*csnfpqr*)

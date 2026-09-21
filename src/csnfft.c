@@ -4223,14 +4223,14 @@ static int32_t dcst1d_from_fft_assign_value(CSN_ARRAY *dcst_buffer, CSN_ARRAY *f
                     break;
                 case CSN_DCT_II: {
                         CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, i, src_stride, fft_buffer->itype);
-                        double angle = M_PI * (double) i / (2.0 * (double) n);
+                        double angle = CSN_PI * (double) i / (2.0 * (double) n);
                         y.re = z.re * cos(angle) + z.im * sin(angle);
                     };
                     break;
                 case CSN_DST_II: {
                         size_t q = i + 1;
                         CSN_COMPLEXDAT z = slice_get(fft_buffer->data + src_base * fft_buffer->itype, q, src_stride, fft_buffer->itype);
-                        double angle = M_PI * (double) q / (2.0 * (double) n);
+                        double angle = CSN_PI * (double) q / (2.0 * (double) n);
                         double c = cos(angle);
                         double s = sin(angle);
                         double rotated_im =z.im * c - z.re * s;
@@ -4789,11 +4789,11 @@ static int32_t mfcc_dct_matrix(CSOUND *csound, double **matrix, uint32_t ncoef, 
             row[0] = 1.0;
             row[nmels - 1U] = (k & 1U) ? -1.0 : 1.0;
             for (uint32_t n = 1U; n + 1U < nmels; n++) {
-                row[n] = 2.0 * cos(M_PI * (double) k * (double) n / (double) (nmels - 1U));
+                row[n] = 2.0 * cos(CSN_PI * (double) k * (double) n / (double) (nmels - 1U));
             }
         } else {
             for (uint32_t n = 0; n < nmels; n++) {
-                row[n] = 2.0 * cos(M_PI * (double) k * (2.0 * (double) n + 1.0) / (2.0 * (double) nmels));
+                row[n] = 2.0 * cos(CSN_PI * (double) k * (2.0 * (double) n + 1.0) / (2.0 * (double) nmels));
             }
         }
     }

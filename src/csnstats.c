@@ -221,7 +221,7 @@ void complex_acos(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z) {
     CSN_COMPLEXDAT a = {0};
     complex_asin(&a, z);
 
-    out->re = M_PI_2 - a.re;
+    out->re = CSN_PI_2 - a.re;
     out->im = -a.im;
 }
 

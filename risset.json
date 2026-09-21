@@ -253,7 +253,7 @@
         "csnsphtocar",
         "csncartosph"
     ],
-    "version": "0.1.6",
+    "version": "0.1.7",
     "short_description": "Numpy-style opcodes for Csound",
     "long_description": "A Csound 7 plugin that brings a NumPy-style array vocabulary into the orchestra language, with .csn and NumPy .npy file support",
     "author": "Pasquale Mainolfi",

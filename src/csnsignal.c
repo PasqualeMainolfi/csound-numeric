@@ -52,10 +52,10 @@ void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, doub
                     value = 1.0;
                     break;
                 case W_HANNING:
-                    value = 0.5 * (1.0 - cos(2.0 * M_PI * fac));
+                    value = 0.5 * (1.0 - cos(2.0 * CSN_PI * fac));
                     break;
                 case W_HAMMING:
-                    value = 0.54 - 0.46 * cos(2.0 * M_PI * fac);
+                    value = 0.54 - 0.46 * cos(2.0 * CSN_PI * fac);
                     break;
                 case W_BARTLETT:
                     /* The peak is where fac reaches 0.5, not where n reaches
@@ -65,7 +65,7 @@ void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, doub
                     value = (fac <= 0.5) ? 2.0 * fac : 2.0 - 2.0 * fac;
                     break;
                 case W_BLACKMAN:
-                    value = 0.42 - 0.5 * cos(2.0 * M_PI * fac) + 0.08 * cos(4.0 * M_PI * fac);
+                    value = 0.42 - 0.5 * cos(2.0 * CSN_PI * fac) + 0.08 * cos(4.0 * CSN_PI * fac);
                     break;
                 case W_KAISER: {
                         double denom = bessel_i0(beta);
@@ -230,10 +230,10 @@ static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDO
                     value = 1.0;
                     break;
                 case W_HANNING:
-                    value = 0.5 * (1.0 - cos(2.0 * M_PI * fac));
+                    value = 0.5 * (1.0 - cos(2.0 * CSN_PI * fac));
                     break;
                 case W_HAMMING:
-                    value = 0.54 - 0.46 * cos(2.0 * M_PI * fac);
+                    value = 0.54 - 0.46 * cos(2.0 * CSN_PI * fac);
                     break;
                 case W_BARTLETT:
                     /* The peak is where fac reaches 0.5, not where n reaches
@@ -243,7 +243,7 @@ static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDO
                     value = (fac <= 0.5) ? 2.0 * fac : 2.0 - 2.0 * fac;
                     break;
                 case W_BLACKMAN:
-                    value = 0.42 - 0.5 * cos(2.0 * M_PI * fac) + 0.08 * cos(4.0 * M_PI * fac);
+                    value = 0.42 - 0.5 * cos(2.0 * CSN_PI * fac) + 0.08 * cos(4.0 * CSN_PI * fac);
                     break;
                 case W_KAISER: {
                         double denom = bessel_i0(beta);

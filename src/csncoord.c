@@ -1,10 +1,10 @@
 #include "csncoord.h"
-#include "csnum.h"
+#include "csnum_internal.h"
 #include <math.h>
 #include <stdint.h>
 
-#define CSN_DEG_PER_RAD (180.0 / M_PI)
-#define CSN_RAD_PER_DEG (M_PI / 180.0)
+#define CSN_DEG_PER_RAD (180.0 / CSN_PI)
+#define CSN_RAD_PER_DEG (CSN_PI / 180.0)
 
 static bool coord_is_to_cartesian(CSN_COORDS_MODE mode) {
     return mode == CSN_POL2CAR || mode == CSN_CYL2CAR || mode == CSN_SPH2CAR;
