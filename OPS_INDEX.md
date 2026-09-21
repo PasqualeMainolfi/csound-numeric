@@ -4,7 +4,8 @@ One line per opcode, grouped by family. Overloads are not listed: an opcode
 appears once under its plain name, whatever the number of type and rate
 variants behind it. The parentheses carry two things: the rate, `i, k` for the
 opcodes with both an i-time and a performance-time form, `i` for the ones that
-only run at init, and the element types accepted, `real, complex` or
+only run at init, `k` for the ones that only act at performance time, and the
+element types accepted, `real, complex` or
 `real only`. The five opcodes that read a complex array and hand back its parts
 are marked `complex only`, since a real input has nothing for them to do.
 
@@ -116,6 +117,7 @@ including Fortran-order files. A zero trigger does not touch the disk.
 - **csnfloor** - rounds each element down (i, k — real only)
 - **csnceil** - rounds each element up (i, k — real only)
 - **csnround** - rounds each element to the nearest integer (i, k — real only)
+- **csnforeach** - maps a user-defined opcode over every element, in place (k — real only)
 
 ## Transcendental functions
 

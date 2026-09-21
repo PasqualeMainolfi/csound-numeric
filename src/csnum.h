@@ -2086,6 +2086,17 @@ typedef struct {
     COMPLEXDAT *arg_a;
 } CSN_NONARR_CCOUT_OP;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    CSNREF *source_handle;
+    OPCODEOBJ *fn;
+    MYFLT *trig;
+    // private
+    CSN_REGISTRY *registry;
+    CSN_SCRATCH buffer;
+} CSN_FOREACH;
+
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
@@ -2112,6 +2123,11 @@ int32_t pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double r
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
+
+// foreach (k-rate)
+int32_t csnarray_foreach_deinit(CSOUND *csound, CSN_FOREACH *p);
+int32_t csnarray_foreach_init(CSOUND *csound, CSN_FOREACH *p);
+int32_t csnarray_foreach_perf(CSOUND *csound, CSN_FOREACH *p);
 
 // non-arr
 

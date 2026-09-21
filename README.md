@@ -672,6 +672,7 @@ thing NumPy never has to deal with:
 | `csnrtlock` / `csnrtunlock` | Mark a handle as a real-time path, forbidding reallocation at perf time. |
 | `csnrtlockstart` / `csnrtlockend` | The same mark on every array a note creates between the two. |
 | `csnrtlockall` | The same for the whole performance, declared in the orchestra header. |
+| `csnforeach` | Maps a Csound opcode over every element, in place. Nearest idea is `np.vectorize`, but the callback is an orchestra opcode. |
 | `csnt60sab` / `csnt60eyr` | Reverberation time of a room, Sabine and Eyring-Norris. |
 | `csnrt60absp` | The absorption a room needs to reach a target reverberation time. |
 | `csnfschrd` | Schroeder frequency: where a room stops being modal and becomes diffuse. |

@@ -1,5 +1,6 @@
 /* Opcode implementations for the stats family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include "csnset.h"
@@ -3226,4 +3227,179 @@ int32_t csnarray_quantile_scalar(CSOUND *csound, CSN_PERCQUANT *p) {
 
 int32_t csnarray_quantile_scalar_k(CSOUND *csound, CSN_PERCQUANT *p) {
     return csnarray_perquant_k_reduction(csound, &p->h, p->source_handle, -1, NULL, NULL, p->value, false, (double) *p->quantity, NULL, p->registry, p->trig, &p->scratch);
+}
+
+/* The callback is an orchestra-owned Opcode object, so both halves of its
+   setup belong to the caller: 'create' allocates the dataspace and 'init' (or
+   'run') wires the argument cells. Either can be missing or of the wrong
+   shape, and the perf loop dereferences all of it once per element, so every
+   assumption it makes is checked here instead. Runs outside the registry
+   mutex, hence CSN_ACCESSOR_ERROR and not the locked variant. */
+static int32_t foreach_check_callback(CSOUND *csound, OPDS *perf_h, const OPCODEOBJ *fn, const INSDS *caller) {
+    if (fn == NULL || fn->dataspace == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: the callback has no dataspace: run 'create' on the Opcode variable first");
+    }
+
+    if (fn->dataspace->optext == NULL || fn->dataspace->optext->t.oentry == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Internal error: the csnforeach callback carries no opcode text");
+    }
+
+    const TEXT *t = &fn->dataspace->optext->t;
+    const char *name = t->oentry->opname;
+
+    /* A UDO always carries useropcd as its perf function, so a callback whose
+       body is all i-rate does not fail here: it runs an empty perf chain and
+       leaves the result cell at whatever the init pass wrote, mapping every
+       element to that one value. The k-rate argument checks below are what
+       actually catch it. */
+    if (fn->dataspace->perf == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: callback '%s' has no perf pass and would never run", name);
+    }
+
+    if (fn->inargp == NULL || fn->outargp == NULL) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: callback '%s' was created but never wired: run 'kout init fn, kin' once before csnforeach", name);
+    }
+
+    if (t->inArgCount != 1 || t->outArgCount != 1) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: callback '%s' must take one argument and return one, it takes %d and returns %d", name, (int) t->inArgCount, (int) t->outArgCount);
+    }
+
+    /* Anything but k would be written through as a MYFLT: an i or c cell would
+       take the element value at perf time (a constant is shared engine-wide),
+       and a struct cell such as :CsnArr; would have its payload overwritten. */
+    if (!IS_KSIG_ARG(fn->inargp[0])) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: the argument of callback '%s' must be k-rate, it is '%s'", name, GetTypeForArg(fn->inargp[0])->varTypeName);
+    }
+
+    if (!IS_KSIG_ARG(fn->outargp[0])) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: the result of callback '%s' must be k-rate, it is '%s'", name, GetTypeForArg(fn->outargp[0])->varTypeName);
+    }
+
+    /* Same rule Csound applies in context_check before running an Opcode
+       object: the dataspace carries the context it was created in. */
+    const INSDS *owner = fn->dataspace->insdshead;
+    if (owner == NULL || caller == NULL || owner->esr != caller->esr || owner->ksmps < caller->ksmps) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: callback '%s' was created in an incompatible context", name);
+    }
+
+    return OK;
+}
+
+int32_t csnarray_foreach_deinit(CSOUND *csound, CSN_FOREACH *p) {
+    deinit_scratch(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnarray_foreach_init(CSOUND *csound, CSN_FOREACH *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    /* A re-entered init would otherwise Calloc over a buffer this opcode still
+       owns. deinit_scratch frees it and leaves the fields in a known state; on
+       the first pass the dataspace is already zeroed and it does nothing. */
+    deinit_scratch(csound, &p->buffer);
+
+    int32_t res = foreach_check_callback(csound, NULL, p->fn, p->h.insdshead);
+    if (res != OK) return res;
+
+    uint32_t source_handle = p->source_handle->id;
+    double *buffer = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    CSN_ARRAY *source_arr = slot->array;
+
+    size_t bcap = source_arr->capacity;
+    bcap = bcap > 0 ? bcap : 1;
+
+    buffer = csound->Calloc(csound, sizeof(double) * bcap);
+    if (buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+    p->buffer.scratch = buffer;
+    p->buffer.scratch_capacity = bcap;
+    p->registry = reg;
+
+done:
+    if (res != OK) if (buffer != NULL) csound->Free(csound, buffer);
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+int32_t csnarray_foreach_perf(CSOUND *csound, CSN_FOREACH *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    uint32_t source_handle = p->source_handle->id;
+    int32_t res = OK;
+
+    CHECK_KTRIG(p->trig);
+
+    /* fn is an orchestra variable: 'create' or an assignment can replace its
+       contents between the init pass and here, so it is re-checked. */
+    res = foreach_check_callback(csound, &p->h, p->fn, p->h.insdshead);
+    if (res != OK) return res;
+
+    CSN_SLOT *slot = NULL;
+    CSN_ARRAY *source_arr = NULL;
+    csound->LockMutex(reg->mutex);
+
+    slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    source_arr = slot->array;
+    size_t snap_size = source_arr->size;
+    ITEM_TYPE snap_itype = source_arr->itype;
+    uint64_t snap_uid = source_arr->version.array_uid;
+
+    if (snap_itype == CSN_COMPLEX) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] csnforeach requires real array");
+        goto done;
+    }
+
+    res = csn_scratch_reserve(csound, &p->h, slot->rt_locked, &p->buffer, snap_size, sizeof(double));
+    if (res != OK) goto done;
+    memcpy(p->buffer.scratch, source_arr->data, sizeof(double) * snap_size);
+
+    csound->UnlockMutex(reg->mutex);
+
+    double *scratch = (double *) p->buffer.scratch;
+    for (size_t i = 0; i < snap_size; i++) {
+        *(p->fn->inargp[0]) = scratch[i];
+        res = p->fn->dataspace->perf(csound, p->fn->dataspace);
+        if (res != OK) return res;
+        scratch[i] = (double) *(p->fn->outargp[0]);
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    slot = get_slot(reg, source_handle);
+    if (slot == NULL || slot->array->version.array_uid != snap_uid) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] the callback freed array handle %u while iterating it", source_handle);
+        goto done;
+    }
+    source_arr = slot->array;
+    if (source_arr->itype != snap_itype) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] the callback changed the array type while iterating it");
+        goto done;
+    }
+
+    size_t out_size = snap_size < source_arr->size ? snap_size : source_arr->size;
+    if (out_size > 0) {
+        memcpy(source_arr->data, scratch, sizeof(double) * out_size);
+        update_array_data_version(&source_arr->version);
+    }
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+
 }

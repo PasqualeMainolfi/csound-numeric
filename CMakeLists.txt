@@ -511,6 +511,29 @@ if(BUILD_TESTING)
         set_tests_properties(csnum_perf_error_unlock_regression PROPERTIES
             PASS_REGULAR_EXPRESSION "csnum performance continued after every locked perf error"
             TIMEOUT 60)
+        add_test(
+            NAME csnum_krate_foreach_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_foreach_regression.csd")
+        add_test(
+            NAME csnum_foreach_unwired_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/foreach_unwired_rejected.csd")
+        set_tests_properties(csnum_foreach_unwired_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "was created but never wired")
+        add_test(
+            NAME csnum_foreach_argrate_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/foreach_argrate_rejected.csd")
+        set_tests_properties(csnum_foreach_argrate_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "must be k-rate")
     endif()
 endif()
 endif()

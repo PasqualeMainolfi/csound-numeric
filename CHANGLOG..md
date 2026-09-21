@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+- Add elementwise mapping of a user-defined opcode over an array, in place, driven by a k-rate trigger (*csnforeach*). The callback is a Csound 7 `:Opcode;` object: the orchestra names it with `opcoderef`, allocates it with `create` and wires its argument cells with one `init` call, and it must take one k-rate argument and return one. The array is read flat, so the rank does not matter and the shape is preserved; real arrays only
+- Run the *csnforeach* callback with the array registry unlocked, over a copy of the elements taken before the first call and written back after the last, so the callback may call other csnum opcodes without deadlocking on the registry mutex, which is not recursive. A callback that rewrites the same array through another opcode has its writes overwritten by the copy; freeing the array or changing its element type from inside the callback is an error, and a change of size writes back the common prefix
+- Reject a *csnforeach* callback that was never created or never wired, that has no performance pass, that does not take exactly one argument and return one, that takes or returns anything other than a k-rate cell, or that was created in a context with a different sample rate or a smaller ksmps. An i-rate or constant cell would otherwise be written through with each element value, and a constant is shared engine-wide
+- Add the *csnforeach* reference page, its runnable example, the inventory entry and the NumPy correspondence row; extend the inventory's rate legend with `k` for the opcodes that only act at performance time
+- Add k-rate regression coverage for *csnforeach*: one mapping per non-zero trigger, none on a zero trigger, flat traversal of a matrix with its shape preserved, the compounding a second trigger produces, and a downstream k-rate consumer that has to recompute because the data version moved. Two further files pin the callback refusals, an unwired callback and one whose argument is not k-rate, as failure cases matched on their message
+
 ## [0.1.8] - 2026-09-21
 
 - Internal redefinition of *M_PI* to *CSN_PI* and *M_PI_2* to *CSN_PI_2* (no-dep) 

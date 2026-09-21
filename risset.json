@@ -48,6 +48,7 @@
         "csnfloor",
         "csnceil",
         "csnround",
+        "csnforeach",
         "csnproject",
         "csnreject",
         "csncross",

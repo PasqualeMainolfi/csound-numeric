@@ -117,6 +117,7 @@ support of each opcode.
 - [csnfloor](csnfloor.md) - rounds each element down
 - [csnceil](csnceil.md) - rounds each element up
 - [csnround](csnround.md) - rounds each element to the nearest integer
+- [csnforeach](csnforeach.md) - maps a user-defined opcode over every element, in place
 
 ## Transcendental functions
 
