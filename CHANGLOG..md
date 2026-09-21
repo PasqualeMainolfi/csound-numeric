@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.7] - 2026-09-21
+## [0.1.8] - 2026-09-21
 
 - Internal redefinition of *M_PI* to *CSN_PI* and *M_PI_2* to *CSN_PI_2* (no-dep) 
 - Add Sabine and Eyring-Norris reverberation time from a volume and its absorbing surfaces, scalar or one time per room, at init and k-rate (*csnt60sab*, *csnt60eyr*)

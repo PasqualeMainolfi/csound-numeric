@@ -160,6 +160,13 @@ if(BUILD_TESTING)
     endif()
 
     add_test(
+        NAME csnum_risset_manifest
+        COMMAND "${CMAKE_COMMAND}"
+            -DMANIFEST_FILE=${CMAKE_CURRENT_SOURCE_DIR}/risset.json
+            -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/src/csnum.c
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_risset_manifest.cmake)
+
+    add_test(
         NAME csnum_itime_signature_coverage
         COMMAND "${CMAKE_COMMAND}"
             -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/src/csnum.c
