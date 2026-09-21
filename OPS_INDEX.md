@@ -98,6 +98,7 @@ including Fortran-order files. A zero trigger does not touch the disk.
 - **csnargwhere** - coordinates of the elements matching a value array (i, k — real only)
 - **csnargnonzero** - coordinates of the non-zero elements (i, k — real only)
 - **csnargisnan** - coordinates of the NaN elements (i, k — real only)
+- **csnnext** - hands back one element per control period, walking the array flat (k — real, complex)
 
 ## Elementwise arithmetic
 

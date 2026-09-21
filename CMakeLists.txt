@@ -534,6 +534,29 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/foreach_argrate_rejected.csd")
         set_tests_properties(csnum_foreach_argrate_rejected PROPERTIES
             PASS_REGULAR_EXPRESSION "must be k-rate")
+        add_test(
+            NAME csnum_krate_next_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_next_regression.csd")
+        add_test(
+            NAME csnum_next_itype_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/next_itype_rejected.csd")
+        set_tests_properties(csnum_next_itype_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnnext real requires real array")
+        add_test(
+            NAME csnum_next_source_changed_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/next_source_changed_rejected.csd")
+        set_tests_properties(csnum_next_source_changed_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "array is changed while iterating")
     endif()
 endif()
 endif()

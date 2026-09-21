@@ -1456,6 +1456,8 @@ static OENTRY localops[] = {
     { "csnsearchsorted.k",     S(CSN_SEARCHSORTED_ARR),       0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_searchsorted_arr,            (SUBR) csnarray_searchsorted_arr_k,     (SUBR) csnarray_searchsorted_a_deinit,   NULL, 0 },
     { "csnsearchsorted.s.k",   S(CSN_SEARCHSORTED_SCALAR),    0, "k",                        ":CsnArr;koP",                   (SUBR) csnarray_searchsorted_scalar_k_init,  (SUBR) csnarray_searchsorted_scalar_k,  NULL,                                    NULL, 0 },
     { "csnforeach",            S(CSN_FOREACH),                0, "",                         ":CsnArr;:Opcode;P",             (SUBR) csnarray_foreach_init,                (SUBR) csnarray_foreach_perf,           (SUBR) csnarray_foreach_deinit,          NULL, 0 },
+    { "csnnext.r",             S(CSN_NEXT_REAL),              0, "kk",                       ":CsnArr;PO",                    (SUBR) csnarray_next_real_init,              (SUBR) csnarray_next_real_perf,         (SUBR) csnarray_next_real_deinit,        NULL, 0 },
+    { "csnnext.c",             S(CSN_NEXT_COMP),              0, ":Complex;k",               ":CsnArr;PO",                    (SUBR) csnarray_next_comp_init,              (SUBR) csnarray_next_comp_perf,         (SUBR) csnarray_next_comp_deinit,        NULL, 0 },
 
     // COORDS 1
     { "csnpoltocar",             S(CSN_COORD2),               0, "ii",                       "iio",                           (SUBR) csncoord_poltocar,                    NULL,                                    NULL,                                   NULL, 0 },

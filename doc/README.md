@@ -98,6 +98,7 @@ support of each opcode.
 - [csnargwhere](csnargwhere.md) - coordinates of the elements matching a value array
 - [csnargnonzero](csnargnonzero.md) - coordinates of the non-zero elements
 - [csnargisnan](csnargisnan.md) - coordinates of the NaN elements
+- [csnnext](csnnext.md) - hands back one element per control period, walking the array flat
 
 ## Elementwise arithmetic
 

@@ -3401,5 +3401,156 @@ int32_t csnarray_foreach_perf(CSOUND *csound, CSN_FOREACH *p) {
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
+}
 
+int32_t csnarray_next_real_deinit(CSOUND *csound, CSN_NEXT_REAL *p) {
+    deinit_scratch(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnarray_next_comp_deinit(CSOUND *csound, CSN_NEXT_COMP *p) {
+    deinit_scratch(csound, &p->buffer);
+    return OK;
+}
+
+static int32_t csnarray_next_init_helper(CSOUND *csound, CSN_REGISTRY **registry, ARRAY_VERSION *source_version, CSNREF *source_h, CSN_SCRATCH *scratch, bool is_complex) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle = source_h->id;
+
+    deinit_scratch(csound, scratch);
+    double *buffer = NULL;
+
+    int32_t res = OK;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    CSN_ARRAY *source_arr = slot->array;
+
+    if (is_complex && source_arr->itype == CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] csnnext complex requires complex array");
+        goto done;
+    }
+
+    if (!is_complex && source_arr->itype == CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] csnnext real requires real array");
+        goto done;
+    }
+
+    size_t bcap = source_arr->capacity * source_arr->itype;
+    bcap = bcap > 0 ? bcap : 1;
+
+    buffer = csound->Calloc(csound, sizeof(double) * bcap);
+    if (buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    memcpy(buffer, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+
+    set_array_version(source_version, &source_arr->version);
+    *registry = reg;
+    scratch->scratch = buffer;
+    scratch->scratch_capacity = bcap;
+    scratch->reader = 0;
+    scratch->current_size = source_arr->size; // size
+
+done:
+    if (res != OK) if (buffer != NULL) csound->Free(csound, buffer);
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+static int32_t csnarray_next_perf_helper(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *registry, const ARRAY_VERSION *source_version, CSNREF *source_h, CSN_SCRATCH *scratch, const MYFLT *trig, MYFLT *state, MYFLT *out_real, COMPLEXDAT *out_complex, double *last_value_real, CSN_COMPLEXDAT *last_value_complex, MYFLT *reset) {
+    CSN_REGISTRY *reg = registry;
+    CHECK_REGISTRY(csound, perf_h, reg);
+
+    uint32_t source_handle = source_h->id;
+    int32_t res = OK;
+
+    *state = FL(0.0);
+    CHECK_KTRIG(trig);
+
+    if (!IS_VALID_ZERO_ONE((double) *reset)) {
+        return csound->PerfError(csound, perf_h, "[csnarray] Reset param should be 0 or 1");
+    }
+    bool is_reset = *reset == FL(1.0);
+    if (is_reset && scratch->current_size != 0) {
+        scratch->reader = 0;
+    }
+
+    if (scratch->reader >= scratch->current_size) {
+        if (out_real != NULL) {
+            *out_real = (MYFLT) *last_value_real;
+        } else {
+            out_complex->real = (MYFLT) last_value_complex->re;
+            out_complex->imag = (MYFLT) last_value_complex->im;
+            out_complex->isPolar = 0;
+        }
+        return OK;
+    }
+
+    csound->LockMutex(reg->mutex);
+
+    CSN_SLOT *slot = get_slot(reg, source_handle);
+    if (slot == NULL) {
+        res = csn_locked_perf_error(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        goto done;
+    }
+    CSN_ARRAY *source_arr = slot->array;
+    bool is_same_source = is_same_array_version(source_version, &source_arr->version);
+    if (!is_same_source) {
+        res = csn_locked_perf_error(csound, perf_h, "[csnarray] csnnext: array is changed while iterating");
+        goto done;
+    }
+
+    ITEM_TYPE snap_itype = source_arr->itype;
+    if (snap_itype == CSN_COMPLEX && out_real != NULL) {
+        res = csn_locked_perf_error(csound, perf_h, "[csnarray] csnnext real requires real array");
+        goto done;
+    } else if (snap_itype == CSN_REAL && out_complex != NULL) {
+        res = csn_locked_perf_error(csound, perf_h, "[csnarray] csnnext complex requires complex array");
+        goto done;
+    }
+
+    double *scratch_internal = (double *) scratch->scratch;
+    if (out_real != NULL) {
+        *last_value_real = scratch_internal[scratch->reader];
+        *out_real = (MYFLT) *last_value_real;
+    } else {
+        last_value_complex->re = scratch_internal[scratch->reader * 2];
+        last_value_complex->im = scratch_internal[scratch->reader * 2 + 1];
+        out_complex->real = (MYFLT) last_value_complex->re;
+        out_complex->imag = (MYFLT) last_value_complex->im;
+        out_complex->isPolar = 0;
+    }
+
+    *state = FL(1.0);
+    scratch->reader++;
+
+done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+
+int32_t csnarray_next_real_init(CSOUND *csound, CSN_NEXT_REAL *p) {
+    return csnarray_next_init_helper(csound, &p->registry, &p->source_version, p->source_handle, &p->buffer, false);
+}
+
+int32_t csnarray_next_real_perf(CSOUND *csound, CSN_NEXT_REAL *p) {
+    return csnarray_next_perf_helper(csound, &p->h, p->registry, &p->source_version, p->source_handle, &p->buffer, p->trig, p->state, p->value, NULL, &p->last_value, NULL, p->reset);
+}
+
+int32_t csnarray_next_comp_init(CSOUND *csound, CSN_NEXT_COMP *p) {
+    return csnarray_next_init_helper(csound, &p->registry, &p->source_version, p->source_handle, &p->buffer, true);
+}
+
+int32_t csnarray_next_comp_perf(CSOUND *csound, CSN_NEXT_COMP *p) {
+    return csnarray_next_perf_helper(csound, &p->h, p->registry, &p->source_version, p->source_handle, &p->buffer, p->trig, p->state, NULL, p->value, NULL, &p->last_value, p->reset);
 }

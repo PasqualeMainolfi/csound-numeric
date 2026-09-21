@@ -49,6 +49,7 @@
         "csnceil",
         "csnround",
         "csnforeach",
+        "csnnext",
         "csnproject",
         "csnreject",
         "csncross",

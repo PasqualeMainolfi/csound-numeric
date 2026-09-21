@@ -2097,6 +2097,38 @@ typedef struct {
     CSN_SCRATCH buffer;
 } CSN_FOREACH;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *value;
+    MYFLT *state;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    MYFLT *reset;
+    // private
+    CSN_REGISTRY *registry;
+    CSN_SCRATCH buffer; // source copy. Reject in while changed source
+    ARRAY_VERSION source_version;
+    double last_value;
+} CSN_NEXT_REAL;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    COMPLEXDAT *value;
+    MYFLT *state;
+    // inputs
+    CSNREF *source_handle;
+    MYFLT *trig;
+    MYFLT *reset;
+    // private
+    CSN_REGISTRY *registry;
+    CSN_SCRATCH buffer; // source copy. Reject in while changed source
+    ARRAY_VERSION source_version;
+    CSN_COMPLEXDAT last_value;
+} CSN_NEXT_COMP;
+
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
@@ -2128,6 +2160,13 @@ void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 int32_t csnarray_foreach_deinit(CSOUND *csound, CSN_FOREACH *p);
 int32_t csnarray_foreach_init(CSOUND *csound, CSN_FOREACH *p);
 int32_t csnarray_foreach_perf(CSOUND *csound, CSN_FOREACH *p);
+
+int32_t csnarray_next_real_deinit(CSOUND *csound, CSN_NEXT_REAL *p);
+int32_t csnarray_next_real_init(CSOUND *csound, CSN_NEXT_REAL *p);
+int32_t csnarray_next_real_perf(CSOUND *csound, CSN_NEXT_REAL *p);
+int32_t csnarray_next_comp_deinit(CSOUND *csound, CSN_NEXT_COMP *p);
+int32_t csnarray_next_comp_init(CSOUND *csound, CSN_NEXT_COMP *p);
+int32_t csnarray_next_comp_perf(CSOUND *csound, CSN_NEXT_COMP *p);
 
 // non-arr
 
