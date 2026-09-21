@@ -309,6 +309,23 @@ opcode's own page rather than as separate entries here.
 - [csnblackman](csnblackman.md) - Blackman window
 - [csnkaiser](csnkaiser.md) - Kaiser window with a beta parameter
 
+## Coordinate systems
+
+Conversions between cartesian coordinates and the polar, cylindrical and
+spherical systems, each pair named for its own so nothing depends on how many
+arguments were passed. The spherical order is `(r, theta, phi)` with `theta` the
+inclination from `+z`, and both directions of a pair use it, so a conversion and
+its inverse return the point they started from. An optional trailing flag reads
+`0` for radians, the default, and `1` for degrees, on whichever side of the
+conversion carries the angles.
+
+- [csnpoltocar](csnpoltocar.md) - polar to cartesian, in the plane
+- [csncartopol](csncartopol.md) - cartesian to polar, in the plane
+- [csncyltocar](csncyltocar.md) - cylindrical to cartesian, the height carried through
+- [csncartocyl](csncartocyl.md) - cartesian to cylindrical
+- [csnsphtocar](csnsphtocar.md) - spherical to cartesian
+- [csncartosph](csncartosph.md) - cartesian to spherical
+
 ## Room acoustics
 
 Estimates a designer works with before there is any audio: reverberation time

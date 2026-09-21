@@ -1,19 +1,23 @@
 # Changelog
 
-## [Unreleased]
-
+## [0.1.6] - 2026-09-21
+ 
 - Add Sabine and Eyring-Norris reverberation time from a volume and its absorbing surfaces, scalar or one time per room, at init and k-rate (*csnt60sab*, *csnt60eyr*)
 - Add the absorption a room needs to reach a target reverberation time and the Schroeder frequency that separates a room's modal region from its diffuse one; either operand may be a scalar or an array, and two arrays pair every volume with every target into a `volumes x targets` matrix (*csnrt60absp*, *csnfschrd*)
 - Add the resonant frequency of a rectangular room for one modal index triple, for a single room or one row per room; the modal orders are any non-negative integers, so modes above the first are reachable (*csnfpqr*)
 - Add the comb feedback gain a delay needs to decay by 60 dB in a given time and its inverse, scalar or array on either side, at init and k-rate; a gain of 1 or more never decays and answers 0 rather than an infinity or a negative time (*csnt60tofbg*, *csnfbgtot60*)
 - Add level summation in decibels by adding powers, over a pair, a whole array, or one axis (*csndbsum*)
 - Add sample/time conversion against an explicit sample rate rather than the orchestra's, scalar and array forms (*csnsamptomillis*, *csnsamptosec*, *csnmillistosamp*, *csnsectosamp*)
+- Add conversions between cartesian coordinates and the polar, cylindrical and spherical systems, at init and k-rate, each pair named for its own system so nothing depends on how many arguments were passed; the spherical order is `(r, theta, phi)` with `theta` the inclination from `+z`, both directions of a pair use it, and an optional trailing flag takes or answers the angles in degrees (*csnpoltocar*, *csncartopol*, *csncyltocar*, *csncartocyl*, *csnsphtocar*, *csncartosph*)
+- Add scalar overloads of *csndegtorad* and *csnradtodeg*, answering for a single number what the array forms answer for each element
 - Add scalar complex arithmetic under the names the array operators already use: *csnadd*, *csnsubtract*, *csnmul*, *csndiv* and *csnpow* with two `:Complex;` operands or one complex and one real on either side, *csnsqrt* on a single one, and *csnabs*, *csnangle* and *csnconj* reading one `:Complex;` value
 - Raise an error on a scalar complex division by zero and on a zero base under a complex power, as the elementwise forms do, instead of answering zero
 - Compute the magnitude of a scalar `:Complex;` with `hypot`, so a component near the top or bottom of the double range neither overflows to infinity nor flushes to zero
-- Add opcode reference pages, runnable examples, inventory entries, NumPy correspondence rows and i-rate/k-rate regression coverage for the room acoustics, feedback-gain and level/time families
+- Add opcode reference pages, runnable examples, inventory entries, NumPy correspondence rows and i-rate/k-rate regression coverage for the room acoustics, feedback-gain, level/time and coordinate families
+- Extend the `csndegtorad` and `csnradtodeg` reference pages with their scalar overloads, listed on the opcode's own page rather than as separate inventory entries
 - Extend the `csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`, `csnsqrt`, `csnabs`, `csnangle` and `csnconj` reference pages with their scalar `:Complex;` overloads, and cover those at i-rate and k-rate; the scalar forms are listed on each opcode's own page rather than as separate inventory entries
 - Add `src/csnmeasure.c` as the implementation unit for the room acoustics, feedback-gain and level/time opcodes, keeping the `OENTRY` inventory centralized in `csnum.c` as the other units do
+- Add `src/csncoord.c` as the implementation unit for the coordinate conversions, on the same terms
 - Rename `CSN_WHERE_VERSION_K_STATE` to `CSN_THREE_VERSION_K_STATE` and export `IS_VALID_SR` through the internal interface, both now used outside the units that introduced them
 - Fix the k-rate axis of *csnmedfilt1d*, its in-place form and *csncompress*, declared i-rate although the performance pass re-reads and revalidates it on every control period; a k-rate axis could not be passed at all, and the reuse comparison against the stored axis was unreachable
 - Fix the argument order of the k-rate *csnfftconvolve1d* calls in the real-time regression suites, which put the axis before the trigger and left both files failing to parse

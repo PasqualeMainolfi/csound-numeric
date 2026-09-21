@@ -356,6 +356,23 @@ length is derived from the operands, never asked for.
 - **csnblackman** - Blackman window (i, k — real only)
 - **csnkaiser** - Kaiser window with a beta parameter (i, k — real only)
 
+## Coordinate systems
+
+Conversions between cartesian coordinates and the polar, cylindrical and
+spherical systems, each pair named for its own so nothing depends on how many
+arguments were passed. The spherical order is `(r, theta, phi)` with `theta` the
+inclination from `+z`, and both directions of a pair use it, so a conversion and
+its inverse return the point they started from. An optional trailing flag reads
+`0` for radians, the default, and `1` for degrees, on whichever side of the
+conversion carries the angles.
+
+- **csnpoltocar** - polar to cartesian, in the plane (i, k — real only)
+- **csncartopol** - cartesian to polar, in the plane (i, k — real only)
+- **csncyltocar** - cylindrical to cartesian, the height carried through (i, k — real only)
+- **csncartocyl** - cartesian to cylindrical (i, k — real only)
+- **csnsphtocar** - spherical to cartesian (i, k — real only)
+- **csncartosph** - cartesian to spherical (i, k — real only)
+
 ## Room acoustics
 
 Estimates a designer works with before there is any audio. In every one of these

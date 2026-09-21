@@ -1,4 +1,5 @@
 #include "csnum.h"
+#include "csncoord.h"
 #include "csnmeasure.h"
 #include "csnum_internal.h"
 #include "csnlinalg.h"
@@ -1454,6 +1455,24 @@ static OENTRY localops[] = {
     { "csnsearchsorted.s",     S(CSN_SEARCHSORTED_SCALAR),    0, "i",                        ":CsnArr;io",                    (SUBR) csnarray_searchsorted_scalar,         NULL,                                   NULL,                                    NULL, 0 },
     { "csnsearchsorted.k",     S(CSN_SEARCHSORTED_ARR),       0, ":CsnArr;",                 ":CsnArr;:CsnArr;oP",            (SUBR) csnarray_searchsorted_arr,            (SUBR) csnarray_searchsorted_arr_k,     (SUBR) csnarray_searchsorted_a_deinit,   NULL, 0 },
     { "csnsearchsorted.s.k",   S(CSN_SEARCHSORTED_SCALAR),    0, "k",                        ":CsnArr;koP",                   (SUBR) csnarray_searchsorted_scalar_k_init,  (SUBR) csnarray_searchsorted_scalar_k,  NULL,                                    NULL, 0 },
+
+    // COORDS 1
+    { "csnpoltocar",             S(CSN_COORD2),               0, "ii",                       "iio",                           (SUBR) csncoord_poltocar,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csncartopol",             S(CSN_COORD2),               0, "ii",                       "iio",                           (SUBR) csncoord_cartopol,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csncyltocar",             S(CSN_COORD3),               0, "iii",                      "iiio",                          (SUBR) csncoord_cyltocar,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csncartocyl",             S(CSN_COORD3),               0, "iii",                      "iiio",                          (SUBR) csncoord_cartocyl,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csnsphtocar",             S(CSN_COORD3),               0, "iii",                      "iiio",                          (SUBR) csncoord_sphtocar,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csncartosph",             S(CSN_COORD3),               0, "iii",                      "iiio",                          (SUBR) csncoord_cartosph,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csnpoltocar.k",           S(CSN_COORD2),               0, "kk",                       "kkO",                           NULL,                                        (SUBR) csncoord_poltocar_k,              NULL,                                   NULL, 0 },
+    { "csncartopol.k",           S(CSN_COORD2),               0, "kk",                       "kkO",                           NULL,                                        (SUBR) csncoord_cartopol_k,              NULL,                                   NULL, 0 },
+    { "csncyltocar.k",           S(CSN_COORD3),               0, "kkk",                      "kkkO",                          NULL,                                        (SUBR) csncoord_cyltocar_k,              NULL,                                   NULL, 0 },
+    { "csncartocyl.k",           S(CSN_COORD3),               0, "kkk",                      "kkkO",                          NULL,                                        (SUBR) csncoord_cartocyl_k,              NULL,                                   NULL, 0 },
+    { "csnsphtocar.k",           S(CSN_COORD3),               0, "kkk",                      "kkkO",                          NULL,                                        (SUBR) csncoord_sphtocar_k,              NULL,                                   NULL, 0 },
+    { "csncartosph.k",           S(CSN_COORD3),               0, "kkk",                      "kkkO",                          NULL,                                        (SUBR) csncoord_cartosph_k,              NULL,                                   NULL, 0 },
+    { "csndegtorad.s",           S(CSN_COORD1),               0, "i",                        "i",                             (SUBR) csncoord_degtorad,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csnradtodeg.s",           S(CSN_COORD1),               0, "i",                        "i",                             (SUBR) csncoord_radtodeg,                    NULL,                                    NULL,                                   NULL, 0 },
+    { "csndegtorad.s.k",         S(CSN_COORD1),               0, "k",                        "k",                             NULL,                                        (SUBR) csncoord_degtorad,                NULL,                                   NULL, 0 },
+    { "csnradtodeg.s.k",         S(CSN_COORD1),               0, "k",                        "k",                             NULL,                                        (SUBR) csncoord_radtodeg,                NULL,                                   NULL, 0 },
 
     // AUDIO-BASED
     { "csnt60sab.a",           S(CSN_SABEYR_ARR),             0, ":CsnArr;",                 ":CsnArr;:CsnArr;:CsnArr;",      (SUBR) csnarray_sabine_arr,                  NULL,                                   (SUBR) csnarray_sabeyr_arr_deinit,       NULL, 0 },

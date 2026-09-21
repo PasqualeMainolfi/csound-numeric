@@ -256,6 +256,11 @@ csound --opcode-dir=build example/csnsort.csd
 - **Windows**: Hann, Hamming, Bartlett, Blackman, Kaiser.
 - **Persistence**: `csnsave` and `csnload` use `.csn` for csnum's own format or
   `.npy` for NumPy interoperability, preserving shape and real/complex type.
+- **Coordinate systems**: conversions between cartesian coordinates and the
+  polar, cylindrical and spherical systems, each pair named for its own; the
+  spherical order is `(r, theta, phi)` with `theta` the inclination from `+z`,
+  and an optional flag takes or answers the angles in degrees. `csndegtorad` and
+  `csnradtodeg` also convert a single number.
 - **Room acoustics**: reverberation time by Sabine and by Eyring-Norris from a
   volume and its absorbing surfaces, the absorption a target time demands, the
   Schroeder frequency that separates a room's modal region from its diffuse one,
@@ -675,6 +680,9 @@ thing NumPy never has to deal with:
 | `csndbsum` | Adds levels in dB by adding their powers, over a pair, an array or one axis. |
 | `csnsamptomillis` / `csnsamptosec` | Sample counts into milliseconds or seconds at a given rate. |
 | `csnmillistosamp` / `csnsectosamp` | Milliseconds or seconds into sample counts at a given rate. |
+| `csnpoltocar` / `csncartopol` | Polar and cartesian coordinates, in the plane. |
+| `csncyltocar` / `csncartocyl` | Cylindrical and cartesian coordinates. |
+| `csnsphtocar` / `csncartosph` | Spherical and cartesian coordinates, `(r, theta, phi)`. |
 | `csnfromftable` / `csntoftable` | Csound function table in and out. |
 | `csnfree` | Explicit release of a `@global` handle. |
 | `csnunlikeset` | Drops the set classification. |

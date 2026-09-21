@@ -19,6 +19,9 @@ Two forms share the name. The one with an output publishes a new handle and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+
+The same name also takes a single number and answers a single number, multiplied by `180 / pi`. It is the scalar counterpart of the array form, and answers exactly what that form answers for the same value.
+
 ## Syntax
 
 ```csound
@@ -26,6 +29,8 @@ handle:CsnArr = csnradtodeg(source:CsnArr)
 handle:CsnArr = csnradtodeg(source:CsnArr, trig:k)
 csnradtodeg(source:CsnArr)
 csnradtodeg(source:CsnArr, trig:k)
+value:i = csnradtodeg(angle:i)
+value:k = csnradtodeg(angle:k)
 ```
 
 ## Arguments

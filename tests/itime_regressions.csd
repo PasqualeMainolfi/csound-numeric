@@ -2754,6 +2754,68 @@ instr 20
     iConjIm = imag(iConj)
     assert(iConjRe == 3 && iConjIm == -4)
 endin
+
+instr 21
+    ; ------------------------------------------------------------------
+    ; Coordinate systems. Each pair names its own, so nothing depends on
+    ; how many arguments were passed: polar is planar, cylindrical carries
+    ; the height, spherical orders its angles (r, theta, phi) with theta
+    ; the inclination from +z. Both directions of a pair use that order,
+    ; which is what makes the round trips below the real check.
+    ; ------------------------------------------------------------------
+    iHalfPi = 1.5707963267948966
+
+    ; --- spherical: the three unit directions ------------------------------
+    iX1, iY1, iZ1 csnsphtocar 1, iHalfPi, 0
+    assert(abs(iX1 - 1) < 1e-12 && abs(iY1) < 1e-12 && abs(iZ1) < 1e-12)
+    iX2, iY2, iZ2 csnsphtocar 1, iHalfPi, iHalfPi
+    assert(abs(iX2) < 1e-12 && abs(iY2 - 1) < 1e-12 && abs(iZ2) < 1e-12)
+    ; theta = 0 is the pole, not the equator
+    iX3, iY3, iZ3 csnsphtocar 1, 0, 0
+    assert(abs(iX3) < 1e-12 && abs(iY3) < 1e-12 && abs(iZ3 - 1) < 1e-12)
+
+    ; --- and back, which pins the angle order in both directions -----------
+    iR, iTheta, iPhi csncartosph 1, 2, 3
+    assert(abs(iR - sqrt(14)) < 1e-12)
+    iBX, iBY, iBZ csnsphtocar iR, iTheta, iPhi
+    assert(abs(iBX - 1) < 1e-12 && abs(iBY - 2) < 1e-12 && abs(iBZ - 3) < 1e-12)
+
+    ; --- cylindrical carries the height through ----------------------------
+    iCX, iCY, iCZ csncyltocar 2, 0, 5
+    assert(abs(iCX - 2) < 1e-12 && abs(iCY) < 1e-12 && abs(iCZ - 5) < 1e-12)
+    iCR, iCP, iCH csncartocyl 3, 4, 7
+    assert(abs(iCR - 5) < 1e-12 && abs(iCH - 7) < 1e-12)
+    iDX, iDY, iDZ csncyltocar iCR, iCP, iCH
+    assert(abs(iDX - 3) < 1e-12 && abs(iDY - 4) < 1e-12 && abs(iDZ - 7) < 1e-12)
+
+    ; --- polar stays planar ------------------------------------------------
+    iPX, iPY csnpoltocar 2, 0
+    assert(abs(iPX - 2) < 1e-12 && abs(iPY) < 1e-12)
+    iPR, iPP csncartopol 3, 4
+    assert(abs(iPR - 5) < 1e-12)
+    iQX, iQY csnpoltocar iPR, iPP
+    assert(abs(iQX - 3) < 1e-12 && abs(iQY - 4) < 1e-12)
+
+    ; --- degrees on either side of the conversion --------------------------
+    iEX, iEY csnpoltocar 1, 90, 1
+    assert(abs(iEX) < 1e-12 && abs(iEY - 1) < 1e-12)
+    iER, iEP csncartopol 0, 1, 1
+    assert(abs(iER - 1) < 1e-12 && abs(iEP - 90) < 1e-12)
+    ; a full round trip taken in degrees comes back in degrees
+    iFX, iFY, iFZ csnsphtocar 1, 90, 45, 1
+    iFR, iFT, iFP csncartosph iFX, iFY, iFZ, 1
+    assert(abs(iFR - 1) < 1e-12 && abs(iFT - 90) < 1e-9 && abs(iFP - 45) < 1e-9)
+
+    ; --- the scalar angle conversions --------------------------------------
+    ; they answer what the array forms of the same name answer
+    iRad = csndegtorad(180)
+    assert(abs(iRad - 3.141592653589793) < 1e-12)
+    iDeg = csnradtodeg(3.141592653589793)
+    assert(abs(iDeg - 180) < 1e-12)
+    iArr:CsnArr = csndegtorad(csnfromarray(array(180)))
+    iArrVals[] = csntoarray(iArr)
+    assert(abs(iArrVals[0] - iRad) < 1e-12)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -2782,6 +2844,7 @@ i 17 0.32 0.01
 i 18 0.34 0.01
 i 19 0.36 0.01
 i 20 0.38 0.01
+i 21 0.40 0.01
 e
 </CsScore>
 
@@ -2844,5 +2907,7 @@ e
 ; csnadd.cc csnadd.cr csnadd.rc csnsubtract.cc csnsubtract.cr csnsubtract.rc
 ; csnmul.cc csnmul.cr csnmul.rc csndiv.cc csndiv.cr csndiv.rc
 ; csnpow.cc csnpow.cr csnpow.rc csnsqrt.c csnabs.c csnangle.c csnconj.c
+; csnpoltocar csncartopol csncyltocar csncartocyl csnsphtocar csncartosph
+; csndegtorad.s csnradtodeg.s
 ; @covers-end
 </CsoundSynthesizer>

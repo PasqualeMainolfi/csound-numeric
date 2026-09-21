@@ -59,6 +59,15 @@ gkRCIm init 0
 gkDivRe init 0
 gkDivIm init 0
 
+/* The coordinate conversions have no i-rate state to carry, so the k rows are
+   the same arithmetic on k arguments; what is worth pinning is that the angle
+   order and the degrees flag behave as they do at i-rate. */
+gkSphX init 0
+gkSphY init 0
+gkSphZ init 0
+gkCylZ init 0
+gkPolDeg init 0
+
 instr 1
     kTrig init 1
     kOff init 0
@@ -67,6 +76,15 @@ instr 1
     kOneTwenty init 120
 
     kTen init 10
+    kOne init 1
+    kNinety init 90
+    kHalfPi init 1.5707963267948966
+    gkSphX, gkSphY, gkSphZ csnsphtocar kOne, kHalfPi, kHalfPi
+    kCylR init 2
+    kCylP init 0
+    kCylH init 5
+    kCX, kCY, gkCylZ csncyltocar kCylR, kCylP, kCylH
+    kPR, gkPolDeg csncartopol kOff, kOne, kOne
     cA:Complex = init(3, 4, 0)
     cB:Complex = init(1, 2, 0)
     cSum:Complex = csnadd(cA, cB)
@@ -148,6 +166,19 @@ instr 2
     iDivRe = i(gkDivRe)
     iDivIm = i(gkDivIm)
     assert(abs(iDivRe - 1.2) < 1e-12 && abs(iDivIm + 1.6) < 1e-12)
+
+    ; --- the k-rate coordinate conversions ----------------------------------
+    ; theta = phi = pi/2 is the +y axis, which is what pins the angle order
+    iSX = i(gkSphX)
+    iSY = i(gkSphY)
+    iSZ = i(gkSphZ)
+    assert(abs(iSX) < 1e-12 && abs(iSY - 1) < 1e-12 && abs(iSZ) < 1e-12)
+    ; cylindrical carries the height through untouched
+    iCZ = i(gkCylZ)
+    assert(iCZ == 5)
+    ; and the degrees flag applies to an angle on the way out too
+    iPD = i(gkPolDeg)
+    assert(abs(iPD - 90) < 1e-12)
 endin
 </CsInstruments>
 
