@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.9] - 2026-09-22
 
 - Add elementwise mapping of a user-defined opcode over an array, in place, driven by a k-rate trigger (*csnforeach*). The callback is a Csound 7 `:Opcode;` object: the orchestra names it with `opcoderef`, allocates it with `create` and wires its argument cells with one `init` call, and it must take one k-rate argument and return one. The array is read flat, so the rank does not matter and the shape is preserved; real arrays only
 - Run the *csnforeach* callback with the array registry unlocked, over a copy of the elements taken before the first call and written back after the last, so the callback may call other csnum opcodes without deadlocking on the registry mutex, which is not recursive. A callback that rewrites the same array through another opcode has its writes overwritten by the copy; freeing the array or changing its element type from inside the callback is an error, and a change of size writes back the common prefix
