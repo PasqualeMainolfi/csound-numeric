@@ -350,6 +350,7 @@ length is derived from the operands, never asked for.
 
 - **csninterp** - maps values through a breakpoint table, five interpolation modes (i, k — real only)
 - **csnresample** - resamples an array to a new length along one axis (i, k — real only)
+- **csnlagrange** - coefficients of the Lagrange interpolating polynomial, highest degree first (i — real only)
 
 ## Windows
 
@@ -385,6 +386,17 @@ conversion carries the angles.
 - **csnchnlstohoaord** - the order a channel count stands for, perfect squares only (i, k — real only)
 - **csnsn3dton3d** - per-channel gains from SN3D to N3D, indexed by ACN (i — real only)
 - **csnn3dtosn3d** - per-channel gains from N3D to SN3D, indexed by ACN (i — real only)
+
+## Special functions
+
+Written from their recurrences, since math.h has none of them. Neither carries
+the Condon-Shortley phase, and the harmonics are the real ones of the AmbiX
+convention: ACN order, SN3D, no global `1/sqrt(4 pi)`, with the direction read
+as `csnhoatocar` reads it.
+
+- **csnlegendre** - associated Legendre function P_n^m(x), scalar or elementwise over a handle (i, k — real only)
+- **csnsphharm** - one real spherical harmonic at one direction (i, k — real only)
+- **csnsphharmacn** - every harmonic up to an order by ACN, at one direction or as a channels x directions matrix (i, k — real only)
 
 ## Room acoustics
 

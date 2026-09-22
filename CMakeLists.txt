@@ -549,6 +549,13 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_coord_rotation_regression.csd")
         add_test(
+            NAME csnum_krate_special_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_special_regression.csd")
+        add_test(
             NAME csnum_next_itype_rejected
             COMMAND "${CSOUND_EXECUTABLE}"
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>

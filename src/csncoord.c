@@ -711,9 +711,9 @@ static int32_t csncoord_nmtoacn_helper(CSOUND *csound, CSN_NM2ACN *p, bool is_pe
 
     if (n < 0) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] n should be greater than zero");
+            return csound->PerfError(csound, &p->h, "[csnarray] n should be greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] n should be greater than zero");
+            return csound->InitError(csound, "[csnarray] n should be greater or equal to zero");
         }
     }
 
@@ -844,7 +844,7 @@ int32_t csncoord_chnlstohoaord(CSOUND *csound, CSN_COORD1 *p) {
 }
 
 int32_t csncoord_chnlstohoaord_k(CSOUND *csound, CSN_COORD1 *p) {
-    return csncoord_chnlstohoaord_helper(csound, p, false);
+    return csncoord_chnlstohoaord_helper(csound, p, true);
 }
 
 static int32_t csncoord_sn3d_helper(CSOUND *csound, CSN_SN3D *p, bool is_n3dtosn3d) {

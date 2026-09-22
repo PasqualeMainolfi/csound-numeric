@@ -2988,6 +2988,242 @@ instr 21
     iArrVals[] = csntoarray(iArr)
     assert(abs(iArrVals[0] - iRad) < 1e-12)
 endin
+
+instr 22
+    ; ------------------------------------------------------------------
+    ; Special functions. The associated Legendre functions carry no
+    ; Condon-Shortley phase, so scipy.special.lpmv(m, n, x) is (-1)^m times
+    ; what csnlegendre answers. The reference values below were computed
+    ; independently, from Rodrigues' formula in exact rationals, not from
+    ; the recurrence the opcode uses.
+    ; ------------------------------------------------------------------
+    ix = 0.3
+    iP00 = csnlegendre(0, 0, ix)
+    iP10 = csnlegendre(1, 0, ix)
+    iP11 = csnlegendre(1, 1, ix)
+    iP20 = csnlegendre(2, 0, ix)
+    iP21 = csnlegendre(2, 1, ix)
+    iP22 = csnlegendre(2, 2, ix)
+    iP30 = csnlegendre(3, 0, ix)
+    assert(abs(iP00 - 1) < 1e-14)
+    assert(abs(iP10 - ix) < 1e-14)
+    assert(abs(iP11 - sqrt(1 - ix * ix)) < 1e-14)
+    assert(abs(iP20 - (3 * ix * ix - 1) / 2) < 1e-14)
+    ; positive: no Condon-Shortley phase, which would make it -3x sqrt(1-x^2)
+    assert(abs(iP21 - 3 * ix * sqrt(1 - ix * ix)) < 1e-14)
+    assert(abs(iP22 - 3 * (1 - ix * ix)) < 1e-14)
+    assert(abs(iP30 - (5 * ix * ix * ix - 3 * ix) / 2) < 1e-14)
+
+    ; further out, where only the recurrence reaches
+    iRef1 = csnlegendre(5, 2, 0.3)
+    iRef2 = csnlegendre(7, 3, -0.6)
+    iRef3 = csnlegendre(10, 0, 0.25)
+    iRef4 = csnlegendre(4, 4, 0.8)
+    iRef5 = csnlegendre(6, 1, 0.9)
+    assert(abs(iRef1 / -10.462725 - 1) < 1e-12)
+    assert(abs(iRef2 / -44.900352 - 1) < 1e-12)
+    assert(abs(iRef3 / 0.22120021656155586 - 1) < 1e-12)
+    assert(abs(iRef4 / 13.608 - 1) < 1e-12)
+    assert(abs(iRef5 / 2.421344934055022 - 1) < 1e-12)
+
+    ; the ends of the interval: every m > 0 vanishes, P_n(1) = 1 and
+    ; P_n(-1) = (-1)^n
+    iEdge1 = csnlegendre(4, 2, 1)
+    iEdge2 = csnlegendre(5, 1, -1)
+    iEdge3 = csnlegendre(6, 0, 1)
+    iEdge4 = csnlegendre(5, 0, -1)
+    assert(iEdge1 == 0 && iEdge2 == 0)
+    assert(abs(iEdge3 - 1) < 1e-14 && abs(iEdge4 + 1) < 1e-14)
+
+    ; elementwise over a handle, keeping its shape, and agreeing with the
+    ; scalar form cell by cell
+    iLx[] = fillarray(-1, -0.5, 0, 0.3, 0.9, 1)
+    iLShape[] = fillarray(2, 3)
+    iLSrc:CsnArr = csnreshape(csnfromarray(iLx), iLShape)
+    iLArr:CsnArr = csnlegendre(3, 1, iLSrc)
+    iLDims = csndims(iLArr)
+    assert(iLDims == 2)
+    iLFlat:CsnArr = csnflatten(iLArr)
+    iLVals[] = csntoarray(iLFlat)
+    i = 0
+    until i == 6 do
+        iLOne = csnlegendre(3, 1, iLx[i])
+        assert(abs(iLVals[i] - iLOne) < 1e-14)
+        i += 1
+    od
+
+    ; ------------------------------------------------------------------
+    ; Real spherical harmonics, AmbiX: ACN order, SN3D, no 1/sqrt(4 pi).
+    ; ------------------------------------------------------------------
+    iAz = 30
+    iEl = 20
+    iAzR = iAz * 3.141592653589793 / 180
+    iElR = iEl * 3.141592653589793 / 180
+
+    ; the first order is the direction itself: W = 1, then Y, Z, X. With the
+    ; Condon-Shortley phase Y and X would come out negated.
+    iY00 = csnsphharm(0, 0, iAz, iEl, 1)
+    iY1m = csnsphharm(1, -1, iAz, iEl, 1)
+    iY10 = csnsphharm(1, 0, iAz, iEl, 1)
+    iY1p = csnsphharm(1, 1, iAz, iEl, 1)
+    iDx, iDy, iDz csnhoatocar 1, iAz, iEl, 1
+    assert(abs(iY00 - 1) < 1e-14)
+    assert(abs(iY1m - iDy) < 1e-14 && abs(iY10 - iDz) < 1e-14 && abs(iY1p - iDx) < 1e-14)
+
+    ; the second order in closed form
+    iY2m2 = csnsphharm(2, -2, iAzR, iElR)
+    iY2m1 = csnsphharm(2, -1, iAzR, iElR)
+    iY20  = csnsphharm(2, 0, iAzR, iElR)
+    iY2p1 = csnsphharm(2, 1, iAzR, iElR)
+    iY2p2 = csnsphharm(2, 2, iAzR, iElR)
+    iH3 = sqrt(3) / 2
+    assert(abs(iY2m2 - iH3 * cos(iElR) ^ 2 * sin(2 * iAzR)) < 1e-14)
+    assert(abs(iY2m1 - iH3 * sin(2 * iElR) * sin(iAzR)) < 1e-14)
+    assert(abs(iY20 - (3 * sin(iElR) ^ 2 - 1) / 2) < 1e-14)
+    assert(abs(iY2p1 - iH3 * sin(2 * iElR) * cos(iAzR)) < 1e-14)
+    assert(abs(iY2p2 - iH3 * cos(iElR) ^ 2 * cos(2 * iAzR)) < 1e-14)
+
+    ; higher orders against the same independent reference
+    iY3m2 = csnsphharm(3, -2, iAz, iEl, 1)
+    iY4m1 = csnsphharm(4, -1, iAz, iEl, 1)
+    iY50  = csnsphharm(5, 0, iAz, iEl, 1)
+    iY54  = csnsphharm(5, 4, iAz, iEl, 1)
+    assert(abs(iY3m2 - 0.5064884931101483) < 1e-13)
+    assert(abs(iY4m1 + 0.27709848596388) < 1e-13)
+    assert(abs(iY50 - 0.32806721568034236) < 1e-13)
+    assert(abs(iY54 + 0.2958218472358397) < 1e-13)
+
+    ; an elevation past the pole is the direction at azimuth + 180: the
+    ; cosine of the elevation is taken with its sign, not as sqrt(1 - x^2)
+    iPast = csnsphharm(3, 1, 10, 120, 1)
+    iSame = csnsphharm(3, 1, 190, 60, 1)
+    assert(abs(iPast - iSame) < 1e-13 && abs(iSame + 0.8292200433057588) < 1e-13)
+
+    ; at the pole the azimuth is undefined and nothing depends on it: every
+    ; m != 0 vanishes and every m = 0 reads P_n(1) = 1
+    iPoleA = csnsphharm(4, 3, 0, 90, 1)
+    iPoleB = csnsphharm(4, 3, 77, 90, 1)
+    iPole0 = csnsphharm(4, 0, 77, 90, 1)
+    assert(abs(iPoleA) < 1e-14 && abs(iPoleB) < 1e-14 && abs(iPole0 - 1) < 1e-14)
+
+    ; the whole set at one direction, indexed by ACN, agrees with the
+    ; single harmonic for every (n, m)
+    iSet:CsnArr = csnsphharmacn(4, iAz, iEl, 1)
+    iSetN = csnsize(iSet)
+    assert(iSetN == 25)
+    iSetV[] = csntoarray(iSet)
+    in = 0
+    until in > 4 do
+        im = -in
+        until im > in do
+            iAcnSet = csnnmtoacn(in, im)
+            iOneSet = csnsphharm(in, im, iAz, iEl, 1)
+            assert(abs(iSetV[iAcnSet] - iOneSet) < 1e-14)
+            im += 1
+        od
+        in += 1
+    od
+
+    ; SN3D: the squares of one order sum to 1 at every direction. Multiplied
+    ; into N3D with csnsn3dton3d they sum to 2n+1 instead.
+    iDirAz[] = fillarray(0, 45, -120, 200, 10, 90)
+    iDirEl[] = fillarray(0, 30, -60, 89, -89.5, 90)
+    iAzH:CsnArr = csnfromarray(iDirAz)
+    iElH:CsnArr = csnfromarray(iDirEl)
+    iMat:CsnArr = csnsphharmacn(6, iAzH, iElH, 1)
+    iMatShape[] = csnshape(iMat)
+    assert(iMatShape[0] == 49 && iMatShape[1] == 6)
+    iMatV[] = csntoarray(csnflatten(iMat))
+    iUpG:CsnArr csnsn3dton3d 6
+    iUpGV[] = csntoarray(iUpG)
+    id = 0
+    until id == 6 do
+        in = 0
+        until in > 6 do
+            iSq = 0
+            iSqN3d = 0
+            iAcnLo = in * in
+            iAcnHi = (in + 1) * (in + 1)
+            iac = iAcnLo
+            until iac == iAcnHi do
+                iCell = iMatV[iac * 6 + id]
+                iSq += iCell * iCell
+                iSqN3d += (iCell * iUpGV[iac]) ^ 2
+                iac += 1
+            od
+            assert(abs(iSq - 1) < 1e-12)
+            assert(abs(iSqN3d - (2 * in + 1)) < 1e-11)
+            in += 1
+        od
+        ; each column is the set at that direction
+        iCol:CsnArr = csnsphharmacn(6, iDirAz[id], iDirEl[id], 1)
+        iColV[] = csntoarray(iCol)
+        iac = 0
+        until iac == 49 do
+            assert(abs(iMatV[iac * 6 + id] - iColV[iac]) < 1e-14)
+            iac += 1
+        od
+        id += 1
+    od
+
+    ; a high order stays bounded: SN3D values never exceed 1, and the
+    ; recurrence never forms the factorials that would overflow
+    iHigh:CsnArr = csnsphharmacn(200, 17, 33, 1)
+    iHighMax = csnmax(csnabs(iHigh))
+    assert(iHighMax <= 1 + 1e-12)
+endin
+
+instr 23
+    ; ------------------------------------------------------------------
+    ; Lagrange interpolating polynomial. The coefficients come highest
+    ; degree first, as scipy.interpolate.lagrange hands them to np.poly1d.
+    ; ------------------------------------------------------------------
+    ; three points on x^2 + x + 1
+    iLx[] = fillarray(0, 1, 2)
+    iLy[] = fillarray(1, 3, 7)
+    iLhx:CsnArr = csnfromarray(iLx)
+    iLhy:CsnArr = csnfromarray(iLy)
+    iLc:CsnArr = csnlagrange(iLhx, iLhy)
+    iLcV[] = csntoarray(iLc)
+    assert(lenarray(iLcV) == 3)
+    assert(abs(iLcV[0] - 1) < 1e-12 && abs(iLcV[1] - 1) < 1e-12 && abs(iLcV[2] - 1) < 1e-12)
+
+    ; four unevenly spaced points on 2x^3 - x + 4 give its coefficients back,
+    ; including the zero one
+    iCx[] = fillarray(-1, 0.5, 2, 3)
+    iCy[] = fillarray(3, 3.75, 18, 55)
+    iChx:CsnArr = csnfromarray(iCx)
+    iChy:CsnArr = csnfromarray(iCy)
+    iCc:CsnArr = csnlagrange(iChx, iChy)
+    iCcV[] = csntoarray(iCc)
+    assert(abs(iCcV[0] - 2) < 1e-12 && abs(iCcV[1]) < 1e-12)
+    assert(abs(iCcV[2] + 1) < 1e-12 && abs(iCcV[3] - 4) < 1e-12)
+
+    ; and the polynomial passes through every point it was built from
+    i = 0
+    until i == 4 do
+        iXi = iCx[i]
+        iEval = ((iCcV[0] * iXi + iCcV[1]) * iXi + iCcV[2]) * iXi + iCcV[3]
+        assert(abs(iEval - iCy[i]) < 1e-12)
+        i += 1
+    od
+
+    ; one point is the constant through it; two, the line
+    iOx[] = fillarray(5)
+    iOy[] = fillarray(-2)
+    iOhx:CsnArr = csnfromarray(iOx)
+    iOhy:CsnArr = csnfromarray(iOy)
+    iOc:CsnArr = csnlagrange(iOhx, iOhy)
+    iOcV[] = csntoarray(iOc)
+    assert(lenarray(iOcV) == 1 && abs(iOcV[0] + 2) < 1e-12)
+    iTx[] = fillarray(1, 3)
+    iTy[] = fillarray(2, 8)
+    iThx:CsnArr = csnfromarray(iTx)
+    iThy:CsnArr = csnfromarray(iTy)
+    iTc:CsnArr = csnlagrange(iThx, iThy)
+    iTcV[] = csntoarray(iTc)
+    assert(abs(iTcV[0] - 3) < 1e-12 && abs(iTcV[1] + 1) < 1e-12)
+endin
 </CsInstruments>
 
 <CsScore>
@@ -3017,6 +3253,8 @@ i 18 0.34 0.01
 i 19 0.36 0.01
 i 20 0.38 0.01
 i 21 0.40 0.01
+i 22 0.42 0.01
+i 23 0.44 0.01
 e
 </CsScore>
 
@@ -3082,6 +3320,8 @@ e
 ; csnpoltocar csncartopol csncyltocar csncartocyl csnsphtocar csncartosph
 ; csncartohoa csnhoatocar csnrotmat csnrotmat.ax csnrotmatypr
 ; csnnmtoacn csnacntonm csnhoaordtochnls csnchnlstohoaord csnsn3dton3d csnn3dtosn3d
+; csnlegendre csnlegendre.h csnsphharm csnsphharmacn csnsphharmacn.mat
+; csnlagrange
 ; csndegtorad.s csnradtodeg.s
 ; @covers-end
 </CsoundSynthesizer>

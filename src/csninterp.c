@@ -1,5 +1,6 @@
 /* Opcode implementations for the interp family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
@@ -1863,6 +1864,115 @@ int32_t csnarray_resize_in_k(CSOUND *csound, CSN_RESIZE_IN *p) {
     p->is_published = true;
 
 done:
+    csound->UnlockMutex(reg->mutex);
+    return res;
+}
+
+int32_t csnarray_lagrange_deinit(CSOUND *csound, CSN_LAGRANGE *p) {
+    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+}
+
+int32_t csnarray_lagrange(CSOUND *csound, CSN_LAGRANGE *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    uint32_t source_handle_x = p->source_handle_x->id;
+    uint32_t source_handle_y = p->source_handle_y->id;
+
+    int32_t res = OK;
+    const char *err = NULL;
+    double *y_copy = NULL;
+    double *work_buffer = NULL;
+
+    csound->LockMutex(reg->mutex);
+    CSN_SLOT *slot_x = get_slot(reg, source_handle_x);
+    if (slot_x == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_x);
+        goto done;
+    }
+    CSN_SLOT *slot_y = get_slot(reg, source_handle_y);
+    if (slot_y == NULL) {
+        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_y);
+        goto done;
+    }
+
+    CSN_ARRAY *source_arr_x = slot_x->array;
+    CSN_ARRAY *source_arr_y = slot_y->array;
+
+    if (source_arr_x->size != source_arr_y->size || source_arr_x->ndim != 1U || source_arr_y->ndim != 1U) {
+        res = csound->InitError(csound, "[csnarray] x and y should be 1D and should have same length");
+        goto done;
+    }
+    if (source_arr_x->itype != CSN_REAL || source_arr_y->itype != CSN_REAL) {
+        res = csound->InitError(csound, "[csnarray] x and y should be real arrays");
+        goto done;
+    }
+
+    size_t count = source_arr_x->size;
+    if (count == 0) {
+        res = csound->InitError(csound, "[csnarray] Lagrange requires non-empty array");
+        goto done;
+    }
+
+    /* Two equal abscissae leave the divided differences with a zero
+       denominator: no polynomial passes through two points with the same x. */
+    for (size_t i = 1; i < count; i++) {
+        for (size_t j = 0; j < i; j++) {
+            if (source_arr_x->data[i] == source_arr_x->data[j]) {
+                res = csound->InitError(csound, "[csnarray] x should hold distinct values: x[%zu] and x[%zu] are both %g", j, i, source_arr_x->data[i]);
+                goto done;
+            }
+        }
+    }
+
+    y_copy = csound->Calloc(csound, sizeof(double) * count);
+    if (y_copy == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+    work_buffer = csound->Calloc(csound, sizeof(double) * count);
+    if (work_buffer == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    uint32_t new_ndim = 1U;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    new_shape[0] = (uint32_t) count;
+    uint32_t protect[2] = { source_handle_x, source_handle_y };
+    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
+        res = csound->InitError(csound, "[csnarray] %s", err);
+        goto done;
+    }
+
+    memcpy(y_copy, source_arr_y->data, sizeof(double) * count);
+    double *x = source_arr_x->data;
+
+    for (size_t i = 1; i < count; i++) {
+        for (size_t j = count - 1; j >= i; j--) {
+            y_copy[j] = (y_copy[j] - y_copy[j - 1]) / (x[j] - x[j - i]);
+        }
+    }
+    work_buffer[0] = y_copy[count - 1];
+
+    size_t degree = 0;
+    for (size_t r = count - 1; r > 0;) {
+        size_t k = --r;
+        work_buffer[degree + 1] = work_buffer[degree];
+        for (size_t j = degree; j > 0; j--) {
+            work_buffer[j] = work_buffer[j - 1] - x[k] * work_buffer[j];
+        }
+        work_buffer[0] = y_copy[k] - x[k] * work_buffer[0];
+        ++degree;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        p->array->data[i] = work_buffer[count - 1 - i];
+    }
+
+done:
+    if (y_copy != NULL) csound->Free(csound, y_copy);
+    if (work_buffer != NULL) csound->Free(csound, work_buffer);
     csound->UnlockMutex(reg->mutex);
     return res;
 }

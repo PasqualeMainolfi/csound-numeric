@@ -2130,6 +2130,17 @@ typedef struct {
     CSN_COMPLEXDAT last_value;
 } CSN_NEXT_COMP;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSNREF *handle;
+    // inputs
+    CSNREF *source_handle_x;
+    CSNREF *source_handle_y;
+    // private
+    CSN_ARRAY *array;
+} CSN_LAGRANGE;
+
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
@@ -2222,6 +2233,8 @@ int32_t csnarray_set_rtunlock(CSOUND *csound, CSN_RTLOCK *p);
 int32_t csnarray_set_grtlock(CSOUND *csound, CSN_GRTLOCK *p);
 int32_t csnarray_set_grtunlock(CSOUND *csound, CSN_GRTLOCK *p);
 int32_t csnarray_set_grtlock_all(CSOUND *csound, CSN_GRTLOCK *p);
+int32_t csnarray_lagrange_deinit(CSOUND *csound, CSN_LAGRANGE *p);
+int32_t csnarray_lagrange(CSOUND *csound, CSN_LAGRANGE *p);
 
 // CREATION
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p);

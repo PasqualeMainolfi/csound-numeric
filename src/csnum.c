@@ -5,6 +5,7 @@
 #include "csnlinalg.h"
 #include "csnfft.h"
 #include "csnset.h"
+#include "csnspecial.h"
 #include "csnregistry.h"
 #include <float.h>
 #include <csdl.h>
@@ -1458,6 +1459,7 @@ static OENTRY localops[] = {
     { "csnforeach",            S(CSN_FOREACH),                0, "",                         ":CsnArr;:Opcode;P",             (SUBR) csnarray_foreach_init,                (SUBR) csnarray_foreach_perf,           (SUBR) csnarray_foreach_deinit,          NULL, 0 },
     { "csnnext.r",             S(CSN_NEXT_REAL),              0, "kk",                       ":CsnArr;PO",                    (SUBR) csnarray_next_real_init,              (SUBR) csnarray_next_real_perf,         (SUBR) csnarray_next_real_deinit,        NULL, 0 },
     { "csnnext.c",             S(CSN_NEXT_COMP),              0, ":Complex;k",               ":CsnArr;PO",                    (SUBR) csnarray_next_comp_init,              (SUBR) csnarray_next_comp_perf,         (SUBR) csnarray_next_comp_deinit,        NULL, 0 },
+    { "csnlagrange",           S(CSN_LAGRANGE),               0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_lagrange,                    NULL,                                   (SUBR) csnarray_lagrange_deinit,         NULL, 0 },
 
     // COORDS 1
     { "csnpoltocar",             S(CSN_COORD2),               0, "ii",                       "iio",                           (SUBR) csncoord_poltocar,                    NULL,                                    NULL,                                   NULL, 0 },
@@ -1496,6 +1498,18 @@ static OENTRY localops[] = {
     { "csnchnlstohoaord.k",      S(CSN_COORD1),               0, "k",                        "k",                             NULL,                                        (SUBR) csncoord_chnlstohoaord_k,         NULL,                                   NULL, 0 },
     { "csnsn3dton3d",            S(CSN_SN3D),                 0, ":CsnArr;",                 "i",                             (SUBR) csncoord_sn3dton3d,                   NULL,                                    (SUBR) csncoord_sn3d_deinit,            NULL, 0 },
     { "csnn3dtosn3d",            S(CSN_SN3D),                 0, ":CsnArr;",                 "i",                             (SUBR) csncoord_n3dtosn3d,                   NULL,                                    (SUBR) csncoord_sn3d_deinit,            NULL, 0 },
+
+    // SPECIAL FUNCTIONS
+    { "csnlegendre",             S(CSN_LEGENDRE),              0, "i",                       "iii",                            (SUBR) csnspecial_legendre,                  NULL,                                    NULL,                                   NULL, 0 },
+    { "csnlegendre.k",           S(CSN_LEGENDRE),              0, "k",                       "kkk",                            NULL,                                        (SUBR) csnspecial_legendre_k,            NULL,                                   NULL, 0 },
+    { "csnlegendre.h",           S(CSN_LEGENDRE_ARR),          0, ":CsnArr;",                "ii:CsnArr;",                     (SUBR) csnspecial_legendre_arr,              NULL,                                    (SUBR) csnspecial_legendre_arr_deinit,  NULL, 0 },
+    { "csnlegendre.h.k",         S(CSN_LEGENDRE_ARR),          0, ":CsnArr;",                "ii:CsnArr;P",                    (SUBR) csnspecial_legendre_arr,              (SUBR) csnspecial_legendre_arr_k,        (SUBR) csnspecial_legendre_arr_deinit,  NULL, 0 },
+    { "csnsphharm",              S(CSN_SPHHARM),               0, "i",                       "iiiio",                          (SUBR) csnspecial_sphharm,                   NULL,                                    NULL,                                   NULL, 0 },
+    { "csnsphharm.k",            S(CSN_SPHHARM),               0, "k",                       "kkkko",                          NULL,                                        (SUBR) csnspecial_sphharm_k,             NULL,                                   NULL, 0 },
+    { "csnsphharmacn",           S(CSN_SPHHARM_ACN),           0, ":CsnArr;",                "iiio",                           (SUBR) csnspecial_sphharm_acn,               NULL,                                    (SUBR) csnspecial_sphharm_acn_deinit,   NULL, 0 },
+    { "csnsphharmacn.k",         S(CSN_SPHHARM_ACN),           0, ":CsnArr;",                "ikkoP",                          (SUBR) csnspecial_sphharm_acn,               (SUBR) csnspecial_sphharm_acn_k,         (SUBR) csnspecial_sphharm_acn_deinit,   NULL, 0 },
+    { "csnsphharmacn.mat",       S(CSN_SPHHARM_MAT),           0, ":CsnArr;",                "i:CsnArr;:CsnArr;o",             (SUBR) csnspecial_sphharm_mat,               NULL,                                    (SUBR) csnspecial_sphharm_mat_deinit,   NULL, 0 },
+    { "csnsphharmacn.mat.k",     S(CSN_SPHHARM_MAT),           0, ":CsnArr;",                "i:CsnArr;:CsnArr;oP",            (SUBR) csnspecial_sphharm_mat,               (SUBR) csnspecial_sphharm_mat_k,         (SUBR) csnspecial_sphharm_mat_deinit,   NULL, 0 },
 
     // AUDIO-BASED
     { "csnt60sab.a",           S(CSN_SABEYR_ARR),             0, ":CsnArr;",                 ":CsnArr;:CsnArr;:CsnArr;",      (SUBR) csnarray_sabine_arr,                  NULL,                                   (SUBR) csnarray_sabeyr_arr_deinit,       NULL, 0 },

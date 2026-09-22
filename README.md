@@ -252,7 +252,8 @@ csound --opcode-dir=build example/csnsort.csd
   Fourier transforms for the kernels long enough to make that pay.
 - **Interpolation and resampling**: `csninterp` (linear, nearest, previous,
   next, monotone cubic PCHIP, with error / clamp / fill / extrapolate boundary
-  policies) and `csnresample`.
+  policies), `csnresample`, and `csnlagrange` for the coefficients of the
+  polynomial through a set of points.
 - **Windows**: Hann, Hamming, Bartlett, Blackman, Kaiser.
 - **Persistence**: `csnsave` and `csnload` use `.csn` for csnum's own format or
   `.npy` for NumPy interoperability, preserving shape and real/complex type.
@@ -261,6 +262,10 @@ csound --opcode-dir=build example/csnsort.csd
   spherical order is `(r, theta, phi)` with `theta` the inclination from `+z`,
   and an optional flag takes or answers the angles in degrees. `csndegtorad` and
   `csnradtodeg` also convert a single number.
+- **Special functions**: the associated Legendre functions and the real
+  spherical harmonics of the AmbiX convention (ACN, SN3D), one at a time or the
+  whole set up to an order, at one direction or as a channels x directions
+  matrix to build a decoder from. Neither carries the Condon-Shortley phase.
 - **Room acoustics**: reverberation time by Sabine and by Eyring-Norris from a
   volume and its absorbing surfaces, the absorption a target time demands, the
   Schroeder frequency that separates a room's modal region from its diffuse one,
@@ -653,11 +658,20 @@ of the output and a k-rate pass must not have to reallocate.
 | --- | --- | --- |
 | `csninterp` | `np.interp` | Linear matches; nearest / previous / next / PCHIP are `scipy.interpolate`. Boundary policy is explicit rather than a fill value. |
 | `csnresample` | `scipy.signal.resample` | Interpolating resample along one axis, not Fourier. |
+| `csnlagrange` | `scipy.interpolate.lagrange` | The coefficients, highest degree first, as `np.poly1d` takes them. Distinct `x` only. |
 | `csnhanning` | `np.hanning` | |
 | `csnhamming` | `np.hamming` | |
 | `csnbartlett` | `np.bartlett` | |
 | `csnblackman` | `np.blackman` | |
 | `csnkaiser` | `np.kaiser` | |
+
+### Special functions
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnlegendre` | `scipy.special.lpmv` | Arguments `(n, m, x)`, not `(m, n, x)`, and no Condon-Shortley phase: `lpmv(m, n, x) == (-1)^m * csnlegendre(n, m, x)`. `m >= 0` only. |
+| `csnsphharm` | — | The real AmbiX harmonic, SN3D, no phase, no `1/sqrt(4 pi)`. `scipy.special.sph_harm` is the complex, orthonormal one with the phase: for `m != 0` this one is the real or imaginary part of that, renormalised, not a rescaling of the same value. |
+| `csnsphharmacn` | — | Every harmonic up to an order, by ACN, at one direction or as a `channels x directions` matrix. |
 
 ### No NumPy counterpart
 

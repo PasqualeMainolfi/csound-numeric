@@ -263,7 +263,11 @@
         "csnhoaordtochnls",
         "csnchnlstohoaord",
         "csnsn3dton3d",
-        "csnn3dtosn3d"
+        "csnn3dtosn3d",
+        "csnlegendre",
+        "csnsphharm",
+        "csnsphharmacn",
+        "csnlagrange"
     ],
     "version": "0.1.8",
     "short_description": "Numpy-style opcodes for Csound",
