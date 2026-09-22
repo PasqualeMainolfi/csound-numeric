@@ -685,6 +685,12 @@ thing NumPy never has to deal with:
 | `csnpoltocar` / `csncartopol` | Polar and cartesian coordinates, in the plane. |
 | `csncyltocar` / `csncartocyl` | Cylindrical and cartesian coordinates. |
 | `csnsphtocar` / `csncartosph` | Spherical and cartesian coordinates, `(r, theta, phi)`. |
+| `csnhoatocar` / `csncartohoa` | Ambisonics direction and cartesian, `(distance, azimuth, elevation)` in the AmbiX frame. The elevation is measured from the horizon, not from `+z`. |
+| `csnrotmat` | A 3 x 3 rotation matrix about a basis axis or an arbitrary direction, for `csnmatmul`. |
+| `csnrotmatypr` | The same, composing a yaw, a pitch and a roll in the audio convention, in the one order that is meant. |
+| `csnnmtoacn` / `csnacntonm` | Ambisonics channel index from an order and a degree, and back. ACN ordering. |
+| `csnhoaordtochnls` / `csnchnlstohoaord` | Channels in a complete 3-D set of a given order, and back. A count that is not a perfect square is refused. |
+| `csnsn3dton3d` / `csnn3dtosn3d` | The per-channel gain vector between the SN3D and N3D normalisations, indexed by ACN. |
 | `csnfromftable` / `csntoftable` | Csound function table in and out. |
 | `csnfree` | Explicit release of a `@global` handle. |
 | `csnunlikeset` | Drops the set classification. |

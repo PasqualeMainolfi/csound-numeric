@@ -84,7 +84,9 @@ instr 1
     kCylP init 0
     kCylH init 5
     kCX, kCY, gkCylZ csncyltocar kCylR, kCylP, kCylH
-    kPR, gkPolDeg csncartopol kOff, kOne, kOne
+    /* The angle unit is an i-argument even in the k-rate form: it picks how
+       the conversion reads and writes, it is not a value that evolves. */
+    kPR, gkPolDeg csncartopol kOff, kOne, 1
     cA:Complex = init(3, 4, 0)
     cB:Complex = init(1, 2, 0)
     cSum:Complex = csnadd(cA, cB)

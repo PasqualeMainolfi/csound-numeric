@@ -375,6 +375,16 @@ conversion carries the angles.
 - **csncartocyl** - cartesian to cylindrical (i, k — real only)
 - **csnsphtocar** - spherical to cartesian (i, k — real only)
 - **csncartosph** - cartesian to spherical (i, k — real only)
+- **csnhoatocar** - ambisonics direction to cartesian, elevation from the horizon (i, k — real only)
+- **csncartohoa** - cartesian to ambisonics direction (i, k — real only)
+- **csnrotmat** - 3 x 3 rotation matrix, about a basis axis or an arbitrary direction (i, k — real only)
+- **csnrotmatypr** - one 3 x 3 matrix composing a yaw, a pitch and a roll (i, k — real only)
+- **csnnmtoacn** - ACN channel index from an order and a degree (i, k — real only)
+- **csnacntonm** - the order and degree an ACN index stands for (i, k — real only)
+- **csnhoaordtochnls** - channels in a complete 3-D set of a given order (i, k — real only)
+- **csnchnlstohoaord** - the order a channel count stands for, perfect squares only (i, k — real only)
+- **csnsn3dton3d** - per-channel gains from SN3D to N3D, indexed by ACN (i — real only)
+- **csnn3dtosn3d** - per-channel gains from N3D to SN3D, indexed by ACN (i — real only)
 
 ## Room acoustics
 

@@ -607,6 +607,7 @@ typedef struct {
     // inputs
     MYFLT *num;
     MYFLT *itype;
+    MYFLT *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;

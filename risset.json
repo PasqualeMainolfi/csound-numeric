@@ -253,7 +253,17 @@
         "csncyltocar",
         "csncartocyl",
         "csnsphtocar",
-        "csncartosph"
+        "csncartosph",
+        "csncartohoa",
+        "csnhoatocar",
+        "csnrotmat",
+        "csnrotmatypr",
+        "csnnmtoacn",
+        "csnacntonm",
+        "csnhoaordtochnls",
+        "csnchnlstohoaord",
+        "csnsn3dton3d",
+        "csnn3dtosn3d"
     ],
     "version": "0.1.8",
     "short_description": "Numpy-style opcodes for Csound",

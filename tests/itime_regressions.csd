@@ -2806,6 +2806,178 @@ instr 21
     iFR, iFT, iFP csncartosph iFX, iFY, iFZ, 1
     assert(abs(iFR - 1) < 1e-12 && abs(iFT - 90) < 1e-9 && abs(iFP - 45) < 1e-9)
 
+    ; --- the ambisonics pair: elevation from the horizon, not from +z ------
+    ; +x is front, +y left, +z up, so a positive azimuth turns towards the
+    ; left and a positive elevation lifts off the horizontal plane
+    iHD1, iHA1, iHE1 csncartohoa 1, 0, 0
+    assert(abs(iHD1 - 1) < 1e-12 && abs(iHA1) < 1e-12 && abs(iHE1) < 1e-12)
+    iHD2, iHA2, iHE2 csncartohoa 0, 1, 0
+    assert(abs(iHD2 - 1) < 1e-12 && abs(iHA2 - 1.5707963267948966) < 1e-12 && abs(iHE2) < 1e-12)
+    iHD3, iHA3, iHE3 csncartohoa 0, 0, 1
+    assert(abs(iHD3 - 1) < 1e-12 && abs(iHA3) < 1e-12 && abs(iHE3 - 1.5707963267948966) < 1e-12)
+
+    ; the elevation is what separates this pair from the spherical one: for
+    ; the same direction csncartosph answers the inclination from +z, and the
+    ; two are related by el = pi/2 - theta
+    iSR, iST, iSP csncartosph 0, 0, 1
+    assert(abs(iHE3 - (1.5707963267948966 - iST)) < 1e-12)
+
+    iHX, iHY, iHZ csnhoatocar 1, 1.5707963267948966, 0
+    assert(abs(iHX) < 1e-12 && abs(iHY - 1) < 1e-12 && abs(iHZ) < 1e-12)
+    iHU, iHV, iHW csnhoatocar 1, 0, 1.5707963267948966
+    assert(abs(iHU) < 1e-12 && abs(iHV) < 1e-12 && abs(iHW - 1) < 1e-12)
+
+    ; round trip through the direction and back
+    iHrD, iHrA, iHrE csncartohoa 3, -4, 5
+    iHrX, iHrY, iHrZ csnhoatocar iHrD, iHrA, iHrE
+    assert(abs(iHrX - 3) < 1e-12 && abs(iHrY + 4) < 1e-12 && abs(iHrZ - 5) < 1e-12)
+
+    ; in degrees both angles convert, on the way out and on the way back in
+    iGD, iGA, iGE csncartohoa 0, 0, 1, 1
+    assert(abs(iGD - 1) < 1e-12 && abs(iGA) < 1e-12 && abs(iGE - 90) < 1e-9)
+    iGX, iGY, iGZ csnhoatocar 1, 90, 0, 1
+    assert(abs(iGX) < 1e-12 && abs(iGY - 1) < 1e-12 && abs(iGZ) < 1e-12)
+
+    ; --- rotation matrices --------------------------------------------------
+    ; right-handed, active on a column vector: v2 = R * v
+    iRmZ:CsnArr = csnrotmat(1.5707963267948966, 2)
+    iRmZflat:CsnArr = csnflatten(iRmZ)
+    iRmZv[] = csntoarray(iRmZflat)
+    iRmZshape[] = csnshape(iRmZ)
+    assert(iRmZshape[0] == 3 && iRmZshape[1] == 3)
+    assert(abs(iRmZv[0]) < 1e-12 && abs(iRmZv[1] + 1) < 1e-12 && abs(iRmZv[3] - 1) < 1e-12 && abs(iRmZv[8] - 1) < 1e-12)
+
+    ; Rz turns front towards left, which is what a positive yaw does
+    iRmVsrc[] = fillarray(1, 0, 0)
+    iRmVshape[] = fillarray(3, 1)
+    iRmVec:CsnArr = csnreshape(csnfromarray(iRmVsrc), iRmVshape)
+    iRmTurned:CsnArr = csnmatmul(iRmZ, iRmVec)
+    iRmTflat:CsnArr = csnflatten(iRmTurned)
+    iRmT[] = csntoarray(iRmTflat)
+    assert(abs(iRmT[0]) < 1e-12 && abs(iRmT[1] - 1) < 1e-12 && abs(iRmT[2]) < 1e-12)
+
+    ; Ry is the mathematical right-handed one, so it takes front to down.
+    ; The audio pitch convention turns about -y instead, and this assertion is
+    ; what catches anyone who copies that formula in here.
+    iRmY:CsnArr = csnrotmat(1.5707963267948966, 1)
+    iRmDown:CsnArr = csnmatmul(iRmY, iRmVec)
+    iRmDflat:CsnArr = csnflatten(iRmDown)
+    iRmD[] = csntoarray(iRmDflat)
+    assert(abs(iRmD[0]) < 1e-12 && abs(iRmD[1]) < 1e-12 && abs(iRmD[2] + 1) < 1e-12)
+
+    ; degrees, and the axis-angle form on a basis vector, agree with it
+    iRmZd:CsnArr = csnrotmat(90, 2, 1)
+    iRmZdflat:CsnArr = csnflatten(iRmZd)
+    iRmZd2[] = csntoarray(iRmZdflat)
+    assert(abs(iRmZd2[1] + 1) < 1e-12 && abs(iRmZd2[3] - 1) < 1e-12)
+
+    ; a direction of any length names the same axis: Rodrigues normalises it
+    iRmAxSrc[] = fillarray(0, 0, 7)
+    iRmAx:CsnArr = csnfromarray(iRmAxSrc)
+    iRmA:CsnArr = csnrotmat(iRmAx, 1.5707963267948966)
+    iRmAflat:CsnArr = csnflatten(iRmA)
+    iRmAv[] = csntoarray(iRmAflat)
+    assert(abs(iRmAv[1] + 1) < 1e-12 && abs(iRmAv[3] - 1) < 1e-12 && abs(iRmAv[8] - 1) < 1e-12)
+
+    ; --- yaw, pitch and roll composed into one matrix -----------------------
+    ; R = Rz(yaw) * Ry(-pitch) * Rx(roll), right to left: rolled, pitched,
+    ; then yawed. The order is what the opcode exists to get right.
+    iYprFront[] = fillarray(1, 0, 0)
+    iYprShape[] = fillarray(3, 1)
+    iYprVec:CsnArr = csnreshape(csnfromarray(iYprFront), iYprShape)
+
+    ; a yaw alone turns the front towards the left
+    iYprY:CsnArr = csnrotmatypr(90, 0, 0, 1)
+    iYprYv:CsnArr = csnflatten(csnmatmul(iYprY, iYprVec))
+    iYprYa[] = csntoarray(iYprYv)
+    assert(abs(iYprYa[0]) < 1e-12 && abs(iYprYa[1] - 1) < 1e-12 && abs(iYprYa[2]) < 1e-12)
+
+    ; a pitch alone lifts it: this is the audio sign, a rotation about -y,
+    ; and the opposite of the right-handed Ry that csnrotmat builds
+    iYprP:CsnArr = csnrotmatypr(0, 90, 0, 1)
+    iYprPv:CsnArr = csnflatten(csnmatmul(iYprP, iYprVec))
+    iYprPa[] = csntoarray(iYprPv)
+    assert(abs(iYprPa[0]) < 1e-12 && abs(iYprPa[1]) < 1e-12 && abs(iYprPa[2] - 1) < 1e-12)
+
+    ; all zero is the identity
+    iYprI:CsnArr = csnrotmatypr(0, 0, 0)
+    iYprIf:CsnArr = csnflatten(iYprI)
+    iYprIa[] = csntoarray(iYprIf)
+    assert(abs(iYprIa[0] - 1) < 1e-12 && abs(iYprIa[4] - 1) < 1e-12 && abs(iYprIa[8] - 1) < 1e-12)
+    assert(abs(iYprIa[1]) < 1e-12 && abs(iYprIa[5]) < 1e-12 && abs(iYprIa[6]) < 1e-12)
+
+    ; the composition agrees, term by term, with the product written by hand
+    iYprC:CsnArr = csnrotmatypr(30, 45, 60, 1)
+    iYprCf:CsnArr = csnflatten(iYprC)
+    iYprCa[] = csntoarray(iYprCf)
+    iMz:CsnArr = csnrotmat(30, 2, 1)
+    iMy:CsnArr = csnrotmat(-45, 1, 1)
+    iMx:CsnArr = csnrotmat(60, 0, 1)
+    iYprMf:CsnArr = csnflatten(csnmatmul(iMz, csnmatmul(iMy, iMx)))
+    iYprMa[] = csntoarray(iYprMf)
+    assert(abs(iYprCa[0] - iYprMa[0]) < 1e-12 && abs(iYprCa[1] - iYprMa[1]) < 1e-12)
+    assert(abs(iYprCa[4] - iYprMa[4]) < 1e-12 && abs(iYprCa[7] - iYprMa[7]) < 1e-12)
+    assert(abs(iYprCa[8] - iYprMa[8]) < 1e-12)
+
+    ; and it is a rotation: orthogonal, determinant 1
+    iYprDet = csndet(iYprC)
+    assert(abs(iYprDet - 1) < 1e-12)
+
+    ; --- ACN indices and channel counts -------------------------------------
+    ; ACN = n*n + n + m, and the components come out in that order, so the
+    ; first order is exactly 0, 1, 2, 3
+    iAcn00 = csnnmtoacn(0, 0)
+    iAcn1m = csnnmtoacn(1, -1)
+    iAcn10 = csnnmtoacn(1, 0)
+    iAcn1p = csnnmtoacn(1, 1)
+    assert(iAcn00 == 0 && iAcn1m == 1 && iAcn10 == 2 && iAcn1p == 3)
+    iAcn2m = csnnmtoacn(2, -2)
+    iAcn2p = csnnmtoacn(2, 2)
+    assert(iAcn2m == 4 && iAcn2p == 8)
+
+    ; and the pair comes back
+    iAcnN, iAcnM csnacntonm 15
+    assert(iAcnN == 3 && iAcnM == 3)
+    iAcnN2, iAcnM2 csnacntonm 5
+    assert(iAcnN2 == 2 && iAcnM2 == -1)
+    iAcnRound = csnnmtoacn(iAcnN2, iAcnM2)
+    assert(iAcnRound == 5)
+
+    ; channels = (order + 1)^2, both ways
+    iChn0 = csnhoaordtochnls(0)
+    iChn1 = csnhoaordtochnls(1)
+    iChn3 = csnhoaordtochnls(3)
+    assert(iChn0 == 1 && iChn1 == 4 && iChn3 == 16)
+    iOrd1 = csnchnlstohoaord(1)
+    iOrd4 = csnchnlstohoaord(4)
+    iOrd16 = csnchnlstohoaord(16)
+    assert(iOrd1 == 0 && iOrd4 == 1 && iOrd16 == 3)
+
+    ; the count is one past the last valid ACN of that order
+    iLastN, iLastM csnacntonm iChn3 - 1
+    assert(iLastN == 3 && iLastM == 3)
+
+    ; --- SN3D and N3D gain vectors ------------------------------------------
+    ; sqrt(2n+1) per channel, constant over blocks of 2n+1, W left at 1
+    iUp:CsnArr csnsn3dton3d 2
+    iUpV[] = csntoarray(iUp)
+    assert(csnsize(iUp) == 9)
+    assert(abs(iUpV[0] - 1) < 1e-12)
+    assert(abs(iUpV[1] - 1.7320508075688772) < 1e-12 && abs(iUpV[3] - 1.7320508075688772) < 1e-12)
+    assert(abs(iUpV[4] - 2.23606797749979) < 1e-12 && abs(iUpV[8] - 2.23606797749979) < 1e-12)
+
+    ; order 0 is a single channel at unit gain: the loop has to cover the last
+    ; block, and for order 0 that block is the only one there is
+    iUp0:CsnArr csnsn3dton3d 0
+    iUp0V[] = csntoarray(iUp0)
+    assert(csnsize(iUp0) == 1 && abs(iUp0V[0] - 1) < 1e-12)
+
+    ; the two vectors are reciprocals channel by channel
+    iDown:CsnArr csnn3dtosn3d 2
+    iUnit:CsnArr = csnmul(iUp, iDown)
+    iUnitV[] = csntoarray(iUnit)
+    assert(abs(iUnitV[0] - 1) < 1e-12 && abs(iUnitV[4] - 1) < 1e-12 && abs(iUnitV[8] - 1) < 1e-12)
+
     ; --- the scalar angle conversions --------------------------------------
     ; they answer what the array forms of the same name answer
     iRad = csndegtorad(180)
@@ -2908,6 +3080,8 @@ e
 ; csnmul.cc csnmul.cr csnmul.rc csndiv.cc csndiv.cr csndiv.rc
 ; csnpow.cc csnpow.cr csnpow.rc csnsqrt.c csnabs.c csnangle.c csnconj.c
 ; csnpoltocar csncartopol csncyltocar csncartocyl csnsphtocar csncartosph
+; csncartohoa csnhoatocar csnrotmat csnrotmat.ax csnrotmatypr
+; csnnmtoacn csnacntonm csnhoaordtochnls csnchnlstohoaord csnsn3dton3d csnn3dtosn3d
 ; csndegtorad.s csnradtodeg.s
 ; @covers-end
 </CsoundSynthesizer>

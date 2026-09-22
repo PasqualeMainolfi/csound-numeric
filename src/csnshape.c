@@ -60,6 +60,13 @@ int32_t csnarray_identity_k_init(CSOUND *csound, CSN_IDENTITY *p) {
 }
 
 int32_t csnarray_identity_k(CSOUND *csound, CSN_IDENTITY *p) {
+    /* The trigger sits after itype rather than before it: itype was already
+       the second argument, so a call that passes 1 there means complex, and
+       moving the trigger in front of it would silently reinterpret it. It
+       defaults to 1, so a call written before the trigger existed keeps
+       rebuilding on every pass. */
+    CHECK_KTRIG(p->trig);
+
     /* Validated by the init: itype is an i-argument. */
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
     if (!IS_VALID_VALUE((double) *p->num)) {

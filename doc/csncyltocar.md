@@ -32,7 +32,7 @@ trip taken in degrees comes back in degrees.
 
 ```csound
 x:i, y:i, z:i csncyltocar r:i, phi:i, h:i [, degrees:i]
-x:k, y:k, z:k csncyltocar r:k, phi:k, h:k [, degrees:k]
+x:k, y:k, z:k csncyltocar r:k, phi:k, h:k [, degrees:i]
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ x:k, y:k, z:k csncyltocar r:k, phi:k, h:k [, degrees:k]
 * `r:i / r:k`: the radius in the xy plane.
 * `phi:i / phi:k`: the angle from `+x`.
 * `h:i / h:k`: the height, carried through untouched.
-* `degrees:i / degrees:k` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees.
+* `degrees:i` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees. It is an i-argument in both forms: it picks how the conversion reads and writes, it is not a value that evolves during the note.
 
 ## Output
 

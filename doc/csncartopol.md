@@ -34,13 +34,13 @@ trip taken in degrees comes back in degrees.
 
 ```csound
 r:i, phi:i csncartopol x:i, y:i [, degrees:i]
-r:k, phi:k csncartopol x:k, y:k [, degrees:k]
+r:k, phi:k csncartopol x:k, y:k [, degrees:i]
 ```
 
 ## Arguments
 
 * `x:i / x:k`, `y:i / y:k`: the cartesian coordinates.
-* `degrees:i / degrees:k` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees.
+* `degrees:i` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees. It is an i-argument in both forms: it picks how the conversion reads and writes, it is not a value that evolves during the note.
 
 ## Output
 

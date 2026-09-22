@@ -39,7 +39,7 @@ trip taken in degrees comes back in degrees.
 
 ```csound
 x:i, y:i, z:i csnsphtocar r:i, theta:i, phi:i [, degrees:i]
-x:k, y:k, z:k csnsphtocar r:k, theta:k, phi:k [, degrees:k]
+x:k, y:k, z:k csnsphtocar r:k, theta:k, phi:k [, degrees:i]
 ```
 
 ## Arguments
@@ -47,7 +47,7 @@ x:k, y:k, z:k csnsphtocar r:k, theta:k, phi:k [, degrees:k]
 * `r:i / r:k`: the radius.
 * `theta:i / theta:k`: the inclination from `+z`, in `[0, pi]`.
 * `phi:i / phi:k`: the azimuth from `+x`.
-* `degrees:i / degrees:k` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees.
+* `degrees:i` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees. It is an i-argument in both forms: it picks how the conversion reads and writes, it is not a value that evolves during the note.
 
 ## Output
 

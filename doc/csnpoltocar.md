@@ -30,14 +30,14 @@ trip taken in degrees comes back in degrees.
 
 ```csound
 x:i, y:i csnpoltocar r:i, phi:i [, degrees:i]
-x:k, y:k csnpoltocar r:k, phi:k [, degrees:k]
+x:k, y:k csnpoltocar r:k, phi:k [, degrees:i]
 ```
 
 ## Arguments
 
 * `r:i / r:k`: the radius.
 * `phi:i / phi:k`: the angle from `+x`.
-* `degrees:i / degrees:k` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees.
+* `degrees:i` (optional, default `0`): `0` reads and writes the angles in radians, `1` in degrees. It is an i-argument in both forms: it picks how the conversion reads and writes, it is not a value that evolves during the note.
 
 ## Output
 
