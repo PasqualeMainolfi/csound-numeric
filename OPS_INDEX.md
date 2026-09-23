@@ -338,6 +338,14 @@ output. An empty kernel is refused.
 - **csnfftcorrelate1d** - the same cross-correlation through Fourier transforms (i, k — real, complex)
 - **csnfftconvolve** - N-D convolution through Fourier transforms (i, k — real, complex)
 - **csnfftcorrelate** - N-D cross-correlation through Fourier transforms (i, k — real, complex)
+- **csndeconvolve1d** - inverse of a FULL `csnconvolve1d`, flat or along one axis (i, k — real, complex)
+- **csndecorrelate1d** - inverse of a FULL `csncorrelate1d`, flat or along one axis (i, k — real, complex)
+- **csndeconvolve** - inverse of a FULL N-D `csnconvolve` (i, k — real, complex)
+- **csndecorrelate** - inverse of a FULL N-D `csncorrelate` (i, k — real, complex)
+- **csnfftdeconvolve1d** - the same deconvolution through Fourier transforms (i, k — real, complex)
+- **csnfftdecorrelate1d** - the same decorrelation through Fourier transforms (i, k — real, complex)
+- **csnfftdeconvolve** - N-D deconvolution through Fourier transforms (i, k — real, complex)
+- **csnfftdecorrelate** - N-D decorrelation through Fourier transforms (i, k — real, complex)
 
 The `csnfft*` forms answer what the direct ones answer, to within floating-point
 rounding, by padding both operands to a power of two, multiplying in the
@@ -345,6 +353,15 @@ spectrum and transforming back. The direct forms cost one multiply-add per
 output element per tap and win on short kernels; the transform costs `n log n`
 whatever the kernel does and wins from roughly a dozen taps up. The transform
 length is derived from the operands, never asked for.
+
+The deconvolve and decorrelate forms undo the FULL span of the forward ones and
+take no `edges` argument: the answer is `x - h + 1` on each axis, and the axis
+is the third argument, after the trigger on the k-rate overloads. The direct
+forms divide by a pivot tap, `h[0]` for a deconvolution and `conj(h[last])` for
+a decorrelation, which must be non-zero; they are recursive filters, stable only
+when the kernel is minimum phase (reversed, for a decorrelation). The `csnfft*`
+forms divide spectra instead, have no such limit, and refuse a kernel whose
+spectrum has a zero on the transform grid, such as `[1, 1]` at Nyquist.
 
 ## Interpolation and resampling
 

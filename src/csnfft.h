@@ -31,6 +31,8 @@ typedef enum {
 typedef enum {
     CSN_CONVOLUTION = 0,
     CSN_CORRELATION,
+    CSN_DECONVOLUTION,
+    CSN_DECORRELATION
 } CSN_CORRCONV_MODE;
 
 typedef enum {
@@ -215,10 +217,12 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *arg_a; // mode for convolve1d and correlate1d
-                  // mode for convolve and correlate N-D
-    MYFLT *arg_b; // i-axis for 1-D, k-trigger for every k-rate form
-    MYFLT *arg_c; // explicit axis for the 1-D k-rate forms
+    MYFLT *arg_a; // edges mode for every convolve and correlate form;
+                  // the deconvolve and decorrelate forms take no edges mode, so for them it is
+                  // the i-axis (1-D) or the k-trigger (k-rate)
+    MYFLT *arg_b; // i-axis for 1-D, k-trigger for every k-rate form;
+                  // explicit axis for the 1-D k-rate deconvolve and decorrelate forms
+    MYFLT *arg_c; // explicit axis for the 1-D k-rate convolve and correlate forms
     // private
     CSN_ARRAY *array;
     K_DATA_FFT k_data_fft_x;
@@ -356,8 +360,12 @@ typedef struct {
 int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_convolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_correlate1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_deconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_decorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdeconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdecorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fft_k_init(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_rfft_k_init(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_ifft_k_init(CSOUND *csound, CSN_FFT *p);
@@ -406,6 +414,10 @@ int32_t csnarray_fftconvolve1d(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrelate1d(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftconvolve(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrelate(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdeconvolve1d(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdeconvolve(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdecorrelate1d(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdecorrelate(CSOUND *csound, CSN_CORRCONV *p);
 
 int32_t csnarray_fftcorrconv1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
@@ -413,17 +425,29 @@ int32_t csnarray_fftcorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrconv_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftconvolve_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrelate_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdeconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdeconvolve_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdecorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_fftdecorrelate_k(CSOUND *csound, CSN_CORRCONV *p);
 
 int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p); // 1d convolution by axes
 int32_t csnarray_correlate1d(CSOUND *csound, CSN_CORRCONV *p); // 1d correlation by axes
 int32_t csnarray_convolve(CSOUND *csound, CSN_CORRCONV *p); // N-D convolution
 int32_t csnarray_correlate(CSOUND *csound, CSN_CORRCONV *p); // N-D correlation
+int32_t csnarray_deconvolve1d(CSOUND *csound, CSN_CORRCONV *p); // 1d direct deconvolution by axes
+int32_t csnarray_deconvolve(CSOUND *csound, CSN_CORRCONV *p); // N-D direct deconvolution
+int32_t csnarray_decorrelate1d(CSOUND *csound, CSN_CORRCONV *p); // 1d direct decorrelation by axes
+int32_t csnarray_decorrelate(CSOUND *csound, CSN_CORRCONV *p); // N-D direct decorrelation
 
 int32_t csnarray_convolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_correlate1d_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_deconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_deconvolve_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_decorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p);
+int32_t csnarray_decorrelate_k(CSOUND *csound, CSN_CORRCONV *p);
 
 int32_t csnarray_dcst_deinit(CSOUND *csound, CSN_DCST *p);
 int32_t csnarray_dct_one_k_init(CSOUND *csound, CSN_DCST *p);

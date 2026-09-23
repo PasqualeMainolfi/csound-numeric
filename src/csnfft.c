@@ -2500,6 +2500,141 @@ int32_t csnarray_irfft2_k(CSOUND *csound, CSN_FFT2 *p) {
 
 // CONVOLVE AND CORRELATE
 
+// DECONVOLVE AND DECORRELATE
+
+static void decorrconv_get_size_and_edges_offset(size_t *size_result, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis) {
+    size_t nx = axis == -1 ? x->size : (size_t) x->shape[axis];
+    size_t nh = h->size;
+    *size_result = nx - nh + 1;
+    /* The recurrence only reads outputs it has already written, which holds
+       only when output i lines up with source sample i. */
+    *start_offset = 0;
+}
+
+static void decorrconv_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h) {
+    for (uint32_t d = 0; d < x->ndim; d++) {
+        new_shape[d] = x->shape[d] - h->shape[d] + 1U;
+        start_offset[d] = 0;
+    }
+}
+
+/* The tap every inverse output is divided by: the one the forward form lines
+   up with the newest sample. A convolution reads the kernel front to back, so
+   that is h[0]; a correlation reads it reversed and conjugated, so it is
+   conj(h[last]). */
+static CSN_COMPLEXDAT decorrconv_pivot(const CSN_ARRAY *h, CSN_CORRCONV_MODE mode) {
+    if (mode == CSN_DECONVOLUTION) return slice_get(h->data, 0, 1U, h->itype);
+    CSN_COMPLEXDAT pivot = slice_get(h->data, h->size - 1, 1U, h->itype);
+    pivot.im = -pivot.im;
+    return pivot;
+}
+
+static void decorrconv_loop(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, size_t src_base, size_t dst_base, size_t src_stride, size_t dst_stride, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
+    CSN_COMPLEXDAT h0 = decorrconv_pivot(h, mode);
+    for (uint32_t i = 0; i < out_size; i++) {
+        // direct -> output-side
+        CSN_COMPLEXDAT x_value = slice_get(x->data + src_base * x->itype, (size_t) i, src_stride, x->itype);
+        CSN_COMPLEXDAT y_sum = { .re = 0.0, .im = 0.0 };
+        for (uint32_t j = 0; j < h->size; j++) {
+
+            if (j == 0) continue;
+
+            int64_t src_index = (int64_t) i + start_offset - (int64_t) j;
+            if (src_index >= 0 && src_index < (int64_t) out_size) {
+                size_t kernel_index = mode == CSN_DECONVOLUTION ? (size_t) j : h->size - 1 - (size_t) j;
+                CSN_COMPLEXDAT y_value = slice_get(y->data + dst_base * y->itype, (size_t) src_index, dst_stride, y->itype);
+                CSN_COMPLEXDAT h_value = slice_get(h->data, kernel_index, 1U, h->itype);
+                h_value.im = mode == CSN_DECONVOLUTION ? h_value.im : -h_value.im;
+                if (y->itype == CSN_COMPLEX) {
+                    CSN_COMPLEXDAT temp = { .re = 0.0, .im = 0.0 };
+                    complex_prod(&temp, y_value, h_value);
+                    complex_add(&y_sum, y_sum, temp);
+                } else {
+                    y_sum.re += y_value.re * h_value.re;
+                }
+            }
+        }
+        if (y->itype == CSN_COMPLEX) {
+            complex_sub(&y_sum, x_value, y_sum);
+            complex_div(&y_sum, y_sum, h0);
+        } else {
+            y_sum.re = (x_value.re - y_sum.re) / h0.re;
+        }
+        slice_put(y->data + dst_base * y->itype, i, dst_stride, y->itype, y_sum);
+    }
+}
+
+static int32_t decorrconv1d_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
+    if (axis == -1) {
+        decorrconv_loop(y, x, h, 0, 0, 1U, 1U, out_size, start_offset, axis, mode);
+        return OK;
+    }
+
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, x, y, (uint32_t) axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        decorrconv_loop(y, x, h, it.src_base, it.dst_base, it.src_axis_stride, it.dst_axis_stride, out_size, start_offset, axis, mode);
+    }
+    return OK;
+}
+
+static int32_t decorrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64_t *start_offset, CSN_CORRCONV_MODE mode) {
+    CSN_BROADCAST_ITER dst_it, kernel_start;
+    if (ND_ITER_INIT(&dst_it, y->ndim, y->shape, y->size, NULL) != OK || ND_ITER_INIT(&kernel_start, h->ndim, h->shape, h->size, NULL) != OK) {
+        return NOTOK;
+    }
+    CSN_COMPLEXDAT h0 = decorrconv_pivot(h, mode);
+    while (BROADCAST_ITER_NEXT(&dst_it)) {
+        /* x is larger than y by the kernel extent, so y's linear index is not
+           x's: walk x's strides from the same coordinates. */
+        size_t x_offset = 0;
+        for (uint32_t d = 0; d < x->ndim; d++) {
+            x_offset += (size_t) ((int64_t) dst_it.coords[d] + start_offset[d]) * x->strides[d];
+        }
+        CSN_COMPLEXDAT x_value = slice_get(x->data, x_offset, 1U, x->itype);
+        CSN_COMPLEXDAT y_sum = { .re = 0.0, .im = 0.0 };
+        CSN_BROADCAST_ITER kernel_it = kernel_start;
+        while (BROADCAST_ITER_NEXT(&kernel_it)) {
+            bool valid = true;
+            size_t src_offset = 0;
+            for (uint32_t d = 0; d < h->ndim; d++) {
+                int64_t coord = (int64_t) dst_it.coords[d] + start_offset[d] - (int64_t) kernel_it.coords[d];
+                if (coord < 0 || coord >= (int64_t) y->shape[d]) {
+                    valid = false;
+                    break;
+                }
+                src_offset += (size_t) coord * y->strides[d];
+            }
+
+            if (!valid) continue;
+
+            size_t knl_offset = kernel_it.linear_index;
+            if (knl_offset == 0) continue;
+
+            size_t knl_compute = mode == CSN_DECONVOLUTION ? (size_t) knl_offset : h->size - 1 - knl_offset;
+            CSN_COMPLEXDAT y_value = slice_get(y->data, src_offset, 1U, y->itype);
+            CSN_COMPLEXDAT h_value = slice_get(h->data, knl_compute, 1U, h->itype);
+            h_value.im = mode == CSN_DECONVOLUTION ? h_value.im : -h_value.im;
+
+            if (y->itype == CSN_COMPLEX) {
+                CSN_COMPLEXDAT temp = { .re = 0.0, .im = 0.0 };
+                complex_prod(&temp, y_value, h_value);
+                complex_add(&y_sum, y_sum, temp);
+            } else {
+                y_sum.re += y_value.re * h_value.re;
+            }
+        }
+        if (y->itype == CSN_COMPLEX) {
+            complex_sub(&y_sum, x_value, y_sum);
+            complex_div(&y_sum, y_sum, h0);
+        } else {
+            y_sum.re = (x_value.re - y_sum.re) / h0.re;
+        }
+        slice_put(y->data, dst_it.linear_index, 1U, y->itype, y_sum);
+    }
+    return OK;
+}
+
 static int32_t IS_VALID_EDGES(double value) {
     return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 0.0 && value < (double) NUMBER_OF_EDGES_MODE;
 }
@@ -2521,7 +2656,24 @@ static void corrconv_get_size_and_edges_offset(size_t *size_result, int64_t *sta
     }
 }
 
+/* The forward forms pad to hold the FULL answer, x + h - 1. The inverse ones
+   read x as that FULL answer already, so x alone has to fit: the circular
+   convolution of the answer with h then equals the linear one, and dividing
+   the spectra undoes it exactly. */
+static size_t fftcorrconv_size(size_t x_length, size_t h_length, CSN_CORRCONV_MODE corrconv_mode) {
+    bool is_forward = corrconv_mode == CSN_CONVOLUTION || corrconv_mode == CSN_CORRELATION;
+    size_t fft_size_check = is_forward ? x_length + h_length - 1 : x_length;
+    return IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
+}
+
 static void fftcorrconv_get_edges_offset(int64_t *start_offset, size_t h_size, size_t fft_size, CSN_EDGES_MODE edges_mode, CSN_CORRCONV_MODE corrconv_mode) {
+    /* The inverse of a correlation divides by conj(H), which leaves the
+       answer delayed by the h - 1 taps the reversed kernel is shifted by. */
+    if (corrconv_mode == CSN_DECONVOLUTION || corrconv_mode == CSN_DECORRELATION) {
+        *start_offset = corrconv_mode == CSN_DECONVOLUTION ? 0 : (int64_t) ((h_size - 1) % fft_size);
+        return;
+    }
+
     int64_t offset;
     switch (edges_mode) {
         case EDGES_FULL:
@@ -2561,9 +2713,14 @@ static void corrconv_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64
 static void fftcorrconv_get_shape_and_edges_offset_ndims(uint32_t *new_shape, int64_t *start_offset, CSN_ARRAY *x, CSN_ARRAY *h, CSN_EDGES_MODE edges_mode, CSN_CORRCONV_MODE corrconv_mode) {
     uint32_t ndim = x->ndim;
     for (uint32_t i = 0; i < ndim; i++) {
-        size_t fft_size_check = x->shape[i] + h->shape[i] - 1;
-        size_t fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
-        new_shape[i] = fft_size;
+        new_shape[i] = (uint32_t) fftcorrconv_size(x->shape[i], h->shape[i], corrconv_mode);
+    }
+
+    if (corrconv_mode == CSN_DECONVOLUTION || corrconv_mode == CSN_DECORRELATION) {
+        for (uint32_t axis = 0; axis < ndim; axis++) {
+            start_offset[axis] = corrconv_mode == CSN_DECONVOLUTION ? 0 : (int64_t) ((h->shape[axis] - 1) % new_shape[axis]);
+        }
+        return;
     }
 
     for (uint32_t axis = 0; axis < ndim; axis++) {
@@ -2590,9 +2747,11 @@ static void fftcorrconv_get_shape_and_edges_offset_ndims(uint32_t *new_shape, in
    rank the axis was chosen for, shrink the source under the kernel, or grow the
    kernel past the source. Re-checking every pass costs a handful of
    comparisons and keeps the two paths from drifting apart. */
-static int32_t corrconv1d_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis, uint32_t edges_mode) {
+static int32_t corrconv1d_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN_ARRAY *h, int32_t axis, uint32_t edges_mode, CSN_CORRCONV_MODE mode) {
+    bool is_forward = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
+    char *form = is_forward ? "convolve1d and correlate1d" : "deconvolve1d and decorrelate1d";
     if (h->ndim != 1U) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] convolve1d and correlate1d requires 1-D kernel");
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s requires 1-D kernel", form);
     }
 
     if (axis != -1 && (uint32_t) axis >= x->ndim) {
@@ -2603,7 +2762,7 @@ static int32_t corrconv1d_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, C
        to apply: SAME and VALID would both read their offset from h->size - 1
        and wrap it, and VALID would answer longer than it was asked. */
     if (h->size == 0) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Kernel is empty: convolve1d and correlate1d need at least one tap");
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Kernel is empty: %s need at least one tap", form);
     }
 
     size_t x_length = axis == -1 ? x->size : (size_t) x->shape[axis];
@@ -2611,23 +2770,49 @@ static int32_t corrconv1d_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, C
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] VALID edges requires x size to be at least the kernel size");
     }
 
+    if (!is_forward) {
+        /* The output is x_length - h->size + 1 long: a shorter source would
+           wrap that size_t around. */
+        if (x_length < h->size) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s requires x size to be at least the kernel size", form);
+        }
+
+        /* Every output sample is divided by the pivot tap. */
+        CSN_COMPLEXDAT h0 = decorrconv_pivot(h, mode);
+        if (h0.re == 0.0 && h0.im == 0.0) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s requires a non-zero %s kernel tap", form, mode == CSN_DECONVOLUTION ? "first" : "last");
+        }
+    }
+
     return OK;
 }
 
 /* The same contract for the N-D forms, where the kernel is shaped like the
    source rather than laid along one axis. */
-static int32_t corrconv_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN_ARRAY *h) {
+static int32_t corrconv_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN_ARRAY *h, CSN_CORRCONV_MODE mode) {
+    bool is_forward = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
+    char *form = is_forward ? "convolve and correlate" : "deconvolve and decorrelate";
     if (h->ndim != x->ndim) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] convolve and correlate requires arrays with same dimension");
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s requires arrays with same dimension", form);
     }
 
     if (h->size == 0) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Kernel is empty: convolve and correlate need at least one tap");
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Kernel is empty: %s need at least one tap", form);
     }
 
+    /* For the inverse forms this also keeps x->shape - h->shape + 1 from
+       wrapping around. */
     for (uint32_t i = 0; i < x->ndim; i++) {
         if (x->shape[i] < h->shape[i]) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] convolve and correlate N-D requires every x axis length to be at least the kernel axis length");
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s N-D requires every x axis length to be at least the kernel axis length", form);
+        }
+    }
+
+    if (!is_forward) {
+        /* Every output sample is divided by the pivot tap. */
+        CSN_COMPLEXDAT h0 = decorrconv_pivot(h, mode);
+        if (h0.re == 0.0 && h0.im == 0.0) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s requires a non-zero %s kernel tap", form, mode == CSN_DECONVOLUTION ? "first" : "last");
         }
     }
 
@@ -2675,8 +2860,10 @@ static int32_t corrconv1d_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, 
 
 static int32_t corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, int64_t *start_offset, CSN_CORRCONV_MODE mode) {
     CSN_BROADCAST_ITER dst_it, kernel_start;
-    if (ND_ITER_INIT(&dst_it, y->ndim, y->shape, y->size, NULL) != OK
-        || ND_ITER_INIT(&kernel_start, h->ndim, h->shape, h->size, NULL) != OK) return NOTOK;
+    if (ND_ITER_INIT(&dst_it, y->ndim, y->shape, y->size, NULL) != OK || ND_ITER_INIT(&kernel_start, h->ndim, h->shape, h->size, NULL) != OK) {
+        return NOTOK;
+    }
+
     while (BROADCAST_ITER_NEXT(&dst_it)) {
         CSN_COMPLEXDAT y_value = { .re = 0.0, .im = 0.0 };
         CSN_BROADCAST_ITER kernel_it = kernel_start;
@@ -2720,12 +2907,17 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     uint32_t source_handle_a = p->source_handle_a->id;
     uint32_t source_handle_b = p->source_handle_b->id;
 
-    double edges_temp = (double) *p->arg_a;
-
-    if (!IS_VALID_EDGES(edges_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    /* The inverse forms take no edges mode: they always answer x - h + 1
+       samples, so arg_a is already the next argument. */
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
+    uint32_t edges_mode = EDGES_FULL;
+    if (flag) {
+        double edges_temp = (double) *p->arg_a;
+        if (!IS_VALID_EDGES(edges_temp)) {
+            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+        }
+        edges_mode = (uint32_t) edges_temp;
     }
-    uint32_t edges_mode = (uint32_t) edges_temp;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -2755,12 +2947,16 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
 
-    res = corrconv1d_validate(csound, NULL, source_arr_a, source_arr_b, axis, edges_mode);
+    res = corrconv1d_validate(csound, NULL, source_arr_a, source_arr_b, axis, edges_mode, mode);
     if (res != OK) goto done;
 
     size_t size_result = 0;
     int64_t start_offset = 0;
-    corrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+    if (flag) {
+        corrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+    } else {
+        decorrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis);
+    }
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim_a;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -2778,8 +2974,14 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
         goto done;
     }
 
-    if (corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible convolution array shapes/ranks");
+    if (flag) {
+        res = corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    } else {
+        res = decorrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    }
+
+    if (res != OK) {
+        csound->InitError(csound, "[csnarray] Incompatible convolution array shapes/ranks");
         goto done;
     }
 
@@ -2792,7 +2994,6 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
-
 }
 
 int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
@@ -2828,6 +3029,26 @@ int32_t csnarray_correlate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
+int32_t csnarray_deconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_deconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_decorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
+}
+
+int32_t csnarray_decorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
+}
+
 static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
     uint32_t owned_handle = p->k_data.owned_handle;
@@ -2841,11 +3062,12 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
 
     int32_t res = OK;
     const char *err = NULL;
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
     res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
     if (res != OK) return res;
 
-    CHECK_KTRIG(p->arg_b);
+    CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
@@ -2864,7 +3086,7 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     uint32_t source_ndim_a = source_arr_a->ndim;
     uint32_t *source_shape_a = source_arr_a->shape;
 
-    res = corrconv1d_validate(csound, &p->h, source_arr_a, source_arr_b, axis, edges_mode);
+    res = corrconv1d_validate(csound, &p->h, source_arr_a, source_arr_b, axis, edges_mode, mode);
     if (res != OK) goto done;
 
     if (p->is_published) {
@@ -2884,7 +3106,11 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
 
     size_t size_result = 0;
     int64_t start_offset = 0;
-    corrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+    if (flag) {
+        corrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis, edges_mode);
+    } else {
+        decorrconv_get_size_and_edges_offset(&size_result, &start_offset, source_arr_a, source_arr_b, axis);
+    }
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim_a;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -2908,10 +3134,16 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     if (res != OK) goto done;
     p->array = arr;
 
-    if (corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode) != OK) {
+    if (flag) {
+        res = corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    } else {
+        res = decorrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+    }
+    if (res != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible convolution array shapes/ranks");
         goto done;
     }
+
     SET_KDATA_END(p, new_shape, new_ndim, itype);
     set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
@@ -2921,7 +3153,6 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
 done:
     csound->UnlockMutex(reg->mutex);
     return res;
-
 }
 
 int32_t csnarray_convolve1d_k(CSOUND *csound, CSN_CORRCONV *p) {
@@ -2932,6 +3163,14 @@ int32_t csnarray_correlate1d_k(CSOUND *csound, CSN_CORRCONV *p) {
     return csnarray_corrconv1d_k_helper(csound, p, CSN_CORRELATION);
 }
 
+int32_t csnarray_deconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv1d_k_helper(csound, p, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_decorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv1d_k_helper(csound, p, CSN_DECORRELATION);
+}
+
 static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -2939,12 +3178,17 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     uint32_t source_handle_a = p->source_handle_a->id;
     uint32_t source_handle_b = p->source_handle_b->id;
 
-    double edges_temp = (double) *p->arg_a;
-
-    if (!IS_VALID_EDGES(edges_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    /* The inverse forms take no edges mode: they always answer x - h + 1
+       samples, so arg_a is already the next argument. */
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
+    uint32_t edges_mode = EDGES_FULL;
+    if (flag) {
+        double edges_temp = (double) *p->arg_a;
+        if (!IS_VALID_EDGES(edges_temp)) {
+            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+        }
+        edges_mode = (uint32_t) edges_temp;
     }
-    uint32_t edges_mode = (uint32_t) edges_temp;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -2964,13 +3208,17 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     CSN_ARRAY *source_arr_a = slot_a->array;
     CSN_ARRAY *source_arr_b = slot_b->array;
 
-    res = corrconv_validate(csound, NULL, source_arr_a, source_arr_b);
+    res = corrconv_validate(csound, NULL, source_arr_a, source_arr_b, mode);
     if (res != OK) goto done;
 
     uint32_t new_ndim = source_arr_a->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     int64_t start_offset[CSN_MAX_DIMS] = {0};
-    corrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+    if (flag) {
+        corrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+    } else {
+        decorrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b);
+    }
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
     uint32_t protect[2] = { source_handle_a, source_handle_b };
@@ -2979,7 +3227,12 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
         goto done;
     }
 
-    if (corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode) != OK) {
+    if (flag) {
+        res = corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    } else {
+        res = decorrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    }
+    if (res != OK) {
         res = csound->InitError(csound, "[csnarray] Invalid convolution iterator layout");
         goto done;
     }
@@ -3002,6 +3255,14 @@ int32_t csnarray_correlate(CSOUND *csound, CSN_CORRCONV *p) {
     return csnarray_corrconv_helper(csound, p, CSN_CORRELATION);
 }
 
+int32_t csnarray_deconvolve(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_helper(csound, p, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_decorrelate(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_helper(csound, p, CSN_DECORRELATION);
+}
+
 static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
     uint32_t owned_handle = p->k_data.owned_handle;
@@ -3014,11 +3275,12 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
 
     int32_t res = OK;
     const char *err = NULL;
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
     res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
     if (res != OK) return res;
 
-    CHECK_KTRIG(p->arg_b);
+    CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     csound->LockMutex(reg->mutex);
     CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
@@ -3035,7 +3297,7 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     CSN_ARRAY *source_arr_a = slot_a->array;
     CSN_ARRAY *source_arr_b = slot_b->array;
 
-    res = corrconv_validate(csound, &p->h, source_arr_a, source_arr_b);
+    res = corrconv_validate(csound, &p->h, source_arr_a, source_arr_b, mode);
     if (res != OK) goto done;
 
     if (p->is_published) {
@@ -3056,7 +3318,11 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     uint32_t new_ndim = source_arr_a->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     int64_t start_offset[CSN_MAX_DIMS] = {0};
-    corrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+    if (flag) {
+        corrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b, edges_mode);
+    } else {
+        decorrconv_get_shape_and_edges_offset_ndims(new_shape, start_offset, source_arr_a, source_arr_b);
+    }
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
     size_t req_size = 0;
@@ -3071,7 +3337,12 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     if (res != OK) goto done;
     p->array = arr;
 
-    if (corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode) != OK) {
+    if (flag) {
+        res = corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    } else {
+        res = decorrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+    }
+    if (res != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid convolution iterator layout");
         goto done;
     }
@@ -3092,6 +3363,14 @@ int32_t csnarray_convolve_k(CSOUND *csound, CSN_CORRCONV *p) {
 
 int32_t csnarray_correlate_k(CSOUND *csound, CSN_CORRCONV *p) {
     return csnarray_corrconv_k_helper(csound, p, CSN_CORRELATION);
+}
+
+int32_t csnarray_deconvolve_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_k_helper(csound, p, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_decorrelate_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return csnarray_corrconv_k_helper(csound, p, CSN_DECORRELATION);
 }
 
 static int32_t allocate_and_zero_pad_before(CSOUND *csound, OPDS *h, bool is_perf, CSN_ARRAY *dest, CSN_ARRAY *source, uint32_t new_ndim, uint32_t *new_shape, uint32_t axis, bool flat) {
@@ -3163,6 +3442,48 @@ static int32_t allocate_and_zero_pad_before_ndims(CSOUND *csound, OPDS *h, bool 
     return OK;
 }
 
+/* Bins of the kernel spectrum below this fraction of its largest one are zeros
+   of H that rounding left slightly off zero. */
+#define CSN_DECONV_REL_FLOOR 1e-12
+
+/* A spectral division needs every bin of H. A kernel with a zero on the unit
+   circle that lands on a bin, [1, 1] at Nyquist for instance, has thrown away
+   that bin of the answer, and dividing by what rounding left there would
+   return noise in its place. The direct recurrence never looks at the
+   spectrum and still answers, so the FFT form refuses rather than guess. */
+static bool fftdeconv_kernel_has_zero(const CSN_ARRAY *b) {
+    double peak = 0.0;
+    for (size_t i = 0; i < b->size; i++) {
+        double re = b->data[i * 2];
+        double im = b->data[i * 2 + 1];
+        double mag2 = re * re + im * im;
+        if (mag2 > peak) peak = mag2;
+    }
+
+    double floor2 = peak * CSN_DECONV_REL_FLOOR * CSN_DECONV_REL_FLOOR;
+    for (size_t i = 0; i < b->size; i++) {
+        double re = b->data[i * 2];
+        double im = b->data[i * 2 + 1];
+        if (re * re + im * im <= floor2) return true;
+    }
+    return false;
+}
+
+/* a * b for the forward forms, a / b for the inverse ones, whose kernel
+   fftdeconv_kernel_has_zero has already cleared. b is conjugated for both
+   correlation directions. */
+static CSN_COMPLEXDAT fftcorrconv_bin(CSN_COMPLEXDAT a, CSN_COMPLEXDAT b, CSN_CORRCONV_MODE mode) {
+    CSN_COMPLEXDAT result = { .re = 0.0, .im = 0.0 };
+    if (mode == CSN_CORRELATION || mode == CSN_DECORRELATION) b.im = -b.im;
+    if (mode == CSN_DECONVOLUTION || mode == CSN_DECORRELATION) {
+        complex_div(&result, a, b);
+        return result;
+    }
+
+    complex_prod(&result, a, b);
+    return result;
+}
+
 static int32_t fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, int32_t axis, CSN_CORRCONV_MODE mode) {
     uint32_t *source_shape = source_arr_a->shape;
 
@@ -3170,9 +3491,7 @@ static int32_t fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARR
         for (uint32_t i = 0; i < source_shape[0]; i++) {
             CSN_COMPLEXDAT a = { .re = source_arr_a->data[i * 2], .im = source_arr_a->data[i * 2 + 1] };
             CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
-            if (mode == CSN_CORRELATION) b.im = -b.im;
-            CSN_COMPLEXDAT result = {0};
-            complex_prod(&result, a, b);
+            CSN_COMPLEXDAT result = fftcorrconv_bin(a, b, mode);
             y->data[i * 2] = result.re;
             y->data[i * 2 + 1] = result.im;
         }
@@ -3189,9 +3508,7 @@ static int32_t fftcoorconv1d_prod(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_ARR
         for (uint32_t i = 0; i < source_shape[axis]; i++) {
             CSN_COMPLEXDAT a = slice_get(source_arr_a->data + src_base * CSN_COMPLEX, i, src_stride, CSN_COMPLEX);
             CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
-            if (mode == CSN_CORRELATION) b.im = -b.im;
-            CSN_COMPLEXDAT result = {0};
-            complex_prod(&result, a, b);
+            CSN_COMPLEXDAT result = fftcorrconv_bin(a, b, mode);
             slice_put(y->data + dst_base * CSN_COMPLEX, i, dst_stride, CSN_COMPLEX, result);
         }
     }
@@ -3241,9 +3558,7 @@ static void fftcorrconv_prod_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr_a, CSN_AR
     for (size_t i = 0; i < y->size; i++) {
         CSN_COMPLEXDAT a = { .re = source_arr_a->data[i * 2], .im = source_arr_a->data[i * 2 + 1] };
         CSN_COMPLEXDAT b = { .re = source_arr_b->data[i * 2], .im = source_arr_b->data[i * 2 + 1] };
-        if (mode == CSN_CORRELATION) b.im = -b.im;
-        CSN_COMPLEXDAT result = {0};
-        complex_prod(&result, a, b);
+        CSN_COMPLEXDAT result = fftcorrconv_bin(a, b, mode);
         y->data[i * 2] = result.re;
         y->data[i * 2 + 1] = result.im;
     }
@@ -3540,12 +3855,17 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT
     uint32_t source_handle_a = p->source_handle_a->id;
     uint32_t source_handle_b = p->source_handle_b->id;
 
-    double edges_temp = (double) *p->arg_a;
-
-    if (!IS_VALID_EDGES(edges_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    /* The inverse forms take no edges mode: they always answer x - h + 1
+       samples, so arg_a is already the next argument. */
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
+    uint32_t edges_mode = EDGES_FULL;
+    if (flag) {
+        double edges_temp = (double) *p->arg_a;
+        if (!IS_VALID_EDGES(edges_temp)) {
+            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+        }
+        edges_mode = (uint32_t) edges_temp;
     }
-    uint32_t edges_mode = (uint32_t) edges_temp;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -3576,12 +3896,11 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
 
-    res = corrconv1d_validate(csound, NULL, source_x, source_h, axis, edges_mode);
+    res = corrconv1d_validate(csound, NULL, source_x, source_h, axis, edges_mode, mode);
     if (res != OK) goto done;
 
     size_t xfft_length = axis == -1 ? source_x->size : (size_t) source_x->shape[axis];
-    size_t fft_size_check = xfft_length + source_h->size - 1;
-    size_t fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
+    size_t fft_size = fftcorrconv_size(xfft_length, source_h->size, mode);
     fftcorrconv_get_edges_offset(&p->fc.crop_offset[0], source_h->size, fft_size, edges_mode, mode);
 
     ITEM_TYPE itype = (source_x->itype == CSN_COMPLEX || source_h->itype == CSN_COMPLEX) ? CSN_COMPLEX : CSN_REAL;
@@ -3597,7 +3916,11 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT
        runs over a padded power of two, the result does not. */
     size_t size_result = 0;
     int64_t direct_offset = 0;
-    corrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis, edges_mode);
+    if (flag) {
+        corrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis, edges_mode);
+    } else {
+        decorrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis);
+    }
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim_x;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -3628,6 +3951,10 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT
     }
     if (fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode) != OK) {
         res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        goto done;
+    }
+    if (!flag && fftdeconv_kernel_has_zero(&p->fft_buffer_h)) {
+        res = csound->InitError(csound, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
         goto done;
     }
     if (fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode) != OK) {
@@ -3691,6 +4018,26 @@ int32_t csnarray_fftcorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
+int32_t csnarray_fftdeconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_fftdeconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_fftdecorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
+}
+
+int32_t csnarray_fftdecorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
+    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
+}
+
 static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -3698,12 +4045,17 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     uint32_t source_handle_a = p->source_handle_a->id;
     uint32_t source_handle_b = p->source_handle_b->id;
 
-    double edges_temp = (double) *p->arg_a;
-
-    if (!IS_VALID_EDGES(edges_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+    /* The inverse forms take no edges mode: they always answer x - h + 1
+       samples, so arg_a is already the next argument. */
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
+    uint32_t edges_mode = EDGES_FULL;
+    if (flag) {
+        double edges_temp = (double) *p->arg_a;
+        if (!IS_VALID_EDGES(edges_temp)) {
+            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+        }
+        edges_mode = (uint32_t) edges_temp;
     }
-    uint32_t edges_mode = (uint32_t) edges_temp;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -3726,7 +4078,7 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     CSN_ARRAY *source_h = slot_h->array;
     uint32_t ndim = source_x->ndim;
 
-    res = corrconv_validate(csound, NULL, source_x, source_h);
+    res = corrconv_validate(csound, NULL, source_x, source_h, mode);
     if (res != OK) goto done;
 
     uint32_t last_axis = ndim - 1U;
@@ -3751,7 +4103,11 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
        runs over a padded power of two on every axis, the result does not. */
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     int64_t direct_offset[CSN_MAX_DIMS] = {0};
-    corrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h, edges_mode);
+    if (flag) {
+        corrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h, edges_mode);
+    } else {
+        decorrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h);
+    }
 
     ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
     uint32_t protect[2] = { source_handle_a, source_handle_b };
@@ -3786,6 +4142,10 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
         }
     }
 
+    if (!flag && fftdeconv_kernel_has_zero(&p->fft_buffer_h)) {
+        res = csound->InitError(csound, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
+        goto done;
+    }
     fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
 
     /* Inverse: mirror order, the full complex axes first and the one-sided one
@@ -3837,6 +4197,14 @@ int32_t csnarray_fftcorrelate(CSOUND *csound, CSN_CORRCONV *p) {
     return fftcorrconv_helper(csound, p, CSN_CORRELATION);
 }
 
+int32_t csnarray_fftdeconvolve(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_helper(csound, p, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_fftdecorrelate(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_helper(csound, p, CSN_DECORRELATION);
+}
+
 static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
     uint32_t owned_handle = p->k_data.owned_handle;
@@ -3850,11 +4218,12 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
 
     int32_t res = OK;
     const char *err = NULL;
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
     res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
     if (res != OK) return res;
 
-    CHECK_KTRIG(p->arg_b);
+    CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     void *fft_setup = p->k_data_fft_x.fft_setup;
     void *ifft_setup = p->k_data_ifft.fft_setup;
@@ -3877,7 +4246,7 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     CSN_ARRAY *source_h = slot_h->array;
     uint32_t source_ndim_x = source_x->ndim;
 
-    res = corrconv1d_validate(csound, &p->h, source_x, source_h, axis, edges_mode);
+    res = corrconv1d_validate(csound, &p->h, source_x, source_h, axis, edges_mode, mode);
     if (res != OK) goto done;
 
     /* Decided before anything below can allocate: the transform setups, the
@@ -3902,8 +4271,7 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     }
 
     size_t xfft_length = axis == -1 ? source_x->size : (size_t) source_x->shape[axis];
-    size_t fft_size_check = xfft_length + source_h->size - 1;
-    size_t requested_fft_size = IS_POWER_OF_TWO(fft_size_check) ? fft_size_check : NEXT_POWER_OF_TWO(fft_size_check);
+    size_t requested_fft_size = fftcorrconv_size(xfft_length, source_h->size, mode);
     if (requested_fft_size != fft_size) {
         if (rt_locked) {
             res = csn_locked_perf_error(csound, &p->h, "[csnarray] A real-time path would need a new %zu-point transform at perf time; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (size_t) requested_fft_size);
@@ -3928,7 +4296,11 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
 
     size_t size_result = 0;
     int64_t direct_offset = 0;
-    corrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis, edges_mode);
+    if (flag) {
+        corrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis, edges_mode);
+    } else {
+        decorrconv_get_size_and_edges_offset(&size_result, &direct_offset, source_x, source_h, axis);
+    }
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim_x;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -3962,6 +4334,10 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode) != OK
         || fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        goto done;
+    }
+    if (!flag && fftdeconv_kernel_has_zero(&p->fft_buffer_h)) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
         goto done;
     }
     if (fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode) != OK) {
@@ -4008,8 +4384,9 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
 
     int32_t res = OK;
     const char *err = NULL;
+    bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
-    CHECK_KTRIG(p->arg_b);
+    CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     void *fft_setup = p->k_data_fft_x.fft_setup;
     void *ifft_setup = p->k_data_ifft.fft_setup;
@@ -4047,7 +4424,7 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
         }
     }
 
-    res = corrconv_validate(csound, &p->h, source_x, source_h);
+    res = corrconv_validate(csound, &p->h, source_x, source_h, mode);
     if (res != OK) goto done;
 
     /* Decided before anything below can allocate: the transform setups, the
@@ -4081,7 +4458,11 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
        runs over a padded power of two on every axis, the result does not. */
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     int64_t direct_offset[CSN_MAX_DIMS] = {0};
-    corrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h, edges_mode);
+    if (flag) {
+        corrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h, edges_mode);
+    } else {
+        decorrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h);
+    }
 
     size_t req_size = 0;
     if (get_array_size_from_shape(&req_size, ndim, new_shape) != OK) {
@@ -4119,6 +4500,10 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
         }
     }
 
+    if (!flag && fftdeconv_kernel_has_zero(&p->fft_buffer_h)) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
+        goto done;
+    }
     fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
 
     /* Inverse: mirror order, the full complex axes first and the one-sided one
@@ -4171,6 +4556,22 @@ int32_t csnarray_fftconvolve_k(CSOUND *csound, CSN_CORRCONV *p) {
 
 int32_t csnarray_fftcorrelate_k(CSOUND *csound, CSN_CORRCONV *p) {
     return fftcorrconv_k_helper(csound, p, CSN_CORRELATION);
+}
+
+int32_t csnarray_fftdeconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv1d_k_helper(csound, p, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_fftdeconvolve_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_k_helper(csound, p, CSN_DECONVOLUTION);
+}
+
+int32_t csnarray_fftdecorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv1d_k_helper(csound, p, CSN_DECORRELATION);
+}
+
+int32_t csnarray_fftdecorrelate_k(CSOUND *csound, CSN_CORRCONV *p) {
+    return fftcorrconv_k_helper(csound, p, CSN_DECORRELATION);
 }
 
 // DCT I - II

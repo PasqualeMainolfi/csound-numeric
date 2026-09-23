@@ -297,6 +297,14 @@ opcode's own page rather than as separate entries here.
 - [csnfftcorrelate1d](csnfftcorrelate1d.md) - the same cross-correlation through Fourier transforms
 - [csnfftconvolve](csnfftconvolve.md) - N-D convolution through Fourier transforms
 - [csnfftcorrelate](csnfftcorrelate.md) - N-D cross-correlation through Fourier transforms
+- [csndeconvolve1d](csndeconvolve1d.md) - inverse of a FULL convolution with a 1-D kernel, flat or along one axis
+- [csndecorrelate1d](csndecorrelate1d.md) - inverse of a FULL cross-correlation with a 1-D kernel, flat or along one axis
+- [csndeconvolve](csndeconvolve.md) - inverse of a FULL N-D convolution
+- [csndecorrelate](csndecorrelate.md) - inverse of a FULL N-D cross-correlation
+- [csnfftdeconvolve1d](csnfftdeconvolve1d.md) - the same deconvolution through Fourier transforms
+- [csnfftdecorrelate1d](csnfftdecorrelate1d.md) - the same decorrelation through Fourier transforms
+- [csnfftdeconvolve](csnfftdeconvolve.md) - N-D deconvolution through Fourier transforms
+- [csnfftdecorrelate](csnfftdecorrelate.md) - N-D decorrelation through Fourier transforms
 
 ## Interpolation and resampling
 

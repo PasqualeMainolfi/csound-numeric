@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.10] - 
+
+- Add direct deconvolution, the inverse of a FULL convolution, with a 1-D kernel flat or along one axis and with a kernel shaped like the source (*csndeconvolve1d*, *csndeconvolve*). The convolution sum is run backwards, each output divided by `h[0]` after subtracting what the earlier outputs already explain, so the answer is the quotient `scipy.signal.deconvolve` returns, `x - h + 1` long on each axis. The recurrence is a recursive filter, stable only when the kernel is minimum phase
+- Add direct decorrelation, the inverse of a FULL correlation, in the same two shapes (*csndecorrelate1d*, *csndecorrelate*). A correlation is a convolution with the kernel reversed and conjugated, so the recurrence is the same one divided by `conj(h[last])`, and it is stable when the reversed kernel is minimum phase
+- Add the Fourier-transform counterparts of the four (*csnfftdeconvolve1d*, *csnfftdeconvolve*, *csnfftdecorrelate1d*, *csnfftdecorrelate*). The spectrum of `x` is divided by `H`, or by `conj(H)` for a decorrelation, whose answer is read `h - 1` into the inverse transform. The transform only has to hold `x`, which is already the FULL answer, so it is the next power of two at or above `x` rather than `x + h - 1`. They have no phase condition, and agree with the direct forms to within rounding whenever `x` really is a FULL convolution or correlation
+- Take no `edges` argument on any of the eight: FULL is the only span that keeps everything the source contributed, so it is the only one that can be undone. The axis of the 1-D forms is therefore the third argument, after the trigger on the k-rate overloads
+- Reject a source shorter than the kernel, which would have wrapped the output length around, and a zero pivot tap, `h[0]` for a deconvolution and `h[last]` for a decorrelation, which every step divides by
+- Reject in the transform forms a kernel whose spectrum has a zero on the transform grid, such as `[1, 1]` at Nyquist or `[[1, 2], [3, 4]]` at Nyquist on both axes, at init or at performance: that bin of the answer is gone, and dividing by what rounding leaves there returned noise in its place. Bins below `1e-12` of the largest count as zeros. The direct forms never look at the spectrum and still answer for such a kernel
+- Add the reference pages, runnable examples, inventory entries and NumPy correspondence rows of the eight, and their i-time regressions: direct and transform round trips flat, along an axis, N-D and complex
+
 ## [0.1.9] - 2026-09-22
 
 - Add elementwise mapping of a user-defined opcode over an array, in place, driven by a k-rate trigger (*csnforeach*). The callback is a Csound 7 `:Opcode;` object: the orchestra names it with `opcoderef`, allocates it with `create` and wires its argument cells with one `init` call, and it must take one k-rate argument and return one. The array is read flat, so the rank does not matter and the shape is preserved; real arrays only

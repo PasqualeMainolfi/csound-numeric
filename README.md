@@ -640,6 +640,14 @@ of re-sorting on every k-rate pass.
 | `csnfftcorrelate1d` | `scipy.signal.correlate(..., method='fft')` | Plus an axis. |
 | `csnfftconvolve` | `scipy.signal.fftconvolve` | N-D, kernel shaped like the source. |
 | `csnfftcorrelate` | `scipy.signal.correlate(..., method='fft')` | N-D. |
+| `csndeconvolve1d` | `scipy.signal.deconvolve` | The quotient, plus an axis. Undoes a FULL `csnconvolve1d`. |
+| `csndecorrelate1d` | `scipy.signal.deconvolve(c, np.conj(h[::-1]))` | Undoes a FULL `csncorrelate1d`. Plus an axis. |
+| `csndeconvolve` | — | N-D, kernel shaped like the source. |
+| `csndecorrelate` | — | N-D. |
+| `csnfftdeconvolve1d` | `np.fft.ifft(np.fft.fft(x, n) / np.fft.fft(h, n))[:len(x) - len(h) + 1]` | Plus an axis; `n` the next power of two at or above `len(x)`. |
+| `csnfftdecorrelate1d` | the same with `np.conj(np.fft.fft(h, n))`, read from `len(h) - 1` | Plus an axis. |
+| `csnfftdeconvolve` | the `fftn` form of the same | N-D. |
+| `csnfftdecorrelate` | the `fftn` form of the same | N-D. |
 
 The `csnfft*` four are the same operations as the four above them, computed by
 padding to a power of two and multiplying in the spectrum: same arguments, same
@@ -651,6 +659,17 @@ The `edges` argument is NumPy's `mode` under another name: `0` FULL, `1` SAME,
 `2` VALID, with the same lengths. Unlike NumPy's, it is an i-rate argument on
 every overload, along with the axis, because the pair of them fixes the shape
 of the output and a k-rate pass must not have to reallocate.
+
+The deconvolve and decorrelate forms have no `edges` argument: they undo the
+FULL span, the only one that keeps everything the source contributed, and
+answer `x - h + 1` on each axis. The direct forms run the convolution sum
+backwards, dividing by `h[0]` (deconvolution) or `conj(h[last])`
+(decorrelation), which must be non-zero, and are stable only on a minimum-phase
+kernel (reversed, for a decorrelation). The `csnfft*` forms divide spectra, have
+no phase condition, and refuse a kernel with a spectral zero on the transform
+grid, such as `[1, 1]` at Nyquist. The two routes agree when the input really is
+a FULL convolution or correlation; otherwise the direct form returns the
+quotient of a polynomial division and the transform a circular one.
 
 ### Interpolation, resampling and windows
 

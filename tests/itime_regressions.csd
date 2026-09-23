@@ -2168,6 +2168,116 @@ instr 13
     assert(abs(iCcConv0Re + 1) < 1e-12)
     assert(abs(iCcConv0Im - 7) < 1e-12)
 
+    ; Deconvolution undoes a FULL convolution: the recurrence divides by the
+    ; leading tap and subtracts what the earlier outputs already explain, so
+    ; the source comes back to within rounding, one sample per x - h + 1.
+    iDcFlat:CsnArr = csndeconvolve1d(iCcFull, iCcH)
+    assert(csnsize(iDcFlat) == 5)
+    iDcFlatErr = csnmax(csnabs(csnsubtract(iDcFlat, iCcX)))
+    assert(iDcFlatErr < 1e-12)
+
+    ; along an axis, each lane reads its own x lane and its own earlier outputs
+    iDcAxis0:CsnArr = csndeconvolve1d(iCcAxis0, iCcOnes, 0)
+    iDcAxis0Shape[] = csnshape(iDcAxis0)
+    assert(iDcAxis0Shape[0] == 2 && iDcAxis0Shape[1] == 3)
+    iDcAxis0Err = csnmax(csnabs(csnsubtract(iDcAxis0, iCcMat)))
+    assert(iDcAxis0Err < 1e-12)
+
+    iDcAxis1:CsnArr = csndeconvolve1d(iCcAxis1, iCcOnes, 1)
+    iDcAxis1Shape[] = csnshape(iDcAxis1)
+    assert(iDcAxis1Shape[0] == 2 && iDcAxis1Shape[1] == 3)
+    iDcAxis1Err = csnmax(csnabs(csnsubtract(iDcAxis1, iCcMat)))
+    assert(iDcAxis1Err < 1e-12)
+
+    ; N-D: x is larger than the answer on every axis, so reading it by the
+    ; answer's linear index would scramble every row after the first.
+    iDcNd:CsnArr = csndeconvolve(iNdFull, iNdH)
+    iDcNdShape[] = csnshape(iDcNd)
+    assert(iDcNdShape[0] == 3 && iDcNdShape[1] == 3)
+    iDcNdErr = csnmax(csnabs(csnsubtract(iDcNd, iNdX)))
+    assert(iDcNdErr < 1e-12)
+
+    ; complex operands divide by a complex leading tap
+    iDcZ:CsnArr = csndeconvolve1d(iCcZConv, iCcK)
+    assert(csnsize(iDcZ) == 3)
+    iDcZErr = csnmax(csnabs(csnsubtract(iDcZ, iCcZ)))
+    assert(iDcZErr < 1e-12)
+
+    ; The FFT forms divide the spectra instead of running the recurrence: x
+    ; alone is padded to a power of two, which holds the FULL convolution
+    ; without wrapping, so the quotient is the answer to within rounding.
+    iFdFlat:CsnArr = csnfftdeconvolve1d(iCcFull, iCcH)
+    assert(csnsize(iFdFlat) == 5)
+    iFdFlatErr = csnmax(csnabs(csnsubtract(iFdFlat, iCcX)))
+    assert(iFdFlatErr < 1e-12)
+
+    ; [1, 1] would not do here: its zero at Nyquist lands on the grid of any
+    ; even transform length, and the FFT form refuses such a kernel.
+    iFdAxisX:CsnArr = csnconvolve1d(iCcMat, iCcH, 0, 0)
+    iFdAxis0:CsnArr = csnfftdeconvolve1d(iFdAxisX, iCcH, 0)
+    iFdAxis0Shape[] = csnshape(iFdAxis0)
+    assert(iFdAxis0Shape[0] == 2 && iFdAxis0Shape[1] == 3)
+    iFdAxis0Err = csnmax(csnabs(csnsubtract(iFdAxis0, iCcMat)))
+    assert(iFdAxis0Err < 1e-12)
+
+    ; iNdH vanishes at (Nyquist, Nyquist): 1 - 2 - 3 + 4 = 0, a grid bin on
+    ; every even length, so the N-D check takes a kernel with no such zero.
+    iFdNdH:CsnArr = csnreshape(csnfromarray(array(2, 1, -1, 0.5)), iNdKernelShape)
+    iFdNdX:CsnArr = csnconvolve(iNdX, iFdNdH, 0)
+    iFdNd:CsnArr = csnfftdeconvolve(iFdNdX, iFdNdH)
+    iFdNdShape[] = csnshape(iFdNd)
+    assert(iFdNdShape[0] == 3 && iFdNdShape[1] == 3)
+    iFdNdErr = csnmax(csnabs(csnsubtract(iFdNd, iNdX)))
+    assert(iFdNdErr < 1e-12)
+
+    iFdZ:CsnArr = csnfftdeconvolve1d(iCcZConv, iCcK)
+    assert(csnsize(iFdZ) == 3)
+    iFdZErr = csnmax(csnabs(csnsubtract(iFdZ, iCcZ)))
+    assert(iFdZErr < 1e-12)
+
+    ; Decorrelation undoes a FULL correlation. The correlation reads the
+    ; kernel reversed and conjugated, so the recurrence divides by
+    ; conj(h[last]) and the FFT form by conj(H), then reads its answer
+    ; h - 1 samples later.
+    iDrFlat:CsnArr = csndecorrelate1d(iCrFull, iCcH)
+    assert(csnsize(iDrFlat) == 5)
+    iDrFlatErr = csnmax(csnabs(csnsubtract(iDrFlat, iCcX)))
+    assert(iDrFlatErr < 1e-12)
+
+    iFrFlat:CsnArr = csnfftdecorrelate1d(iCrFull, iCcH)
+    assert(csnsize(iFrFlat) == 5)
+    iFrFlatErr = csnmax(csnabs(csnsubtract(iFrFlat, iCcX)))
+    assert(iFrFlatErr < 1e-12)
+
+    iDrAxisX:CsnArr = csncorrelate1d(iCcMat, iCcH, 0, 1)
+    iDrAxis1:CsnArr = csndecorrelate1d(iDrAxisX, iCcH, 1)
+    iDrAxis1Err = csnmax(csnabs(csnsubtract(iDrAxis1, iCcMat)))
+    assert(iDrAxis1Err < 1e-12)
+    iFrAxis1:CsnArr = csnfftdecorrelate1d(iDrAxisX, iCcH, 1)
+    iFrAxis1Shape[] = csnshape(iFrAxis1)
+    assert(iFrAxis1Shape[0] == 2 && iFrAxis1Shape[1] == 3)
+    iFrAxis1Err = csnmax(csnabs(csnsubtract(iFrAxis1, iCcMat)))
+    assert(iFrAxis1Err < 1e-12)
+
+    iDrNdX:CsnArr = csncorrelate(iNdX, iFdNdH, 0)
+    iDrNd:CsnArr = csndecorrelate(iDrNdX, iFdNdH)
+    iDrNdErr = csnmax(csnabs(csnsubtract(iDrNd, iNdX)))
+    assert(iDrNdErr < 1e-12)
+    iFrNd:CsnArr = csnfftdecorrelate(iDrNdX, iFdNdH)
+    iFrNdShape[] = csnshape(iFrNd)
+    assert(iFrNdShape[0] == 3 && iFrNdShape[1] == 3)
+    iFrNdErr = csnmax(csnabs(csnsubtract(iFrNd, iNdX)))
+    assert(iFrNdErr < 1e-12)
+
+    ; complex: the conjugate is what the pivot and the spectrum both carry
+    iDrZX:CsnArr = csncorrelate1d(iCcZ, iCcK, 0)
+    iDrZ:CsnArr = csndecorrelate1d(iDrZX, iCcK)
+    iDrZErr = csnmax(csnabs(csnsubtract(iDrZ, iCcZ)))
+    assert(iDrZErr < 1e-12)
+    iFrZ:CsnArr = csnfftdecorrelate1d(iDrZX, iCcK)
+    iFrZErr = csnmax(csnabs(csnsubtract(iFrZ, iCcZ)))
+    assert(iFrZErr < 1e-12)
+
     ; The FFT forms answer what the direct ones answer, to within rounding:
     ; padded to a power of two, multiplied in the spectrum, transformed back.
     ; Checked against the direct result rather than against constants, so the
@@ -3300,6 +3410,8 @@ e
 ; csnfft csnrfft csnifft csnirfft csnfft2 csnrfft2 csnifft2 csnirfft2 csnstft csnistft
 ; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
+; csndeconvolve1d csndeconvolve csnfftdeconvolve1d csnfftdeconvolve
+; csndecorrelate1d csndecorrelate csnfftdecorrelate1d csnfftdecorrelate
 ; csnfftconvolve1d csnfftcorrelate1d csnfftconvolve csnfftcorrelate
 ; csnsolve csninv csndet csndet.c csnrtlockstart csnrtlockend csnrtlockall csnsavgol
 ; csnmedfilt csnmedfilt.in csnmedfilt.s csnmedfilt.s.in csnmedfilt1d csnmedfilt1d.in
