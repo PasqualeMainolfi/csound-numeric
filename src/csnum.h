@@ -81,7 +81,7 @@ do {                                                                 \
 #define SET_KDATA_BEGIN(p, reg)                                                              \
     do {                                                                                     \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));                   \
-        memcpy((p)->k_data.prev_shape, (p)->array->shape, sizeof((p)->k_data.prev_shape));   \
+        memcpy((p)->k_data.prev_shape, (p)->array->shape, sizeof(uint32_t) * (p)->array->ndim); \
         (p)->k_data.prev_ndim = (p)->array->ndim;                                            \
         (p)->k_data.prev_itype = (p)->array->itype;                                          \
         (p)->k_data.owned_handle = (p)->handle->id;                                          \
@@ -91,7 +91,7 @@ do {                                                                 \
 #define SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, itype, handle)                \
     do {                                                                           \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim));        \
         (p)->k_data.prev_ndim = (ndim);                                            \
         (p)->k_data.prev_itype = (itype);                                          \
         (p)->k_data.owned_handle = (handle);                                       \
@@ -101,7 +101,7 @@ do {                                                                 \
 #define SET_FROM_KDATA_WITH_ID_BEGIN(k_data, reg, shape, ndim, itype, handle)      \
     do {                                                                           \
         memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));               \
-        memcpy((k_data).prev_shape, (shape), sizeof((k_data).prev_shape));         \
+        memcpy((k_data).prev_shape, (shape), sizeof(uint32_t) * (ndim));            \
         (k_data).prev_ndim = (ndim);                                               \
         (k_data).prev_itype = (itype);                                             \
         (k_data).owned_handle = (handle);                                          \
@@ -111,7 +111,7 @@ do {                                                                 \
 #define SET_KDATA_END(p, shape, ndim, itype)                                       \
     do {                                                                           \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim));        \
         (p)->k_data.prev_ndim = (ndim);                                            \
         (p)->k_data.prev_itype = (itype);                                          \
         (p)->handle->id = (p)->k_data.owned_handle;                                \
@@ -120,7 +120,7 @@ do {                                                                 \
 #define SET_FROM_KDATA_END_WITH_ID(k_data, handle_out, shape, ndim, itype)         \
     do {                                                                           \
         memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));               \
-        memcpy((k_data).prev_shape, (shape), sizeof((k_data).prev_shape));         \
+        memcpy((k_data).prev_shape, (shape), sizeof(uint32_t) * (ndim));            \
         (k_data).prev_ndim = (ndim);                                               \
         (k_data).prev_itype = (itype);                                             \
         (handle_out)->id = (k_data).owned_handle;                                  \
@@ -129,7 +129,7 @@ do {                                                                 \
 #define SET_KDATA_NO_ID_END(p, shape, ndim, itype)                                 \
     do {                                                                           \
         memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof((p)->k_data.prev_shape));   \
+        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim));        \
         (p)->k_data.prev_ndim = (ndim);                                            \
         (p)->k_data.prev_itype = (itype);                                          \
     } while (0)

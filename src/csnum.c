@@ -950,6 +950,13 @@ int32_t parse_shape_array_k(CSOUND *csound, OPDS *h, const ARRAYDAT *p_shape, ui
     return OK;
 }
 
+static bool is_protected(uint32_t handle, const uint32_t *protect, uint32_t protect_count) {
+    for (uint32_t i = 0; i < protect_count; i++) {
+        if (protect[i] == handle) return true;
+    }
+    return false;
+}
+
 /* Reserves a slot and allocates its array. The caller must already hold
    reg->mutex: the registry mutex is not recursive, so an op that took the lock
    to inspect its source has to reach the allocator through this entry point
@@ -957,40 +964,43 @@ int32_t parse_shape_array_k(CSOUND *csound, OPDS *h, const ARRAYDAT *p_shape, ui
 
    protect lists every handle the caller is still reading from (NULL/0 for the
    creation opcodes, which read none). A global output has its previous array
-   released here so a re-triggered creator does not strand it, but in
+   released here so a re-triggered creator does not strand it, and so does a
+   local output whose previous array this same instance created, but in
    `gih csntranspose gih` — or `gih csnconcat ia, gih` — that previous value is
    an operand: releasing it would free an array the caller is about to read.
    Every operand must be listed, so binary and higher-arity ops are covered.
+   Such an operand is deferred instead: the new slot holds it, and it is
+   released on the next pass of the same output or together with the new slot.
 
    On failure *err is set to a message the caller reports after unlocking. */
-int32_t create_csnarray_locked(
-    CSOUND *csound,
-    CSN_REGISTRY *reg,
-    const OPDS *h,
-    uint32_t ndim,
-    const uint32_t *shape,
-    CSN_ARRAY **p_array,
-    CSNREF *p_handle,
-    const uint32_t *protect,
-    uint32_t protect_count,
-    const char **err,
-    ITEM_TYPE itype
-) {
-    if (handle_out_is_global(h)) {
-        uint32_t previous_handle = p_handle->id;
-        bool is_operand = false;
-        for (uint32_t i = 0; i < protect_count; i++) {
-            if (protect[i] == previous_handle) {
-                is_operand = true;
-                break;
-            }
+int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype) {
+    uint32_t previous_handle = p_handle->id;
+    uint32_t deferred = 0;
+
+    /* A global output drops whatever it held, so a creator re-triggered by a
+       later note does not strand the array. A local output drops only the
+       array this same instance created: an init pass re-run inside a loop
+       would otherwise take a fresh slot per iteration that no deinit ever
+       reaches, while a handle aliased in with `=` belongs to someone else. */
+    CSN_SLOT *previous = get_slot(reg, previous_handle);
+    if (previous != NULL && (handle_out_is_global(h) || previous->owner == h)) {
+        /* What the last pass had to keep as its operand is read by no one
+           now. If the caller has listed it again it stays, unowned. */
+        uint32_t pending_handle = previous->deferred;
+        previous->deferred = 0;
+        CSN_SLOT *pending = is_protected(pending_handle, protect, protect_count) ? NULL : get_slot(reg, pending_handle);
+        if (pending != NULL) {
+            release_slot(csound, reg, pending);
         }
 
-        if (!is_operand) {
-            CSN_SLOT *previous = get_slot(reg, previous_handle);
-            if (previous != NULL) {
-                release_slot(csound, reg, previous);
-            }
+        /* An operand is still to be read. The one this instance made, as in
+           `x = csnflatten(x)` looped, is taken over by the new array and goes
+           on the next pass, or with the new array if there is none; one made
+           elsewhere, perhaps by a k-rate producer, stays with its owner. */
+        if (!is_protected(previous_handle, protect, protect_count)) {
+            release_slot(csound, reg, previous);
+        } else if (previous->owner == h) {
+            deferred = previous_handle;
         }
     }
 
@@ -1007,6 +1017,8 @@ int32_t create_csnarray_locked(
         *err = "Slot activation failed";
         return NOTOK;
     }
+    slot->owner = h;
+    slot->deferred = deferred;
 
     if (reg->rt_glock_locked && (reg->rt_glock_owner != NULL && reg->rt_glock_owner == h->insdshead)) {
         slot->rt_locked = true;
@@ -1023,15 +1035,7 @@ int32_t create_csnarray_locked(
 }
 
 /* Takes the lock itself; for opcodes that hold nothing on entry. */
-int32_t create_csnarray_init(
-    CSOUND *csound,
-    const OPDS *h,
-    uint32_t ndim,
-    const uint32_t *shape,
-    CSN_ARRAY **p_array,
-    CSNREF *p_handle,
-    ITEM_TYPE itype
-) {
+int32_t create_csnarray_init(CSOUND *csound, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, ITEM_TYPE itype) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 

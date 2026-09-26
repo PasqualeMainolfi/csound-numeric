@@ -70,6 +70,8 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
         reg->slots[i].array = NULL;
         reg->slots[i].gen_id = 1;
         reg->slots[i].state = INACTIVE_SLOT;
+        reg->slots[i].owner = NULL;
+        reg->slots[i].deferred = 0;
     }
 
     reg->mutex = csound->Create_Mutex(0);
@@ -407,10 +409,13 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
         return NOTOK;
     }
 
+    uint32_t deferred = slot->deferred;
     destroy_array(csound, slot->array);
 
     slot->array = NULL;
     slot->state = INACTIVE_SLOT;
+    slot->owner = NULL;
+    slot->deferred = 0;
     slot->gen_id = (slot->gen_id + 1U) & CSN_GEN_MASK;
 
     if (slot->gen_id == 0) {
@@ -419,6 +424,12 @@ int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
 
     if (registry->active_count > 0) {
         registry->active_count--;
+    }
+
+    // the array this one replaced as an operand has no other way out
+    CSN_SLOT *pending = get_slot(registry, deferred);
+    if (pending != NULL) {
+        release_slot(csound, registry, pending);
     }
 
     return OK;

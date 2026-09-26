@@ -2718,7 +2718,7 @@ int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
     uint32_t found = (uint32_t) (index != -1);
 
     uint32_t new_ndim = 1U;
-    uint32_t new_shape[1] = { source_arr->ndim * found };
+    uint32_t new_shape[CSN_MAX_DIMS] = { source_arr->ndim * found };
 
     size_t req_size = 0;
     if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {

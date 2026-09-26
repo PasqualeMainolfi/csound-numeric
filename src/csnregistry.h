@@ -7,12 +7,17 @@
 #include <stdint.h>
 
 #define CSN_MAX_DIMS 8
-#define CSN_MAX_SLTS 4096
+#define CSN_MAX_SLTS 16384
 #define CSN_REGISTRY_NAME "::csound_numeric::registry"
-#define CSN_GEN_BITS 12U
-#define CSN_SLT_BITS 12U
+#define CSN_GEN_BITS 18U
+#define CSN_SLT_BITS 14U
 #define CSN_GEN_MASK ((1u << CSN_GEN_BITS) - 1u)
 #define CSN_SLT_MASK ((1u << CSN_SLT_BITS) - 1u)
+
+/* A handle is the slot index in the low bits and its generation above it, in
+   one uint32_t: every slot index must fit, and the two fields together. */
+_Static_assert(CSN_MAX_SLTS <= (1u << CSN_SLT_BITS), "CSN_MAX_SLTS does not fit CSN_SLT_BITS");
+_Static_assert(CSN_SLT_BITS + CSN_GEN_BITS <= 32U, "a handle is 32 bits");
 
 /* Upper bound on element count, so shape products can be overflow-checked
    before they reach Calloc. 2^28 doubles is 2 GB at capacity 2x. */
@@ -125,6 +130,8 @@ typedef struct {
     uint32_t gen_id;
     CSN_SLOT_STATE state;
     bool rt_locked; // perf-time path: no realloc at perf time (propagate to all derivates)
+    const OPDS *owner; // the opcode instance that created the slot, NULL once released
+    uint32_t deferred; // the array this one replaced while it was still an operand, released with it
 } CSN_SLOT;
 
 typedef struct {
