@@ -252,8 +252,20 @@ csound --opcode-dir=build example/csnsort.csd
   Fourier transforms for the kernels long enough to make that pay.
 - **Interpolation and resampling**: `csninterp` (linear, nearest, previous,
   next, monotone cubic PCHIP, with error / clamp / fill / extrapolate boundary
-  policies), `csnresample`, and `csnlagrange` for the coefficients of the
-  polynomial through a set of points.
+  policies), `csnresample`, `csnlagrange` for the coefficients of the
+  polynomial through a set of points, and `csnroots` for the roots of a
+  polynomial, one per slice along an axis.
+- **Filter design**: digital Butterworth, Chebyshev type I and II and
+  elliptic filters as sections or coefficients (`csnbuttersos`,
+  `csncheby1sos`, `csncheby2sos`, `csnellipsos` and their `ba` forms), applied
+  to arrays or audio with `csnsosfilter` and `csnlfilter`, or with an explicit
+  state through `csnzsosfilter` and `csnzlfilter`, the analog
+  Butterworth prototype (`csnbuttap`), the transforms of a lowpass prototype to lowpass,
+  highpass, bandpass and bandstop, on transfer-function coefficients or on
+  zeros, poles and gain, the bilinear transform to a
+  digital filter, and `csntftozpk` / `csnzpktotf` between transfer-function
+  coefficients and zeros, poles and gain, and `csnzpktosos` into second-order
+  sections.
 - **Windows**: Hann, Hamming, Bartlett, Blackman, Kaiser.
 - **Persistence**: `csnsave` and `csnload` use `.csn` for csnum's own format or
   `.npy` for NumPy interoperability, preserving shape and real/complex type.
@@ -678,11 +690,42 @@ quotient of a polynomial division and the transform a circular one.
 | `csninterp` | `np.interp` | Linear matches; nearest / previous / next / PCHIP are `scipy.interpolate`. Boundary policy is explicit rather than a fill value. |
 | `csnresample` | `scipy.signal.resample` | Interpolating resample along one axis, not Fourier. |
 | `csnlagrange` | `scipy.interpolate.lagrange` | The coefficients, highest degree first, as `np.poly1d` takes them. Distinct `x` only. |
+| `csnroots` | `np.roots` | Same coefficient order. Always complex, in no set order; one polynomial per slice along an optional axis. A leading zero is refused, not stripped. |
 | `csnhanning` | `np.hanning` | |
 | `csnhamming` | `np.hamming` | |
 | `csnbartlett` | `np.bartlett` | |
 | `csnblackman` | `np.blackman` | |
 | `csnkaiser` | `np.kaiser` | |
+
+### Filter design
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnlptolpzpk` | `scipy.signal.lp2lp_zpk` | |
+| `csnlptohpzpk` | `scipy.signal.lp2hp_zpk` | A root at the origin is refused. |
+| `csnlptobpzpk` | `scipy.signal.lp2bp_zpk` | The two roots of each pair are stored next to each other, not in two halves. |
+| `csnlptobszpk` | `scipy.signal.lp2bs_zpk` | Same pair order; a root at the origin is refused. |
+| `csnbilinearzpk` | `scipy.signal.bilinear_zpk` | `fs` in Hz, greater than zero. |
+| `csntftozpk` | `scipy.signal.tf2zpk` | Real coefficients only. Roots in no set order. |
+| `csnzpktotf` | `scipy.signal.zpk2tf` | 1-D zeros only. Real coefficients when the roots come in conjugate pairs, up to `1e-12` of the largest. |
+| `csnlptolp` | `scipy.signal.lp2lp` | |
+| `csnlptohp` | `scipy.signal.lp2hp` | |
+| `csnlptobp` | `scipy.signal.lp2bp` | |
+| `csnlptobs` | `scipy.signal.lp2bs` | |
+| `csnzpktosos` | `scipy.signal.zpk2sos` | Digital, `pairing='nearest'` only. |
+| `csnbuttap` | `scipy.signal.buttap` | |
+| `csnbutterba` | `scipy.signal.butter` | Digital, `output='ba'`, frequencies in Hz with `fs` given; type `0` low, `1` high, `2` band, `3` stop. |
+| `csnbuttersos` | `scipy.signal.butter` | The same with `output='sos'`; the form to use beyond the lowest orders. |
+| `csncheby1ba` | `scipy.signal.cheby1` | `output='ba'`; `rp` after the cutoff, not before it. |
+| `csncheby1sos` | `scipy.signal.cheby1` | `output='sos'`; `rp` after the cutoff, not before it. |
+| `csncheby2ba` | `scipy.signal.cheby2` | `output='ba'`; `rs` after the cutoff, not before it. |
+| `csncheby2sos` | `scipy.signal.cheby2` | `output='sos'`; `rs` after the cutoff, not before it. |
+| `csnellipba` | `scipy.signal.ellip` | `output='ba'`; `rp`, `rs` after the cutoff, not before it. |
+| `csnellipsos` | `scipy.signal.ellip` | `output='sos'`; `rp`, `rs` after the cutoff, not before it. |
+| `csnlfilter` | `scipy.signal.lfilter` | Transposed direct form II along an axis; k-rate keeps each slice's state between passes, as `zi = zf`; audio form too. |
+| `csnsosfilter` | `scipy.signal.sosfilt` | The same with second-order sections; `sos[:, 3]` must be 1. |
+| `csnzlfilter` | `scipy.signal.lfilter(..., zi=zi)` | Returns `(y, zf)`; `zi` in scipy's layout, the source's shape with the axis replaced by the order. |
+| `csnzsosfilter` | `scipy.signal.sosfilt(..., zi=zi)` | Returns `(y, zf)`; `zi` is `(n_sections, ...)` with the axis replaced by 2. |
 
 ### Special functions
 

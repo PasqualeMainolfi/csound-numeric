@@ -311,6 +311,35 @@ opcode's own page rather than as separate entries here.
 - [csninterp](csninterp.md) - maps values through a breakpoint table, five interpolation modes
 - [csnresample](csnresample.md) - resamples an array to a new length along one axis
 - [csnlagrange](csnlagrange.md) - coefficients of the Lagrange interpolating polynomial, highest degree first
+- [csnroots](csnroots.md) - roots of a polynomial, one per slice along an axis, as a complex array
+
+## Filter design
+
+- [csnlptolpzpk](csnlptolpzpk.md) - moves the cutoff of a lowpass prototype, zeros-poles-gain
+- [csnlptohpzpk](csnlptohpzpk.md) - lowpass prototype to highpass, zeros-poles-gain
+- [csnlptobpzpk](csnlptobpzpk.md) - lowpass prototype to bandpass, zeros-poles-gain
+- [csnlptobszpk](csnlptobszpk.md) - lowpass prototype to bandstop, zeros-poles-gain
+- [csnbilinearzpk](csnbilinearzpk.md) - analog to digital by the bilinear transform, zeros-poles-gain
+- [csntftozpk](csntftozpk.md) - transfer function coefficients to zeros, poles and gain
+- [csnzpktotf](csnzpktotf.md) - zeros, poles and gain to transfer function coefficients
+- [csnlptolp](csnlptolp.md) - moves the cutoff of a lowpass prototype, transfer-function coefficients
+- [csnlptohp](csnlptohp.md) - lowpass prototype to highpass, transfer-function coefficients
+- [csnlptobp](csnlptobp.md) - lowpass prototype to bandpass, transfer-function coefficients
+- [csnlptobs](csnlptobs.md) - lowpass prototype to bandstop, transfer-function coefficients
+- [csnzpktosos](csnzpktosos.md) - zeros, poles and gain to second-order sections
+- [csnbuttap](csnbuttap.md) - analog Butterworth lowpass prototype, zeros-poles-gain
+- [csnbutterba](csnbutterba.md) - digital Butterworth lowpass, highpass, bandpass or bandstop, transfer-function coefficients
+- [csnbuttersos](csnbuttersos.md) - digital Butterworth lowpass, highpass, bandpass or bandstop, second-order sections
+- [csncheby1ba](csncheby1ba.md) - digital Chebyshev type I lowpass, highpass, bandpass or bandstop, transfer-function coefficients
+- [csncheby1sos](csncheby1sos.md) - digital Chebyshev type I lowpass, highpass, bandpass or bandstop, second-order sections
+- [csncheby2ba](csncheby2ba.md) - digital Chebyshev type II lowpass, highpass, bandpass or bandstop, transfer-function coefficients
+- [csncheby2sos](csncheby2sos.md) - digital Chebyshev type II lowpass, highpass, bandpass or bandstop, second-order sections
+- [csnellipba](csnellipba.md) - digital elliptic lowpass, highpass, bandpass or bandstop, transfer-function coefficients
+- [csnellipsos](csnellipsos.md) - digital elliptic lowpass, highpass, bandpass or bandstop, second-order sections
+- [csnlfilter](csnlfilter.md) - filters an array along an axis, or an audio signal, with b / a
+- [csnsosfilter](csnsosfilter.md) - filters an array along an axis, or an audio signal, with second-order sections
+- [csnzlfilter](csnzlfilter.md) - csnlfilter from a given state zi, returning the final state zf
+- [csnzsosfilter](csnzsosfilter.md) - csnsosfilter from a given state zi, returning the final state zf
 
 ## Windows
 

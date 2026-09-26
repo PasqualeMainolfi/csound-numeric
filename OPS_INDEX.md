@@ -368,6 +368,40 @@ spectrum has a zero on the transform grid, such as `[1, 1]` at Nyquist.
 - **csninterp** - maps values through a breakpoint table, five interpolation modes (i, k — real only)
 - **csnresample** - resamples an array to a new length along one axis (i, k — real only)
 - **csnlagrange** - coefficients of the Lagrange interpolating polynomial, highest degree first (i — real only)
+- **csnroots** - roots of a polynomial, one per slice along an axis, as a complex array (i — real, complex)
+
+## Filter design
+
+The transforms take and return a filter as zeros, poles and gain, as the
+`scipy.signal` `*_zpk` functions do. Frequencies are in rad/s, the sampling
+rate of `csnbilinearzpk` in Hz. The zeros may be empty; there must be at least
+as many poles as zeros, and the results are always complex.
+
+- **csnlptolpzpk** - moves the cutoff of a lowpass prototype, zeros-poles-gain (i — real, complex)
+- **csnlptohpzpk** - lowpass prototype to highpass, zeros-poles-gain (i — real, complex)
+- **csnlptobpzpk** - lowpass prototype to bandpass, zeros-poles-gain (i — real, complex)
+- **csnlptobszpk** - lowpass prototype to bandstop, zeros-poles-gain (i — real, complex)
+- **csnbilinearzpk** - analog to digital by the bilinear transform, zeros-poles-gain (i — real, complex)
+- **csntftozpk** - transfer function coefficients to zeros, poles and gain (i — real only)
+- **csnzpktotf** - zeros, poles and gain to transfer function coefficients (i — real, complex)
+- **csnlptolp** - moves the cutoff of a lowpass prototype, transfer-function coefficients (i — real, complex)
+- **csnlptohp** - lowpass prototype to highpass, transfer-function coefficients (i — real, complex)
+- **csnlptobp** - lowpass prototype to bandpass, transfer-function coefficients (i — real, complex)
+- **csnlptobs** - lowpass prototype to bandstop, transfer-function coefficients (i — real, complex)
+- **csnzpktosos** - zeros, poles and gain to second-order sections (i — real, complex)
+- **csnbuttap** - analog Butterworth lowpass prototype, zeros-poles-gain (i — complex output)
+- **csnbutterba** - digital Butterworth lowpass, highpass, bandpass or bandstop, transfer-function coefficients (i — real only)
+- **csnbuttersos** - digital Butterworth lowpass, highpass, bandpass or bandstop, second-order sections (i — real only)
+- **csncheby1ba** - digital Chebyshev type I lowpass, highpass, bandpass or bandstop, transfer-function coefficients (i — real only)
+- **csncheby1sos** - digital Chebyshev type I lowpass, highpass, bandpass or bandstop, second-order sections (i — real only)
+- **csncheby2ba** - digital Chebyshev type II lowpass, highpass, bandpass or bandstop, transfer-function coefficients (i — real only)
+- **csncheby2sos** - digital Chebyshev type II lowpass, highpass, bandpass or bandstop, second-order sections (i — real only)
+- **csnellipba** - digital elliptic lowpass, highpass, bandpass or bandstop, transfer-function coefficients (i — real only)
+- **csnellipsos** - digital elliptic lowpass, highpass, bandpass or bandstop, second-order sections (i — real only)
+- **csnlfilter** - filters an array along an axis, or an audio signal, with b / a (i, k, a — real, complex)
+- **csnsosfilter** - filters an array along an axis, or an audio signal, with second-order sections (i, k, a — real, complex)
+- **csnzlfilter** - csnlfilter from a given state zi, returning the final state zf (i, k, a — real, complex)
+- **csnzsosfilter** - csnsosfilter from a given state zi, returning the final state zf (i, k, a — real, complex)
 
 ## Windows
 

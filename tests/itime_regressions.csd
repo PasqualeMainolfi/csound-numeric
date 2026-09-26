@@ -3334,6 +3334,1284 @@ instr 23
     iTcV[] = csntoarray(iTc)
     assert(abs(iTcV[0] - 3) < 1e-12 && abs(iTcV[1] + 1) < 1e-12)
 endin
+instr 24
+    ; ------------------------------------------------------------------
+    ; Polynomial roots (Aberth). Root order is not specified, so the checks
+    ; sort the real and imaginary parts separately.
+    ; ------------------------------------------------------------------
+    ; x^2 - 3x + 2 -> 1, 2
+    iQuad[] = fillarray(1, -3, 2)
+    iQuadSrc:CsnArr = csnfromarray(iQuad)
+    iQuadRoots:CsnArr = csnroots(iQuadSrc)
+    iQuadRe:CsnArr = csnreal(iQuadRoots)
+    iQuadSorted:CsnArr = csnsort(iQuadRe)
+    iQuadValues[] = csntoarray(iQuadSorted)
+    assert(lenarray(iQuadValues) == 2)
+    assert(abs(iQuadValues[0] - 1) < 1e-9)
+    assert(abs(iQuadValues[1] - 2) < 1e-9)
+    iQuadIm:CsnArr = csnimag(iQuadRoots)
+    iQuadImAbs:CsnArr = csnabs(iQuadIm)
+    iQuadImSum = csnsum(iQuadImAbs)
+    assert(iQuadImSum < 1e-9)
+
+    ; x^2 + 1 -> +-i
+    iConj[] = fillarray(1, 0, 1)
+    iConjSrc:CsnArr = csnfromarray(iConj)
+    iConjRoots:CsnArr = csnroots(iConjSrc)
+    ConjSum:Complex = csnsum(iConjRoots)
+    ConjProd:Complex = csnprod(iConjRoots)
+    iConjSumAbs = abs(ConjSum)
+    iConjProdRe = real(ConjProd)
+    iConjProdIm = imag(ConjProd)
+    assert(iConjSumAbs < 1e-9)
+    assert(abs(iConjProdRe - 1) < 1e-9)
+    assert(abs(iConjProdIm) < 1e-9)
+
+    ; complex coefficients: (z - 2)(z - i) = z^2 - (2 + i)z + 2i
+    iCRe[] = fillarray(1, -2, 0)
+    iCIm[] = fillarray(0, -1, 2)
+    iCReSrc:CsnArr = csnfromarray(iCRe)
+    iCImSrc:CsnArr = csnfromarray(iCIm)
+    iCReC:CsnArr = csntocomplex(iCReSrc)
+    iCImC:CsnArr = csntocomplex(iCImSrc)
+    J:Complex = init(0, 1, 0)
+    iCImJ:CsnArr = csnmul(iCImC, J)
+    iCSrc:CsnArr = csnadd(iCReC, iCImJ)
+    iCRoots:CsnArr = csnroots(iCSrc)
+    iCRootsRe:CsnArr = csnreal(iCRoots)
+    iCRootsIm:CsnArr = csnimag(iCRoots)
+    iCReSorted:CsnArr = csnsort(iCRootsRe)
+    iCImSorted:CsnArr = csnsort(iCRootsIm)
+    iCReValues[] = csntoarray(iCReSorted)
+    iCImValues[] = csntoarray(iCImSorted)
+    assert(abs(iCReValues[0]) < 1e-9)
+    assert(abs(iCReValues[1] - 2) < 1e-9)
+    assert(abs(iCImValues[0]) < 1e-9)
+    assert(abs(iCImValues[1] - 1) < 1e-9)
+
+    ; axis 0 on a (3, 2) matrix: columns x^2 - 3x + 2 and x^2 - 4
+    iColsFlat[] = fillarray(1, 1, -3, 0, 2, -4)
+    iColsShape[] = fillarray(3, 2)
+    iColsFlatSrc:CsnArr = csnfromarray(iColsFlat)
+    iCols:CsnArr = csnreshape(iColsFlatSrc, iColsShape)
+    iColRoots:CsnArr = csnroots(iCols, 0)
+    iColShape[] = csnshape(iColRoots)
+    assert(iColShape[0] == 2)
+    assert(iColShape[1] == 2)
+    iColRe:CsnArr = csnreal(iColRoots)
+    iColSorted:CsnArr = csnsort(iColRe, 0)
+    iColValues[][] = csntoarray(iColSorted)
+    assert(abs(iColValues[0][0] - 1) < 1e-9)
+    assert(abs(iColValues[1][0] - 2) < 1e-9)
+    assert(abs(iColValues[0][1] + 2) < 1e-9)
+    assert(abs(iColValues[1][1] - 2) < 1e-9)
+
+    ; same data, last axis on the transpose-free (2, 3) layout
+    iRowsFlat[] = fillarray(1, -3, 2, 1, 0, -4)
+    iRowsShape[] = fillarray(2, 3)
+    iRowsFlatSrc:CsnArr = csnfromarray(iRowsFlat)
+    iRows:CsnArr = csnreshape(iRowsFlatSrc, iRowsShape)
+    iRowRoots:CsnArr = csnroots(iRows)
+    iRowRe:CsnArr = csnreal(iRowRoots)
+    iRowSorted:CsnArr = csnsort(iRowRe)
+    iRowValues[][] = csntoarray(iRowSorted)
+    assert(abs(iRowValues[0][0] - 1) < 1e-9)
+    assert(abs(iRowValues[0][1] - 2) < 1e-9)
+    assert(abs(iRowValues[1][0] + 2) < 1e-9)
+    assert(abs(iRowValues[1][1] - 2) < 1e-9)
+endin
+
+instr 25
+    ; ------------------------------------------------------------------
+    ; zpk filter transforms, against scipy.signal's lp2*_zpk and
+    ; bilinear_zpk. Prototype: one zero at -3, poles at -1, -2, -4, gain 2.
+    ; ------------------------------------------------------------------
+    iP[] = fillarray(-1, -2, -4)
+    iZ[] = fillarray(-3)
+    iEmpty[] = fillarray(0)
+    P:CsnArr = csnfromarray(iP)
+    Z:CsnArr = csnfromarray(iZ)
+
+    ; lp2lp: z * w0, p * w0, k * w0^(np - nz)
+    Zl:CsnArr, Pl:CsnArr, iKl csnlptolpzpk Z, P, 2, 3
+    iZlRe:CsnArr = csnreal(Zl)
+    iPlRe:CsnArr = csnreal(Pl)
+    iZlv[] = csntoarray(iZlRe)
+    iPlv[] = csntoarray(iPlRe)
+    assert(abs(iZlv[0] + 9) < 1e-12)
+    assert(abs(iPlv[0] + 3) < 1e-12)
+    assert(abs(iPlv[2] + 12) < 1e-12)
+    assert(abs(iKl - 18) < 1e-12)
+
+    ; lp2hp: w0 / z, w0 / p, a zero at the origin per excess pole,
+    ; k * real(prod(-z) / prod(-p))
+    Zh:CsnArr, Ph:CsnArr, iKh csnlptohpzpk Z, P, 2, 3
+    iZhRe:CsnArr = csnreal(Zh)
+    iPhRe:CsnArr = csnreal(Ph)
+    iZhv[] = csntoarray(iZhRe)
+    iPhv[] = csntoarray(iPhRe)
+    assert(lenarray(iZhv) == 3)
+    assert(abs(iZhv[0] + 1) < 1e-12)
+    assert(abs(iZhv[1]) < 1e-12)
+    assert(abs(iZhv[2]) < 1e-12)
+    assert(abs(iPhv[0] + 3) < 1e-12)
+    assert(abs(iPhv[1] + 1.5) < 1e-12)
+    assert(abs(iPhv[2] + 0.75) < 1e-12)
+    assert(abs(iKh - 0.75) < 1e-12)
+
+    ; lp2bp: every root splits in two, x +- sqrt(x^2 - w0^2) with x = r * bw / 2,
+    ; zeros at the origin for the excess, k * bw^(np - nz)
+    Zbp:CsnArr, Pbp:CsnArr, iKbp csnlptobpzpk Z, P, 2, 3, 0.5
+    iZbpShape[] = csnshape(Zbp)
+    iPbpShape[] = csnshape(Pbp)
+    assert(iZbpShape[0] == 4)
+    assert(iPbpShape[0] == 6)
+    iZbp0:Complex = csnget(Zbp, fillarray(0))
+    iZbp0Re = real(iZbp0)
+    iZbp0Im = imag(iZbp0)
+    assert(abs(iZbp0Re + 0.75) < 1e-12)
+    assert(abs(iZbp0Im - sqrt(9 - 0.5625)) < 1e-12)
+    iPbp4:Complex = csnget(Pbp, fillarray(4))
+    iPbp4Re = real(iPbp4)
+    iPbp4Im = imag(iPbp4)
+    assert(abs(iPbp4Re + 1) < 1e-12)
+    assert(abs(iPbp4Im - sqrt(8)) < 1e-12)
+    assert(abs(iKbp - 0.5) < 1e-12)
+
+    ; lp2bs: x = (bw / 2) / r split the same way, then +j w0 and -j w0 once
+    ; per excess pole each, k * real(prod(-z) / prod(-p))
+    Zbs:CsnArr, Pbs:CsnArr, iKbs csnlptobszpk Z, P, 2, 3, 0.5
+    iZbsShape[] = csnshape(Zbs)
+    assert(iZbsShape[0] == 6)
+    iZbs0:Complex = csnget(Zbs, fillarray(0))
+    iZbs0Re = real(iZbs0)
+    assert(abs(iZbs0Re + 0.25 / 3) < 1e-12)
+    iZbs2:Complex = csnget(Zbs, fillarray(2))
+    iZbs2Im = imag(iZbs2)
+    iZbs5:Complex = csnget(Zbs, fillarray(5))
+    iZbs5Im = imag(iZbs5)
+    assert(abs(iZbs2Im - 3) < 1e-12)
+    assert(abs(iZbs5Im + 3) < 1e-12)
+    assert(abs(iKbs - 0.75) < 1e-12)
+
+    ; bilinear: (2fs + r) / (2fs - r), a zero at -1 per excess pole,
+    ; k * real(prod(2fs - z) / prod(2fs - p)). The complex poles check the
+    ; sign of the imaginary part in 2fs - r.
+    iPcRe[] = fillarray(-1, -1)
+    iPcIm[] = fillarray(1, -1)
+    PcRe:CsnArr = csnfromarray(iPcRe)
+    PcIm:CsnArr = csnfromarray(iPcIm)
+    PcReC:CsnArr = csntocomplex(PcRe)
+    PcImC:CsnArr = csntocomplex(PcIm)
+    J:Complex = init(0, 1, 0)
+    PcImJ:CsnArr = csnmul(PcImC, J)
+    Pc:CsnArr = csnadd(PcReC, PcImJ)
+    Zb:CsnArr, Pb:CsnArr, iKb csnbilinearzpk Z, Pc, 2, 10
+    iZb0:Complex = csnget(Zb, fillarray(0))
+    iZb1:Complex = csnget(Zb, fillarray(1))
+    iZb0Re = real(iZb0)
+    iZb1Re = real(iZb1)
+    assert(abs(iZb0Re - 17 / 23) < 1e-12)
+    assert(abs(iZb1Re + 1) < 1e-12)
+    iPb0:Complex = csnget(Pb, fillarray(0))
+    iPb0Re = real(iPb0)
+    iPb0Im = imag(iPb0)
+    assert(abs(iPb0Re - 398 / 442) < 1e-12)
+    assert(abs(iPb0Im - 40 / 442) < 1e-12)
+    assert(abs(iKb - 46 / 442) < 1e-12)
+
+    ; no zeros at all, as a Butterworth prototype has
+    E:CsnArr = csnempty(iEmpty)
+    Ze:CsnArr, Pe:CsnArr, iKe csnlptolpzpk E, P, 1, 2
+    iZeShape[] = csnshape(Ze)
+    assert(iZeShape[0] == 0)
+    assert(abs(iKe - 8) < 1e-12)
+endin
+
+instr 26
+    ; ------------------------------------------------------------------
+    ; csntftozpk against scipy.signal.tf2zpk. Root order is not specified,
+    ; so real and imaginary parts are sorted separately.
+    ; ------------------------------------------------------------------
+    ; (2s^2 - 2) / (s^2 + 3s + 2), with a leading zero in b to strip
+    iB[] = fillarray(0, 2, 0, -2)
+    iA[] = fillarray(1, 3, 2)
+    B:CsnArr = csnfromarray(iB)
+    A:CsnArr = csnfromarray(iA)
+    Z:CsnArr, P:CsnArr, iK csntftozpk B, A
+    iZRe:CsnArr = csnreal(Z)
+    iZSorted:CsnArr = csnsort(iZRe)
+    iZv[] = csntoarray(iZSorted)
+    iPRe:CsnArr = csnreal(P)
+    iPSorted:CsnArr = csnsort(iPRe)
+    iPv[] = csntoarray(iPSorted)
+    iZn = lenarray(iZv)
+    assert(iZn == 2)
+    assert(abs(iZv[0] + 1) < 1e-9)
+    assert(abs(iZv[1] - 1) < 1e-9)
+    assert(abs(iPv[0] + 2) < 1e-9)
+    assert(abs(iPv[1] + 1) < 1e-9)
+    assert(abs(iK - 2) < 1e-12)
+
+    ; all-pole, negative gain, trailing zero in a: no zeros, a pole at 0
+    iB2[] = fillarray(-3)
+    iA2[] = fillarray(2, 1, 0)
+    B2:CsnArr = csnfromarray(iB2)
+    A2:CsnArr = csnfromarray(iA2)
+    Z2:CsnArr, P2:CsnArr, iK2 csntftozpk B2, A2
+    iZ2Shape[] = csnshape(Z2)
+    assert(iZ2Shape[0] == 0)
+    iP2Re:CsnArr = csnreal(P2)
+    iP2Sorted:CsnArr = csnsort(iP2Re)
+    iP2v[] = csntoarray(iP2Sorted)
+    assert(abs(iP2v[0] + 0.5) < 1e-9)
+    assert(abs(iP2v[1]) < 1e-9)
+    assert(abs(iK2 + 1.5) < 1e-12)
+
+    ; an interior zero is a coefficient: s^2 + 1 has roots +-j, not -1
+    iB3[] = fillarray(1, 0, 1)
+    B3:CsnArr = csnfromarray(iB3)
+    Z3:CsnArr, P3:CsnArr, iK3 csntftozpk B3, A
+    iZ3Im:CsnArr = csnimag(Z3)
+    iZ3Sorted:CsnArr = csnsort(iZ3Im)
+    iZ3v[] = csntoarray(iZ3Sorted)
+    assert(abs(iZ3v[0] + 1) < 1e-9)
+    assert(abs(iZ3v[1] - 1) < 1e-9)
+    assert(abs(iK3 - 1) < 1e-12)
+endin
+
+instr 27
+    ; ------------------------------------------------------------------
+    ; csnzpktotf against scipy.signal.zpk2tf: real coefficients from real
+    ; roots and from conjugate pairs, complex ones from a lone complex
+    ; root, an empty zeros array, and the round trip through csntftozpk.
+    ; ------------------------------------------------------------------
+    iZ[] = fillarray(1, -1)
+    iP[] = fillarray(-1, -2)
+    Z:CsnArr = csnfromarray(iZ)
+    P:CsnArr = csnfromarray(iP)
+    B:CsnArr, A:CsnArr csnzpktotf Z, P, 2
+    iBv[] = csntoarray(B)
+    iAv[] = csntoarray(A)
+    iBn = lenarray(iBv)
+    assert(iBn == 3)
+    assert(abs(iBv[0] - 2) < 1e-12)
+    assert(abs(iBv[1]) < 1e-12)
+    assert(abs(iBv[2] + 2) < 1e-12)
+    assert(abs(iAv[0] - 1) < 1e-12)
+    assert(abs(iAv[1] - 3) < 1e-12)
+    assert(abs(iAv[2] - 2) < 1e-12)
+
+    ; a lone zero at j: b = 2 * [1, -j], complex
+    iJRe[] = fillarray(0)
+    iJIm[] = fillarray(1)
+    JRe:CsnArr = csnfromarray(iJRe)
+    JIm:CsnArr = csnfromarray(iJIm)
+    JReC:CsnArr = csntocomplex(JRe)
+    JImC:CsnArr = csntocomplex(JIm)
+    I:Complex = init(0, 1, 0)
+    JImJ:CsnArr = csnmul(JImC, I)
+    ZJ:CsnArr = csnadd(JReC, JImJ)
+    BJ:CsnArr, AJ:CsnArr csnzpktotf ZJ, P, 2
+    BJ1:Complex = csnget(BJ, fillarray(1))
+    iBJ1Re = real(BJ1)
+    iBJ1Im = imag(BJ1)
+    assert(abs(iBJ1Re) < 1e-12)
+    assert(abs(iBJ1Im + 2) < 1e-12)
+
+    ; no zeros: b = [k]
+    iEmpty[] = fillarray(0)
+    E:CsnArr = csnempty(iEmpty)
+    BE:CsnArr, AE:CsnArr csnzpktotf E, P, 3
+    iBEv[] = csntoarray(BE)
+    iBEn = lenarray(iBEv)
+    assert(iBEn == 1)
+    assert(abs(iBEv[0] - 3) < 1e-12)
+
+    ; round trip: the roots csntftozpk finds carry rounding in their imaginary
+    ; parts, and still expand back to real coefficients
+    iTB[] = fillarray(1, 0, 1)
+    iTA[] = fillarray(1, 2, 5)
+    TB:CsnArr = csnfromarray(iTB)
+    TA:CsnArr = csnfromarray(iTA)
+    TZ:CsnArr, TP:CsnArr, iTK csntftozpk TB, TA
+    RB:CsnArr, RA:CsnArr csnzpktotf TZ, TP, iTK
+    iRBv[] = csntoarray(RB)
+    iRAv[] = csntoarray(RA)
+    assert(abs(iRBv[0] - 1) < 1e-9)
+    assert(abs(iRBv[1]) < 1e-9)
+    assert(abs(iRBv[2] - 1) < 1e-9)
+    assert(abs(iRAv[1] - 2) < 1e-9)
+    assert(abs(iRAv[2] - 5) < 1e-9)
+endin
+
+instr 28
+    ; ------------------------------------------------------------------
+    ; csnlptolp / csnlptohp / csnlptobp / csnlptobs against scipy.signal's
+    ; lp2lp, lp2hp, lp2bp, lp2bs, on the prototype 1 / (s + 1), plus the
+    ; Butterworth order 2 checked against the zpk route and a highpass of a
+    ; denominator with a root at the origin, which the zpk route refuses.
+    ; ------------------------------------------------------------------
+    iB[] = fillarray(1)
+    iA[] = fillarray(1, 1)
+    B:CsnArr = csnfromarray(iB)
+    A:CsnArr = csnfromarray(iA)
+
+    ; 3 / (s + 3)
+    Blp:CsnArr, Alp:CsnArr csnlptolp B, A, 3
+    iBlp[] = csntoarray(Blp)
+    iAlp[] = csntoarray(Alp)
+    assert(abs(iBlp[0] - 3) < 1e-12)
+    assert(abs(iAlp[0] - 1) < 1e-12)
+    assert(abs(iAlp[1] - 3) < 1e-12)
+
+    ; s / (s + 3)
+    Bhp:CsnArr, Ahp:CsnArr csnlptohp B, A, 3
+    iBhp[] = csntoarray(Bhp)
+    iAhp[] = csntoarray(Ahp)
+    iBhpN = lenarray(iBhp)
+    assert(iBhpN == 2)
+    assert(abs(iBhp[0] - 1) < 1e-12)
+    assert(abs(iBhp[1]) < 1e-12)
+    assert(abs(iAhp[1] - 3) < 1e-12)
+
+    ; 0.5 s / (s^2 + 0.5 s + 9)
+    Bbp:CsnArr, Abp:CsnArr csnlptobp B, A, 3, 0.5
+    iBbp[] = csntoarray(Bbp)
+    iAbp[] = csntoarray(Abp)
+    iBbpN = lenarray(iBbp)
+    iAbpN = lenarray(iAbp)
+    assert(iBbpN == 2)
+    assert(iAbpN == 3)
+    assert(abs(iBbp[0] - 0.5) < 1e-12)
+    assert(abs(iBbp[1]) < 1e-12)
+    assert(abs(iAbp[1] - 0.5) < 1e-12)
+    assert(abs(iAbp[2] - 9) < 1e-12)
+
+    ; (s^2 + 9) / (s^2 + 0.5 s + 9)
+    Bbs:CsnArr, Abs:CsnArr csnlptobs B, A, 3, 0.5
+    iBbs[] = csntoarray(Bbs)
+    iAbs[] = csntoarray(Abs)
+    assert(abs(iBbs[0] - 1) < 1e-12)
+    assert(abs(iBbs[1]) < 1e-12)
+    assert(abs(iBbs[2] - 9) < 1e-12)
+    assert(abs(iAbs[1] - 0.5) < 1e-12)
+    assert(abs(iAbs[2] - 9) < 1e-12)
+
+    ; Butterworth order 2 to bandpass: the coefficient route and the zpk route agree
+    iSqrt2 = sqrt(2)
+    iBw[] = fillarray(1, iSqrt2, 1)
+    Bw:CsnArr = csnfromarray(iBw)
+    Bt:CsnArr, At:CsnArr csnlptobp B, Bw, 3, 0.5
+    Z0:CsnArr, P0:CsnArr, iK0 csntftozpk B, Bw
+    Zz:CsnArr, Pz:CsnArr, iKz csnlptobpzpk Z0, P0, iK0, 3, 0.5
+    Bz:CsnArr, Az:CsnArr csnzpktotf Zz, Pz, iKz
+    iBt[] = csntoarray(Bt)
+    iAt[] = csntoarray(At)
+    iBz[] = csntoarray(Bz)
+    iAz[] = csntoarray(Az)
+    iAtN = lenarray(iAt)
+    assert(iAtN == 5)
+    assert(abs(iBt[0] - iBz[0]) < 1e-9)
+    assert(abs(iAt[1] - iAz[1]) < 1e-9)
+    assert(abs(iAt[2] - iAz[2]) < 1e-9)
+    assert(abs(iAt[3] - iAz[3]) < 1e-9)
+    assert(abs(iAt[4] - 81) < 1e-9)
+
+    ; 1 / (s^2 + s) to highpass at 2: a's leading zero after the reversal is
+    ; stripped, a = [1, 2], b = [0.5, 0, 0]
+    iA0[] = fillarray(1, 1, 0)
+    A0:CsnArr = csnfromarray(iA0)
+    Bh0:CsnArr, Ah0:CsnArr csnlptohp B, A0, 2
+    iBh0[] = csntoarray(Bh0)
+    iAh0[] = csntoarray(Ah0)
+    iAh0N = lenarray(iAh0)
+    assert(iAh0N == 2)
+    assert(abs(iAh0[1] - 2) < 1e-12)
+    assert(abs(iBh0[0] - 0.5) < 1e-12)
+endin
+
+instr 29
+    ; ------------------------------------------------------------------
+    ; csnzpktosos against scipy.signal.zpk2sos (pairing 'nearest'): one
+    ; section, the empty filter, an odd order padded at the origin, an
+    ; all-pole filter ordered by distance from the unit circle, and a round
+    ; trip: the product of the sections is csnzpktotf's b and a.
+    ; ------------------------------------------------------------------
+    J:Complex = init(0, 1, 0)
+
+    ; z = -1, -1; p = 0.5 +- 0.5j; k = 2
+    iZ1[] = fillarray(-1, -1)
+    Z1:CsnArr = csnfromarray(iZ1)
+    iP1r[] = fillarray(0.5, 0.5)
+    iP1i[] = fillarray(0.5, -0.5)
+    P1r:CsnArr = csnfromarray(iP1r)
+    P1i:CsnArr = csnfromarray(iP1i)
+    P1rC:CsnArr = csntocomplex(P1r)
+    P1iC:CsnArr = csntocomplex(P1i)
+    P1iJ:CsnArr = csnmul(P1iC, J)
+    P1:CsnArr = csnadd(P1rC, P1iJ)
+    S1:CsnArr = csnzpktosos(Z1, P1, 2)
+    iS1[][] = csntoarray(S1)
+    assert(abs(iS1[0][0] - 2) < 1e-12)
+    assert(abs(iS1[0][1] - 4) < 1e-12)
+    assert(abs(iS1[0][2] - 2) < 1e-12)
+    assert(abs(iS1[0][3] - 1) < 1e-12)
+    assert(abs(iS1[0][4] + 1) < 1e-12)
+    assert(abs(iS1[0][5] - 0.5) < 1e-12)
+
+    ; no zeros and no poles: [[k 0 0 1 0 0]]
+    iEmpty[] = fillarray(0)
+    E:CsnArr = csnempty(iEmpty)
+    S2:CsnArr = csnzpktosos(E, E, 3)
+    iS2[][] = csntoarray(S2)
+    assert(abs(iS2[0][0] - 3) < 1e-12)
+    assert(abs(iS2[0][3] - 1) < 1e-12)
+    assert(abs(iS2[0][4]) < 1e-12)
+
+    ; odd order: z = -1 x3; p = 0.5, 0.3 +- 0.4j; padded with a root at the
+    ; origin -> [[1 2 1 1 -0.5 0] [1 1 0 1 -0.6 0.25]]
+    iZ3[] = fillarray(-1, -1, -1)
+    Z3:CsnArr = csnfromarray(iZ3)
+    iP3r[] = fillarray(0.5, 0.3, 0.3)
+    iP3i[] = fillarray(0, 0.4, -0.4)
+    P3r:CsnArr = csnfromarray(iP3r)
+    P3i:CsnArr = csnfromarray(iP3i)
+    P3rC:CsnArr = csntocomplex(P3r)
+    P3iC:CsnArr = csntocomplex(P3i)
+    P3iJ:CsnArr = csnmul(P3iC, J)
+    P3:CsnArr = csnadd(P3rC, P3iJ)
+    S3:CsnArr = csnzpktosos(Z3, P3, 1)
+    iS3Shape[] = csnshape(S3)
+    assert(iS3Shape[0] == 2)
+    assert(iS3Shape[1] == 6)
+    iS3[][] = csntoarray(S3)
+    assert(abs(iS3[0][1] - 2) < 1e-12)
+    assert(abs(iS3[0][4] + 0.5) < 1e-12)
+    assert(abs(iS3[0][5]) < 1e-12)
+    assert(abs(iS3[1][1] - 1) < 1e-12)
+    assert(abs(iS3[1][2]) < 1e-12)
+    assert(abs(iS3[1][4] + 0.6) < 1e-12)
+    assert(abs(iS3[1][5] - 0.25) < 1e-12)
+
+    ; round trip: the product of the section numerators and denominators
+    Row0:CsnArr = csngetrow(S3, 0)
+    Row1:CsnArr = csngetrow(S3, 1)
+    B0:CsnArr = csngetslice(Row0, 0, 0, 3, 1)
+    B1:CsnArr = csngetslice(Row1, 0, 0, 3, 1)
+    A0:CsnArr = csngetslice(Row0, 0, 3, 6, 1)
+    A1:CsnArr = csngetslice(Row1, 0, 3, 6, 1)
+    Bprod:CsnArr = csnconvolve1d(B0, B1)
+    Aprod:CsnArr = csnconvolve1d(A0, A1)
+    Btf:CsnArr, Atf:CsnArr csnzpktotf Z3, P3, 1
+    iBprod[] = csntoarray(Bprod)
+    iAprod[] = csntoarray(Aprod)
+    iBtf[] = csntoarray(Btf)
+    iAtf[] = csntoarray(Atf)
+    ; the padding root at the origin adds a trailing zero to each product
+    iK = 0
+    while iK < 4 do
+        assert(abs(iBprod[iK] - iBtf[iK]) < 1e-12)
+        assert(abs(iAprod[iK] - iAtf[iK]) < 1e-12)
+        iK += 1
+    od
+    assert(abs(iBprod[4]) < 1e-12)
+    assert(abs(iAprod[4]) < 1e-12)
+
+    ; all-pole, four real poles: paired from the unit circle inwards, the
+    ; section with 0.9 last -> [[1 0 0 1 -0.3 0.02] [1 0 0 1 -0.4 -0.45]]
+    iP4[] = fillarray(0.9, 0.1, -0.5, 0.2)
+    P4:CsnArr = csnfromarray(iP4)
+    S4:CsnArr = csnzpktosos(E, P4, 1)
+    iS4[][] = csntoarray(S4)
+    assert(abs(iS4[0][0] - 1) < 1e-12)
+    assert(abs(iS4[0][1]) < 1e-12)
+    assert(abs(iS4[0][4] + 0.3) < 1e-12)
+    assert(abs(iS4[0][5] - 0.02) < 1e-12)
+    assert(abs(iS4[1][4] + 0.4) < 1e-12)
+    assert(abs(iS4[1][5] + 0.45) < 1e-12)
+endin
+
+instr 30
+    ; ------------------------------------------------------------------
+    ; csnbuttap against scipy.signal.buttap: poles -exp(j pi m / 2N),
+    ; exact conjugates and an exact -1 for odd orders, no zeros, gain 1;
+    ; order 0 gives no poles.
+    ; ------------------------------------------------------------------
+    Z3:CsnArr, P3:CsnArr, iK3 csnbuttap 3
+    iZ3Shape[] = csnshape(Z3)
+    assert(iZ3Shape[0] == 0)
+    assert(iK3 == 1)
+    iP3Re:CsnArr = csnreal(P3)
+    iP3Im:CsnArr = csnimag(P3)
+    iP3r[] = csntoarray(iP3Re)
+    iP3i[] = csntoarray(iP3Im)
+    iP3n = lenarray(iP3r)
+    assert(iP3n == 3)
+    assert(abs(iP3r[0] + 0.5) < 1e-15)
+    assert(abs(iP3i[0] - sqrt(3) / 2) < 1e-15)
+    assert(iP3r[1] == -1)
+    assert(iP3i[1] == 0)
+    assert(iP3r[2] == iP3r[0])
+    assert(iP3i[2] == -iP3i[0])
+
+    ; order 4: every pole on the unit circle, in conjugate pairs
+    Z4:CsnArr, P4:CsnArr, iK4 csnbuttap 4
+    iP4Abs:CsnArr = csnabs(P4)
+    iP4a[] = csntoarray(iP4Abs)
+    iP4Im:CsnArr = csnimag(P4)
+    iP4i[] = csntoarray(iP4Im)
+    iK = 0
+    while iK < 4 do
+        assert(abs(iP4a[iK] - 1) < 1e-15)
+        iK += 1
+    od
+    assert(iP4i[0] == -iP4i[3])
+    assert(iP4i[1] == -iP4i[2])
+
+    Z0:CsnArr, P0:CsnArr, iK0 csnbuttap 0
+    iP0Shape[] = csnshape(P0)
+    assert(iP0Shape[0] == 0)
+    assert(iK0 == 1)
+endin
+
+instr 31
+    ; ------------------------------------------------------------------
+    ; csnbutterba against scipy.signal.butter (output='ba'). At fc = fs/4 the
+    ; coefficients have closed forms in sqrt(2); at other settings the DC
+    ; gain sum(b) / sum(a) pins the passband.
+    ; ------------------------------------------------------------------
+    iR2 = sqrt(2)
+
+    ; butter(2, 0.5): b = (1 - 1/sqrt2) [1 2 1], a = [1 0 3 - 2 sqrt2]
+    Blp:CsnArr, Alp:CsnArr csnbutterba 2, 2, 0, 8
+    iBlp[] = csntoarray(Blp)
+    iAlp[] = csntoarray(Alp)
+    iB0 = 1 - 1 / iR2
+    iA2 = 3 - 2 * iR2
+    assert(abs(iBlp[0] - iB0) < 1e-12)
+    assert(abs(iBlp[1] - 2 * iB0) < 1e-12)
+    assert(abs(iBlp[2] - iB0) < 1e-12)
+    assert(abs(iAlp[0] - 1) < 1e-12)
+    assert(abs(iAlp[1]) < 1e-12)
+    assert(abs(iAlp[2] - iA2) < 1e-12)
+
+    ; butter(2, 0.5, 'high'): b = (1 - 1/sqrt2) [1 -2 1], same a
+    Bhp:CsnArr, Ahp:CsnArr csnbutterba 2, 2, 1, 8
+    iBhp[] = csntoarray(Bhp)
+    iAhp[] = csntoarray(Ahp)
+    assert(abs(iBhp[1] + 2 * iB0) < 1e-12)
+    assert(abs(iAhp[2] - iA2) < 1e-12)
+
+    ; butter(1, [0.25, 0.5], 'bandpass'): b = (1 - 1/sqrt2) [1 0 -1],
+    ; a = [1, -(2 - sqrt2), sqrt2 - 1]
+    iBand[] = fillarray(1, 2)
+    Bbp:CsnArr, Abp:CsnArr csnbutterba 1, iBand, 2, 8
+    iBbp[] = csntoarray(Bbp)
+    iAbp[] = csntoarray(Abp)
+    assert(abs(iBbp[0] - iB0) < 1e-12)
+    assert(abs(iBbp[1]) < 1e-12)
+    assert(abs(iBbp[2] + iB0) < 1e-12)
+    assert(abs(iAbp[1] + 2 - iR2) < 1e-12)
+    assert(abs(iAbp[2] - iR2 + 1) < 1e-12)
+
+    ; bandstop: b = [1/sqrt2, -(2 - sqrt2), 1/sqrt2], same a
+    Bbs:CsnArr, Abs:CsnArr csnbutterba 1, iBand, 3, 8
+    iBbs[] = csntoarray(Bbs)
+    assert(abs(iBbs[0] - 1 / iR2) < 1e-12)
+    assert(abs(iBbs[1] + 2 - iR2) < 1e-12)
+    assert(abs(iBbs[2] - 1 / iR2) < 1e-12)
+
+    ; order 5 at 1 kHz, 48 kHz: 6 coefficients, unit gain at DC for the
+    ; lowpass, none for the highpass
+    Bl5:CsnArr, Al5:CsnArr csnbutterba 5, 1000, 0, 48000
+    iBl5[] = csntoarray(Bl5)
+    iBl5n = lenarray(iBl5)
+    assert(iBl5n == 6)
+    iSumB = csnsum(Bl5)
+    iSumA = csnsum(Al5)
+    assert(abs(iSumB / iSumA - 1) < 1e-9)
+    Bh5:CsnArr, Ah5:CsnArr csnbutterba 5, 1000, 1, 48000
+    iSumBh = csnsum(Bh5)
+    assert(abs(iSumBh) < 1e-12)
+endin
+
+instr 32
+    ; ------------------------------------------------------------------
+    ; csnbuttersos against scipy.signal.butter(output='sos'): at low order the
+    ; single section is csnbutterba's b and a; at high order the shape, a0 = 1,
+    ; the DC gain of the cascade and the stability of every section, which
+    ; the same narrow bandpass as b, a does not have.
+    ; ------------------------------------------------------------------
+    iR2 = sqrt(2)
+    iB0 = 1 - 1 / iR2
+
+    ; butter(2, 0.5, output='sos') = [[b0 2b0 b0 1 0 3-2sqrt2]]
+    S2:CsnArr = csnbuttersos(2, 2, 0, 8)
+    iS2[][] = csntoarray(S2)
+    assert(abs(iS2[0][0] - iB0) < 1e-12)
+    assert(abs(iS2[0][1] - 2 * iB0) < 1e-12)
+    assert(abs(iS2[0][2] - iB0) < 1e-12)
+    assert(abs(iS2[0][3] - 1) < 1e-12)
+    assert(abs(iS2[0][4]) < 1e-12)
+    assert(abs(iS2[0][5] - 3 + 2 * iR2) < 1e-12)
+
+    ; first-order bandpass: one section, the same as b, a
+    iBand[] = fillarray(1, 2)
+    Sbp:CsnArr = csnbuttersos(1, iBand, 2, 8)
+    iSbp[][] = csntoarray(Sbp)
+    assert(abs(iSbp[0][0] - iB0) < 1e-12)
+    assert(abs(iSbp[0][1]) < 1e-12)
+    assert(abs(iSbp[0][2] + iB0) < 1e-12)
+    assert(abs(iSbp[0][4] + 2 - iR2) < 1e-12)
+    assert(abs(iSbp[0][5] - iR2 + 1) < 1e-12)
+
+    ; order 8 lowpass, 1 kHz at 48 kHz: 4 sections, a0 = 1, unit DC gain
+    S8:CsnArr = csnbuttersos(8, 1000, 0, 48000)
+    iS8Shape[] = csnshape(S8)
+    assert(iS8Shape[0] == 4)
+    assert(iS8Shape[1] == 6)
+    iS8[][] = csntoarray(S8)
+    iDC = 1
+    iR = 0
+    while iR < 4 do
+        assert(abs(iS8[iR][3] - 1) < 1e-15)
+        iDC *= (iS8[iR][0] + iS8[iR][1] + iS8[iR][2]) / (iS8[iR][3] + iS8[iR][4] + iS8[iR][5])
+        iR += 1
+    od
+    assert(abs(iDC - 1) < 1e-9)
+
+    ; order 6 bandpass, 500-700 Hz at 48 kHz: 6 sections, every one stable
+    ; (|a2| < 1 and |a1| < 1 + a2), where b, a of the same design is not
+    iNarrow[] = fillarray(500, 700)
+    S6:CsnArr = csnbuttersos(6, iNarrow, 2, 48000)
+    iS6Shape[] = csnshape(S6)
+    assert(iS6Shape[0] == 6)
+    iS6[][] = csntoarray(S6)
+    iR = 0
+    while iR < 6 do
+        iA1 = iS6[iR][4]
+        iA2 = iS6[iR][5]
+        assert(abs(iA2) < 1)
+        assert(abs(iA1) < 1 + iA2)
+        iR += 1
+    od
+endin
+
+instr 33
+    ; ------------------------------------------------------------------
+    ; csncheby1ba/sos, csncheby2ba/sos and csnellipba/sos against the values
+    ; scipy.signal 1.18 gives for the same designs (cheby1, cheby2, ellip with
+    ; fs = 48000), for every form: single cutoff and band, b, a and sections.
+    ; ------------------------------------------------------------------
+    iBand[] = fillarray(800, 3000)
+
+    ; cheby1(3, 1, 2000, lowpass)
+    Tb0:CsnArr, Ta0:CsnArr csncheby1ba 3, 2000, 1, 0, 48000
+    iTb0[] = csntoarray(Tb0)
+    iTa0[] = csntoarray(Ta0)
+    iTbn0 = lenarray(iTb0)
+    assert(iTbn0 == 4)
+    assert(abs(iTb0[0] - (0.00097257355948450464)) < 1e-12)
+    assert(abs(iTb0[1] - (0.0029177206784535138)) < 1e-12)
+    assert(abs(iTb0[2] - (0.0029177206784535138)) < 1e-12)
+    assert(abs(iTb0[3] - (0.00097257355948450464)) < 1e-12)
+    assert(abs(iTa0[0] - (1)) < 1e-12)
+    assert(abs(iTa0[1] - (-2.6939194696617519)) < 1e-12)
+    assert(abs(iTa0[2] - (2.4739941385517619)) < 1e-12)
+    assert(abs(iTa0[3] - (-0.7722940804141335)) < 1e-12)
+
+    ; cheby1(2, 0.5, [800, 3000], bandstop)
+    Tb1:CsnArr, Ta1:CsnArr csncheby1ba 2, iBand, 0.5, 3, 48000
+    iTb1[] = csntoarray(Tb1)
+    iTa1[] = csntoarray(Ta1)
+    iTbn1 = lenarray(iTb1)
+    assert(iTbn1 == 5)
+    assert(abs(iTb1[0] - (0.82078207180539264)) < 1e-12)
+    assert(abs(iTb1[1] - (-3.2153841836504911)) < 1e-12)
+    assert(abs(iTb1[2] - (4.7906020562350022)) < 1e-12)
+    assert(abs(iTb1[3] - (-3.2153841836504915)) < 1e-12)
+    assert(abs(iTb1[4] - (0.82078207180539287)) < 1e-12)
+    assert(abs(iTa1[0] - (1)) < 1e-12)
+    assert(abs(iTa1[1] - (-3.6380734071310852)) < 1e-12)
+    assert(abs(iTa1[2] - (5.0503531810658107)) < 1e-12)
+    assert(abs(iTa1[3] - (-3.1737419416847525)) < 1e-12)
+    assert(abs(iTa1[4] - (0.76294282708028527)) < 1e-12)
+
+    ; cheby1(4, 1, 2000, highpass, sos)
+    Ts2:CsnArr = csncheby1sos(4, 2000, 1, 1, 48000)
+    iTs2[][] = csntoarray(Ts2)
+    iTsShape2[] = csnshape(Ts2)
+    assert(iTsShape2[0] == 2)
+    assert(abs(iTs2[0][0] - (0.6124951745314543)) < 1e-12)
+    assert(abs(iTs2[0][1] - (-1.2249903490629086)) < 1e-12)
+    assert(abs(iTs2[0][2] - (0.6124951745314543)) < 1e-12)
+    assert(abs(iTs2[0][3] - (1)) < 1e-12)
+    assert(abs(iTs2[0][4] - (-1.3598617119297396)) < 1e-12)
+    assert(abs(iTs2[0][5] - (0.53973751286984195)) < 1e-12)
+    assert(abs(iTs2[1][0] - (1)) < 1e-12)
+    assert(abs(iTs2[1][1] - (-2)) < 1e-12)
+    assert(abs(iTs2[1][2] - (1)) < 1e-12)
+    assert(abs(iTs2[1][3] - (1)) < 1e-12)
+    assert(abs(iTs2[1][4] - (-1.8627583899414333)) < 1e-12)
+    assert(abs(iTs2[1][5] - (0.92938437581720756)) < 1e-12)
+
+    ; cheby1(2, 1, [800, 3000], bandpass, sos)
+    Ts3:CsnArr = csncheby1sos(2, iBand, 1, 2, 48000)
+    iTs3[][] = csntoarray(Ts3)
+    iTsShape3[] = csnshape(Ts3)
+    assert(iTsShape3[0] == 2)
+    assert(abs(iTs3[0][0] - (0.017471662252972229)) < 1e-12)
+    assert(abs(iTs3[0][1] - (0.034943324505944458)) < 1e-12)
+    assert(abs(iTs3[0][2] - (0.017471662252972229)) < 1e-12)
+    assert(abs(iTs3[0][3] - (1)) < 1e-12)
+    assert(abs(iTs3[0][4] - (-1.6561233946355067)) < 1e-12)
+    assert(abs(iTs3[0][5] - (0.78397216965367411)) < 1e-12)
+    assert(abs(iTs3[1][0] - (1)) < 1e-12)
+    assert(abs(iTs3[1][1] - (-2)) < 1e-12)
+    assert(abs(iTs3[1][2] - (1)) < 1e-12)
+    assert(abs(iTs3[1][3] - (1)) < 1e-12)
+    assert(abs(iTs3[1][4] - (-1.920864879068074)) < 1e-12)
+    assert(abs(iTs3[1][5] - (0.93213134236913353)) < 1e-12)
+
+    ; cheby2(3, 40, 2000, highpass): odd order, two zeros
+    Tb4:CsnArr, Ta4:CsnArr csncheby2ba 3, 2000, 40, 1, 48000
+    iTb4[] = csntoarray(Tb4)
+    iTa4[] = csntoarray(Ta4)
+    iTbn4 = lenarray(iTb4)
+    assert(iTbn4 == 4)
+    assert(abs(iTb4[0] - (0.4831333936836783)) < 1e-12)
+    assert(abs(iTb4[1] - (-1.424600997818471)) < 1e-12)
+    assert(abs(iTb4[2] - (1.424600997818471)) < 1e-12)
+    assert(abs(iTb4[3] - (-0.48313339368367825)) < 1e-12)
+    assert(abs(iTa4[0] - (1)) < 1e-12)
+    assert(abs(iTa4[1] - (-1.5662329724090522)) < 1e-12)
+    assert(abs(iTa4[2] - (1.0165580969319052)) < 1e-12)
+    assert(abs(iTa4[3] - (-0.23267771366334178)) < 1e-12)
+
+    ; cheby2(2, 30, [800, 3000], bandpass)
+    Tb5:CsnArr, Ta5:CsnArr csncheby2ba 2, iBand, 30, 2, 48000
+    iTb5[] = csntoarray(Tb5)
+    iTa5[] = csntoarray(Ta5)
+    iTbn5 = lenarray(iTb5)
+    assert(iTbn5 == 5)
+    assert(abs(iTb5[0] - (0.031321319026474864)) < 1e-12)
+    assert(abs(iTb5[1] - (-0.1177492535468553)) < 1e-12)
+    assert(abs(iTb5[2] - (0.17290705848791035)) < 1e-12)
+    assert(abs(iTb5[3] - (-0.1177492535468553)) < 1e-12)
+    assert(abs(iTb5[4] - (0.031321319026474857)) < 1e-12)
+    assert(abs(iTa5[0] - (1)) < 1e-12)
+    assert(abs(iTa5[1] - (-3.8180357065237969)) < 1e-12)
+    assert(abs(iTa5[2] - (5.545203318275175)) < 1e-12)
+    assert(abs(iTa5[3] - (-3.6290809733306562)) < 1e-12)
+    assert(abs(iTa5[4] - (0.90353211403085065)) < 1e-12)
+
+    ; cheby2(5, 40, 2000, lowpass, sos)
+    Ts6:CsnArr = csncheby2sos(5, 2000, 40, 0, 48000)
+    iTs6[][] = csntoarray(Ts6)
+    iTsShape6[] = csnshape(Ts6)
+    assert(iTsShape6[0] == 3)
+    assert(abs(iTs6[0][0] - (0.0053106916227670959)) < 1e-12)
+    assert(abs(iTs6[0][1] - (0.0053106916227670959)) < 1e-12)
+    assert(abs(iTs6[0][2] - (0)) < 1e-12)
+    assert(abs(iTs6[0][3] - (1)) < 1e-12)
+    assert(abs(iTs6[0][4] - (-0.81206704216772496)) < 1e-12)
+    assert(abs(iTs6[0][5] - (0)) < 1e-12)
+    assert(abs(iTs6[1][0] - (1)) < 1e-12)
+    assert(abs(iTs6[1][1] - (-1.8089168774573223)) < 1e-12)
+    assert(abs(iTs6[1][2] - (1)) < 1e-12)
+    assert(abs(iTs6[1][3] - (1)) < 1e-12)
+    assert(abs(iTs6[1][4] - (-1.7281756901452012)) < 1e-12)
+    assert(abs(iTs6[1][5] - (0.75906265054966471)) < 1e-12)
+    assert(abs(iTs6[2][0] - (1)) < 1e-12)
+    assert(abs(iTs6[2][1] - (-1.9247923126533282)) < 1e-12)
+    assert(abs(iTs6[2][2] - (0.99999999999999967)) < 1e-12)
+    assert(abs(iTs6[2][3] - (1)) < 1e-12)
+    assert(abs(iTs6[2][4] - (-1.8953537346233802)) < 1e-12)
+    assert(abs(iTs6[2][5] - (0.92164960334586077)) < 1e-12)
+
+    ; cheby2(2, 40, [800, 3000], bandstop, sos)
+    Ts7:CsnArr = csncheby2sos(2, iBand, 40, 3, 48000)
+    iTs7[][] = csntoarray(Ts7)
+    iTsShape7[] = csnshape(Ts7)
+    assert(iTsShape7[0] == 2)
+    assert(abs(iTs7[0][0] - (0.28922883946941735)) < 1e-12)
+    assert(abs(iTs7[0][1] - (-0.54732881609855455)) < 1e-12)
+    assert(abs(iTs7[0][2] - (0.28922883946941741)) < 1e-12)
+    assert(abs(iTs7[0][3] - (1)) < 1e-12)
+    assert(abs(iTs7[0][4] - (0.04190150061827301)) < 1e-12)
+    assert(abs(iTs7[0][5] - (0.17911252639353284)) < 1e-12)
+    assert(abs(iTs7[1][0] - (1)) < 1e-12)
+    assert(abs(iTs7[1][1] - (-1.9843409877085707)) < 1e-12)
+    assert(abs(iTs7[1][2] - (1.0000000000000002)) < 1e-12)
+    assert(abs(iTs7[1][3] - (1)) < 1e-12)
+    assert(abs(iTs7[1][4] - (-1.9719573509705381)) < 1e-12)
+    assert(abs(iTs7[1][5] - (0.97235656607785936)) < 1e-12)
+
+    ; ellip(1, 1, 40, 2000, lowpass): the first-order special case
+    Tb8:CsnArr, Ta8:CsnArr csnellipba 1, 2000, 1, 40, 0, 48000
+    iTb8[] = csntoarray(Tb8)
+    iTa8[] = csntoarray(Ta8)
+    iTbn8 = lenarray(iTb8)
+    assert(iTbn8 == 2)
+    assert(abs(iTb8[0] - (0.20554656065362084)) < 1e-12)
+    assert(abs(iTb8[1] - (0.20554656065362084)) < 1e-12)
+    assert(abs(iTa8[0] - (1)) < 1e-12)
+    assert(abs(iTa8[1] - (-0.58890687869275826)) < 1e-12)
+
+    ; ellip(3, 1, 40, 2000, lowpass)
+    Tb9:CsnArr, Ta9:CsnArr csnellipba 3, 2000, 1, 40, 0, 48000
+    iTb9[] = csntoarray(Tb9)
+    iTa9[] = csntoarray(Ta9)
+    iTbn9 = lenarray(iTb9)
+    assert(iTbn9 == 4)
+    assert(abs(iTb9[0] - (0.0089549487682685121)) < 1e-12)
+    assert(abs(iTb9[1] - (-0.0047816414223093)) < 1e-12)
+    assert(abs(iTb9[2] - (-0.0047816414223093009)) < 1e-12)
+    assert(abs(iTb9[3] - (0.0089549487682685103)) < 1e-12)
+    assert(abs(iTa9[0] - (1)) < 1e-12)
+    assert(abs(iTa9[1] - (-2.6952019644070284)) < 1e-12)
+    assert(abs(iTa9[2] - (2.4777826476164857)) < 1e-12)
+    assert(abs(iTa9[3] - (-0.77423406851753862)) < 1e-12)
+
+    ; ellip(2, 0.5, 50, [800, 3000], bandstop)
+    Tb10:CsnArr, Ta10:CsnArr csnellipba 2, iBand, 0.5, 50, 3, 48000
+    iTb10[] = csntoarray(Tb10)
+    iTa10[] = csntoarray(Ta10)
+    iTbn10 = lenarray(iTb10)
+    assert(iTbn10 == 5)
+    assert(abs(iTb10[0] - (0.82110124564848219)) < 1e-12)
+    assert(abs(iTb10[1] - (-3.2164853106388902)) < 1e-12)
+    assert(abs(iTb10[2] - (4.7921664412214957)) < 1e-12)
+    assert(abs(iTb10[3] - (-3.2164853106388902)) < 1e-12)
+    assert(abs(iTb10[4] - (0.82110124564848208)) < 1e-12)
+    assert(abs(iTa10[0] - (1)) < 1e-12)
+    assert(abs(iTa10[1] - (-3.6386744523871188)) < 1e-12)
+    assert(abs(iTa10[2] - (5.0521091955043991)) < 1e-12)
+    assert(abs(iTa10[3] - (-3.1754736421574292)) < 1e-12)
+    assert(abs(iTa10[4] - (0.76352006543079565)) < 1e-12)
+
+    ; ellip(4, 1, 40, 2000, highpass, sos)
+    Ts11:CsnArr = csnellipsos(4, 2000, 1, 40, 1, 48000)
+    iTs11[][] = csntoarray(Ts11)
+    iTsShape11[] = csnshape(Ts11)
+    assert(iTsShape11[0] == 2)
+    assert(abs(iTs11[0][0] - (0.65471727346091846)) < 1e-12)
+    assert(abs(iTs11[0][1] - (-1.3057871950961766)) < 1e-12)
+    assert(abs(iTs11[0][2] - (0.65471727346091835)) < 1e-12)
+    assert(abs(iTs11[0][3] - (1)) < 1e-12)
+    assert(abs(iTs11[0][4] - (-1.4501947306153484)) < 1e-12)
+    assert(abs(iTs11[0][5] - (0.59614542103850088)) < 1e-12)
+    assert(abs(iTs11[1][0] - (1)) < 1e-12)
+    assert(abs(iTs11[1][1] - (-1.9734164407279664)) < 1e-12)
+    assert(abs(iTs11[1][2] - (1)) < 1e-12)
+    assert(abs(iTs11[1][3] - (1)) < 1e-12)
+    assert(abs(iTs11[1][4] - (-1.8804409432584788)) < 1e-12)
+    assert(abs(iTs11[1][5] - (0.94687406060947354)) < 1e-12)
+
+    ; ellip(5, 0.1, 60, 2000, lowpass, sos)
+    Ts12:CsnArr = csnellipsos(5, 2000, 0.1, 60, 0, 48000)
+    iTs12[][] = csntoarray(Ts12)
+    iTsShape12[] = csnshape(Ts12)
+    assert(iTsShape12[0] == 3)
+    assert(abs(iTs12[0][0] - (0.0012629131726718528)) < 1e-12)
+    assert(abs(iTs12[0][1] - (0.0012629131726718528)) < 1e-12)
+    assert(abs(iTs12[0][2] - (0)) < 1e-12)
+    assert(abs(iTs12[0][3] - (1)) < 1e-12)
+    assert(abs(iTs12[0][4] - (-0.85624015224040972)) < 1e-12)
+    assert(abs(iTs12[0][5] - (0)) < 1e-12)
+    assert(abs(iTs12[1][0] - (1)) < 1e-12)
+    assert(abs(iTs12[1][1] - (-1.355083177520366)) < 1e-12)
+    assert(abs(iTs12[1][2] - (0.99999999999999989)) < 1e-12)
+    assert(abs(iTs12[1][3] - (1)) < 1e-12)
+    assert(abs(iTs12[1][4] - (-1.7557852213210245)) < 1e-12)
+    assert(abs(iTs12[1][5] - (0.79897813972315712)) < 1e-12)
+    assert(abs(iTs12[2][0] - (1)) < 1e-12)
+    assert(abs(iTs12[2][1] - (-1.706800194147938)) < 1e-12)
+    assert(abs(iTs12[2][2] - (1)) < 1e-12)
+    assert(abs(iTs12[2][3] - (1)) < 1e-12)
+    assert(abs(iTs12[2][4] - (-1.8532572701140204)) < 1e-12)
+    assert(abs(iTs12[2][5] - (0.93017398365848947)) < 1e-12)
+
+    ; ellip(3, 1, 40, [800, 3000], bandpass, sos)
+    Ts13:CsnArr = csnellipsos(3, iBand, 1, 40, 2, 48000)
+    iTs13[][] = csntoarray(Ts13)
+    iTsShape13[] = csnshape(Ts13)
+    assert(iTsShape13[0] == 3)
+    assert(abs(iTs13[0][0] - (0.0099511234296973793)) < 1e-12)
+    assert(abs(iTs13[0][1] - (-0.013728855965533747)) < 1e-12)
+    assert(abs(iTs13[0][2] - (0.0099511234296973759)) < 1e-12)
+    assert(abs(iTs13[0][3] - (1)) < 1e-12)
+    assert(abs(iTs13[0][4] - (-1.820491271214888)) < 1e-12)
+    assert(abs(iTs13[0][5] - (0.85884673425862668)) < 1e-12)
+    assert(abs(iTs13[1][0] - (1)) < 1e-12)
+    assert(abs(iTs13[1][1] - (0)) < 1e-12)
+    assert(abs(iTs13[1][2] - (-1)) < 1e-12)
+    assert(abs(iTs13[1][3] - (1)) < 1e-12)
+    assert(abs(iTs13[1][4] - (-1.7612216026242091)) < 1e-12)
+    assert(abs(iTs13[1][5] - (0.90376809994017238)) < 1e-12)
+    assert(abs(iTs13[2][0] - (1)) < 1e-12)
+    assert(abs(iTs13[2][1] - (-1.9976333426855841)) < 1e-12)
+    assert(abs(iTs13[2][2] - (1)) < 1e-12)
+    assert(abs(iTs13[2][3] - (1)) < 1e-12)
+    assert(abs(iTs13[2][4] - (-1.9613261596363298)) < 1e-12)
+    assert(abs(iTs13[2][5] - (0.97231688214730483)) < 1e-12)
+endin
+
+instr 34
+    ; ------------------------------------------------------------------
+    ; csnlfilter and csnsosfilter at init against scipy.signal 1.18
+    ; lfilter / sosfilt: a[0] != 1 and len(b) != len(a), a pure gain, a
+    ; matrix along each axis, a complex signal, and complex coefficients.
+    ; ------------------------------------------------------------------
+    J:Complex = init(0, 1, 0)
+    iBq[] = fillarray(0.5, -0.25, 0.125)
+    BqF:CsnArr = csnfromarray(iBq)
+    Bq:CsnArr = BqF
+    iAq[] = fillarray(2, -0.59999999999999998)
+    AqF:CsnArr = csnfromarray(iAq)
+    Aq:CsnArr = AqF
+    iXq[] = fillarray(-0.80200000000000005, -1.3240000000000001, -0.248, 0.41999999999999998, 1.1359999999999999, 0.11, -0.55300000000000005, -0.78500000000000003, 0.749, 1.635)
+    XqF:CsnArr = csnfromarray(iXq)
+    Xq:CsnArr = XqF
+
+    ; b of 3, a of 2 with a[0] = 2
+    Y0:CsnArr = csnlfilter(Bq, Aq, Xq)
+    iY0[] = csntoarray(Y0)
+    assert(abs(iY0[0] - (-0.20050000000000001)) < 1e-12)
+    assert(abs(iY0[1] - (-0.29089999999999999)) < 1e-12)
+    assert(abs(iY0[2] - (-0.033894999999999988)) < 1e-12)
+    assert(abs(iY0[3] - (0.043081499999999995)) < 1e-12)
+    assert(abs(iY0[4] - (0.22892444999999997)) < 1e-12)
+    assert(abs(iY0[5] - (-0.019572665)) < 1e-12)
+    assert(abs(iY0[6] - (-0.086871799500000013)) < 1e-12)
+    assert(abs(iY0[7] - (-0.14631153985000001)) < 1e-12)
+    assert(abs(iY0[8] - (0.206919038045)) < 1e-12)
+    assert(abs(iY0[9] - (0.32813821141350002)) < 1e-12)
+    iBg[] = fillarray(3)
+    BgF:CsnArr = csnfromarray(iBg)
+    Bg:CsnArr = BgF
+    iAg[] = fillarray(2)
+    AgF:CsnArr = csnfromarray(iAg)
+    Ag:CsnArr = AgF
+
+    ; a pure gain, order 0: y = 1.5 x
+    Y1:CsnArr = csnlfilter(Bg, Ag, Xq)
+    iY1[] = csntoarray(Y1)
+    assert(abs(iY1[0] - (-1.2030000000000001)) < 1e-12)
+    assert(abs(iY1[1] - (-1.9860000000000002)) < 1e-12)
+    assert(abs(iY1[2] - (-0.372)) < 1e-12)
+    assert(abs(iY1[3] - (0.63)) < 1e-12)
+    assert(abs(iY1[4] - (1.7039999999999997)) < 1e-12)
+    assert(abs(iY1[5] - (0.16500000000000001)) < 1e-12)
+    assert(abs(iY1[6] - (-0.82950000000000013)) < 1e-12)
+    assert(abs(iY1[7] - (-1.1775)) < 1e-12)
+    assert(abs(iY1[8] - (1.1234999999999999)) < 1e-12)
+    assert(abs(iY1[9] - (2.4525000000000001)) < 1e-12)
+    iMq[] = fillarray(0.27300000000000002, -1.2330000000000001, -0.95799999999999996, 1.6000000000000001, 0.20300000000000001, -1.732, -0.084000000000000005, -1.163, -0.629, -0.48799999999999999, -0.71299999999999997, 0.55300000000000005, -0.063, -0.58899999999999997, 0.40999999999999998, 0.82999999999999996, -1.643, -0.25700000000000001)
+    MqF:CsnArr = csnfromarray(iMq)
+    iMqSh[] = fillarray(3, 6)
+    Mq:CsnArr = csnreshape(MqF, iMqSh)
+
+    ; a matrix along axis 0: each column filtered on its own
+    Y2:CsnArr = csnlfilter(Bq, Aq, Mq, 0)
+    iY2[][] = csntoarray(Y2)
+    assert(abs(iY2[0][0] - (0.068250000000000005)) < 1e-12)
+    assert(abs(iY2[0][1] - (-0.30825000000000002)) < 1e-12)
+    assert(abs(iY2[0][2] - (-0.23949999999999999)) < 1e-12)
+    assert(abs(iY2[0][3] - (0.40000000000000002)) < 1e-12)
+    assert(abs(iY2[0][4] - (0.050750000000000003)) < 1e-12)
+    assert(abs(iY2[0][5] - (-0.433)) < 1e-12)
+    assert(abs(iY2[1][0] - (-0.03465)) < 1e-12)
+    assert(abs(iY2[1][1] - (-0.2291)) < 1e-12)
+    assert(abs(iY2[1][2] - (-0.10935)) < 1e-12)
+    assert(abs(iY2[1][3] - (-0.20200000000000001)) < 1e-12)
+    assert(abs(iY2[1][4] - (-0.18839999999999998)) < 1e-12)
+    assert(abs(iY2[1][5] - (0.22485000000000002)) < 1e-12)
+    assert(abs(iY2[2][0] - (0.0014175000000000056)) < 1e-12)
+    assert(abs(iY2[2][1] - (-0.14766749999999998)) < 1e-12)
+    assert(abs(iY2[2][2] - (0.088444999999999996)) < 1e-12)
+    assert(abs(iY2[2][3] - (0.30790000000000001)) < 1e-12)
+    assert(abs(iY2[2][4] - (-0.36545749999999999)) < 1e-12)
+    assert(abs(iY2[2][5] - (-0.17416999999999999)) < 1e-12)
+
+    ; the same matrix along the last axis
+    Y3:CsnArr = csnlfilter(Bq, Aq, Mq)
+    iY3[][] = csntoarray(Y3)
+    assert(abs(iY3[0][0] - (0.068250000000000005)) < 1e-12)
+    assert(abs(iY3[0][1] - (-0.32190000000000002)) < 1e-12)
+    assert(abs(iY3[0][2] - (-0.16488249999999999)) < 1e-12)
+    assert(abs(iY3[0][3] - (0.39322275000000001)) < 1e-12)
+    assert(abs(iY3[0][4] - (-0.091158175000000022)) < 1e-12)
+    assert(abs(iY3[0][5] - (-0.38572245250000003)) < 1e-12)
+    assert(abs(iY3[1][0] - (-0.021000000000000001)) < 1e-12)
+    assert(abs(iY3[1][1] - (-0.28655000000000003)) < 1e-12)
+    assert(abs(iY3[1][2] - (-0.10309000000000001)) < 1e-12)
+    assert(abs(iY3[1][3] - (-0.1469895)) < 1e-12)
+    assert(abs(iY3[1][4] - (-0.20065934999999999)) < 1e-12)
+    assert(abs(iY3[1][5] - (0.136677195)) < 1e-12)
+    assert(abs(iY3[2][0] - (-0.01575)) < 1e-12)
+    assert(abs(iY3[2][1] - (-0.14410000000000001)) < 1e-12)
+    assert(abs(iY3[2][2] - (0.1289575)) < 1e-12)
+    assert(abs(iY3[2][3] - (0.15812475000000001)) < 1e-12)
+    assert(abs(iY3[2][4] - (-0.44143757500000003)) < 1e-12)
+    assert(abs(iY3[2][5] - (0.060568727499999975)) < 1e-12)
+    iSq[] = fillarray(0.049532996357253181, 0.099065992714506362, 0.049532996357253181, 1, -0.32491969623290634, 0, 1, 1, 0, 1, -0.83699778743882614, 0.42398568894741262)
+    SqF:CsnArr = csnfromarray(iSq)
+    iSqSh[] = fillarray(2, 6)
+    Sq:CsnArr = csnreshape(SqF, iSqSh)
+
+    ; butter(3, 0.3) as sections
+    Y4:CsnArr = csnsosfilter(Sq, Xq)
+    iY4[] = csntoarray(Y4)
+    assert(abs(iY4[0] - (-0.039725463078517056)) < 1e-12)
+    assert(abs(iY4[1] - (-0.23091578651043923)) < 1e-12)
+    assert(abs(iY4[2] - (-0.56886407521556492)) < 1e-12)
+    assert(abs(iY4[3] - (-0.75826079292243165)) < 1e-12)
+    assert(abs(iY4[4] - (-0.50070407673006367)) < 1e-12)
+    assert(abs(iY4[5] - (0.091946303191964229)) < 1e-12)
+    assert(abs(iY4[6] - (0.52940285057290393)) < 1e-12)
+    assert(abs(iY4[7] - (0.43371214876436393)) < 1e-12)
+    assert(abs(iY4[8] - (-0.0081063113538257237)) < 1e-12)
+    assert(abs(iY4[9] - (-0.19008132888303475)) < 1e-12)
+
+    ; the sections along axis 0
+    Y5:CsnArr = csnsosfilter(Sq, Mq, 0)
+    iY5[][] = csntoarray(Y5)
+    assert(abs(iY5[0][0] - (0.013522508005530119)) < 1e-12)
+    assert(abs(iY5[0][1] - (-0.061074184508493175)) < 1e-12)
+    assert(abs(iY5[0][2] - (-0.047452610510248544)) < 1e-12)
+    assert(abs(iY5[0][3] - (0.079252794171605093)) < 1e-12)
+    assert(abs(iY5[0][4] - (0.010055198260522397)) < 1e-12)
+    assert(abs(iY5[0][5] - (-0.085791149690762514)) < 1e-12)
+    assert(abs(iY5[1][0] - (0.052118790797297504)) < 1e-12)
+    assert(abs(iY5[1][1] - (-0.31179259107037649)) < 1e-12)
+    assert(abs(iY5[1][2] - (-0.2286501040371807)) < 1e-12)
+    assert(abs(iY5[1][3] - (0.30567148747030082)) < 1e-12)
+    assert(abs(iY5[1][4] - (0.0065318790395322394)) < 1e-12)
+    assert(abs(iY5[1][5] - (-0.32966393885672224)) < 1e-12)
+    assert(abs(iY5[2][0] - (0.076111472932708743)) < 1e-12)
+    assert(abs(iY5[2][1] - (-0.70499123923989293)) < 1e-12)
+    assert(abs(iY5[2][2] - (-0.44816632014665414)) < 1e-12)
+    assert(abs(iY5[2][3] - (0.5063641003961874)) < 1e-12)
+    assert(abs(iY5[2][4] - (-0.15657653537174215)) < 1e-12)
+    assert(abs(iY5[2][5] - (-0.51126475333498145)) < 1e-12)
+    iXcR[] = fillarray(-0.98099999999999998, -0.17299999999999999, -1.2889999999999999, 0.021000000000000001, -0.037999999999999999, -0.30399999999999999)
+    iXcI[] = fillarray(-1.048, -0.39600000000000002, -1.091, -1.355, 0.22500000000000001, -1.109)
+    XcR:CsnArr = csnfromarray(iXcR)
+    XcI:CsnArr = csnfromarray(iXcI)
+    XcRC:CsnArr = csntocomplex(XcR)
+    XcIC:CsnArr = csntocomplex(XcI)
+    XcIJ:CsnArr = csnmul(XcIC, J)
+    Xc:CsnArr = csnadd(XcRC, XcIJ)
+
+    ; a complex signal through real coefficients gives a complex output
+    Y6:CsnArr = csnlfilter(Bq, Aq, Xc)
+    C6_0:Complex = csnget(Y6, fillarray(0))
+    iC6_0r = real(C6_0)
+    iC6_0i = imag(C6_0)
+    assert(abs(iC6_0r - (-0.24525)) < 1e-12)
+    assert(abs(iC6_0i - (-0.26200000000000001)) < 1e-12)
+    C6_1:Complex = csnget(Y6, fillarray(1))
+    iC6_1r = real(C6_1)
+    iC6_1i = imag(C6_1)
+    assert(abs(iC6_1r - (0.0057999999999999996)) < 1e-12)
+    assert(abs(iC6_1i - (-0.046600000000000003)) < 1e-12)
+    C6_2:Complex = csnget(Y6, fillarray(2))
+    iC6_2r = real(C6_2)
+    iC6_2i = imag(C6_2)
+    assert(abs(iC6_2r - (-0.3601975)) < 1e-12)
+    assert(abs(iC6_2i - (-0.30273)) < 1e-12)
+    C6_3:Complex = csnget(Y6, fillarray(3))
+    iC6_3r = real(C6_3)
+    iC6_3i = imag(C6_3)
+    assert(abs(iC6_3r - (0.04750324999999999)) < 1e-12)
+    assert(abs(iC6_3i - (-0.317944)) < 1e-12)
+    C6_4:Complex = csnget(Y6, fillarray(4))
+    iC6_4r = real(C6_4)
+    iC6_4i = imag(C6_4)
+    assert(abs(iC6_4r - (-0.078436524999999993)) < 1e-12)
+    assert(abs(iC6_4i - (0.0620543)) < 1e-12)
+    C6_5:Complex = csnget(Y6, fillarray(5))
+    iC6_5r = real(C6_5)
+    iC6_5i = imag(C6_5)
+    assert(abs(iC6_5r - (-0.093468457499999991)) < 1e-12)
+    assert(abs(iC6_5i - (-0.37144621)) < 1e-12)
+    iBcR[] = fillarray(1, -0)
+    iBcI[] = fillarray(0.5, -0.29999999999999999)
+    BcR:CsnArr = csnfromarray(iBcR)
+    BcI:CsnArr = csnfromarray(iBcI)
+    BcRC:CsnArr = csntocomplex(BcR)
+    BcIC:CsnArr = csntocomplex(BcI)
+    BcIJ:CsnArr = csnmul(BcIC, J)
+    Bc:CsnArr = csnadd(BcRC, BcIJ)
+    iAc1[] = fillarray(1)
+    Ac1F:CsnArr = csnfromarray(iAc1)
+    Ac1:CsnArr = Ac1F
+    iX5[] = fillarray(-0.80200000000000005, -1.3240000000000001, -0.248, 0.41999999999999998, 1.1359999999999999)
+    X5F:CsnArr = csnfromarray(iX5)
+    X5:CsnArr = X5F
+
+    ; complex coefficients on a real signal also give a complex output
+    Y7:CsnArr = csnlfilter(Bc, Ac1, X5)
+    C7_0:Complex = csnget(Y7, fillarray(0))
+    iC7_0r = real(C7_0)
+    iC7_0i = imag(C7_0)
+    assert(abs(iC7_0r - (-0.80200000000000005)) < 1e-12)
+    assert(abs(iC7_0i - (-0.40100000000000002)) < 1e-12)
+    C7_1:Complex = csnget(Y7, fillarray(1))
+    iC7_1r = real(C7_1)
+    iC7_1i = imag(C7_1)
+    assert(abs(iC7_1r - (-1.3240000000000001)) < 1e-12)
+    assert(abs(iC7_1i - (-0.4214)) < 1e-12)
+    C7_2:Complex = csnget(Y7, fillarray(2))
+    iC7_2r = real(C7_2)
+    iC7_2i = imag(C7_2)
+    assert(abs(iC7_2r - (-0.248)) < 1e-12)
+    assert(abs(iC7_2i - (0.2732)) < 1e-12)
+    C7_3:Complex = csnget(Y7, fillarray(3))
+    iC7_3r = real(C7_3)
+    iC7_3i = imag(C7_3)
+    assert(abs(iC7_3r - (0.41999999999999998)) < 1e-12)
+    assert(abs(iC7_3i - (0.28439999999999999)) < 1e-12)
+    C7_4:Complex = csnget(Y7, fillarray(4))
+    iC7_4r = real(C7_4)
+    iC7_4i = imag(C7_4)
+    assert(abs(iC7_4r - (1.1359999999999999)) < 1e-12)
+    assert(abs(iC7_4i - (0.44199999999999995)) < 1e-12)
+endin
+
+instr 35
+    ; ------------------------------------------------------------------
+    ; csnzlfilter and csnzsosfilter at init against scipy.signal 1.18
+    ; lfilter / sosfilt with zi: y and zf, 1-D and along axis 0 of a matrix,
+    ; zi in scipy's layout (the source's shape with the axis replaced by the
+    ; order; for sections, (n_sections, ...) with the axis replaced by 2).
+    ; ------------------------------------------------------------------
+    iBz[] = fillarray(0.5, -0.25, 0.125)
+    BzF:CsnArr = csnfromarray(iBz)
+    Bz:CsnArr = BzF
+    iAz[] = fillarray(2, -0.59999999999999998, 0.10000000000000001)
+    AzF:CsnArr = csnfromarray(iAz)
+    Az:CsnArr = AzF
+    iXz[] = fillarray(-1.738, -1.337, -1.361, -0.35199999999999998, -2.3130000000000002, -0.189, -0.95699999999999996, 0.89400000000000002)
+    XzF:CsnArr = csnfromarray(iXz)
+    Xz:CsnArr = XzF
+    iZi[] = fillarray(0.95699999999999996, 1.3919999999999999)
+    ZiF:CsnArr = csnfromarray(iZi)
+    Zi:CsnArr = ZiF
+
+    ; lfilter, 1-D, a[0] = 2
+    Y1:CsnArr, Zf1:CsnArr csnzlfilter Bz, Az, Xz, Zi
+    iY1v[] = csntoarray(Y1)
+    assert(abs(iY1v[0] - (0.52249999999999996)) < 1e-12)
+    assert(abs(iY1v[1] - (1.4317499999999999)) < 1e-12)
+    assert(abs(iY1v[2] - (0.12164999999999992)) < 1e-12)
+    assert(abs(iY1v[3] - (-0.036530000000000028)) < 1e-12)
+    assert(abs(iY1v[4] - (-0.63635400000000009)) < 1e-12)
+    assert(abs(iY1v[5] - (0.030795299999999998)) < 1e-12)
+    assert(abs(iY1v[6] - (-0.31913121)) < 1e-12)
+    assert(abs(iY1v[7] - (0.23403337199999999)) < 1e-12)
+    iZf1v[] = csntoarray(Zf1)
+    assert(abs(iZf1v[0] - (-0.085395927900000015)) < 1e-12)
+    assert(abs(iZf1v[1] - (0.044173331400000002)) < 1e-12)
+    iMz[] = fillarray(0.76700000000000002, -0.052999999999999999, 0.85999999999999999, 1.5049999999999999, -0.65400000000000003, 0.60999999999999999, -0.042999999999999997, 1.4399999999999999, -0.83699999999999997, -0.30199999999999999, 0.36199999999999999, 0.25800000000000001, -1.639, 0.35999999999999999, -0.11799999999999999)
+    MzF:CsnArr = csnfromarray(iMz)
+    iMzSh[] = fillarray(5, 3)
+    Mz:CsnArr = csnreshape(MzF, iMzSh)
+    iZi2[] = fillarray(-0.23999999999999999, -0.155, 0.219, -1.8160000000000001, 1.552, -0.86099999999999999)
+    Zi2F:CsnArr = csnfromarray(iZi2)
+    iZi2Sh[] = fillarray(2, 3)
+    Zi2:CsnArr = csnreshape(Zi2F, iZi2Sh)
+
+    ; lfilter along axis 0 of a (5, 3) matrix: zi is (2, 3)
+    Y2:CsnArr, Zf2:CsnArr csnzlfilter Bz, Az, Mz, Zi2, 0
+    iY2v[][] = csntoarray(Y2)
+    assert(abs(iY2v[0][0] - (-0.048249999999999987)) < 1e-12)
+    assert(abs(iY2v[0][1] - (-0.16825000000000001)) < 1e-12)
+    assert(abs(iY2v[0][2] - (0.434)) < 1e-12)
+    assert(abs(iY2v[1][0] - (-1.5501)) < 1e-12)
+    assert(abs(iY2v[1][1] - (1.3446500000000001)) < 1e-12)
+    assert(abs(iY2v[1][2] - (-0.68580000000000008)) < 1e-12)
+    assert(abs(iY2v[2][0] - (-0.61355499999999996)) < 1e-12)
+    assert(abs(iY2v[2][1] - (0.85024500000000003)) < 1e-12)
+    assert(abs(iY2v[2][2] - (-0.45918999999999999)) < 1e-12)
+    assert(abs(iY2v[3][0] - (-0.082624000000000003)) < 1e-12)
+    assert(abs(iY2v[3][1] - (0.057465999999999982)) < 1e-12)
+    assert(abs(iY2v[3][2] - (0.10378300000000001)) < 1e-12)
+    assert(abs(iY2v[4][0] - (-0.36879695000000001)) < 1e-12)
+    assert(abs(iY2v[4][1] - (0.10947754999999998)) < 1e-12)
+    assert(abs(iY2v[4][2] - (-0.059968099999999996)) < 1e-12)
+    iZf2v[][] = csntoarray(Zf2)
+    assert(abs(iZf2v[0][0] - (0.079492115000000002)) < 1e-12)
+    assert(abs(iZf2v[0][1] - (0.0075949649999999943)) < 1e-12)
+    assert(abs(iZf2v[0][2] - (0.0076954200000000014)) < 1e-12)
+    assert(abs(iZf2v[1][0] - (-0.083997652499999992)) < 1e-12)
+    assert(abs(iZf2v[1][1] - (0.017026122500000001)) < 1e-12)
+    assert(abs(iZf2v[1][2] - (-0.0043765949999999996)) < 1e-12)
+    iSz[] = fillarray(0.049532996357253181, 0.099065992714506362, 0.049532996357253181, 1, -0.32491969623290634, 0, 1, 1, 0, 1, -0.83699778743882614, 0.42398568894741262)
+    SzF:CsnArr = csnfromarray(iSz)
+    iSzSh[] = fillarray(2, 6)
+    Sz:CsnArr = csnreshape(SzF, iSzSh)
+    iZs[] = fillarray(-2.2410000000000001, -0.082000000000000003, 1.4570000000000001, -0.51900000000000002)
+    ZsF:CsnArr = csnfromarray(iZs)
+    iZsSh[] = fillarray(2, 2)
+    Zs:CsnArr = csnreshape(ZsF, iZsSh)
+
+    ; sosfilt, 1-D: zi is (n_sections, 2)
+    Y3:CsnArr, Zf3:CsnArr csnzsosfilter Sz, Xz, Zs
+    iY3v[] = csntoarray(Y3)
+    assert(abs(iY3v[0] - (-0.87008834766890586)) < 1e-12)
+    assert(abs(iY3v[1] - (-4.6508695200432602)) < 1e-12)
+    assert(abs(iY3v[2] - (-5.2361179042500652)) < 1e-12)
+    assert(abs(iY3v[3] - (-3.4715065268059493)) < 1e-12)
+    assert(abs(iY3v[4] - (-1.4656211463080742)) < 1e-12)
+    assert(abs(iY3v[5] - (-0.48108788159696009)) < 1e-12)
+    assert(abs(iY3v[6] - (-0.45386862065906158)) < 1e-12)
+    assert(abs(iY3v[7] - (-0.63503589911473812)) < 1e-12)
+    iZf3v[][] = csntoarray(Zf3)
+    assert(abs(iZf3v[0][0] - (-0.010108262205381406)) < 1e-12)
+    assert(abs(iZf3v[0][1] - (0.044282498743384344)) < 1e-12)
+    assert(abs(iZf3v[1][0] - (-0.49688323831952053)) < 1e-12)
+    assert(abs(iZf3v[1][1] - (0.26924613319250185)) < 1e-12)
+    iZs3[] = fillarray(1.5509999999999999, 1.5569999999999999, -0.86299999999999999, -2.4649999999999999, -1.2350000000000001, 1.1870000000000001, -0.81699999999999995, -1.5109999999999999, -1.3380000000000001, 0, -0.025999999999999999, 0.872)
+    Zs3F:CsnArr = csnfromarray(iZs3)
+    iZs3Sh[] = fillarray(2, 2, 3)
+    Zs3:CsnArr = csnreshape(Zs3F, iZs3Sh)
+
+    ; sosfilt along axis 0 of the matrix: zi is (n_sections, 2, 3)
+    Y4:CsnArr, Zf4:CsnArr csnzsosfilter Sz, Mz, Zs3, 0
+    iY4v[][] = csntoarray(Y4)
+    assert(abs(iY4v[0][0] - (0.7719918082060131)) < 1e-12)
+    assert(abs(iY4v[0][1] - (0.043374751193065553)) < 1e-12)
+    assert(abs(iY4v[0][2] - (-2.1584016231327623)) < 1e-12)
+    assert(abs(iY4v[1][0] - (0.43697275516391176)) < 1e-12)
+    assert(abs(iY4v[1][1] - (0.79708121673060861)) < 1e-12)
+    assert(abs(iY4v[1][2] - (-0.71913177076413604)) < 1e-12)
+    assert(abs(iY4v[2][0] - (-2.1590488380090957)) < 1e-12)
+    assert(abs(iY4v[2][1] - (-0.36432780066859483)) < 1e-12)
+    assert(abs(iY4v[2][2] - (1.7472036170585787)) < 1e-12)
+    assert(abs(iY4v[3][0] - (-2.4661094550282026)) < 1e-12)
+    assert(abs(iY4v[3][1] - (-0.83996187649320275)) < 1e-12)
+    assert(abs(iY4v[3][2] - (2.2548826796802226)) < 1e-12)
+    assert(abs(iY4v[4][0] - (-1.3605474316120716)) < 1e-12)
+    assert(abs(iY4v[4][1] - (-0.35939547330217869)) < 1e-12)
+    assert(abs(iY4v[4][2] - (1.2432967999850462)) < 1e-12)
+    iZf4v[][][] = csntoarray(Zf4)
+    assert(abs(iZf4v[0][0][0] - (-0.22197567493790205)) < 1e-12)
+    assert(abs(iZf4v[0][0][1] - (0.099328979713454557)) < 1e-12)
+    assert(abs(iZf4v[0][0][2] - (0.0034666630465567047)) < 1e-12)
+    assert(abs(iZf4v[0][1][0] - (-0.081184581029537961)) < 1e-12)
+    assert(abs(iZf4v[0][1][1] - (0.017831878688611146)) < 1e-12)
+    assert(abs(iZf4v[0][1][2] - (-0.0058448935701558751)) < 1e-12)
+    assert(abs(iZf4v[1][0][0] - (-0.23059109704503333)) < 1e-12)
+    assert(abs(iZf4v[1][0][1] - (0.19607423234818697)) < 1e-12)
+    assert(abs(iZf4v[1][0][2] - (0.091914144541185627)) < 1e-12)
+    assert(abs(iZf4v[1][1][0] - (0.5768526401376769)) < 1e-12)
+    assert(abs(iZf4v[1][1][1] - (0.15237853735260568)) < 1e-12)
+    assert(abs(iZf4v[1][1][2] - (-0.52714005030777322)) < 1e-12)
+endin
+
 </CsInstruments>
 
 <CsScore>
@@ -3365,6 +4643,18 @@ i 20 0.38 0.01
 i 21 0.40 0.01
 i 22 0.42 0.01
 i 23 0.44 0.01
+i 24 0.46 0.01
+i 25 0.48 0.01
+i 26 0.50 0.01
+i 27 0.52 0.01
+i 28 0.54 0.01
+i 29 0.56 0.01
+i 30 0.58 0.01
+i 31 0.60 0.01
+i 32 0.62 0.01
+i 33 0.64 0.01
+i 34 0.66 0.01
+i 35 0.68 0.01
 e
 </CsScore>
 
@@ -3434,6 +4724,17 @@ e
 ; csnnmtoacn csnacntonm csnhoaordtochnls csnchnlstohoaord csnsn3dton3d csnn3dtosn3d
 ; csnlegendre csnlegendre.h csnsphharm csnsphharmacn csnsphharmacn.mat
 ; csnlagrange
+; csnroots csnroots.ax
+; csnlptolpzpk csnlptohpzpk csnlptobpzpk csnlptobszpk csnbilinearzpk
+; csntftozpk csnzpktotf
+; csnlptolp csnlptohp csnlptobp csnlptobs
+; csnzpktosos csnbuttap
+; csnbutterba.one csnbutterba.two csnbuttersos.one csnbuttersos.two
+; csncheby1ba.one csncheby1ba.two csncheby1sos.one csncheby1sos.two
+; csncheby2ba.one csncheby2ba.two csncheby2sos.one csncheby2sos.two
+; csnellipba.one csnellipba.two csnellipsos.one csnellipsos.two
+; csnlfilter csnlfilter.ax csnsosfilter csnsosfilter.ax
+; csnzlfilter csnzlfilter.ax csnzsosfilter csnzsosfilter.ax
 ; csndegtorad.s csnradtodeg.s
 ; @covers-end
 </CsoundSynthesizer>

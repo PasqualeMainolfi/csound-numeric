@@ -292,15 +292,6 @@ typedef enum {
 } CSN_SPACED_SPACE_MODE;
 
 typedef enum {
-    W_RECT = 0,
-    W_HANNING,
-    W_HAMMING,
-    W_BARTLETT,
-    W_BLACKMAN,
-    W_KAISER
-} CSN_WINDOW_MODE;
-
-typedef enum {
     REMAP_LINEAR   = 0,
     REMAP_NEAREST  = 1,
     REMAP_PREVIOUS = 2,
@@ -1553,22 +1544,6 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
-    // inputs
-    MYFLT *length;
-    MYFLT *beta;
-    // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
-    int32_t prev_length;
-    double prev_beta;
-    bool is_i_time_length;
-    bool is_published;
-} CSN_WINDOW;
-
-typedef struct {
-    OPDS h;
-    // outputs
     CSNREF *handle_a;
     CSNREF *handle_b;
     // inputs
@@ -2159,7 +2134,6 @@ void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLE
 void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype);
 void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
 int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h);
-void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, double beta);
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
 void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
@@ -2527,13 +2501,6 @@ int32_t csnarray_unwrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_conj(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_type(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
 
-// WINDOW FUNCTION
-int32_t csnarray_hanning(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_hamming(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_bartlett(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_blackman(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_kaiser(CSOUND *csound, CSN_WINDOW *p);
-
 // k-rate
 
 int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p);
@@ -2834,13 +2801,6 @@ int32_t csnarray_wrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_unwrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_conj_k(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p); // return 0 for real array and 1 for complex array
-
-// WINDOW FUNCTION
-int32_t csnarray_hanning_k(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_hamming_k(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_bartlett_k(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_blackman_k(CSOUND *csound, CSN_WINDOW *p);
-int32_t csnarray_kaiser_k(CSOUND *csound, CSN_WINDOW *p);
 
 
 #endif

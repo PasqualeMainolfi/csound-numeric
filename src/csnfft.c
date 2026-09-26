@@ -2,6 +2,7 @@
 #include "csnfft.h"
 #include "csnum.h"
 #include "csnum_internal.h"
+#include "csnsignal.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -42,7 +43,7 @@ static bool IS_VALID_DCT_MODE(double value) {
    without zeroing it, and an opcode inside a branch the new note does not take
    is deinitialized all the same. A pointer left behind here would therefore be
    freed a second time, so every buffer is cleared as it is released. */
-static void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array) {
+void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array) {
     if (array->data != NULL) csound->Free(csound, array->data);
     memset(array, 0, sizeof(CSN_ARRAY));
 }
