@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+- Add real-time Butterworth, Chebyshev type I, Chebyshev type II and elliptic filters on audio whose cutoff follows a k-rate signal (*csnrtbutter*, *csnrtcheby1*, *csnrtcheby2*, *csnrtellip*). The analog prototype is designed once at init, as the `*sos` designs build it; every control period moves it to the current frequencies, pre-warped, maps it by the bilinear transform and rebuilds the second-order sections, then filters the block. Nothing is allocated at performance time. The arguments are those of the `*sos` designs, the cutoff at k-rate and the rest at init
+- Take a bandpass or bandstop as a k-rate centre and a k-rate width in Hz, the edges at `fc - bw/2` and `fc + bw/2`, in place of the two-cutoff array of the designs
+- Keep the filter state across a moving cutoff: the sections are paired once at init on the prototype, each pole pair with its nearest zero pair from the highest Q down, and a pole pair stays the same section, or the same two in a band, whatever the frequencies. Each section is normalised to unit gain where the prototype's DC gain lands, DC for a lowpass and a bandstop, Nyquist for a highpass, the centre for a bandpass, and the first one carries that gain
+- Reject at init an order below one, an elliptic order above 64, a ripple or attenuation that is not finite and positive, an elliptic attenuation not above its ripple, and a type that does not match the cutoff form; reject at performance a cutoff outside `(0, fs / 2)`, a band whose edges leave it, and a width that is not positive
+- Add the reference pages, runnable examples, inventory entries and NumPy correspondence rows of the four, and audio regressions: the impulse response against the `*sos` design through *csnsosfilter* for lowpass, highpass, bandpass and bandstop at several orders, a cutoff and a band moved during the note that stay bounded and settle on the new design, and the manifest entries
+
 ## [0.1.11] - 2026-09-26
 
 - Fix a slot leak when an opcode with a local handle output re-runs its init pass inside an i-time loop. Each pass re-initialises the same opcode instance, but it took a fresh registry slot every time, and only the last one reached the deinit. The others stayed allocated after the note ended, so the 4096-slot registry filled up across notes and later creations failed with `Invalid handle, registry full`. A local output now releases its previous array when that array was created by the same instance, so the loop keeps reusing one slot

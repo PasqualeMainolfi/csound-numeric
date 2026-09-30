@@ -402,6 +402,10 @@ as many poles as zeros, and the results are always complex.
 - **csnsosfilter** - filters an array along an axis, or an audio signal, with second-order sections (i, k, a — real, complex)
 - **csnzlfilter** - csnlfilter from a given state zi, returning the final state zf (i, k, a — real, complex)
 - **csnzsosfilter** - csnsosfilter from a given state zi, returning the final state zf (i, k, a — real, complex)
+- **csnrtbutter** - real-time digital Butterworth lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band (a — real only)
+- **csnrtcheby1** - real-time digital Chebyshev type I lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band (a — real only)
+- **csnrtcheby2** - real-time digital Chebyshev type II lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band (a — real only)
+- **csnrtellip** - real-time digital elliptic lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band (a — real only)
 
 ## Windows
 

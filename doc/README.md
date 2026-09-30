@@ -340,6 +340,10 @@ opcode's own page rather than as separate entries here.
 - [csnsosfilter](csnsosfilter.md) - filters an array along an axis, or an audio signal, with second-order sections
 - [csnzlfilter](csnzlfilter.md) - csnlfilter from a given state zi, returning the final state zf
 - [csnzsosfilter](csnzsosfilter.md) - csnsosfilter from a given state zi, returning the final state zf
+- [csnrtbutter](csnrtbutter.md) - real-time digital Butterworth lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band
+- [csnrtcheby1](csnrtcheby1.md) - real-time digital Chebyshev type I lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band
+- [csnrtcheby2](csnrtcheby2.md) - real-time digital Chebyshev type II lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band
+- [csnrtellip](csnrtellip.md) - real-time digital elliptic lowpass, highpass, bandpass or bandstop on audio, k-rate cutoff or band
 
 ## Windows
 

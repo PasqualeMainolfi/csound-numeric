@@ -1646,9 +1646,7 @@ int32_t csnsig_fdesign1f1_deinit(CSOUND *csound, CSN_FDESIGN1F1 *p) {
    bilinear at fs. Only the prototype differs between Butterworth, Chebyshev
    and elliptic designs. The digital zeros and poles land in bil_zeros and
    bil_poles, which the caller frees whatever the outcome. */
-static int32_t iir_digital_zpk(CSOUND *csound, const CSN_ARRAY *ztap, const CSN_ARRAY *ptap, double ktap,
-                               CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs,
-                               CSN_ARRAY *bil_zeros, CSN_ARRAY *bil_poles, double *bil_gain) {
+static int32_t iir_digital_zpk(CSOUND *csound, const CSN_ARRAY *ztap, const CSN_ARRAY *ptap, double ktap, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs, CSN_ARRAY *bil_zeros, CSN_ARRAY *bil_poles, double *bil_gain) {
     int32_t res = OK;
     CSN_ARRAY zeros = {0};
     CSN_ARRAY poles = {0};
@@ -3457,7 +3455,9 @@ int32_t csnsig_zlfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t hb = p->b->id, ha = p->a->id, hz = p->source_handle->id;
+    uint32_t hb = p->b->id;
+    uint32_t ha = p->a->id;
+    uint32_t hz = p->source_handle->id;
     const char *err = NULL;
     int32_t res = OK;
 
@@ -3507,7 +3507,8 @@ int32_t csnsig_zsosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t hs = p->sos->id, hz = p->source_handle->id;
+    uint32_t hs = p->sos->id;
+    uint32_t hz = p->source_handle->id;
     const char *err = NULL;
     int32_t res = OK;
 
@@ -3672,4 +3673,643 @@ int32_t csnsig_zsosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
     p->handle->id = p->state_handle;
     csound->UnlockMutex(reg->mutex);
     return res;
+}
+
+
+// filter perf on-line
+
+static int32_t allocate_sos_perf_init(CSOUND *csound, const CSN_ARRAY *ptap, CSN_ARRAY *sos, CSN_SCRATCH *state, CSN_PF_DESIGN_MODE pf) {
+    size_t digital_order;
+
+    switch (pf) {
+        case LP2LP_ZPK:
+        case LP2HP_ZPK:
+            digital_order = ptap->size;
+            break;
+        case LP2BP_ZPK:
+        case LP2BS_ZPK:
+            digital_order = 2 * ptap->size;
+            break;
+        default:
+            return csound->InitError(csound, "[csnarray] Internal error: invalid filter transform");
+    }
+
+    size_t n_sections = (digital_order + 1) / 2;
+    uint32_t sos_shape[CSN_MAX_DIMS] = {0};
+    sos_shape[0] = (uint32_t) n_sections;
+    sos_shape[1] = 6U;
+    if (allocate_array(csound, sos, 2U, sos_shape, 0, CSN_REAL) != OK) {
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    }
+
+    if (csn_scratch_reserve(csound, NULL, false, state, 2 * n_sections, sizeof(double)) != OK) {
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    }
+    memset(state->scratch, 0, sizeof(double) * 2 * n_sections);
+    state->current_size = 2 * n_sections;
+
+    return OK;
+}
+
+static int32_t allocate_iir_filter_perf(CSOUND *csound, CSN_ARRAY *sos, CSN_ARRAY *ztap, CSN_ARRAY *ptap, double *ktap, CSN_SCRATCH *state, const CSN_IIR_SPEC *spec, size_t order, CSN_PF_DESIGN_MODE pf) {
+    int32_t res = iir_prototype(csound, spec, order, ztap, ptap, ktap);
+    if (res == OK) {
+        res = allocate_sos_perf_init(csound, ptap, sos, state, pf);
+    }
+    return res;
+}
+
+static int32_t iir_init_perf_helper(CSOUND *csound, CSN_ARRAY *sos, CSN_ARRAY *ztap, CSN_ARRAY *ptap, CSN_SCRATCH *state, const CSN_IIR_SPEC *spec, const MYFLT *arg_order, const MYFLT *arg_type, const MYFLT *arg_fs, bool band, double *ktap, CSN_FILTER_TYPE *ftype_out) {
+    size_t order = 0;
+    double fs = (double) *arg_fs;
+    if (iir_check_common(csound, spec, (double) *arg_order, (double) *arg_type, fs, band, &order) != OK) return NOTOK;
+    CSN_FILTER_TYPE ftype = (CSN_FILTER_TYPE) *arg_type;
+    *ftype_out = ftype;
+
+    CSN_PF_DESIGN_MODE pf = {0};
+    switch (ftype) {
+        case CSN_LP: pf = LP2LP_ZPK; break;
+        case CSN_HP: pf = LP2HP_ZPK; break;
+        case CSN_BP: pf = LP2BP_ZPK; break;
+        case CSN_BS: pf = LP2BS_ZPK; break;
+    }
+
+    int32_t res = allocate_iir_filter_perf(csound, sos, ztap, ptap, ktap, state, spec, order, pf);
+    if (res != OK) return res;
+    return OK;
+}
+
+int32_t csnsig_rtbutter_noband_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_BUTTER, 0.0, 0.0);
+    FREE_CSNARRDATA(csound, &p->sos);
+    FREE_CSNARRDATA(csound, &p->bilinear_zeros);
+    FREE_CSNARRDATA(csound, &p->bilinear_poles);
+    FREE_CSNARRDATA(csound, &p->ztap);
+    FREE_CSNARRDATA(csound, &p->ptap);
+    deinit_scratch(csound, &p->filter_state);
+    int32_t res = iir_init_perf_helper(csound, &p->sos, &p->ztap, &p->ptap, &p->filter_state, &spec, p->order, p->arg_a, p->arg_b, false, &p->ktap, &p->ftype);
+    if (res != OK) return res;
+
+    // the digital roots the perf pass rebuilds; LP zeros are -1 and HP zeros +1
+    uint32_t bil_shape[CSN_MAX_DIMS] = {0};
+    bil_shape[0] = (uint32_t) p->ptap.size;
+    if (allocate_array(csound, &p->bilinear_zeros, 1U, bil_shape, 0, CSN_COMPLEX) != OK || allocate_array(csound, &p->bilinear_poles, 1U, bil_shape, 0, CSN_COMPLEX) != OK) {
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    }
+    return OK;
+}
+
+int32_t csnsig_rtbutter_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    FREE_CSNARRDATA(csound, &p->sos);
+    FREE_CSNARRDATA(csound, &p->bilinear_zeros);
+    FREE_CSNARRDATA(csound, &p->bilinear_poles);
+    FREE_CSNARRDATA(csound, &p->ztap);
+    FREE_CSNARRDATA(csound, &p->ptap);
+    deinit_scratch(csound, &p->filter_state);
+    return OK;
+}
+
+static void args_to_filter_params(CSN_FILTER_ARG_TO_PARAMS *fp, CSN_FILTER_AUDIO_PERF *p, CSN_FILTER_TYPE type, CSN_IIR_TYPE mode) {
+    fp->order = *p->order;
+    fp->fcut = *p->fcut;
+    fp->mode = mode;
+    switch (type) {
+        case CSN_LP:
+        case CSN_HP:
+            if (mode == CSN_BUTTER) {
+                fp->fs = *p->arg_b;
+            } else if (mode == CSN_CHEBY1) {
+                fp->ripple = *p->arg_a;
+                fp->fs = *p->arg_c;
+            } else if (mode == CSN_CHEBY2) {
+                fp->attenuation = *p->arg_a;
+                fp->fs = *p->arg_c;
+            } else {
+                fp->ripple = *p->arg_a;
+                fp->attenuation = *p->arg_b;
+                fp->fs = *p->arg_d;
+            }
+            break;
+        case CSN_BP:
+        case CSN_BS:
+            fp->bw = *p->arg_a;
+            if (mode == CSN_BUTTER) {
+                fp->fs = *p->arg_c;
+            } else if (mode == CSN_CHEBY1) {
+                fp->ripple = *p->arg_b;
+                fp->fs = *p->arg_d;
+            } else if (mode == CSN_CHEBY2) {
+                fp->attenuation = *p->arg_b;
+                fp->fs = *p->arg_d;
+            } else {
+                fp->ripple = *p->arg_b;
+                fp->attenuation = *p->arg_c;
+                fp->fs = *p->arg_e;
+            }
+            break;
+    }
+}
+
+int32_t csnsig_rtbutter_noband_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    CSN_FILTER_ARG_TO_PARAMS fp = {0};
+    args_to_filter_params(&fp, p, p->ftype, CSN_BUTTER);
+    double fc = fp.fcut;
+
+    if (!isfinite(fc) || fc <= 0.0 || fc >= fp.fs * 0.5) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, fp.fs * 0.5);
+    }
+
+    double w0 = 2.0 * fp.fs * tan(CSN_PI * fc / fp.fs);
+    if (!isfinite(w0)) {
+        return csound->PerfError(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
+    }
+
+    /* Butterworth has no finite prototype zeros. The bilinear transform puts
+       all digital zeros at -1 for lowpass and +1 for highpass. The prototype
+       poles are conjugate pairs at indices k and order - 1 - k. */
+    size_t order = p->ptap.size;
+    CSN_COMPLEXDAT *digital_poles = (CSN_COMPLEXDAT *) p->bilinear_poles.data;
+    CSN_COMPLEXDAT *digital_zeros = (CSN_COMPLEXDAT *) p->bilinear_zeros.data;
+    const CSN_COMPLEXDAT *prototype = (const CSN_COMPLEXDAT *) p->ptap.data;
+    double fs2 = 2.0 * fp.fs;
+    for (size_t k = 0; k < order; k++) {
+        CSN_COMPLEXDAT analog;
+        if (p->ftype == CSN_LP) {
+            analog = cscale(prototype[k], w0);
+        } else {
+            if (complex_div(&analog, cmake(w0, 0.0), prototype[k]) != OK) {
+                return csound->PerfError(csound, &p->h, "[csnarray] Invalid highpass prototype pole");
+            }
+        }
+        CSN_COMPLEXDAT numerator = cmake(fs2 + analog.re, analog.im);
+        CSN_COMPLEXDAT denominator = cmake(fs2 - analog.re, -analog.im);
+        if (complex_div(&digital_poles[k], numerator, denominator) != OK ||
+            !isfinite(digital_poles[k].re) || !isfinite(digital_poles[k].im)) {
+            return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital Butterworth pole");
+        }
+        digital_zeros[k] = cmake(p->ftype == CSN_LP ? -1.0 : 1.0, 0.0);
+    }
+
+    /* Normalize each section at DC (LP) or Nyquist (HP). This keeps the
+       gain finite without forming a potentially large product over poles. */
+    size_t n_sections = p->sos.shape[0];
+    double *sos = p->sos.data;
+    size_t section = 0;
+    if (order & 1U) {
+        double pole = digital_poles[order / 2].re;
+        double gain = p->ftype == CSN_LP ? (1.0 - pole) * 0.5 : (1.0 + pole) * 0.5;
+        double *row = sos + 6 * section++;
+        row[SOS_B0] = gain;
+        row[SOS_B1] = p->ftype == CSN_LP ? gain : -gain;
+        row[SOS_B2] = 0.0;
+        row[SOS_A0] = 1.0;
+        row[SOS_A1] = -pole;
+        row[SOS_A2] = 0.0;
+    }
+    for (size_t k = order / 2; k-- > 0;) {
+        CSN_COMPLEXDAT pole = digital_poles[k];
+        double distance = hypot(1.0 + (p->ftype == CSN_LP ? -pole.re : pole.re), pole.im);
+        double gain = 0.25 * distance * distance;
+        double *row = sos + 6 * section++;
+        row[SOS_B0] = gain;
+        row[SOS_B1] = p->ftype == CSN_LP ? 2.0 * gain : -2.0 * gain;
+        row[SOS_B2] = gain;
+        row[SOS_A0] = 1.0;
+        row[SOS_A1] = -2.0 * pole.re;
+        row[SOS_A2] = pole.re * pole.re + pole.im * pole.im;
+    }
+    if (section != n_sections) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: invalid Butterworth section count");
+    }
+
+    uint32_t offset = 0;
+    uint32_t nsmps = audio_block(&p->h, p->sig_out, &offset);
+    double *state = (double *) p->filter_state.scratch;
+    for (uint32_t i = offset; i < nsmps; i++) {
+        double value = (double) p->sig_in[i];
+        for (size_t s = 0; s < n_sections; s++) {
+            const double *row = sos + 6 * s;
+            double *st = state + 2 * s;
+            double y = row[SOS_B0] * value + st[0];
+            st[0] = row[SOS_B1] * value - row[SOS_A1] * y + st[1];
+            st[1] = row[SOS_B2] * value - row[SOS_A2] * y;
+            value = y;
+        }
+        p->sig_out[i] = (MYFLT) value;
+    }
+
+    return OK;
+}
+
+/* Chebyshev I / II and elliptic: the prototype carries finite zeros and a
+   gain, so the section pairing is fixed once at init, in the analog domain.
+   The lowpass / highpass transform and the bilinear map act root by root, so
+   a pole pair (and its zero pair) stays one section whatever the cutoff; the
+   perf pass only maps the representatives and rebuilds the coefficients. */
+
+// |im| below this fraction of |z| counts as a real root
+#define RT_REAL_TOL (100.0 * DBL_EPSILON)
+
+static bool rt_is_upper(CSN_COMPLEXDAT z) {
+    return z.im > RT_REAL_TOL * hypot(z.re, z.im);
+}
+
+/* Rewrites the prototype roots in section order, in place: the upper-half
+   poles from the lowest to the highest Q, the real pole of an odd order, then
+   the conjugates in the same order. ztap[i] is the zero pair of pole pair i,
+   the nearest one, handed out from the highest Q down as scipy's zpk2sos
+   does. Cheby II and elliptic have one zero pair per pole pair; Cheby I has
+   none. */
+static int32_t rt_iir_section_order(CSOUND *csound, CSN_ARRAY *ztap, CSN_ARRAY *ptap) {
+    size_t n = ptap->size;
+    size_t nz = ztap->size;
+    size_t n_pairs = n / 2;
+    size_t nz_pairs = nz / 2;
+    if (nz % 2 != 0 || (nz_pairs != 0 && nz_pairs != n_pairs)) {
+        return csound->InitError(csound, "[csnarray] Internal error: unexpected prototype zero count");
+    }
+
+    CSN_COMPLEXDAT *p = (CSN_COMPLEXDAT *) ptap->data;
+    CSN_COMPLEXDAT *z = (CSN_COMPLEXDAT *) ztap->data;
+    CSN_COMPLEXDAT *pu = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * (n_pairs + 1));
+    CSN_COMPLEXDAT *zu = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * (n_pairs + 1));
+    bool *taken = csound->Calloc(csound, sizeof(bool) * (n_pairs + 1));
+    int32_t res = OK;
+    if (pu == NULL || zu == NULL || taken == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+
+    size_t up = 0;
+    size_t n_real = 0;
+    CSN_COMPLEXDAT real_pole = {0};
+    for (size_t i = 0; i < n; i++) {
+        if (rt_is_upper(p[i])) {
+            if (up == n_pairs) break;
+            pu[up++] = p[i];
+        } else if (fabs(p[i].im) <= RT_REAL_TOL * hypot(p[i].re, p[i].im)) {
+            real_pole = cmake(p[i].re, 0.0);
+            n_real++;
+        }
+    }
+    if (up != n_pairs || n_real != n % 2) {
+        res = csound->InitError(csound, "[csnarray] Internal error: unexpected prototype pole layout");
+        goto done;
+    }
+    size_t zup = 0;
+    for (size_t i = 0; i < nz; i++) {
+        if (!rt_is_upper(z[i])) continue;
+        if (zup == nz_pairs) break;
+        zu[zup++] = z[i];
+    }
+    if (zup != nz_pairs) {
+        res = csound->InitError(csound, "[csnarray] Internal error: unexpected prototype zero layout");
+        goto done;
+    }
+
+    // damping -re/|p| descending: low Q first, the poles nearest the axis last
+    for (size_t i = 1; i < n_pairs; i++) {
+        CSN_COMPLEXDAT key = pu[i];
+        double kd = -key.re / hypot(key.re, key.im);
+        size_t j = i;
+        while (j > 0 && -pu[j - 1].re / hypot(pu[j - 1].re, pu[j - 1].im) < kd) {
+            pu[j] = pu[j - 1];
+            j--;
+        }
+        pu[j] = key;
+    }
+
+    for (size_t i = 0; i < n_pairs; i++) p[i] = pu[i];
+    if (n % 2) p[n_pairs] = real_pole;
+    for (size_t i = 0; i < n_pairs; i++) p[n_pairs + n % 2 + i] = cconj(pu[i]);
+
+    if (nz_pairs > 0) {
+        for (size_t k = n_pairs; k-- > 0;) {
+            ptrdiff_t best = -1;
+            double best_dist = INFINITY;
+            for (size_t j = 0; j < nz_pairs; j++) {
+                if (taken[j]) continue;
+                double dist = hypot(zu[j].re - pu[k].re, zu[j].im - pu[k].im);
+                if (dist < best_dist) {
+                    best_dist = dist;
+                    best = (ptrdiff_t) j;
+                }
+            }
+            taken[best] = true;
+            z[k] = zu[best];
+        }
+        for (size_t i = 0; i < nz_pairs; i++) z[nz_pairs + i] = cconj(z[i]);
+    }
+
+done:
+    if (pu != NULL) csound->Free(csound, pu);
+    if (zu != NULL) csound->Free(csound, zu);
+    if (taken != NULL) csound->Free(csound, taken);
+    return res;
+}
+
+static int32_t rt_iir_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, const CSN_IIR_SPEC *spec, bool band, const MYFLT *arg_type, const MYFLT *arg_fs) {
+    csnsig_rtbutter_deinit(csound, p);
+    int32_t res = iir_init_perf_helper(csound, &p->sos, &p->ztap, &p->ptap, &p->filter_state, spec, p->order, arg_type, arg_fs, band, &p->ktap, &p->ftype);
+    if (res != OK) return res;
+    res = rt_iir_section_order(csound, &p->ztap, &p->ptap);
+    if (res != OK) return res;
+    /* ktap becomes the prototype response at s = 0. Every transform sends it
+       to a known digital point, where the perf pass normalises: DC for the
+       lowpass and bandstop, Nyquist for the highpass, the centre for the
+       bandpass. */
+    p->ktap *= proto_gain((const CSN_COMPLEXDAT *) p->ptap.data, p->ptap.size, (const CSN_COMPLEXDAT *) p->ztap.data, p->ztap.size);
+    if (!isfinite(p->ktap)) {
+        return csound->InitError(csound, "[csnarray] The %s prototype gain is not finite", iir_family_name(spec->family));
+    }
+    return OK;
+}
+
+static int32_t rt_bilinear(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT analog, double fs2) {
+    CSN_COMPLEXDAT numerator = cmake(fs2 + analog.re, analog.im);
+    CSN_COMPLEXDAT denominator = cmake(fs2 - analog.re, -analog.im);
+    if (complex_div(out, numerator, denominator) != OK || !isfinite(out->re) || !isfinite(out->im)) {
+        return NOTOK;
+    }
+    return OK;
+}
+
+/* prototype root -> lowpass (s w0), highpass (w0 / s), bandpass or bandstop
+   (the two roots x +- sqrt(x^2 - w0^2), x = s bw / 2 or bw / (2 s)) ->
+   bilinear at fs2 = 2 fs. One digital root for LP / HP, two for BP / BS. */
+static int32_t rt_digital_roots(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT proto, CSN_FILTER_TYPE ftype, double w0, double bw, double fs2) {
+    CSN_COMPLEXDAT analog[2];
+    size_t n = 1;
+    switch (ftype) {
+        case CSN_LP:
+            analog[0] = cscale(proto, w0);
+            break;
+        case CSN_HP:
+            if (complex_div(&analog[0], cmake(w0, 0.0), proto) != OK) return NOTOK;
+            break;
+        case CSN_BP:
+        case CSN_BS: {
+            CSN_COMPLEXDAT x;
+            if (ftype == CSN_BP) {
+                x = cscale(proto, 0.5 * bw);
+            } else if (complex_div(&x, cmake(0.5 * bw, 0.0), proto) != OK) {
+                return NOTOK;
+            }
+            CSN_COMPLEXDAT d;
+            complex_prod(&d, x, x);
+            d.re -= w0 * w0;
+            complex_sqrt(&d, d);
+            complex_add(&analog[0], x, d);
+            complex_sub(&analog[1], x, d);
+            n = 2;
+            break;
+        }
+        default:
+            return NOTOK;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (rt_bilinear(&out[i], analog[i], fs2) != OK) return NOTOK;
+    }
+    return OK;
+}
+
+// real coefficients of the monic (1 - u z^-1)(1 - v z^-1); v is u* or u, v both real
+static void rt_quad(double *c, CSN_COMPLEXDAT u, CSN_COMPLEXDAT v) {
+    CSN_COMPLEXDAT uv;
+    complex_prod(&uv, u, v);
+    c[0] = 1.0;
+    c[1] = -(u.re + v.re);
+    c[2] = uv.re;
+}
+
+// distance from v to the nearer of u and u*
+static double rt_pair_dist(CSN_COMPLEXDAT u, CSN_COMPLEXDAT v) {
+    return fmin(hypot(u.re - v.re, u.im - v.im), hypot(u.re - v.re, u.im + v.im));
+}
+
+static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYPE mode) {
+    CSN_FILTER_ARG_TO_PARAMS fp = {0};
+    args_to_filter_params(&fp, p, p->ftype, mode);
+    double fc = fp.fcut;
+    double nyquist = fp.fs * 0.5;
+    CSN_FILTER_TYPE ftype = p->ftype;
+    bool band = ftype == CSN_BP || ftype == CSN_BS;
+
+    double w0 = 0.0;
+    double bw = 0.0;
+    if (band) {
+        // centre and width in Hz: the band edges are fc -+ bw / 2
+        double f1 = fc - 0.5 * fp.bw;
+        double f2 = fc + 0.5 * fp.bw;
+        if (!isfinite(f1) || !isfinite(f2) || fp.bw <= 0.0 || f1 <= 0.0 || f2 >= nyquist) {
+            return csound->PerfError(csound, &p->h, "[csnarray] Invalid band: centre %g and width %g give [%g, %g], it must satisfy 0 < low < high < fs/2 (%g)", fc, fp.bw, f1, f2, nyquist);
+        }
+        double w1 = 2.0 * fp.fs * tan(CSN_PI * f1 / fp.fs);
+        double w2 = 2.0 * fp.fs * tan(CSN_PI * f2 / fp.fs);
+        w0 = sqrt(w1 * w2);
+        bw = w2 - w1;
+    } else {
+        if (!isfinite(fc) || fc <= 0.0 || fc >= nyquist) {
+            return csound->PerfError(csound, &p->h, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, nyquist);
+        }
+        w0 = 2.0 * fp.fs * tan(CSN_PI * fc / fp.fs);
+    }
+    if (!isfinite(w0) || !isfinite(bw)) {
+        return csound->PerfError(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
+    }
+
+    double fs2 = 2.0 * fp.fs;
+    // the digital image of s = j w0: the bandstop notch, the bandpass centre
+    CSN_COMPLEXDAT centre;
+    if (rt_bilinear(&centre, cmake(0.0, w0), fs2) != OK) {
+        return csound->PerfError(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
+    }
+    /* The zeros a section lacks: the transform's image of the prototype's
+       zeros at infinity, at -1 (LP), +1 (HP), -1 and +1 (BP) or the notch
+       (BS). The reference is where every section is normalised to unit gain. */
+    CSN_COMPLEXDAT fill[2];
+    CSN_COMPLEXDAT ref;
+    switch (ftype) {
+        case CSN_LP: fill[0] = fill[1] = cmake(-1.0, 0.0); ref = cmake(1.0, 0.0); break;
+        case CSN_HP: fill[0] = fill[1] = cmake(1.0, 0.0); ref = cmake(-1.0, 0.0); break;
+        case CSN_BP: fill[0] = cmake(-1.0, 0.0); fill[1] = cmake(1.0, 0.0); ref = centre; break;
+        default: fill[0] = centre; fill[1] = cconj(centre); ref = cmake(1.0, 0.0); break;
+    }
+
+    /* Sections in the order rt_iir_section_order left: the real pole of an
+       odd order first, then the pairs from the lowest to the highest Q. In a
+       band filter each prototype root yields two digital roots, so the real
+       pole fills one second-order section and each pair two. */
+    size_t order = p->ptap.size;
+    size_t n_pairs = order / 2;
+    size_t nz_pairs = p->ztap.size / 2;
+    const CSN_COMPLEXDAT *poles = (const CSN_COMPLEXDAT *) p->ptap.data;
+    const CSN_COMPLEXDAT *zeros = (const CSN_COMPLEXDAT *) p->ztap.data;
+    size_t n_sections = p->sos.shape[0];
+    double *sos = p->sos.data;
+    size_t section = 0;
+    CSN_COMPLEXDAT dp[2];
+    CSN_COMPLEXDAT dz[2];
+
+    if (order & 1U) {
+        if (rt_digital_roots(dp, poles[n_pairs], ftype, w0, bw, fs2) != OK) {
+            return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital %s pole", iir_family_name(mode));
+        }
+        double *row = sos + 6 * section++;
+        if (band) {
+            rt_quad(row + SOS_B0, fill[0], fill[1]);
+            rt_quad(row + SOS_A0, dp[0], dp[1]);
+        } else {
+            row[SOS_B0] = 1.0;
+            row[SOS_B1] = -fill[0].re;
+            row[SOS_B2] = 0.0;
+            row[SOS_A0] = 1.0;
+            row[SOS_A1] = -dp[0].re;
+            row[SOS_A2] = 0.0;
+        }
+    }
+    size_t per_pair = band ? 2 : 1;
+    for (size_t k = 0; k < n_pairs; k++) {
+        if (rt_digital_roots(dp, poles[k], ftype, w0, bw, fs2) != OK) {
+            return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital %s pole", iir_family_name(mode));
+        }
+        bool has_zero = k < nz_pairs;
+        if (has_zero) {
+            if (rt_digital_roots(dz, zeros[k], ftype, w0, bw, fs2) != OK) {
+                return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital %s zero", iir_family_name(mode));
+            }
+            // each band pole pair takes the nearer of the two zero pairs
+            if (band && rt_pair_dist(dp[0], dz[1]) + rt_pair_dist(dp[1], dz[0]) < rt_pair_dist(dp[0], dz[0]) + rt_pair_dist(dp[1], dz[1])) {
+                CSN_COMPLEXDAT tmp = dz[0];
+                dz[0] = dz[1];
+                dz[1] = tmp;
+            }
+        }
+        for (size_t j = 0; j < per_pair; j++) {
+            double *row = sos + 6 * section++;
+            if (has_zero) {
+                rt_quad(row + SOS_B0, dz[j], cconj(dz[j]));
+            } else {
+                rt_quad(row + SOS_B0, fill[0], fill[1]);
+            }
+            rt_quad(row + SOS_A0, dp[j], cconj(dp[j]));
+        }
+    }
+    if (section != n_sections) {
+        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: invalid %s section count", iir_family_name(mode));
+    }
+
+    /* Unit magnitude at the reference, section by section. The phases there
+       multiply to +-1; that sign and the prototype gain go on the first one. */
+    CSN_COMPLEXDAT q = cconj(ref);
+    CSN_COMPLEXDAT q2;
+    complex_prod(&q2, q, q);
+    CSN_COMPLEXDAT phase = cmake(1.0, 0.0);
+    for (size_t s = 0; s < n_sections; s++) {
+        double *row = sos + 6 * s;
+        CSN_COMPLEXDAT num = cmake(row[SOS_B0] + row[SOS_B1] * q.re + row[SOS_B2] * q2.re, row[SOS_B1] * q.im + row[SOS_B2] * q2.im);
+        CSN_COMPLEXDAT den = cmake(1.0 + row[SOS_A1] * q.re + row[SOS_A2] * q2.re, row[SOS_A1] * q.im + row[SOS_A2] * q2.im);
+        CSN_COMPLEXDAT response;
+        if (complex_div(&response, num, den) != OK) {
+            return csound->PerfError(csound, &p->h, "[csnarray] The %s section gain is not finite", iir_family_name(mode));
+        }
+        double magnitude = hypot(response.re, response.im);
+        double gain = 1.0 / magnitude;
+        if (!isfinite(gain)) {
+            return csound->PerfError(csound, &p->h, "[csnarray] The %s section gain is not finite", iir_family_name(mode));
+        }
+        complex_prod(&phase, phase, cscale(response, gain));
+        row[SOS_B0] *= gain;
+        row[SOS_B1] *= gain;
+        row[SOS_B2] *= gain;
+    }
+    double first = phase.re < 0.0 ? -p->ktap : p->ktap;
+    sos[SOS_B0] *= first;
+    sos[SOS_B1] *= first;
+    sos[SOS_B2] *= first;
+
+    uint32_t offset = 0;
+    uint32_t nsmps = audio_block(&p->h, p->sig_out, &offset);
+    double *state = (double *) p->filter_state.scratch;
+    for (uint32_t i = offset; i < nsmps; i++) {
+        double value = (double) p->sig_in[i];
+        for (size_t s = 0; s < n_sections; s++) {
+            const double *row = sos + 6 * s;
+            double *st = state + 2 * s;
+            double y = row[SOS_B0] * value + st[0];
+            st[0] = row[SOS_B1] * value - row[SOS_A1] * y + st[1];
+            st[1] = row[SOS_B2] * value - row[SOS_A2] * y;
+            value = y;
+        }
+        p->sig_out[i] = (MYFLT) value;
+    }
+
+    return OK;
+}
+
+// Butterworth band: order, centre, width, type, fs
+int32_t csnsig_rtbutter_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_BUTTER, 0.0, 0.0);
+    return rt_iir_init(csound, p, &spec, true, p->arg_b, p->arg_c);
+}
+
+int32_t csnsig_rtbutter_band_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return rt_iir_perf(csound, p, CSN_BUTTER);
+}
+
+// Chebyshev I: order, cutoff, rp, type, fs; band: order, centre, width, rp, type, fs
+int32_t csnsig_rtcheby1_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_CHEBY1, (double) *p->arg_a, 0.0);
+    return rt_iir_init(csound, p, &spec, false, p->arg_b, p->arg_c);
+}
+
+int32_t csnsig_rtcheby1_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_CHEBY1, (double) *p->arg_b, 0.0);
+    return rt_iir_init(csound, p, &spec, true, p->arg_c, p->arg_d);
+}
+
+int32_t csnsig_rtcheby1_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return rt_iir_perf(csound, p, CSN_CHEBY1);
+}
+
+int32_t csnsig_rtcheby1_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return csnsig_rtbutter_deinit(csound, p);
+}
+
+// Chebyshev II: order, cutoff, rs, type, fs; band: order, centre, width, rs, type, fs
+int32_t csnsig_rtcheby2_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_CHEBY2, 0.0, (double) *p->arg_a);
+    return rt_iir_init(csound, p, &spec, false, p->arg_b, p->arg_c);
+}
+
+int32_t csnsig_rtcheby2_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_CHEBY2, 0.0, (double) *p->arg_b);
+    return rt_iir_init(csound, p, &spec, true, p->arg_c, p->arg_d);
+}
+
+int32_t csnsig_rtcheby2_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return rt_iir_perf(csound, p, CSN_CHEBY2);
+}
+
+int32_t csnsig_rtcheby2_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return csnsig_rtbutter_deinit(csound, p);
+}
+
+// elliptic: order, cutoff, rp, rs, type, fs; band: order, centre, width, rp, rs, type, fs
+int32_t csnsig_rtellip_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_ELLIP, (double) *p->arg_a, (double) *p->arg_b);
+    return rt_iir_init(csound, p, &spec, false, p->arg_c, p->arg_d);
+}
+
+int32_t csnsig_rtellip_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    IIR_SPEC(CSN_ELLIP, (double) *p->arg_b, (double) *p->arg_c);
+    return rt_iir_init(csound, p, &spec, true, p->arg_d, p->arg_e);
+}
+
+int32_t csnsig_rtellip_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return rt_iir_perf(csound, p, CSN_ELLIP);
+}
+
+int32_t csnsig_rtellip_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
+    return csnsig_rtbutter_deinit(csound, p);
 }

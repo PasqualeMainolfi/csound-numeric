@@ -259,7 +259,9 @@ csound --opcode-dir=build example/csnsort.csd
   elliptic filters as sections or coefficients (`csnbuttersos`,
   `csncheby1sos`, `csncheby2sos`, `csnellipsos` and their `ba` forms), applied
   to arrays or audio with `csnsosfilter` and `csnlfilter`, or with an explicit
-  state through `csnzsosfilter` and `csnzlfilter`, the analog
+  state through `csnzsosfilter` and `csnzlfilter`, the same four families on
+  audio with a k-rate cutoff or band, redesigned every control period without
+  allocating (`csnrtbutter`, `csnrtcheby1`, `csnrtcheby2`, `csnrtellip`), the analog
   Butterworth prototype (`csnbuttap`), the transforms of a lowpass prototype to lowpass,
   highpass, bandpass and bandstop, on transfer-function coefficients or on
   zeros, poles and gain, the bilinear transform to a
@@ -726,6 +728,10 @@ quotient of a polynomial division and the transform a circular one.
 | `csnsosfilter` | `scipy.signal.sosfilt` | The same with second-order sections; `sos[:, 3]` must be 1. |
 | `csnzlfilter` | `scipy.signal.lfilter(..., zi=zi)` | Returns `(y, zf)`; `zi` in scipy's layout, the source's shape with the axis replaced by the order. |
 | `csnzsosfilter` | `scipy.signal.sosfilt(..., zi=zi)` | Returns `(y, zf)`; `zi` is `(n_sections, ...)` with the axis replaced by 2. |
+| `csnrtbutter` | `scipy.signal.butter(..., output='sos')` + `sosfilt` | Audio only, redesigned every control period from a k-rate cutoff, the state kept; a band is centre and width in Hz, `[fc - bw/2, fc + bw/2]`. |
+| `csnrtcheby1` | `scipy.signal.cheby1(..., output='sos')` + `sosfilt` | The same; `rp` after the cutoff (and width). |
+| `csnrtcheby2` | `scipy.signal.cheby2(..., output='sos')` + `sosfilt` | The same; `rs` after the cutoff (and width). |
+| `csnrtellip` | `scipy.signal.ellip(..., output='sos')` + `sosfilt` | The same; `rp`, `rs` after the cutoff (and width). |
 
 ### Special functions
 

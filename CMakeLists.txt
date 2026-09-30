@@ -202,6 +202,27 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/itime_regressions.csd")
         add_test(
+            NAME csnum_rtbutter_audio_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/rtbutter_audio_regression.csd")
+        add_test(
+            NAME csnum_rtiir_audio_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/rtiir_audio_regression.csd")
+        add_test(
+            NAME csnum_rtiir_band_audio_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/rtiir_band_audio_regression.csd")
+        add_test(
             NAME csnum_set_operations_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

@@ -301,7 +301,11 @@
         "csnlfilter",
         "csnsosfilter",
         "csnzlfilter",
-        "csnzsosfilter"
+        "csnzsosfilter",
+        "csnrtbutter",
+        "csnrtcheby1",
+        "csnrtcheby2",
+        "csnrtellip"
     ],
     "version": "0.1.11",
     "short_description": "Numpy-style opcodes for Csound",

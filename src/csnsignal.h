@@ -459,6 +459,70 @@ typedef struct {
     size_t n_sections;
 } CSN_ZFILTER_PASS;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    MYFLT *sig_out;
+    // inputs
+    MYFLT *sig_in;
+    MYFLT *order; // order
+    MYFLT *fcut;  // cutoff
+    MYFLT *arg_a; // in BP/BS:
+                  //    bw
+                  // in LP/HP:
+                  //    ripple in cheby1
+                  //    attenuation in cheby2
+                  //    ripple in ellip
+                  //    type in butter
+    MYFLT *arg_b; // in BP/BS:
+                  //    ripple in cheby1
+                  //    attenuation in cheby2
+                  //    ripple in ellip
+                  //    type in butter
+                  // in LP/HP:
+                  //    type in cheby1
+                  //    type in cheby2
+                  //    attenuation in ellip
+                  //    fs in butter
+    MYFLT *arg_c; // in BP/BS:
+                  //    type in cheby1
+                  //    type in cheby2
+                  //    attenuation in ellip
+                  //    fs in butter
+                  // in LP/HP:
+                  //    fs in cheby1
+                  //    fs in cheby2
+                  //    type in elli
+    MYFLT *arg_d; // in BP/BS:
+                  //    fs in cheby1
+                  //    fs in cheby2
+                  //    type in ellip
+                  // in LP/HP:
+                  //    fs in ellip
+    MYFLT *arg_e; // in BP/BS:
+                  //    fs in ellip
+    // private
+    CSN_ARRAY sos;
+    CSN_ARRAY bilinear_zeros; // csnrtbutter LP/HP only
+    CSN_ARRAY bilinear_poles; // csnrtbutter LP/HP only
+    CSN_ARRAY ztap;
+    CSN_ARRAY ptap;
+    double ktap;
+    CSN_SCRATCH filter_state;
+    CSN_FILTER_TYPE ftype;
+} CSN_FILTER_AUDIO_PERF; // use sos
+
+typedef struct {
+    size_t order;
+    double fcut;
+    double bw;
+    double ripple;
+    double attenuation;
+    double fs;
+    CSN_FILTER_TYPE type;
+    CSN_IIR_TYPE mode;
+} CSN_FILTER_ARG_TO_PARAMS;
+
 void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, double beta);
 
 int32_t csnarray_window_deinit(CSOUND *csound, CSN_WINDOW *p);
@@ -553,5 +617,24 @@ int32_t csnsig_zlfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p);
 int32_t csnsig_zsosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p);
 int32_t csnsig_zlfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p);
 int32_t csnsig_zsosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p);
+
+int32_t csnsig_rtbutter_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtbutter_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtbutter_band_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtbutter_noband_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtbutter_noband_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+
+int32_t csnsig_rtcheby1_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby1_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby1_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby1_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby2_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby2_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby2_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtcheby2_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtellip_deinit(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtellip_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtellip_band_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
+int32_t csnsig_rtellip_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p);
 
 #endif
