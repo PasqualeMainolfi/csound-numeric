@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.12] - 2026-09-30
 
 - Add real-time Butterworth, Chebyshev type I, Chebyshev type II and elliptic filters on audio whose cutoff follows a k-rate signal (*csnrtbutter*, *csnrtcheby1*, *csnrtcheby2*, *csnrtellip*). The analog prototype is designed once at init, as the `*sos` designs build it; every control period moves it to the current frequencies, pre-warped, maps it by the bilinear transform and rebuilds the second-order sections, then filters the block. Nothing is allocated at performance time. The arguments are those of the `*sos` designs, the cutoff at k-rate and the rest at init
 - Take a bandpass or bandstop as a k-rate centre and a k-rate width in Hz, the edges at `fc - bw/2` and `fc + bw/2`, in place of the two-cutoff array of the designs
