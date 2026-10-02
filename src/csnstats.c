@@ -400,7 +400,7 @@ static void accumulate_reductioncomp_scalar_helper(CSN_COMPLEXDAT *value, const 
 
 /* Validation only: the destination array is the caller's business, which is
    why no `out` parameter is handed back here. */
-static int32_t accumulate_reduction_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSNREF *out_handle, CSN_ARRAY **source_array, double in_axis, int32_t *out_axis, CSN_REDUCTION_MODE mode, MYFLT *out_value, COMPLEXDAT *out_complex_value) {
+static int32_t accumulate_reduction_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSNREF *out_handle, CSN_ARRAY **source_array, double in_axis, int32_t *out_axis, CSN_REDUCTION_MODE mode, cs_float *out_value, COMPLEXDAT *out_complex_value) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -448,7 +448,7 @@ static int32_t accumulate_reduction_body(CSOUND *csound, OPDS *perf_h, CSN_REGIS
     return OK;
 }
 
-static int32_t accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
+static int32_t accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, int32_t axis, cs_float *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
     if (destination != NULL) {
         CSN_AXIS_SLICE_ITER it;
         if (AXIS_ITER_SLICE_INIT(&it, source_arr, destination, (uint32_t) axis) != OK) return NOTOK;
@@ -469,7 +469,7 @@ static int32_t accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_AR
         if (source_arr->itype == CSN_REAL) {
             double value = 0;
             accumulate_reduction_scalar_helper(&value, source_arr, mode);
-            *out_value = (MYFLT) value;
+            *out_value = (cs_float) value;
         } else {
             CSN_COMPLEXDAT c = { 0.0, 0.0 };
             accumulate_reductioncomp_scalar_helper(&c, source_arr, mode);
@@ -484,7 +484,7 @@ static int32_t accumulation_reduction_assign_value(CSN_ARRAY *source_arr, CSN_AR
 /* axis == -1 collapses to out_value; any other axis builds an array through
    out_handle/out_array. Exactly one pair is non-NULL, which is what keeps the
    two opcode families distinct at the type level. */
-static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
+static int32_t csnarray_accumulate_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -529,7 +529,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_accumulate_reduction_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
+static int32_t csnarray_accumulate_reduction_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -584,7 +584,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data, const MYFLT *trig) {
+static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data, const cs_float *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     /* Only the axis forms own an output slot; the scalar ones write a number
        and leave owned_handle at 0. */
@@ -609,7 +609,7 @@ static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSNREF *
     if (res != OK) goto done;
 
     /* The axis forms answer from their own slot, the scalar ones from the
-       MYFLT they wrote last time; either way nothing has to be walked again
+       cs_float they wrote last time; either way nothing has to be walked again
        while the source and the axis hold still. */
     CSN_SLOT *out_slot = out_handle != NULL ? get_slot(reg, k_data->owned_handle) : NULL;
     if ((out_handle == NULL || out_slot != NULL)
@@ -1023,7 +1023,7 @@ static int32_t stdvar_calculation_scalar_helper(double *value, const CSN_ARRAY *
     return OK;
 }
 
-static int32_t stdvar_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSNREF *out_handle, const MYFLT *in_axis, int32_t *out_axis) {
+static int32_t stdvar_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSNREF *out_handle, const cs_float *in_axis, int32_t *out_axis) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -1046,7 +1046,7 @@ static int32_t stdvar_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_
     return OK;
 }
 
-static int32_t stdvar_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *destination, MYFLT *out_value, int32_t axis, CSN_REDUCTION_MODE mode) {
+static int32_t stdvar_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *destination, cs_float *out_value, int32_t axis, CSN_REDUCTION_MODE mode) {
     if (destination != NULL) {
         CSN_AXIS_SLICE_ITER it;
         if (AXIS_ITER_SLICE_INIT(&it, source_arr, destination, (uint32_t) axis) != OK) {
@@ -1066,12 +1066,12 @@ static int32_t stdvar_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *sour
         if (stdvar_calculation_scalar_helper(&value, source_arr, (uint32_t) size, mode) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Variance is undefined over an empty array (0 elements)");
         }
-        *out_value = (MYFLT) value;
+        *out_value = (cs_float) value;
     }
     return OK;
 }
 
-static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode) {
+static int32_t csnarray_stdvar_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, CSN_REDUCTION_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1112,7 +1112,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_stdvar_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data, const MYFLT *trig) {
+static int32_t csnarray_stdvar_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data, const cs_float *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     if (reg == NULL || (out_handle != NULL && k_data->owned_handle == 0)) {
         return csound->PerfError(csound, h, "[csnarray] k-rate output slot was not initialized");
@@ -1183,7 +1183,7 @@ done:
 /* std and var cannot borrow the accumulate init: the streaming fold has no
    RED_STD/RED_VAR case, so it would leave the gated scalar output at zero
    until the first trigger. */
-static int32_t csnarray_stdvar_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
+static int32_t csnarray_stdvar_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1197,7 +1197,7 @@ static int32_t csnarray_stdvar_k_init_helper(CSOUND *csound, const OPDS *h, CSNR
     CSN_ARRAY *source_arr = NULL;
     CSN_ARRAY *arr = NULL;
     int32_t axis = -1;
-    MYFLT in_axis = (MYFLT) axis_value;
+    cs_float in_axis = (cs_float) axis_value;
     res = stdvar_body(csound, NULL, reg, &source_arr, source_handle, out_handle, &in_axis, &axis);
     if (res != OK) goto done;
 
@@ -1323,7 +1323,7 @@ static size_t dispatch_argminmax_all_axes(const CSN_ARRAY *source_arr, CSN_REDUC
     return best_index;
 }
 
-static int32_t argminmax_body(CSOUND *csound, OPDS *perf_h, uint32_t source_handle, CSN_REGISTRY *reg, CSN_ARRAY **source_array, const MYFLT *axis_in, int32_t *out_axis) {
+static int32_t argminmax_body(CSOUND *csound, OPDS *perf_h, uint32_t source_handle, CSN_REGISTRY *reg, CSN_ARRAY **source_array, const cs_float *axis_in, int32_t *out_axis) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -1389,7 +1389,7 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = 0;
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     res = argminmax_body(csound, NULL, source_handle, reg, &source_arr, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -1445,7 +1445,7 @@ static int32_t argminmax_k_init_helper(CSOUND *csound, CSN_REDUCTION *p) {
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = 0;
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     res = argminmax_body(csound, NULL, source_handle, reg, &source_arr, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -1507,7 +1507,7 @@ static int32_t argminmax_k_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTIO
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = 0;
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     res = argminmax_body(csound, &p->h, source_handle, reg, &source_arr, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -1621,7 +1621,7 @@ static int32_t median_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination
     return OK;
 }
 
-static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value) {
+static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1651,7 +1651,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, const OPDS *h, CSNREF *src_r
 
     if (axis == -1) {
         memcpy(scratch, source_arr->data, sizeof(double) * run);
-        *out_value = (MYFLT) median_of_scratch(scratch, run);
+        *out_value = (cs_float) median_of_scratch(scratch, run);
         goto done;
     }
 
@@ -1687,7 +1687,7 @@ int32_t csnarray_median_scalar_k_deinit(CSOUND *csound, CSN_REDUCTION_SCALAR *p)
     return OK;
 }
 
-static int32_t csnarray_median_impl_k_init(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, CSN_SCRATCH *scratch_ref, K_DATA *k_data) {
+static int32_t csnarray_median_impl_k_init(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, CSN_SCRATCH *scratch_ref, K_DATA *k_data) {
     /* The scratch lives in the caller's opcode struct; these keep the buffer
        and its capacity moving together. */
     void **scratch = &scratch_ref->scratch;
@@ -1742,7 +1742,7 @@ static int32_t csnarray_median_impl_k_init(CSOUND *csound, OPDS *h, CSNREF *src_
         /* The trigger gates the perf pass, so the scalar form has to publish a
            real value at i-time rather than leaving the output at zero. */
         memcpy(scratch_temp, source_arr->data, sizeof(double) * run);
-        *out_value = (MYFLT) median_of_scratch(scratch_temp, run);
+        *out_value = (cs_float) median_of_scratch(scratch_temp, run);
     }
 
     k_data->prev_size = source_arr->size;
@@ -1755,7 +1755,7 @@ done:
     return res;
 }
 
-int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, K_DATA *k_data, CSN_SCRATCH *scratch_ref, const MYFLT *trig) {
+int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, K_DATA *k_data, CSN_SCRATCH *scratch_ref, const cs_float *trig) {
     /* The scratch lives in the caller's opcode struct. */
     void **scratch = &scratch_ref->scratch;
     CSN_REGISTRY *reg = k_data->registry;
@@ -1806,8 +1806,8 @@ int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSNREF *src_ref, double 
     CSN_ARRAY *arr = NULL;
     if (axis == -1) {
         memcpy(*scratch, source_arr->data, sizeof(double) * runs_size);
-        *out_value = (MYFLT) median_of_scratch(*scratch, runs_size);
-        /* The scalar form's result lives in a MYFLT nothing else can reach, so
+        *out_value = (cs_float) median_of_scratch(*scratch, runs_size);
+        /* The scalar form's result lives in a cs_float nothing else can reach, so
            there is no output generation to remember. */
         PUBLISH_DERIVED_RESULT(k_data, source_handle, source_arr, NULL);
         goto done;
@@ -2096,7 +2096,7 @@ void sliding_median_slice(double *dst, const double *src, double *scratch, size_
     }
 }
 
-static int32_t movstats_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSN_MOVSTATS_MODE mode, const MYFLT *in_axis, int32_t *out_axis) {
+static int32_t movstats_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSN_MOVSTATS_MODE mode, const cs_float *in_axis, int32_t *out_axis) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -2213,7 +2213,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     res = movstats_body(csound, NULL, reg, &source_arr, source_handle, mode, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -2274,7 +2274,7 @@ static int32_t csnarray_movstats_k_init_helper(CSOUND *csound, CSN_MOVSTATS *p, 
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = movstats_body(csound, NULL, reg, &source_arr, source_handle, mode, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -2341,7 +2341,7 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = movstats_body(csound, &p->h, reg, &source_arr, source_handle, mode, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -2516,7 +2516,7 @@ static int32_t ensure_movstats_source_copy(CSOUND *csound, OPDS *perf_h, CSN_SCR
     return csn_scratch_reserve(csound, perf_h, rt_locked, scratch, source_arr->size * (size_t) source_arr->itype, sizeof(double));
 }
 
-static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, const MYFLT *in_axis, int32_t *out_axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
+static int32_t movstats_in_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, const cs_float *in_axis, int32_t *out_axis, size_t winsize, CSN_MOVSTATS_MODE mode) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -2614,7 +2614,7 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, axis_in, &axis, winsize, mode);
     if (res != OK) goto done;
 
@@ -2688,7 +2688,7 @@ static int32_t csnarray_movstats_in_k_init_helper(CSOUND *csound, CSN_MOVSTATS_I
     if (winsize != 0) {
         CSN_ARRAY *source_arr = NULL;
         int32_t axis = -1;
-        const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+        const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
         res = movstats_in_body(csound, NULL, reg, source_handle, &source_arr, axis_in, &axis, winsize, mode);
     }
 
@@ -2718,7 +2718,7 @@ static int32_t csnarray_movstats_in_k_helper(CSOUND *csound, CSN_MOVSTATS_IN *p,
 
     CSN_ARRAY *source_arr = NULL;
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = movstats_in_body(csound, &p->h, reg, source_handle, &source_arr, axis_in, &axis, winsize, mode);
     if (res != OK) goto done;
 
@@ -2848,7 +2848,7 @@ static void accumulate_perquant_reduction_scalar_helper(double *value, double q,
     dispatch_value_for_perquant_reduction(value, buffer, source_arr->size, is_percentile, q);
 }
 
-static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, bool is_percentile, double q) {
+static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, bool is_percentile, double q) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2946,7 +2946,7 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, const OPDS *h, CSNREF
         }
         double value = 0;
         accumulate_perquant_reduction_scalar_helper(&value, q, buffer, source_arr, is_percentile);
-        *out_value = (MYFLT) value;
+        *out_value = (cs_float) value;
     }
 
 done:
@@ -3058,7 +3058,7 @@ int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p) {
 
 /* The scalar forms own no output slot, so they carry a bare registry instead of
    a K_DATA: everything that depends on a slot is guarded on k_data. */
-static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, MYFLT *out_value, bool is_percentile, double q, K_DATA *k_data, CSN_REGISTRY *registry, const MYFLT *trig, CSN_SCRATCH *buffer_ref) {
+static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *src_ref, double axis_value, CSNREF *out_handle, CSN_ARRAY **out_array, cs_float *out_value, bool is_percentile, double q, K_DATA *k_data, CSN_REGISTRY *registry, const cs_float *trig, CSN_SCRATCH *buffer_ref) {
     /* The scratch lives in the caller's opcode struct. */
     void **buffer = &buffer_ref->scratch;
     CSN_REGISTRY *reg = k_data != NULL ? k_data->registry : registry;
@@ -3189,7 +3189,7 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSNREF *sr
 
         double value = 0;
         accumulate_perquant_reduction_scalar_helper(&value, q, *buffer, source_arr, is_percentile);
-        *out_value = (MYFLT) value;
+        *out_value = (cs_float) value;
     }
 
 done:
@@ -3264,7 +3264,7 @@ static int32_t foreach_check_callback(CSOUND *csound, OPDS *perf_h, const OPCODE
         return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnforeach: callback '%s' must take one argument and return one, it takes %d and returns %d", name, (int) t->inArgCount, (int) t->outArgCount);
     }
 
-    /* Anything but k would be written through as a MYFLT: an i or c cell would
+    /* Anything but k would be written through as a cs_float: an i or c cell would
        take the element value at perf time (a constant is shared engine-wide),
        and a struct cell such as :CsnArr; would have its payload overwritten. */
     if (!IS_KSIG_ARG(fn->inargp[0])) {
@@ -3466,7 +3466,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_next_perf_helper(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *registry, const ARRAY_VERSION *source_version, CSNREF *source_h, CSN_SCRATCH *scratch, const MYFLT *trig, MYFLT *state, MYFLT *out_real, COMPLEXDAT *out_complex, double *last_value_real, CSN_COMPLEXDAT *last_value_complex, MYFLT *reset) {
+static int32_t csnarray_next_perf_helper(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *registry, const ARRAY_VERSION *source_version, CSNREF *source_h, CSN_SCRATCH *scratch, const cs_float *trig, cs_float *state, cs_float *out_real, COMPLEXDAT *out_complex, double *last_value_real, CSN_COMPLEXDAT *last_value_complex, cs_float *reset) {
     CSN_REGISTRY *reg = registry;
     CHECK_REGISTRY(csound, perf_h, reg);
 
@@ -3486,10 +3486,10 @@ static int32_t csnarray_next_perf_helper(CSOUND *csound, OPDS *perf_h, CSN_REGIS
 
     if (scratch->reader >= scratch->current_size) {
         if (out_real != NULL) {
-            *out_real = (MYFLT) *last_value_real;
+            *out_real = (cs_float) *last_value_real;
         } else {
-            out_complex->real = (MYFLT) last_value_complex->re;
-            out_complex->imag = (MYFLT) last_value_complex->im;
+            out_complex->real = (cs_float) last_value_complex->re;
+            out_complex->imag = (cs_float) last_value_complex->im;
             out_complex->isPolar = 0;
         }
         return OK;
@@ -3521,12 +3521,12 @@ static int32_t csnarray_next_perf_helper(CSOUND *csound, OPDS *perf_h, CSN_REGIS
     double *scratch_internal = (double *) scratch->scratch;
     if (out_real != NULL) {
         *last_value_real = scratch_internal[scratch->reader];
-        *out_real = (MYFLT) *last_value_real;
+        *out_real = (cs_float) *last_value_real;
     } else {
         last_value_complex->re = scratch_internal[scratch->reader * 2];
         last_value_complex->im = scratch_internal[scratch->reader * 2 + 1];
-        out_complex->real = (MYFLT) last_value_complex->re;
-        out_complex->imag = (MYFLT) last_value_complex->im;
+        out_complex->real = (cs_float) last_value_complex->re;
+        out_complex->imag = (cs_float) last_value_complex->im;
         out_complex->isPolar = 0;
     }
 

@@ -715,7 +715,7 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
     size_t mapped_zeros = (mode == LP2BP_ZPK || mode == LP2BS_ZPK) ? 2U * zeros_size : zeros_size;
     fill_extra_zeros(zeros_out, mapped_zeros, arg_b, rel_degree, mode);
 
-    *p->out_gain = (MYFLT) get_zpk_gain(zeros_arr, poles_arr, arg_b, bw, gain, rel_degree, mode);
+    *p->out_gain = (cs_float) get_zpk_gain(zeros_arr, poles_arr, arg_b, bw, gain, rel_degree, mode);
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -861,7 +861,7 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
         if (res != OK) goto done;
     }
 
-    *p->out_gain = (MYFLT) gain;
+    *p->out_gain = (cs_float) gain;
 
 done:
     if (b_trim.data != NULL) csound->Free(csound, b_trim.data);
@@ -2156,7 +2156,7 @@ static int32_t iir_design_and_publish(CSOUND *csound, OPDS *h, CSNREF *handle_a,
     return res;
 }
 
-static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, const MYFLT *arg_order, const ARRAYDAT *fcut, const MYFLT *arg_type, const MYFLT *arg_fs, bool is_sos) {
+static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const ARRAYDAT *fcut, const cs_float *arg_type, const cs_float *arg_fs, bool is_sos) {
     size_t order = 0;
     double fs = (double) *arg_fs;
     if (iir_check_common(csound, spec, (double) *arg_order, (double) *arg_type, fs, true, &order) != OK) return NOTOK;
@@ -2178,7 +2178,7 @@ static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF
     return iir_design_and_publish(csound, h, handle_a, handle_b, array_a, array_b, spec, order, pf, sqrt(w1 * w2), w2 - w1, fs, is_sos);
 }
 
-static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, const MYFLT *arg_order, const MYFLT *fcut, const MYFLT *arg_type, const MYFLT *arg_fs, bool is_sos) {
+static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const cs_float *fcut, const cs_float *arg_type, const cs_float *arg_fs, bool is_sos) {
     size_t order = 0;
     double fs = (double) *arg_fs;
     if (iir_check_common(csound, spec, (double) *arg_order, (double) *arg_type, fs, false, &order) != OK) return NOTOK;
@@ -2463,7 +2463,7 @@ static bool coef_array_is_complex(const CSN_ARRAY *buf) {
 
 /* i-rate, k-rate and audio share the axis handling: omitted means the last
    axis, anything else must name an axis of the source */
-static int32_t filter_axis(CSOUND *csound, const MYFLT *axis_in, uint32_t ndim, CSN_AXIS_SPEC *spec) {
+static int32_t filter_axis(CSOUND *csound, const cs_float *axis_in, uint32_t ndim, CSN_AXIS_SPEC *spec) {
     *spec = csn_normalize_axis(axis_in, ndim, CSN_AXIS_DEFAULT_LAST);
     if (spec->kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -2553,10 +2553,10 @@ int32_t csnsig_lfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO *p) {
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
     uint32_t nsmps = CS_KSMPS;
-    if (UNLIKELY(offset)) memset(p->sig_out, 0, offset * sizeof(MYFLT));
+    if (UNLIKELY(offset)) memset(p->sig_out, 0, offset * sizeof(cs_float));
     if (UNLIKELY(early)) {
         nsmps -= early;
-        memset(&p->sig_out[nsmps], 0, early * sizeof(MYFLT));
+        memset(&p->sig_out[nsmps], 0, early * sizeof(cs_float));
     }
 
     const CSN_COMPLEXDAT *b = (const CSN_COMPLEXDAT *) p->b_buffer.data;
@@ -2569,7 +2569,7 @@ int32_t csnsig_lfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO *p) {
         for (size_t j = 0; j < order; j++) {
             z[j] = b[j + 1].re * xn - a[j + 1].re * yn + (j + 1 < order ? z[j + 1] : 0.0);
         }
-        p->sig_out[i] = (MYFLT) yn;
+        p->sig_out[i] = (cs_float) yn;
     }
     return OK;
 }
@@ -2630,10 +2630,10 @@ int32_t csnsig_sosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO *p) {
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
     uint32_t nsmps = CS_KSMPS;
-    if (UNLIKELY(offset)) memset(p->sig_out, 0, offset * sizeof(MYFLT));
+    if (UNLIKELY(offset)) memset(p->sig_out, 0, offset * sizeof(cs_float));
     if (UNLIKELY(early)) {
         nsmps -= early;
-        memset(&p->sig_out[nsmps], 0, early * sizeof(MYFLT));
+        memset(&p->sig_out[nsmps], 0, early * sizeof(cs_float));
     }
 
     const CSN_COMPLEXDAT *sos = (const CSN_COMPLEXDAT *) p->sos_buffer.data;
@@ -2649,7 +2649,7 @@ int32_t csnsig_sosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO *p) {
             st[1] = sec[SOS_B2].re * v - sec[SOS_A2].re * y;
             v = y;
         }
-        p->sig_out[i] = (MYFLT) v;
+        p->sig_out[i] = (cs_float) v;
     }
     return OK;
 }
@@ -2671,7 +2671,7 @@ int32_t csnsig_sosfilter_arr_deinit(CSOUND *csound, CSN_SOSFILTER *p) {
 
 /* Init of the array forms, i-rate and k-rate: coefficients, axis, output
    array, and a zeroed state for every slice. */
-static int32_t lfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER *p, const MYFLT *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **b_out, CSN_ARRAY **a_out) {
+static int32_t lfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **b_out, CSN_ARRAY **a_out) {
     const char *err = NULL;
     CSN_SLOT *slot_b = get_slot(reg, p->b->id);
     CSN_SLOT *slot_a = get_slot(reg, p->a->id);
@@ -2712,7 +2712,7 @@ static int32_t lfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER *
     return OK;
 }
 
-static int32_t sosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER *p, const MYFLT *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **sos_out) {
+static int32_t sosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **sos_out) {
     const char *err = NULL;
     CSN_SLOT *slot_sos = get_slot(reg, p->sos->id);
     CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
@@ -2753,7 +2753,7 @@ static int32_t sosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILT
 int32_t csnsig_lfilter_arr(CSOUND *csound, CSN_LFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 4 ? p->opt_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 4 ? p->opt_a : NULL;
     CSN_ARRAY *source_arr = NULL;
     CSN_ARRAY *b_arr = NULL;
     CSN_ARRAY *a_arr = NULL;
@@ -2773,7 +2773,7 @@ int32_t csnsig_lfilter_arr(CSOUND *csound, CSN_LFILTER *p) {
 int32_t csnsig_sosfilter_arr(CSOUND *csound, CSN_SOSFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 3 ? p->opt_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 3 ? p->opt_a : NULL;
     CSN_ARRAY *source_arr = NULL;
     CSN_ARRAY *sos_arr = NULL;
 
@@ -2795,7 +2795,7 @@ int32_t csnsig_sosfilter_arr(CSOUND *csound, CSN_SOSFILTER *p) {
 int32_t csnsig_lfilter_arr_k_init(CSOUND *csound, CSN_LFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 5 ? p->opt_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 5 ? p->opt_b : NULL;
     CSN_ARRAY *source_arr = NULL;
     CSN_ARRAY *b_arr = NULL;
     CSN_ARRAY *a_arr = NULL;
@@ -2817,7 +2817,7 @@ int32_t csnsig_lfilter_arr_k_init(CSOUND *csound, CSN_LFILTER *p) {
 int32_t csnsig_sosfilter_arr_k_init(CSOUND *csound, CSN_SOSFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 4 ? p->opt_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 4 ? p->opt_b : NULL;
     CSN_ARRAY *source_arr = NULL;
     CSN_ARRAY *sos_arr = NULL;
 
@@ -3082,7 +3082,7 @@ int32_t csnsig_zsosfilter_arr_deinit(CSOUND *csound, CSN_SOSFILTER_Z *p) {
 
 /* Shared init of the zi forms: coefficients, axis, zi checked and loaded into
    the state buffer, y and zf created. Nothing is filtered here. */
-static int32_t zlfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER_Z *p, const MYFLT *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **zi_out, CSN_ARRAY **b_out, CSN_ARRAY **a_out) {
+static int32_t zlfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER_Z *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **zi_out, CSN_ARRAY **b_out, CSN_ARRAY **a_out) {
     const char *err = NULL;
     uint32_t hb = p->b->id, ha = p->a->id, hx = p->source_handle_a->id, hz = p->source_handle_b->id;
     CSN_SLOT *slot_b = get_slot(reg, hb);
@@ -3134,7 +3134,7 @@ static int32_t zlfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER_
     return OK;
 }
 
-static int32_t zsosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER_Z *p, const MYFLT *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **zi_out, CSN_ARRAY **sos_out) {
+static int32_t zsosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER_Z *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **zi_out, CSN_ARRAY **sos_out) {
     const char *err = NULL;
     uint32_t hs = p->sos->id, hx = p->source_handle_a->id, hz = p->source_handle_b->id;
     CSN_SLOT *slot_sos = get_slot(reg, hs);
@@ -3187,7 +3187,7 @@ static int32_t zsosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFIL
 int32_t csnsig_zlfilter_arr(CSOUND *csound, CSN_LFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 5 ? p->opt_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 5 ? p->opt_a : NULL;
     CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *b_arr = NULL, *a_arr = NULL;
 
     csound->LockMutex(reg->mutex);
@@ -3206,7 +3206,7 @@ int32_t csnsig_zlfilter_arr(CSOUND *csound, CSN_LFILTER_Z *p) {
 int32_t csnsig_zsosfilter_arr(CSOUND *csound, CSN_SOSFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 4 ? p->opt_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 4 ? p->opt_a : NULL;
     CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *sos_arr = NULL;
 
     csound->LockMutex(reg->mutex);
@@ -3225,7 +3225,7 @@ int32_t csnsig_zsosfilter_arr(CSOUND *csound, CSN_SOSFILTER_Z *p) {
 int32_t csnsig_zlfilter_arr_k_init(CSOUND *csound, CSN_LFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 6 ? p->opt_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 6 ? p->opt_b : NULL;
     CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *b_arr = NULL, *a_arr = NULL;
 
     csound->LockMutex(reg->mutex);
@@ -3248,7 +3248,7 @@ int32_t csnsig_zlfilter_arr_k_init(CSOUND *csound, CSN_LFILTER_Z *p) {
 int32_t csnsig_zsosfilter_arr_k_init(CSOUND *csound, CSN_SOSFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    const MYFLT *axis_in = p->INOCOUNT == 5 ? p->opt_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT == 5 ? p->opt_b : NULL;
     CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *sos_arr = NULL;
 
     csound->LockMutex(reg->mutex);
@@ -3574,14 +3574,14 @@ static int32_t audio_store_zf(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, uint32
     return OK;
 }
 
-static uint32_t audio_block(OPDS *h, MYFLT *out, uint32_t *offset) {
+static uint32_t audio_block(OPDS *h, cs_float *out, uint32_t *offset) {
     *offset = h->insdshead->ksmps_offset;
     uint32_t early = h->insdshead->ksmps_no_end;
     uint32_t nsmps = h->insdshead->ksmps;
-    if (UNLIKELY(*offset)) memset(out, 0, *offset * sizeof(MYFLT));
+    if (UNLIKELY(*offset)) memset(out, 0, *offset * sizeof(cs_float));
     if (UNLIKELY(early)) {
         nsmps -= early;
-        memset(&out[nsmps], 0, early * sizeof(MYFLT));
+        memset(&out[nsmps], 0, early * sizeof(cs_float));
     }
     return nsmps;
 }
@@ -3619,7 +3619,7 @@ int32_t csnsig_zlfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
         for (size_t j = 0; j < order; j++) {
             z[j] = b[j + 1].re * x - a[j + 1].re * y + (j + 1 < order ? z[j + 1] : 0.0);
         }
-        p->sig_out[i] = (MYFLT) y;
+        p->sig_out[i] = (cs_float) y;
     }
 
     csound->LockMutex(reg->mutex);
@@ -3665,7 +3665,7 @@ int32_t csnsig_zsosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
             st[1] = sec[SOS_B2].re * v - sec[SOS_A2].re * y;
             v = y;
         }
-        p->sig_out[i] = (MYFLT) v;
+        p->sig_out[i] = (cs_float) v;
     }
 
     csound->LockMutex(reg->mutex);
@@ -3719,7 +3719,7 @@ static int32_t allocate_iir_filter_perf(CSOUND *csound, CSN_ARRAY *sos, CSN_ARRA
     return res;
 }
 
-static int32_t iir_init_perf_helper(CSOUND *csound, CSN_ARRAY *sos, CSN_ARRAY *ztap, CSN_ARRAY *ptap, CSN_SCRATCH *state, const CSN_IIR_SPEC *spec, const MYFLT *arg_order, const MYFLT *arg_type, const MYFLT *arg_fs, bool band, double *ktap, CSN_FILTER_TYPE *ftype_out) {
+static int32_t iir_init_perf_helper(CSOUND *csound, CSN_ARRAY *sos, CSN_ARRAY *ztap, CSN_ARRAY *ptap, CSN_SCRATCH *state, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const cs_float *arg_type, const cs_float *arg_fs, bool band, double *ktap, CSN_FILTER_TYPE *ftype_out) {
     size_t order = 0;
     double fs = (double) *arg_fs;
     if (iir_check_common(csound, spec, (double) *arg_order, (double) *arg_type, fs, band, &order) != OK) return NOTOK;
@@ -3895,7 +3895,7 @@ int32_t csnsig_rtbutter_noband_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
             st[1] = row[SOS_B2] * value - row[SOS_A2] * y;
             value = y;
         }
-        p->sig_out[i] = (MYFLT) value;
+        p->sig_out[i] = (cs_float) value;
     }
 
     return OK;
@@ -4008,7 +4008,7 @@ done:
     return res;
 }
 
-static int32_t rt_iir_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, const CSN_IIR_SPEC *spec, bool band, const MYFLT *arg_type, const MYFLT *arg_fs) {
+static int32_t rt_iir_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, const CSN_IIR_SPEC *spec, bool band, const cs_float *arg_type, const cs_float *arg_fs) {
     csnsig_rtbutter_deinit(csound, p);
     int32_t res = iir_init_perf_helper(csound, &p->sos, &p->ztap, &p->ptap, &p->filter_state, spec, p->order, arg_type, arg_fs, band, &p->ktap, &p->ftype);
     if (res != OK) return res;
@@ -4241,7 +4241,7 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
             st[1] = row[SOS_B2] * value - row[SOS_A2] * y;
             value = y;
         }
-        p->sig_out[i] = (MYFLT) value;
+        p->sig_out[i] = (cs_float) value;
     }
 
     return OK;

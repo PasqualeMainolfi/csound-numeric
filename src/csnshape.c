@@ -1001,7 +1001,7 @@ static int32_t flip_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, doub
     return OK;
 }
 
-static int32_t csnarray_flip_init_helper(CSOUND *csound, CSN_FLIP_ROLL *p, const MYFLT *axis_in) {
+static int32_t csnarray_flip_init_helper(CSOUND *csound, CSN_FLIP_ROLL *p, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1051,12 +1051,12 @@ done:
 }
 
 int32_t csnarray_flip(CSOUND *csound, CSN_FLIP_ROLL *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->param_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->param_a : NULL;
     return csnarray_flip_init_helper(csound, p, axis_in);
 }
 
 int32_t csnarray_flip_k_init(CSOUND *csound, CSN_FLIP_ROLL *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
     return csnarray_flip_init_helper(csound, p, axis_in);
 }
 
@@ -1082,7 +1082,7 @@ int32_t csnarray_flip_k(CSOUND *csound, CSN_FLIP_ROLL *p) {
     CSN_ARRAY *arr = slot->array;
     uint32_t ndim = arr->ndim;
 
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, ndim, CSN_AXIS_DEFAULT_ALL);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -1138,7 +1138,7 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 
     uint32_t ndim = arr->ndim;
 
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->param_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->param_a : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, ndim, CSN_AXIS_DEFAULT_ALL);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -1196,7 +1196,7 @@ int32_t csnarray_flip_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     CSN_ARRAY *arr = slot->array;
     uint32_t ndim = arr->ndim;
 
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, ndim, CSN_AXIS_DEFAULT_ALL);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -1257,7 +1257,7 @@ int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
     uint32_t ndim = arr->ndim;
     ITEM_TYPE itype = arr->itype;
 
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->param_b : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, ndim, CSN_AXIS_DEFAULT_ALL);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;

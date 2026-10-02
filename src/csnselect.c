@@ -219,13 +219,13 @@ done:
 /* csnargwhere takes a mask array before the trigger; csnargunique, csnargnonzero
    and csnargisnan do not, so on those the trigger is bound one slot earlier,
    into the data_handle pointer. The declared arity tells them apart. */
-static inline const MYFLT *argwhere_trig(const OPDS *h, CSNREF *data_handle, MYFLT *trig) {
-    return h->optext->t.inArgCount > 2 ? trig : (const MYFLT *) data_handle;
+static inline const cs_float *argwhere_trig(const OPDS *h, CSNREF *data_handle, cs_float *trig) {
+    return h->optext->t.inArgCount > 2 ? trig : (const cs_float *) data_handle;
 }
 
 /* Same story for the comparison family: csnunique has no compared value, so its
    trigger lands in cmp_value. */
-static inline const MYFLT *compare_trig(const OPDS *h, MYFLT *cmp_value, MYFLT *trig) {
+static inline const cs_float *compare_trig(const OPDS *h, cs_float *cmp_value, cs_float *trig) {
     return h->optext->t.inArgCount > 2 ? trig : cmp_value;
 }
 
@@ -1265,7 +1265,7 @@ static int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_C
         ? count_elements_from_value(source_arr, 0.0, mode)
         : count_elements_from_value(source_arr, (double) *p->arg_a, mode);
 
-    *p->value = (MYFLT) count;
+    *p->value = (cs_float) count;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -1286,7 +1286,7 @@ static int32_t csnarray_compare_count_k_helper(CSOUND *csound, CSN_COUNT *p, CSN
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
 
-    const MYFLT *trig = mode == EQUAL ? p->arg_b : p->arg_a;
+    const cs_float *trig = mode == EQUAL ? p->arg_b : p->arg_a;
     CHECK_KTRIG(trig);
 
     csound->LockMutex(reg->mutex);
@@ -1314,7 +1314,7 @@ static int32_t csnarray_compare_count_k_helper(CSOUND *csound, CSN_COUNT *p, CSN
         ? count_elements_from_value(source_arr, 0.0, mode)
         : count_elements_from_value(source_arr, cmp_key, mode);
 
-    *p->value = (MYFLT) count;
+    *p->value = (cs_float) count;
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, cmp_key, 0.0);
 
     csound->UnlockMutex(reg->mutex);
@@ -1490,7 +1490,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_where_k_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar, K_DATA *k_data, bool *is_published, CSN_THREE_VERSION_K_STATE *versions, const MYFLT *trig) {
+static int32_t csnarray_where_k_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, CSN_ARRAY **p_array, CSNREF *handle, double *false_scalar, K_DATA *k_data, bool *is_published, CSN_THREE_VERSION_K_STATE *versions, const cs_float *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REG_HANDLE(csound, h, reg, k_data->owned_handle);
 
@@ -1657,7 +1657,7 @@ static int32_t csnarray_where_k_in_init_helper(CSOUND *csound, CSNREF *source_ha
     return OK;
 }
 
-static int32_t csnarray_where_k_in_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar, CSN_REGISTRY *registry, bool *is_published, CSN_THREE_VERSION_K_STATE *versions, const MYFLT *trig, double *prev_scalar_false) {
+static int32_t csnarray_where_k_in_helper(CSOUND *csound, OPDS *h, CSNREF *source_handle, CSNREF *true_handle, CSNREF *false_handle, double *false_scalar, CSN_REGISTRY *registry, bool *is_published, CSN_THREE_VERSION_K_STATE *versions, const cs_float *trig, double *prev_scalar_false) {
     CSN_REGISTRY *reg = registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -1729,7 +1729,7 @@ int32_t csnarray_where_in_hs_k(CSOUND *csound, CSN_WHERE_HS_IN *p) {
     return csnarray_where_k_in_helper(csound, &p->h, p->source_handle, p->source_handle_true, NULL, &scalar_false, p->registry, &p->is_published, &p->versions, p->trig, &p->prev_scalar_false);
 }
 
-static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **mask, CSNREF *shandle, CSNREF *mhandle, const MYFLT *axis_in, int32_t *axis_out) {
+static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **mask, CSNREF *shandle, CSNREF *mhandle, const cs_float *axis_in, int32_t *axis_out) {
     uint32_t source_handle = shandle->id;
     uint32_t mask_handle = mhandle->id;
 
@@ -1804,7 +1804,7 @@ int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
 
     CSNREF *source_handle = p->source_handle;
     CSNREF *mask_handle = p->source_handle_true;
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->source_scalar_false : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->source_scalar_false : NULL;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -1869,7 +1869,7 @@ int32_t csnarray_compress_k_init(CSOUND *csound, CSN_WHERE_HS *p) {
     CSN_ARRAY *source_arr = NULL;
     CSN_ARRAY *mask_arr = NULL;
     int32_t axis_out = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = compress_body(csound, NULL, reg, &source_arr, &mask_arr, p->source_handle, p->source_handle_true, axis_in, &axis_out);
     if (res != OK) goto done;
 
@@ -1922,7 +1922,7 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
 
     CSNREF *source_handle = p->source_handle;
     CSNREF *mask_handle = p->source_handle_true;
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
 
     int32_t res = OK;
     const char *err = NULL;
@@ -3107,7 +3107,7 @@ int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p)
 
     size_t index = 0;
     binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, is_right_side);
-    *p->index = (MYFLT) index;
+    *p->index = (cs_float) index;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -3142,7 +3142,7 @@ int32_t csnarray_searchsorted_scalar_k_init(CSOUND *csound, CSN_SEARCHSORTED_SCA
     double wanted_in = (double) *p->value;
     size_t index = 0;
     binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, p->is_right_search_side);
-    *p->index = (MYFLT) index;
+    *p->index = (cs_float) index;
 
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, wanted_in, 0.0);
     p->k_data.registry = reg;
@@ -3257,14 +3257,14 @@ int32_t csnarray_searchsorted_scalar_k(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
         bool is_same_wanted = p->k_data.prev_scalar_param == wanted_in;
         if (is_same_source && is_same_wanted) {
-            *p->index = (MYFLT) p->k_data.prev_axis_u;
+            *p->index = (cs_float) p->k_data.prev_axis_u;
             goto done;
         }
     }
 
     size_t index = 0;
     binary_search(&index, NULL, 0, source_arr->data, wanted_in, source_arr->size, p->is_right_search_side);
-    *p->index = (MYFLT) index;
+    *p->index = (cs_float) index;
 
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_slot->array, 0, NULL, NULL, wanted_in, 0.0);
     p->k_data.prev_axis_u = (uint32_t) index;

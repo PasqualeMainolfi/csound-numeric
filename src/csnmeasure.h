@@ -39,7 +39,7 @@ typedef struct {
      */
     CSNREF *source_handle_b; // S must be n x m [[s_0, s_1, ..., s_n - 1], ...],
     CSNREF *source_handle_c; // alpha must be n x m [[a_0, a_1, ..., a_n - 1], ...],
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     CSN_THREE_VERSION_K_STATE versions;
@@ -50,12 +50,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
-    MYFLT *volume;
+    cs_float *volume;
     CSNREF *source_handle_a; // S 1D
     CSNREF *source_handle_b; // alpha 1D
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     CSN_THREE_VERSION_K_STATE versions;
@@ -71,7 +71,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a; // volume m3 must be 1D
     CSNREF *source_handle_b; // T60 target must be 1D
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -83,9 +83,9 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *arg_a;
+    cs_float *arg_a;
     CSNREF *source_handle; // T60 target
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -98,8 +98,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *arg_b; // T60 target
-    MYFLT *trig;
+    cs_float *arg_b; // T60 target
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -113,8 +113,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a; // room must be n x 3 [[L, W, H], ...]
     CSNREF *source_handle_b; // mode index must be n x 3 [[p, q, r], ...]
-    MYFLT *sound_speed;
-    MYFLT *trig;
+    cs_float *sound_speed;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -124,12 +124,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle_a; // room must be n x 3 [[L, W, H], ...]
     CSNREF *source_handle_b; // mode index [p, q, r]
-    MYFLT *sound_speed;
-    MYFLT *trig;
+    cs_float *sound_speed;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     double prev_fac;
@@ -141,8 +141,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle; // times in millis or seconds
-    MYFLT *sr;
-    MYFLT *trig;
+    cs_float *sr;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;

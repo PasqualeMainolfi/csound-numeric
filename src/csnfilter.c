@@ -97,7 +97,7 @@ int32_t csnarray_medfilt_deinit(CSOUND *csound, CSN_MEDFILT *p) {
     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
-static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, const MYFLT *axis_in) {
+static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -172,12 +172,12 @@ done:
 }
 
 int32_t csnarray_medfilt1d(CSOUND *csound, CSN_MEDFILT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     return csnarray_medfilt1d_init_helper(csound, p, axis_in);
 }
 
 int32_t csnarray_medfilt1d_k_init(CSOUND *csound, CSN_MEDFILT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_medfilt1d_init_helper(csound, p, axis_in);
 }
 
@@ -196,7 +196,7 @@ static int32_t medfilt1d_in_assign_value(CSN_ARRAY *source_arr, double *median_b
     return OK;
 }
 
-static int32_t csnarray_medfilt1d_in_init_helper(CSOUND *csound, CSN_MEDFILT_IN *p, const MYFLT *axis_in) {
+static int32_t csnarray_medfilt1d_in_init_helper(CSOUND *csound, CSN_MEDFILT_IN *p, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -253,7 +253,7 @@ done:
 }
 
 int32_t csnarray_medfilt1d_in(CSOUND *csound, CSN_MEDFILT_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     return csnarray_medfilt1d_in_init_helper(csound, p, axis_in);
 }
 
@@ -289,7 +289,7 @@ int32_t csnarray_medfilt1d_k(CSOUND *csound, CSN_MEDFILT *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] medfilt requires real-array");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -400,7 +400,7 @@ int32_t csnarray_medfilt1d_in_k(CSOUND *csound, CSN_MEDFILT_IN *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] medfilt requires real-array");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -444,7 +444,7 @@ int32_t csnarray_medfilt_ndarr_in_deinit(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *
     return OK;
 }
 
-static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, uint32_t source_handle, const MYFLT *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, CSNREF *p_handle, CSN_ARRAY **p_array, K_DATA *k_data, bool is_kernel_shape, uint32_t *kernel_shape, size_t *kernel_total_size) {
+static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, uint32_t source_handle, const cs_float *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, CSNREF *p_handle, CSN_ARRAY **p_array, K_DATA *k_data, bool is_kernel_shape, uint32_t *kernel_shape, size_t *kernel_total_size) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -545,7 +545,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_medfilt_in_helper(CSOUND *csound, uint32_t source_handle, const MYFLT *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, bool is_kernel_shape) {
+static int32_t csnarray_medfilt_in_helper(CSOUND *csound, uint32_t source_handle, const cs_float *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, bool is_kernel_shape) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -655,7 +655,7 @@ int32_t csnarray_medfilt_arr_in(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *p) {
     return csnarray_medfilt_in_helper(csound, p->source_handle->id, NULL, p->kernel_sizes, &p->buffer, true);
 }
 
-static int32_t csnarray_medfilt_k_helper(CSOUND *csound, OPDS *h, uint32_t source_handle, size_t kernel_total_size, uint32_t *kernel_shape, CSN_SCRATCH *buffer, CSNREF *p_handle, CSN_ARRAY **p_array, K_DATA *k_data, const MYFLT *trig) {
+static int32_t csnarray_medfilt_k_helper(CSOUND *csound, OPDS *h, uint32_t source_handle, size_t kernel_total_size, uint32_t *kernel_shape, CSN_SCRATCH *buffer, CSNREF *p_handle, CSN_ARRAY **p_array, K_DATA *k_data, const cs_float *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     uint32_t owned_handle = k_data->owned_handle;
     CHECK_REG_HANDLE(csound, h, reg, owned_handle);
@@ -729,7 +729,7 @@ int32_t csnarray_medfilt_arr_k(CSOUND *csound, CSN_MEDFILT_ND_ARR *p) {
     return csnarray_medfilt_k_helper(csound, &p->h, p->source_handle->id, p->kernel_total_size, p->kernel_shape, &p->buffer, p->handle, &p->array, &p->k_data, p->trig);
 }
 
-static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, K_DATA *k_data, uint32_t source_handle, const MYFLT *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, bool is_kernel_shape, size_t *kernel_total_size, uint32_t *kernel_shape) {
+static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, K_DATA *k_data, uint32_t source_handle, const cs_float *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, bool is_kernel_shape, size_t *kernel_total_size, uint32_t *kernel_shape) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -832,7 +832,7 @@ int32_t csnarray_medfilt_arr_in_k_init(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *p)
     return csnarray_medfilt_in_k_init_helper(csound, &p->k_data, p->source_handle->id, NULL, p->kernel_sizes, &p->buffer, true, &p->kernel_total_size, p->kernel_shape);
 }
 
-static int32_t csnarray_medfilt_in_k_helper(CSOUND *csound, OPDS *h, uint32_t source_handle, K_DATA *k_data, CSN_SCRATCH *buffer, const MYFLT *trig, size_t kernel_total_size, uint32_t *kernel_shape) {
+static int32_t csnarray_medfilt_in_k_helper(CSOUND *csound, OPDS *h, uint32_t source_handle, K_DATA *k_data, CSN_SCRATCH *buffer, const cs_float *trig, size_t kernel_total_size, uint32_t *kernel_shape) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
 

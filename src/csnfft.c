@@ -55,7 +55,7 @@ static inline size_t NEXT_POWER_OF_TWO(size_t n) {
     return n + 1;
 }
 
-static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_AXIS_SPEC *axis, const MYFLT *axis_in, CSN_AXIS_DEFAULT omitted_default, uint32_t source_handle, CSN_FFT_MODE mode) {
+static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_AXIS_SPEC *axis, const cs_float *axis_in, CSN_AXIS_DEFAULT omitted_default, uint32_t source_handle, CSN_FFT_MODE mode) {
     CSN_SLOT *slot = get_slot(reg, source_handle);
     if (slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
@@ -84,7 +84,7 @@ static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARR
     return OK;
 }
 
-static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
+static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, cs_float *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
     CSN_AXIS_SLICE_ITER it = {0};
     if (AXIS_ITER_SLICE_INIT(&it, source_arr, fft_buffer, axis) != OK) return NOTOK;
 
@@ -97,7 +97,7 @@ static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_
            usual case, this clears nothing. */
         size_t filled = mode == CSNRFFT ? (size_t) nfft_copy : (size_t) nfft_copy * 2U;
         if (filled < work_size) {
-            memset(temp_buffer + filled, 0, sizeof(MYFLT) * (work_size - filled));
+            memset(temp_buffer + filled, 0, sizeof(cs_float) * (work_size - filled));
         }
 
         /* A slice already contiguous in the item type the transform wants is
@@ -105,16 +105,16 @@ static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_
            of a strided slice_get per sample. That covers any 1-D array and any
            N-D array transformed along its last axis. */
         const double *src_slice = source_arr->data + it.src_base * source_arr->itype;
-        if (sizeof(MYFLT) == sizeof(double) && it.src_axis_stride == 1 && ((mode == CSNRFFT && source_arr->itype == CSN_REAL) || (mode == CSNFFT && source_arr->itype == CSN_COMPLEX))) {
+        if (sizeof(cs_float) == sizeof(double) && it.src_axis_stride == 1 && ((mode == CSNRFFT && source_arr->itype == CSN_REAL) || (mode == CSNFFT && source_arr->itype == CSN_COMPLEX))) {
             memcpy(temp_buffer, src_slice, sizeof(double) * filled);
         } else {
             for (uint32_t i = 0; i < nfft_copy; i++) {
                 CSN_COMPLEXDAT z = slice_get(src_slice, i, it.src_axis_stride, source_arr->itype);
                 if (mode == CSNRFFT) {
-                    temp_buffer[i] = (MYFLT) z.re;
+                    temp_buffer[i] = (cs_float) z.re;
                 } else {
-                    temp_buffer[i * 2] = (MYFLT) z.re;
-                    temp_buffer[i * 2 + 1] = mode == CSNFFT ? (MYFLT) z.im : FL(0.0);
+                    temp_buffer[i * 2] = (cs_float) z.re;
+                    temp_buffer[i * 2 + 1] = mode == CSNFFT ? (cs_float) z.im : FL(0.0);
                 }
             }
         }
@@ -126,7 +126,7 @@ static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_
         }
 
         double *dst_slice = fft_buffer->data + it.dst_base * CSN_COMPLEX;
-        if (sizeof(MYFLT) == sizeof(double) && it.dst_axis_stride == 1) {
+        if (sizeof(cs_float) == sizeof(double) && it.dst_axis_stride == 1) {
             /* Bin i lands at dst[2i], dst[2i+1] -- the same offsets the packed
                scratch already uses for the interior bins, so they move as one
                block. Only DC and Nyquist need placing, the real transform
@@ -168,7 +168,7 @@ static int32_t fft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_
     return OK;
 }
 
-static int32_t ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
+static int32_t ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, cs_float *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
     CSN_AXIS_SLICE_ITER it;
     if (AXIS_ITER_SLICE_INIT(&it, source_arr, fft_buffer, axis) != OK) return NOTOK;
 
@@ -196,11 +196,11 @@ static int32_t ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft
             filled = nfft_copy == nfft / 2U + 1U ? work_size : 0;
         }
         if (filled < work_size) {
-            memset(temp_buffer + filled, 0, sizeof(MYFLT) * (work_size - filled));
+            memset(temp_buffer + filled, 0, sizeof(cs_float) * (work_size - filled));
         }
 
         const double *src_slice = source_arr->data + src_base * source_arr->itype;
-        bool block_copy = sizeof(MYFLT) == sizeof(double) && src_stride == 1 && source_arr->itype == CSN_COMPLEX && (mode == CSNIFFT || nfft_copy == nfft / 2U + 1U);
+        bool block_copy = sizeof(cs_float) == sizeof(double) && src_stride == 1 && source_arr->itype == CSN_COMPLEX && (mode == CSNIFFT || nfft_copy == nfft / 2U + 1U);
         if (block_copy && mode == CSNIFFT) {
             memcpy(temp_buffer, src_slice, sizeof(double) * (size_t) nfft_copy * 2U);
         } else if (block_copy) {
@@ -209,23 +209,23 @@ static int32_t ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft
             if (nfft > 2U) {
                 memcpy(temp_buffer + 2, src_slice + 2, sizeof(double) * ((size_t) nfft - 2U));
             }
-            temp_buffer[0] = (MYFLT) src_slice[0];
-            temp_buffer[1] = (MYFLT) src_slice[nfft];
+            temp_buffer[0] = (cs_float) src_slice[0];
+            temp_buffer[1] = (cs_float) src_slice[nfft];
         } else {
             for (uint32_t i = 0; i < nfft_copy; i++) {
                 CSN_COMPLEXDAT z = slice_get(src_slice, i, src_stride, source_arr->itype);
                 if (mode == CSNIRFFT) {
                     if (i == 0) {
-                        temp_buffer[0] = (MYFLT) z.re;
+                        temp_buffer[0] = (cs_float) z.re;
                     } else if (i == (nfft / 2U)) {
-                        temp_buffer[1] = (MYFLT) z.re;
+                        temp_buffer[1] = (cs_float) z.re;
                     } else {
-                        temp_buffer[i * 2] = (MYFLT) z.re;
-                        temp_buffer[i * 2 + 1] = (MYFLT) z.im;
+                        temp_buffer[i * 2] = (cs_float) z.re;
+                        temp_buffer[i * 2 + 1] = (cs_float) z.im;
                     }
                 } else {
-                    temp_buffer[i * 2] = (MYFLT) z.re;
-                    temp_buffer[i * 2 + 1] = (MYFLT) z.im;
+                    temp_buffer[i * 2] = (cs_float) z.re;
+                    temp_buffer[i * 2 + 1] = (cs_float) z.im;
                 }
             }
         }
@@ -236,7 +236,7 @@ static int32_t ifft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft
             csound->InverseComplexFFT(csound, temp_buffer, (int32_t) nfft);
         }
 
-        if (sizeof(MYFLT) == sizeof(double) && dst_stride == 1) {
+        if (sizeof(cs_float) == sizeof(double) && dst_stride == 1) {
             /* The transform already left the result in the destination's own
                layout: real samples end to end, or interleaved pairs. */
             ITEM_TYPE out_itype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
@@ -349,14 +349,14 @@ static void fft_assign_flatten_layout(size_t *out_size, size_t *work_size, uint3
     new_shape[0] = (uint32_t) *out_size;
 }
 
-static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axis_in, CSN_FFT_MODE mode) {
+static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *axis_in, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *temp_buffer = NULL;
+    cs_float *temp_buffer = NULL;
 
     double fftsize_temp = (double) *p->fft_size;
     if (!IS_VALID_FFT_SIZE(fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) fftsize_temp)) {
@@ -382,7 +382,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axis
     size_t work_size = 0;
     fft_assign_layout(&out_size, &work_size, &new_ndim, new_shape, source_arr, (uint32_t) fft_size, mode, axis_spec.index);
 
-    temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -417,22 +417,22 @@ done:
 }
 
 int32_t csnarray_fft(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     return csnarray_fft_helper(csound, p, axis_in, CSNFFT);
 }
 
 int32_t csnarray_rfft(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     return csnarray_fft_helper(csound, p, axis_in, CSNRFFT);
 }
 
 int32_t csnarray_fft_k_init(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_fft_helper(csound, p, axis_in, CSNFFT);
 }
 
 int32_t csnarray_rfft_k_init(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_fft_helper(csound, p, axis_in, CSNRFFT);
 }
 
@@ -453,7 +453,7 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
     CSN_AXIS_SPEC axis_spec = {0};
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
@@ -489,7 +489,7 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     if (res != OK) goto done;
     p->array = fft_buffer;
 
-    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
         res = csound->InitError(csound, "[csnarray] Shape/rank error");
         goto done;
@@ -514,14 +514,14 @@ int32_t csnarray_rfft_k(CSOUND *csound, CSN_FFT *p) {
     return csnarray_fft_k_helper(csound, p, CSNRFFT);
 }
 
-static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axis_in, CSN_FFT_MODE mode) {
+static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *axis_in, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *temp_buffer = NULL;
+    cs_float *temp_buffer = NULL;
     void *fft_setup = NULL;
 
     double fftsize_temp = (double) *p->fft_size;
@@ -547,7 +547,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const MYFLT *axi
     size_t work_size = 0;
     fft_assign_layout(&out_size, &work_size, &new_ndim, new_shape, source_arr, (uint32_t) fft_size, mode, axis);
 
-    temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -589,22 +589,22 @@ int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p) {
 }
 
 int32_t csnarray_ifft(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     return csnarray_ifft_helper(csound, p, axis_in, CSNIFFT);
 }
 
 int32_t csnarray_irfft(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     return csnarray_ifft_helper(csound, p, axis_in, CSNIRFFT);
 }
 
 int32_t csnarray_ifft_k_init(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_ifft_helper(csound, p, axis_in, CSNIFFT);
 }
 
 int32_t csnarray_irfft_k_init(CSOUND *csound, CSN_FFT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_ifft_helper(csound, p, axis_in, CSNIRFFT);
 }
 
@@ -625,7 +625,7 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
     CSN_AXIS_SPEC axis_spec = {0};
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
@@ -662,7 +662,7 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
     if (res != OK) goto done;
     p->array = fft_buffer;
 
-    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     if (ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
@@ -824,22 +824,22 @@ static int32_t istft_assign_layout(CSOUND *csound, OPDS *perf_h, size_t *ifft_ou
    1.1 ms once, and the version cache holds it at zero until the next trigger.
    If a profile ever puts the STFT on the hot path, this is the change, and
    that is what it is worth. */
-static void stft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, const double *win, uint32_t nfft, uint32_t hopsize, size_t work_size, size_t out_size, CSN_FFT_MODE mode) {
+static void stft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, cs_float *temp_buffer, const double *win, uint32_t nfft, uint32_t hopsize, size_t work_size, size_t out_size, CSN_FFT_MODE mode) {
     size_t source_size = source_arr->size;
     ITEM_TYPE itype = source_arr->itype;
     uint32_t nframes = fft_buffer->shape[1];
     for (uint32_t i = 0; i < nframes; i++) {
-        memset(temp_buffer, 0, sizeof(MYFLT) * work_size);
+        memset(temp_buffer, 0, sizeof(cs_float) * work_size);
         size_t start = (size_t) i * hopsize;
         size_t remaining = source_size - start;
         uint32_t current_size = remaining < nfft ? (uint32_t) remaining : nfft;
         for (uint32_t j = 0; j < current_size; j++) {
             CSN_COMPLEXDAT z = slice_get(source_arr->data + start * itype, j, 1U, itype);
             if (mode == CSNRFFT) {
-                temp_buffer[j] = (MYFLT) (z.re * win[j]);
+                temp_buffer[j] = (cs_float) (z.re * win[j]);
             } else {
-                temp_buffer[j * 2] = (MYFLT) (z.re * win[j]);
-                temp_buffer[j * 2 + 1] = mode == CSNFFT ? (MYFLT) (z.im * win[j]) : FL(0.0);
+                temp_buffer[j * 2] = (cs_float) (z.re * win[j]);
+                temp_buffer[j * 2 + 1] = mode == CSNFFT ? (cs_float) (z.im * win[j]) : FL(0.0);
             }
         }
 
@@ -874,28 +874,28 @@ static void stft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
 
 /* Same shape as stft_assign_value, and the same note applies to the copy: see
    it for what a fused window-and-copy loop would buy and why it is not here. */
-static void istft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, const double *win, const double *win_sum, uint32_t nfft, uint32_t hopsize, size_t work_size, size_t out_size, CSN_FFT_MODE mode) {
+static void istft_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, cs_float *temp_buffer, const double *win, const double *win_sum, uint32_t nfft, uint32_t hopsize, size_t work_size, size_t out_size, CSN_FFT_MODE mode) {
     uint32_t *source_shape = source_arr->shape;
     uint32_t nbins = source_shape[0];
     uint32_t nframes = source_shape[1];
 
     for (uint32_t i = 0; i < nframes; i++) {
-        memset(temp_buffer, 0, sizeof(MYFLT) * work_size);
+        memset(temp_buffer, 0, sizeof(cs_float) * work_size);
         double *frame_col = source_arr->data + (size_t) i * CSN_COMPLEX;
         for (uint32_t j = 0; j < nbins; j++) {
             CSN_COMPLEXDAT z = slice_get(frame_col, j, source_arr->strides[0], CSN_COMPLEX);
             if (mode == CSNIRFFT) {
                 if (j == 0U) {
-                    temp_buffer[0] = (MYFLT) z.re;
+                    temp_buffer[0] = (cs_float) z.re;
                 } else if (j == (nfft / 2U)) {
-                    temp_buffer[1] = (MYFLT) z.re;
+                    temp_buffer[1] = (cs_float) z.re;
                 } else {
-                    temp_buffer[j * 2] = (MYFLT) z.re;
-                    temp_buffer[j * 2 + 1] = (MYFLT) z.im;
+                    temp_buffer[j * 2] = (cs_float) z.re;
+                    temp_buffer[j * 2 + 1] = (cs_float) z.im;
                 }
             } else {
-                temp_buffer[j * 2] = (MYFLT) z.re;
-                temp_buffer[j * 2 + 1] = (MYFLT) z.im;
+                temp_buffer[j * 2] = (cs_float) z.re;
+                temp_buffer[j * 2 + 1] = (cs_float) z.im;
             }
         }
 
@@ -955,7 +955,7 @@ static void get_window_function_sum(double *w, const double *win, uint32_t nfram
     }
 }
 
-static int32_t stft_validate_params(CSOUND *csound, OPDS *perf_h, const MYFLT *winsize, const MYFLT *hopsize, const MYFLT *sr, const MYFLT *window_type) {
+static int32_t stft_validate_params(CSOUND *csound, OPDS *perf_h, const cs_float *winsize, const cs_float *hopsize, const cs_float *sr, const cs_float *window_type) {
     double fftsize_temp = (double) *winsize;
     if (!IS_VALID_FFT_SIZE(fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) fftsize_temp)) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] FFT size must be a valid power of two value");
@@ -984,7 +984,7 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *temp_buffer = NULL;
+    cs_float *temp_buffer = NULL;
     double *win_buffer = NULL;
 
     res = stft_validate_params(csound, NULL, p->winsize, p->hopsize, p->sr, p->window_type);
@@ -1016,7 +1016,7 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
     stft_assign_layout(&out_size, &work_size, new_shape_f, new_shape_t, new_shape_z, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, fft_mode);
 
     size_t scratch_work_size = (size_t) fft_size * 2U;
-    temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * scratch_work_size);
+    temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
     if (temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -1103,7 +1103,7 @@ static int32_t GET_STFT_INIT(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr
     stft_assign_layout(&out_size, &work_size, NULL, NULL, new_shape_z, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, fft_mode);
 
     size_t scratch_work_size = (size_t) fft_size * 2U;
-    MYFLT *temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * scratch_work_size);
+    cs_float *temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
     if (temp_buffer == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
     }
@@ -1138,7 +1138,7 @@ static int32_t GET_STFT(CSOUND *csound, CSN_ARRAY *source_arr, CSN_RAW_STFT *p) 
     int32_t fft_size = (int32_t) p->winsize;
     int32_t overlap_size = (int32_t) p->hopsize;
 
-    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     double *win = (double *) p->window.scratch;
     CSN_FFT_MODE fft_mode = source_arr->itype == CSN_COMPLEX ? CSNFFT : CSNRFFT;
     stft_assign_value(csound, p->fft_setup, &p->stft, source_arr, temp_buffer, win, fft_size, overlap_size, p->fft_work_size, p->fft_out_size, fft_mode);
@@ -1152,7 +1152,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *temp_buffer = NULL;
+    cs_float *temp_buffer = NULL;
     double *win_buffer = NULL;
     double *winsum_buffer = NULL;
 
@@ -1193,7 +1193,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     }
 
     size_t scratch_work_size = (size_t) fft_size * 2U;
-    temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * scratch_work_size);
+    temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
     if (temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -1362,7 +1362,7 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     p->array_t = array_t;
     p->array_z = array_z;
 
-    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     const double *win_buffer = (const double *) p->window.scratch;
     get_fftfreqs(array_f, sr, (uint32_t) fft_size, fft_mode);
     get_timevec(array_t, sr, (double) fft_size, (double) overlap_size);
@@ -1450,7 +1450,7 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data_x.owned_handle), &p->window_sum, array_x->size, sizeof(double));
     if (res != OK) goto done;
 
-    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     const double *win_buffer = (const double *) p->window.scratch;
     double *winsum_buffer = (double *) p->window_sum.scratch;
     memset(array_x->data, 0, sizeof(double) * array_x->size * (size_t) array_x->itype);
@@ -1681,7 +1681,7 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
         double value = axis_in == NULL ? -1.0 : (double) *axis_in;
@@ -1782,7 +1782,7 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
         double value = axis_in == NULL ? -1.0 : (double) *axis_in;
@@ -1916,7 +1916,7 @@ static int32_t fft2_init_intermediate(CSOUND *csound, CSN_ARRAY *array, const ui
     return OK;
 }
 
-static void fft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
+static void fft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, cs_float *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
     uint32_t *source_shape = source_arr->shape;
     uint32_t nfft_copy = source_shape[axis] < nfft ? source_shape[axis] : nfft;
     size_t rows = source_shape[0];
@@ -1936,7 +1936,7 @@ static void fft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
            usual case, this clears nothing. */
         size_t filled = mode == CSNRFFT ? (size_t) nfft_copy : (size_t) nfft_copy * 2U;
         if (filled < work_size) {
-            memset(temp_buffer + filled, 0, sizeof(MYFLT) * (work_size - filled));
+            memset(temp_buffer + filled, 0, sizeof(cs_float) * (work_size - filled));
         }
 
         /* A slice already contiguous in the item type the transform wants is
@@ -1944,7 +1944,7 @@ static void fft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
            of a strided slice_get per sample. That covers any 1-D array and any
            N-D array transformed along its last axis. */
         const double *src_slice = source_arr->data + src_base * source_arr->itype;
-        if (sizeof(MYFLT) == sizeof(double) && src_stride == 1
+        if (sizeof(cs_float) == sizeof(double) && src_stride == 1
             && ((mode == CSNRFFT && source_arr->itype == CSN_REAL)
                 || (mode == CSNFFT && source_arr->itype == CSN_COMPLEX))) {
             memcpy(temp_buffer, src_slice, sizeof(double) * filled);
@@ -1952,10 +1952,10 @@ static void fft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
             for (uint32_t i = 0; i < nfft_copy; i++) {
                 CSN_COMPLEXDAT z = slice_get(src_slice, i, src_stride, source_arr->itype);
                 if (mode == CSNRFFT) {
-                    temp_buffer[i] = (MYFLT) z.re;
+                    temp_buffer[i] = (cs_float) z.re;
                 } else {
-                    temp_buffer[i * 2] = (MYFLT) z.re;
-                    temp_buffer[i * 2 + 1] = mode == CSNFFT ? (MYFLT) z.im : FL(0.0);
+                    temp_buffer[i * 2] = (cs_float) z.re;
+                    temp_buffer[i * 2 + 1] = mode == CSNFFT ? (cs_float) z.im : FL(0.0);
                 }
             }
         }
@@ -1967,7 +1967,7 @@ static void fft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_bu
         }
 
         double *dst_slice = fft_buffer->data + dst_base * CSN_COMPLEX;
-        if (sizeof(MYFLT) == sizeof(double) && dst_stride == 1) {
+        if (sizeof(cs_float) == sizeof(double) && dst_stride == 1) {
             /* Bin i lands at dst[2i], dst[2i+1] -- the same offsets the packed
                scratch already uses for the interior bins, so they move as one
                block. Only DC and Nyquist need placing, the real transform
@@ -2014,8 +2014,8 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *row_temp_buffer = NULL;
-    MYFLT *col_temp_buffer = NULL;
+    cs_float *row_temp_buffer = NULL;
+    cs_float *col_temp_buffer = NULL;
     CSN_ARRAY intermediate = {0};
 
     double rows_fftsize_temp = (double) *p->rows_fft_size;
@@ -2066,12 +2066,12 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
     res = fft2_init_intermediate(csound, &intermediate, intermediate_shape);
     if (res != OK) goto done;
 
-    row_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * rows_work_size);
+    row_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * rows_work_size);
     if (row_temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
-    col_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * cols_work_size);
+    col_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * cols_work_size);
     if (col_temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -2122,7 +2122,7 @@ int32_t csnarray_rfft2(CSOUND *csound, CSN_FFT2 *p) {
     return csnarray_fft2_helper(csound, p, CSNRFFT);
 }
 
-static void ifft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, MYFLT *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
+static void ifft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_buffer, CSN_ARRAY *source_arr, cs_float *temp_buffer, uint32_t nfft, size_t work_size, size_t out_size, uint32_t axis, CSN_FFT_MODE mode) {
     uint32_t *source_shape = source_arr->shape;
     size_t rows = source_shape[0];
     size_t cols = source_shape[1];
@@ -2155,11 +2155,11 @@ static void ifft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_b
             filled = nfft_copy == nfft / 2U + 1U ? work_size : 0;
         }
         if (filled < work_size) {
-            memset(temp_buffer + filled, 0, sizeof(MYFLT) * (work_size - filled));
+            memset(temp_buffer + filled, 0, sizeof(cs_float) * (work_size - filled));
         }
 
         const double *src_slice = source_arr->data + src_base * source_arr->itype;
-        bool block_copy = sizeof(MYFLT) == sizeof(double) && src_stride == 1
+        bool block_copy = sizeof(cs_float) == sizeof(double) && src_stride == 1
                           && source_arr->itype == CSN_COMPLEX
                           && (mode == CSNIFFT || nfft_copy == nfft / 2U + 1U);
         if (block_copy && mode == CSNIFFT) {
@@ -2170,23 +2170,23 @@ static void ifft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_b
             if (nfft > 2U) {
                 memcpy(temp_buffer + 2, src_slice + 2, sizeof(double) * ((size_t) nfft - 2U));
             }
-            temp_buffer[0] = (MYFLT) src_slice[0];
-            temp_buffer[1] = (MYFLT) src_slice[nfft];
+            temp_buffer[0] = (cs_float) src_slice[0];
+            temp_buffer[1] = (cs_float) src_slice[nfft];
         } else {
             for (uint32_t i = 0; i < nfft_copy; i++) {
                 CSN_COMPLEXDAT z = slice_get(src_slice, i, src_stride, source_arr->itype);
                 if (mode == CSNIRFFT) {
                     if (i == 0) {
-                        temp_buffer[0] = (MYFLT) z.re;
+                        temp_buffer[0] = (cs_float) z.re;
                     } else if (i == (nfft / 2U)) {
-                        temp_buffer[1] = (MYFLT) z.re;
+                        temp_buffer[1] = (cs_float) z.re;
                     } else {
-                        temp_buffer[i * 2] = (MYFLT) z.re;
-                        temp_buffer[i * 2 + 1] = (MYFLT) z.im;
+                        temp_buffer[i * 2] = (cs_float) z.re;
+                        temp_buffer[i * 2 + 1] = (cs_float) z.im;
                     }
                 } else {
-                    temp_buffer[i * 2] = (MYFLT) z.re;
-                    temp_buffer[i * 2 + 1] = (MYFLT) z.im;
+                    temp_buffer[i * 2] = (cs_float) z.re;
+                    temp_buffer[i * 2 + 1] = (cs_float) z.im;
                 }
             }
         }
@@ -2197,7 +2197,7 @@ static void ifft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_b
             csound->InverseComplexFFT(csound, temp_buffer, (int32_t) nfft);
         }
 
-        if (sizeof(MYFLT) == sizeof(double) && dst_stride == 1) {
+        if (sizeof(cs_float) == sizeof(double) && dst_stride == 1) {
             /* The transform already left the result in the destination's own
                layout: real samples end to end, or interleaved pairs. */
             ITEM_TYPE out_itype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
@@ -2232,8 +2232,8 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *row_temp_buffer = NULL;
-    MYFLT *col_temp_buffer = NULL;
+    cs_float *row_temp_buffer = NULL;
+    cs_float *col_temp_buffer = NULL;
     CSN_ARRAY intermediate = {0};
 
     double rows_fftsize_temp = (double) *p->rows_fft_size;
@@ -2283,12 +2283,12 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
     res = fft2_init_intermediate(csound, &intermediate, intermediate_shape);
     if (res != OK) goto done;
 
-    row_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * rows_work_size);
+    row_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * rows_work_size);
     if (row_temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
-    col_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * cols_work_size);
+    col_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * cols_work_size);
     if (col_temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -2398,8 +2398,8 @@ static int32_t csnarray_fft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE 
     if (res != OK) goto done;
     p->array = fft_buffer;
 
-    MYFLT *col_temp_buffer = (MYFLT *) p->col_buffer.scratch;
-    MYFLT *row_temp_buffer = (MYFLT *) p->row_buffer.scratch;
+    cs_float *col_temp_buffer = (cs_float *) p->col_buffer.scratch;
+    cs_float *row_temp_buffer = (cs_float *) p->row_buffer.scratch;
     memset(p->intermediate.data, 0, sizeof(double) * p->intermediate.size * (size_t) CSN_COMPLEX);
     fft2_assign_value(csound, cols_fft_setup, &p->intermediate, source_arr, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
     fft2_assign_value(csound, NULL, fft_buffer, &p->intermediate, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNFFT);
@@ -2466,8 +2466,8 @@ static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE
     if (res != OK) goto done;
     p->array = fft_buffer;
 
-    MYFLT *col_temp_buffer = (MYFLT *) p->col_buffer.scratch;
-    MYFLT *row_temp_buffer = (MYFLT *) p->row_buffer.scratch;
+    cs_float *col_temp_buffer = (cs_float *) p->col_buffer.scratch;
+    cs_float *row_temp_buffer = (cs_float *) p->row_buffer.scratch;
     memset(p->intermediate.data, 0, sizeof(double) * p->intermediate.size * (size_t) CSN_COMPLEX);
     ifft2_assign_value(csound, NULL, &p->intermediate, source_arr, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNIFFT);
     ifft2_assign_value(csound, cols_fft_setup, fft_buffer, &p->intermediate, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
@@ -2901,7 +2901,7 @@ static int32_t corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, in
     return OK;
 }
 
-static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT *axis_in, CSN_CORRCONV_MODE mode) {
+static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_float *axis_in, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -3011,42 +3011,42 @@ int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
 }
 
 int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
 }
 
 int32_t csnarray_correlate1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
 int32_t csnarray_convolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
 }
 
 int32_t csnarray_correlate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
 int32_t csnarray_deconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
 }
 
 int32_t csnarray_deconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
 }
 
 int32_t csnarray_decorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
 }
 
 int32_t csnarray_decorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return csnarray_corrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
 }
 
@@ -3677,29 +3677,29 @@ static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *
         }
     }
 
-    MYFLT *temp_buffer_x = NULL;
-    MYFLT *temp_buffer_h = NULL;
-    MYFLT *temp_buffer_ifft = NULL;
+    cs_float *temp_buffer_x = NULL;
+    cs_float *temp_buffer_h = NULL;
+    cs_float *temp_buffer_ifft = NULL;
     if (is_perf) {
         /* The spectra above already carry the mark as external_lock; the work
            buffers follow the same one. Each is committed to p only once it
            exists, so a failure leaves nothing freed behind a live pointer. */
         bool rt_locked = p->fft_buffer_x.external_lock;
-        res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_x, p->fc.x_work_size, sizeof(MYFLT));
-        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_h, p->fc.h_work_size, sizeof(MYFLT));
-        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_ifft, p->fc.ifft_work_size, sizeof(MYFLT));
+        res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_x, p->fc.x_work_size, sizeof(cs_float));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_h, p->fc.h_work_size, sizeof(cs_float));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_ifft, p->fc.ifft_work_size, sizeof(cs_float));
         if (res != OK) return res;
     } else {
-        temp_buffer_x = csound->Calloc(csound, sizeof(MYFLT) * p->fc.x_work_size * 2);
+        temp_buffer_x = csound->Calloc(csound, sizeof(cs_float) * p->fc.x_work_size * 2);
         if (temp_buffer_x == NULL) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
-        temp_buffer_h = csound->Calloc(csound, sizeof(MYFLT) * p->fc.h_work_size * 2);
+        temp_buffer_h = csound->Calloc(csound, sizeof(cs_float) * p->fc.h_work_size * 2);
         if (temp_buffer_h == NULL) {
             csound->Free(csound, temp_buffer_x);
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
-        temp_buffer_ifft = csound->Calloc(csound, sizeof(MYFLT) * p->fc.ifft_work_size * 2);
+        temp_buffer_ifft = csound->Calloc(csound, sizeof(cs_float) * p->fc.ifft_work_size * 2);
         if (temp_buffer_ifft == NULL) {
             csound->Free(csound, temp_buffer_x);
             csound->Free(csound, temp_buffer_h);
@@ -3764,9 +3764,9 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
 
     bool is_perf = perf_h != NULL;
     int32_t res;
-    MYFLT *temp_buffer_x = NULL;
-    MYFLT *temp_buffer_h = NULL;
-    MYFLT *temp_buffer_ifft = NULL;
+    cs_float *temp_buffer_x = NULL;
+    cs_float *temp_buffer_h = NULL;
+    cs_float *temp_buffer_ifft = NULL;
     size_t req_size = 0;
     if (is_perf) {
         if (get_array_size_from_shape(&req_size, ndim, p->fc.x_shape_fft) != OK) {
@@ -3806,9 +3806,9 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
         /* Same rule as the 1-D form: the work buffers follow the spectra's
            mark and are committed only once they exist. */
         bool rt_locked = p->fft_buffer_x.external_lock;
-        res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_x, max_work_size, sizeof(MYFLT));
-        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_h, max_work_size, sizeof(MYFLT));
-        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_ifft, max_work_size, sizeof(MYFLT));
+        res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_x, max_work_size, sizeof(cs_float));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_h, max_work_size, sizeof(cs_float));
+        if (res == OK) res = csn_scratch_reserve(csound, perf_h, rt_locked, &p->buffer_ifft, max_work_size, sizeof(cs_float));
         if (res != OK) return res;
     } else {
         ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
@@ -3822,16 +3822,16 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
         }
 
         size_t b_cap = max_work_size * 2;
-        temp_buffer_x = csound->Calloc(csound, sizeof(MYFLT) * b_cap);
+        temp_buffer_x = csound->Calloc(csound, sizeof(cs_float) * b_cap);
         if (temp_buffer_x == NULL) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
-        temp_buffer_h = csound->Calloc(csound, sizeof(MYFLT) * b_cap);
+        temp_buffer_h = csound->Calloc(csound, sizeof(cs_float) * b_cap);
         if (temp_buffer_h == NULL) {
             csound->Free(csound, temp_buffer_x);
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
-        temp_buffer_ifft = csound->Calloc(csound, sizeof(MYFLT) * b_cap);
+        temp_buffer_ifft = csound->Calloc(csound, sizeof(cs_float) * b_cap);
         if (temp_buffer_ifft == NULL) {
             csound->Free(csound, temp_buffer_x);
             csound->Free(csound, temp_buffer_h);
@@ -3849,7 +3849,7 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
     return OK;
 }
 
-static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const MYFLT *axis_in, CSN_CORRCONV_MODE mode) {
+static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_float *axis_in, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -4000,42 +4000,42 @@ done:
 }
 
 int32_t csnarray_fftconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
 }
 
 int32_t csnarray_fftcorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
 int32_t csnarray_fftconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_CONVOLUTION);
 }
 
 int32_t csnarray_fftcorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 4 ? p->arg_c : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_CORRELATION);
 }
 
 int32_t csnarray_fftdeconvolve1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
 }
 
 int32_t csnarray_fftdeconvolve1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECONVOLUTION);
 }
 
 int32_t csnarray_fftdecorrelate1d(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->arg_a : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
 }
 
 int32_t csnarray_fftdecorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_b : NULL;
     return fftcorrconv1d_helper(csound, p, axis_in, CSN_DECORRELATION);
 }
 
@@ -4120,9 +4120,9 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     res = fftcorrconv_allocate_ndims(csound, NULL, p, source_x, source_h, fft_mode, ifft_mode);
     if (res != OK) goto done;
 
-    MYFLT *temp_buffer_x = (MYFLT *) p->buffer_x.scratch;
-    MYFLT *temp_buffer_h = (MYFLT *) p->buffer_h.scratch;
-    MYFLT *temp_buffer_ifft = (MYFLT *) p->buffer_ifft.scratch;
+    cs_float *temp_buffer_x = (cs_float *) p->buffer_x.scratch;
+    cs_float *temp_buffer_h = (cs_float *) p->buffer_h.scratch;
+    cs_float *temp_buffer_ifft = (cs_float *) p->buffer_ifft.scratch;
 
     /* Forward: the last axis reads the padded operand and is the one-sided
        pass when the operands are real; the axes before it run in place on the
@@ -4481,9 +4481,9 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     res = fftcorrconv_allocate_ndims(csound, &p->h, p, source_x, source_h, fft_mode, ifft_mode);
     if (res != OK) goto done;
 
-    MYFLT *temp_buffer_x = (MYFLT *) p->buffer_x.scratch;
-    MYFLT *temp_buffer_h = (MYFLT *) p->buffer_h.scratch;
-    MYFLT *temp_buffer_ifft = (MYFLT *) p->buffer_ifft.scratch;
+    cs_float *temp_buffer_x = (cs_float *) p->buffer_x.scratch;
+    cs_float *temp_buffer_h = (cs_float *) p->buffer_h.scratch;
+    cs_float *temp_buffer_ifft = (cs_float *) p->buffer_ifft.scratch;
 
     /* Forward: the last axis reads the padded operand and is the one-sided
        pass when the operands are real; the axes before it run in place on the
@@ -4704,7 +4704,7 @@ static int32_t dcst1d_extend_source(CSN_ARRAY *dcst_buffer, CSN_ARRAY *source_ar
     return OK;
 }
 
-static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const MYFLT *axis_in, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
+static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_in, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -4718,7 +4718,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const MYFLT *axis_in, 
 
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *temp_buffer = NULL;
+    cs_float *temp_buffer = NULL;
     void *fft_setup = NULL;
 
     csound->LockMutex(reg->mutex);
@@ -4764,7 +4764,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const MYFLT *axis_in, 
     size_t work_size = 0;
     fft_assign_layout(&out_size, &work_size, &fft_ndim, fft_shape, &p->dcst_extended, (uint32_t) dcst_fft_size, fft_mode, axis);
 
-    temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -4838,7 +4838,7 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
     csound->LockMutex(reg->mutex);
     CSN_ARRAY *source_arr = NULL;
     CSN_AXIS_SPEC axis_spec = {0};
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fft_mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
@@ -4886,7 +4886,7 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
     fft_assign_layout(&out_size, &work_size, &fft_ndim, fft_shape, &p->dcst_extended, (uint32_t) dcst_fft_size, fft_mode, axis);
 
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
-    MYFLT *temp_buffer = (MYFLT *) p->buffer.scratch;
+    cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     if (fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible forward FFT array shapes/ranks");
         goto done;
@@ -4923,42 +4923,42 @@ done:
 }
 
 int32_t csnarray_dct_one(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DCT_I, CSNRFFT);
 }
 
 int32_t csnarray_dct_two(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DCT_II, CSNRFFT);
 }
 
 int32_t csnarray_dst_one(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DST_I, CSNRFFT);
 }
 
 int32_t csnarray_dst_two(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DST_II, CSNRFFT);
 }
 
 int32_t csnarray_dct_one_k_init(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DCT_I, CSNRFFT);
 }
 
 int32_t csnarray_dct_two_k_init(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DCT_II, CSNRFFT);
 }
 
 int32_t csnarray_dst_one_k_init(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DST_I, CSNRFFT);
 }
 
 int32_t csnarray_dst_two_k_init(CSOUND *csound, CSN_DCST *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     return dcst1d_helper(csound, p, axis_in, CSN_DST_II, CSNRFFT);
 }
 
@@ -5569,7 +5569,7 @@ static int32_t hilbert_assign_value(CSN_ARRAY *fft_buffer, double *kernel, int32
     return OK;
 }
 
-static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const MYFLT *axis_in, bool is_analytic) {
+static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_float *axis_in, bool is_analytic) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -5580,7 +5580,7 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const MYF
 
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *fft_temp_buffer = NULL;
+    cs_float *fft_temp_buffer = NULL;
     double *kernel_buffer = NULL;
     void *fft_setup = NULL;
     void *ifft_setup = NULL;
@@ -5612,7 +5612,7 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const MYF
     size_t work_size = 0;
     fft_assign_layout(&out_size, &work_size, &fft_ndim, fft_shape, source_arr, (uint32_t) hilb_fft_size, fwd_mode, axis);
 
-    fft_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    fft_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (fft_temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -5700,7 +5700,7 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
     size_t out_size = p->k_data_fft.buffer_out_size;
     size_t work_size = p->k_data_fft.buffer_work_size;
     size_t iout_size = p->k_data_ifft.buffer_out_size;
-    MYFLT *fft_temp_buffer = (MYFLT *) p->fft_temp_buffer.scratch;
+    cs_float *fft_temp_buffer = (cs_float *) p->fft_temp_buffer.scratch;
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
 
     ITEM_TYPE itype = is_analytic ? CSN_COMPLEX : CSN_REAL;
@@ -5779,12 +5779,12 @@ done:
 }
 
 int32_t csnarray_hilbert1d(CSOUND *csound, CSN_HILBERT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_hilbert_helper(csound, p, axis_in, true);
 }
 
 int32_t csnarray_hilbert1d_k_init(CSOUND *csound, CSN_HILBERT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     return csnarray_hilbert_helper(csound, p, axis_in, true);
 }
 
@@ -5793,12 +5793,12 @@ int32_t csnarray_hilbert1d_k(CSOUND *csound, CSN_HILBERT *p) {
 }
 
 int32_t csnarray_hilbert1dr(CSOUND *csound, CSN_HILBERT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_hilbert_helper(csound, p, axis_in, false);
 }
 
 int32_t csnarray_hilbert1dr_k_init(CSOUND *csound, CSN_HILBERT *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     return csnarray_hilbert_helper(csound, p, axis_in, false);
 }
 
@@ -5810,7 +5810,7 @@ int32_t csnarray_hilbert1dr_k(CSOUND *csound, CSN_HILBERT *p) {
    second on the way in, reversed on the way out, so each axis sees exactly one
    forward and one inverse and the two normalizations cancel. */
 static int32_t hilbert2_transform(CSOUND *csound, CSN_HILBERT2 *p, CSN_ARRAY *source_arr) {
-    MYFLT *temp = (MYFLT *) p->fft_temp_buffer.scratch;
+    cs_float *temp = (cs_float *) p->fft_temp_buffer.scratch;
     double *h_rows = (double *) p->kernel_buffer.scratch;
     double *h_cols = h_rows + p->nrows;
     uint32_t nrows = p->nrows;
@@ -5846,7 +5846,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
 
     int32_t res = OK;
     const char *err = NULL;
-    MYFLT *fft_temp_buffer = NULL;
+    cs_float *fft_temp_buffer = NULL;
     double *kernel_buffer = NULL;
 
     csound->LockMutex(reg->mutex);
@@ -5873,7 +5873,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     size_t cols_work_size = ncols * 2U;
     size_t work_size = rows_work_size > cols_work_size ? rows_work_size : cols_work_size;
 
-    fft_temp_buffer = csound->Calloc(csound, sizeof(MYFLT) * work_size);
+    fft_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (fft_temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;

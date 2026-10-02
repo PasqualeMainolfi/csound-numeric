@@ -227,7 +227,7 @@ static int32_t legendre_scalar_helper(CSOUND *csound, OPDS *perf_h, CSN_LEGENDRE
     if (!isfinite(value)) {
         return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] P_%d^%d(%g) overflows the double range", n, m, x);
     }
-    *p->value = (MYFLT) value;
+    *p->value = (cs_float) value;
     return OK;
 }
 
@@ -418,7 +418,7 @@ static int32_t sphharm_scalar_helper(CSOUND *csound, OPDS *perf_h, CSN_SPHHARM *
         elevation *= CSN_RAD_PER_DEG;
     }
 
-    *p->value = (MYFLT) csn_sh_sn3d(n, m, azimuth, elevation);
+    *p->value = (cs_float) csn_sh_sn3d(n, m, azimuth, elevation);
     return OK;
 }
 

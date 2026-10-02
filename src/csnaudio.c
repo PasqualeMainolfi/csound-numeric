@@ -131,14 +131,14 @@ int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
-    if (offset) memset(p->sig, 0, sizeof(MYFLT) * offset);
+    if (offset) memset(p->sig, 0, sizeof(cs_float) * offset);
     if (early) {
         nsamples -= early;
-        memset(p->sig + nsamples, 0, sizeof(MYFLT) * early);
+        memset(p->sig + nsamples, 0, sizeof(cs_float) * early);
     }
 
     for (uint32_t i = offset; i < nsamples; i++) {
-        p->sig[i] = (MYFLT) buffer->data[i];
+        p->sig[i] = (cs_float) buffer->data[i];
     }
 
     csound->UnlockMutex(reg->mutex);
@@ -205,7 +205,7 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
 
     CSN_ARRAY *buffer = slot->array;
     for (size_t i = 0; i < (size_t) nchnls; i++) {
-        MYFLT *channel = p->source_sig->data + i * CS_KSMPS;
+        cs_float *channel = p->source_sig->data + i * CS_KSMPS;
         double *row = buffer->data + i * CS_KSMPS;
         for (size_t j = 0; j < nsamples; j++) {
             row[j] = (j < offset || j >= end_offset) ? 0.0 : (double) channel[j];
@@ -289,10 +289,10 @@ int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     }
 
     for (uint32_t i = 0; i < nchnls; i++) {
-        MYFLT *channel_out = p->sig->data + i * CS_KSMPS;
+        cs_float *channel_out = p->sig->data + i * CS_KSMPS;
         double *channel_in = buffer->data + i * CS_KSMPS;
         for (uint32_t j = 0; j < nsamples; j++) {
-            channel_out[j] = (j < offset || j >= end_offset) ? FL(0.0) : (MYFLT) channel_in[j];
+            channel_out[j] = (j < offset || j >= end_offset) ? FL(0.0) : (cs_float) channel_in[j];
         }
     }
 
@@ -547,14 +547,14 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
     if (buffer->current_size >= (size_t) nsamples) {
         for (uint32_t j = 0; j < nsamples; j++) {
             size_t index = (buffer->reader + j) % capacity;
-            p->sig[j] = (j < offset || j >= end_offset) ? FL(0.0) : (MYFLT) acc[index];
+            p->sig[j] = (j < offset || j >= end_offset) ? FL(0.0) : (cs_float) acc[index];
             acc[index] = 0.0;
         }
         buffer->reader = (buffer->reader + nsamples) % capacity;
         buffer->current_size -= nsamples;
         *p->is_ready = FL(1.0);
     } else {
-        memset(p->sig, 0, sizeof(MYFLT) * nsamples);
+        memset(p->sig, 0, sizeof(cs_float) * nsamples);
         *p->is_ready = FL(0.0);
     }
 

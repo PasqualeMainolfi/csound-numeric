@@ -63,7 +63,7 @@ int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
 
     /* FTFind maps both 0 and -1 to the global sine table, so an unchecked
        number here would silently overwrite the sine every oscillator reads. */
-    int32_t fno = (int32_t) MYFLT2LRND(*p->ftable);
+    int32_t fno = (int32_t) CS_FLOAT2LRND(*p->ftable);
     if (fno <= 0) {
         return csound->InitError(csound, "[csnarray] Invalid ftable number %d: it must be greater than 0", fno);
     }
@@ -119,7 +119,7 @@ int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
     }
 
     for (size_t i = 0; i < size; i++) {
-        ftable->ftable[i] = (MYFLT) source_arr->data[i];
+        ftable->ftable[i] = (cs_float) source_arr->data[i];
     }
 
     /* The guard point past flen is allocated but never initialised. Write it
@@ -145,7 +145,7 @@ done:
  * on unsorted input.
  * Requires xdata[0] <= x <= xdata[data_size - 1].
  */
-static int32_t find_interval(double x, const MYFLT *xdata, int32_t data_size) {
+static int32_t find_interval(double x, const cs_float *xdata, int32_t data_size) {
     int32_t base = 0;
     int32_t len = data_size - 1;
 
@@ -158,7 +158,7 @@ static int32_t find_interval(double x, const MYFLT *xdata, int32_t data_size) {
     return base;
 }
 
-static void find_lerp_interval(CSN_LERP_INTERVAL *interval, double x, const MYFLT *xdata, const MYFLT *ydata, int32_t data_size, CSN_INTERP_BOUNDS_MODE bounds) {
+static void find_lerp_interval(CSN_LERP_INTERVAL *interval, double x, const cs_float *xdata, const cs_float *ydata, int32_t data_size, CSN_INTERP_BOUNDS_MODE bounds) {
     if (x < xdata[0] || x > xdata[data_size - 1]) {
         switch (bounds) {
             case REMAP_ERROR:
@@ -248,7 +248,7 @@ static double pchip_endpoint(double h0, double h1, double d0, double d1) {
  * removes the need to tabulate (and re-tabulate) the whole curve whenever the
  * breakpoints change at k-rate.
  */
-static double pchip_slope(const MYFLT *x, const MYFLT *y, int32_t n, int32_t i) {
+static double pchip_slope(const cs_float *x, const cs_float *y, int32_t n, int32_t i) {
     double h0, h1, d0, d1;
 
     if (n == 2) {
@@ -289,7 +289,7 @@ static double pchip_slope(const MYFLT *x, const MYFLT *y, int32_t n, int32_t i) 
  * the fly. Kept separate from the evaluation so that the vector opcode can
  * reuse them across every input value falling in the same segment.
  */
-static void pchip_segment(CSN_PCHIP_SEGMENT *s, const MYFLT *xdata, const MYFLT *ydata, int32_t n, int32_t i) {
+static void pchip_segment(CSN_PCHIP_SEGMENT *s, const cs_float *xdata, const cs_float *ydata, int32_t n, int32_t i) {
     const double x0 = (double) xdata[i];
     const double y0 = (double) ydata[i];
     const double h = (double) xdata[i + 1] - x0;
@@ -319,7 +319,7 @@ static double pchip_segment_eval(const CSN_PCHIP_SEGMENT *s, double x) {
     return ((s->d * t + s->c) * t + s->b) * t + s->a;
 }
 
-static double pchip_eval(double x, const MYFLT *xdata, const MYFLT *ydata, int32_t n, int32_t i) {
+static double pchip_eval(double x, const cs_float *xdata, const cs_float *ydata, int32_t n, int32_t i) {
     CSN_PCHIP_SEGMENT s;
     pchip_segment(&s, xdata, ydata, n, i);
     return pchip_segment_eval(&s, x);
@@ -331,7 +331,7 @@ static double pchip_eval(double x, const MYFLT *xdata, const MYFLT *ydata, int32
  * at performance time.
  */
 static int32_t check_increasing(CSN_ARRAY *vec) {
-    const MYFLT *v = vec->data;
+    const cs_float *v = vec->data;
     for (size_t i = 0; i < vec->size - 1; ++i) {
         if (v[i + 1] <= v[i]) {
             return NOTOK;
@@ -454,7 +454,7 @@ int32_t csnarray_remap_scalar(CSOUND *csound, CSN_REMAP_SCALAR *p) {
     res = remap_assign_value(csound, NULL, x_data->data, y_data->data, x_data->size, x, (CSN_INTERP_BOUNDS_MODE) ibounds, fill_value, &y, (CSN_INTERP_MODE) imode);
     if (res != OK) goto done;
 
-    *p->y = (MYFLT) y;
+    *p->y = (cs_float) y;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -526,7 +526,7 @@ int32_t csnarray_remap_scalar_k(CSOUND *csound, CSN_REMAP_SCALAR *p) {
 
     double x = (double) *p->x;
     if (is_same_x_data && is_same_y_data && p->prev_x == x) {
-        *p->y = (MYFLT) p->prev_y;
+        *p->y = (cs_float) p->prev_y;
         goto done;
     }
 
@@ -561,7 +561,7 @@ int32_t csnarray_remap_scalar_k(CSOUND *csound, CSN_REMAP_SCALAR *p) {
     p->prev_x = x;
     p->prev_y = y;
     p->is_published = true;
-    *p->y = (MYFLT) y;
+    *p->y = (cs_float) y;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -699,7 +699,7 @@ int32_t csnarray_remap_k(CSOUND *csound, CSN_REMAP *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] x and y array should have length greater or equal to two and dimension equal to 1");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 7 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 7 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_arr->ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         csound->UnlockMutex(reg->mutex);
@@ -931,7 +931,7 @@ int32_t csnarray_resample(CSOUND *csound, CSN_RESAMPLE *p) {
         goto done;
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->axis : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_arr->ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         res = csound->InitError(csound, "[csnarray] Axis out of bounds");
@@ -1021,7 +1021,7 @@ int32_t csnarray_resample_k_init(CSOUND *csound, CSN_RESAMPLE *p) {
         res = csound->InitError(csound, "[csnarray] Source array must be real array");
         goto done;
     }
-    const MYFLT *axis_in = p->INOCOUNT > 6 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 6 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_arr->ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         res = csound->InitError(csound, "[csnarray] Axis out of bounds");
@@ -1102,7 +1102,7 @@ int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Source array must be real array");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 6 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 6 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_arr->ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         csound->UnlockMutex(reg->mutex);
@@ -1170,7 +1170,7 @@ done:
     return res;
 }
 
-static int32_t truncate_assign_shape(CSOUND *csound, OPDS *perf_h, const uint32_t *source_shape, uint32_t *new_shape, uint32_t source_ndim, size_t source_size, size_t new_length, const MYFLT *in_axis, int32_t *out_axis, CSN_RESIZE_MODE mode) {
+static int32_t truncate_assign_shape(CSOUND *csound, OPDS *perf_h, const uint32_t *source_shape, uint32_t *new_shape, uint32_t source_ndim, size_t source_size, size_t new_length, const cs_float *in_axis, int32_t *out_axis, CSN_RESIZE_MODE mode) {
     if (mode == CSN_HEAD_ARR && source_ndim != 1U) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Dimension greater than one not allowed for head");
     }
@@ -1325,7 +1325,7 @@ static int32_t truncate_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MODE 
     memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
     int32_t axis = -1;
-    const MYFLT *axis_in = mode == CSN_TRUNCATE_ARR && p->INOCOUNT > 2 ? p->arg_a : NULL;
+    const cs_float *axis_in = mode == CSN_TRUNCATE_ARR && p->INOCOUNT > 2 ? p->arg_a : NULL;
     res = truncate_assign_shape(csound, NULL, source_shape, new_shape, source_ndim, source_size, (size_t) new_length, axis_in, &axis, mode);
     if (res != OK) goto done;
 
@@ -1383,7 +1383,7 @@ int32_t csnarray_truncate_in(CSOUND *csound, CSN_TRUNCATE_IN *p) {
     memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->axis : NULL;
     res = truncate_assign_shape(csound, NULL, source_shape, new_shape, source_ndim, source_size, (size_t) new_length, axis_in, &axis, CSN_TRUNCATE_ARR);
     if (res != OK) goto done;
 
@@ -1616,7 +1616,7 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
 
 
     int32_t axis = -1;
-    const MYFLT *axis_in = mode == CSN_TRUNCATE_ARR && p->INOCOUNT > 3 ? p->arg_b : NULL;
+    const cs_float *axis_in = mode == CSN_TRUNCATE_ARR && p->INOCOUNT > 3 ? p->arg_b : NULL;
     res = truncate_assign_shape(csound, &p->h, source_shape, new_shape, source_ndim, source_size, (size_t) new_length, axis_in, &axis, mode);
     if (res != OK) goto done;
 
@@ -1705,7 +1705,7 @@ int32_t csnarray_truncate_in_k(CSOUND *csound, CSN_TRUNCATE_IN *p) {
     memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
     int32_t axis = -1;
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     res = truncate_assign_shape(csound, &p->h, source_shape, new_shape, source_ndim, source_size, (size_t) new_length, axis_in, &axis, CSN_TRUNCATE_ARR);
     if (res != OK) goto done;
 

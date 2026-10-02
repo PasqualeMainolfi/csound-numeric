@@ -826,7 +826,7 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     }
 
     for (size_t i = 0; i < total_size; i++) {
-        p->array->data[i] = (MYFLT) src->data[i];
+        p->array->data[i] = (cs_float) src->data[i];
     }
 
     csound->UnlockMutex(reg->mutex);
@@ -889,7 +889,7 @@ int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
     }
 
     for (size_t i = 0; i < total_size; i++) {
-        p->array->data[i] = (MYFLT) src->data[i];
+        p->array->data[i] = (cs_float) src->data[i];
     }
 
     csound->UnlockMutex(reg->mutex);
@@ -948,8 +948,8 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     COMPLEXDAT *dst = (COMPLEXDAT *) p->array->data;
     for (size_t i = 0; i < total_size; i++) {
-        dst[i].real = (MYFLT) src->data[i * 2];
-        dst[i].imag = (MYFLT) src->data[i * 2 + 1];
+        dst[i].real = (cs_float) src->data[i * 2];
+        dst[i].imag = (cs_float) src->data[i * 2 + 1];
         dst[i].isPolar = 0;
     }
 
@@ -1013,8 +1013,8 @@ int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     COMPLEXDAT *dst = (COMPLEXDAT *) p->array->data;
     for (size_t i = 0; i < total_size; i++) {
-        dst[i].real = (MYFLT) src->data[i * 2];
-        dst[i].imag = (MYFLT) src->data[i * 2 + 1];
+        dst[i].real = (cs_float) src->data[i * 2];
+        dst[i].imag = (cs_float) src->data[i * 2 + 1];
         dst[i].isPolar = 0;
     }
 
@@ -1055,7 +1055,7 @@ int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p) {
         return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    MYFLT dims = (MYFLT) slot->array->ndim;
+    cs_float dims = (cs_float) slot->array->ndim;
 
     csound->UnlockMutex(reg->mutex);
 
@@ -1076,7 +1076,7 @@ int32_t csnarray_dims_k(CSOUND *csound, CSN_SIZE_DIMS *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    MYFLT dims = (MYFLT) slot->array->ndim;
+    cs_float dims = (cs_float) slot->array->ndim;
 
     csound->UnlockMutex(reg->mutex);
 
@@ -1098,7 +1098,7 @@ int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p) {
         return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    MYFLT total_size = (MYFLT) slot->array->size;
+    cs_float total_size = (cs_float) slot->array->size;
 
     csound->UnlockMutex(reg->mutex);
 
@@ -1119,7 +1119,7 @@ int32_t csnarray_size_k(CSOUND *csound, CSN_SIZE_DIMS *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    MYFLT total_size = (MYFLT) slot->array->size;
+    cs_float total_size = (cs_float) slot->array->size;
 
     csound->UnlockMutex(reg->mutex);
 
@@ -1142,7 +1142,7 @@ int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p) {
         return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    MYFLT empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
+    cs_float empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
 
     csound->UnlockMutex(reg->mutex);
 
@@ -1163,7 +1163,7 @@ int32_t csnarray_is_empty_k(CSOUND *csound, CSN_SIZE_DIMS *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    MYFLT empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
+    cs_float empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
 
     csound->UnlockMutex(reg->mutex);
 
@@ -1185,7 +1185,7 @@ int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
         return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    uint32_t dims = (MYFLT) slot->array->ndim;
+    uint32_t dims = (cs_float) slot->array->ndim;
     uint32_t *shape = slot->array->shape;
 
     /* The k form reserves every dimension an array can have, so a source that
@@ -1196,7 +1196,7 @@ int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
         return csound->InitError(csound, "[csnarray] Could not allocate the shape output of %u elements", (uint32_t) CSN_MAX_DIMS);
     }
     for (uint32_t i = 0; i < dims; i++) {
-        p->shape->data[i] = (MYFLT) shape[i];
+        p->shape->data[i] = (cs_float) shape[i];
     }
 
     csound->UnlockMutex(reg->mutex);
@@ -1216,12 +1216,12 @@ int32_t csnarray_shape_k(CSOUND *csound, CSN_SHAPE *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
     }
 
-    uint32_t dims = (MYFLT) slot->array->ndim;
+    uint32_t dims = (cs_float) slot->array->ndim;
     uint32_t *shape = slot->array->shape;
 
     tabinit(csound, p->shape, (int32_t) dims, p->h.insdshead);
     for (uint32_t i = 0; i < dims; i++) {
-        p->shape->data[i] = (MYFLT) shape[i];
+        p->shape->data[i] = (cs_float) shape[i];
     }
 
     csound->UnlockMutex(reg->mutex);
@@ -1229,7 +1229,7 @@ int32_t csnarray_shape_k(CSOUND *csound, CSN_SHAPE *p) {
     return OK;
 }
 
-static int32_t spaced_space_body(CSOUND *csound, OPDS *perf_h, double step_num, const MYFLT *in_start, const MYFLT *in_stop, const MYFLT *in_base, double *base, double *ratio, uint32_t *usize, CSN_SPACED_SPACE_MODE mode) {
+static int32_t spaced_space_body(CSOUND *csound, OPDS *perf_h, double step_num, const cs_float *in_start, const cs_float *in_stop, const cs_float *in_base, double *base, double *ratio, uint32_t *usize, CSN_SPACED_SPACE_MODE mode) {
     double start = (double) *in_start;
     double stop = (double) *in_stop;
     switch (mode) {
@@ -1323,7 +1323,7 @@ static int32_t spaced_space_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SPAC
 
     double arange_step = num;
     double base = 1.0;
-    const MYFLT *in_base = mode == CSN_LOGSPACE ? p->arg_a : NULL;
+    const cs_float *in_base = mode == CSN_LOGSPACE ? p->arg_a : NULL;
     double ratio = 0.0;
     uint32_t usize = 0;
     /* Init pass, and the only caller that reaches spaced_space_body without
@@ -1368,7 +1368,7 @@ static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SP
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
 
-    const MYFLT *trig = mode == CSN_LOGSPACE ? p->arg_b : p->arg_a;
+    const cs_float *trig = mode == CSN_LOGSPACE ? p->arg_b : p->arg_a;
     CHECK_KTRIG(trig);
 
     double num = (double) *p->step_num;
@@ -1385,7 +1385,7 @@ static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SP
 
     double arange_step = num;
     double base = 1.0;
-    const MYFLT *in_base = mode == CSN_LOGSPACE ? p->arg_a : NULL;
+    const cs_float *in_base = mode == CSN_LOGSPACE ? p->arg_a : NULL;
     double ratio = 0.0;
     uint32_t usize = 0;
     res = spaced_space_body(csound, &p->h, arange_step, p->start, p->stop, in_base, &base, &ratio, &usize, mode);

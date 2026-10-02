@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Replace `MYFLT` with `cs_float` and the `MYFLT2*` conversions with `CS_FLOAT2*` throughout the sources, following Csound 7, where `MYFLT` is kept only as a deprecated alias and warns on every use. Both name the same type, so the plugin's binary interface is unchanged; the sources now need Csound 7 headers that define `cs_float`
+
 ## [0.1.12] - 2026-09-30
 
 - Add real-time Butterworth, Chebyshev type I, Chebyshev type II and elliptic filters on audio whose cutoff follows a k-rate signal (*csnrtbutter*, *csnrtcheby1*, *csnrtcheby2*, *csnrtellip*). The analog prototype is designed once at init, as the `*sos` designs build it; every control period moves it to the current frequencies, pre-warped, maps it by the bilinear transform and rebuilds the second-order sections, then filters the block. Nothing is allocated at performance time. The arguments are those of the `*sos` designs, the cutoff at k-rate and the rest at init

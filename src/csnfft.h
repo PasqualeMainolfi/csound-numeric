@@ -62,9 +62,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *fft_size;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // axis in the k-rate overload with an explicit axis
+    cs_float *fft_size;
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     CSN_SCRATCH buffer;
@@ -79,9 +79,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *rows_fft_size;
-    MYFLT *cols_fft_size;
-    MYFLT *trig;
+    cs_float *rows_fft_size;
+    cs_float *cols_fft_size;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     CSN_ARRAY intermediate;
@@ -101,11 +101,11 @@ typedef struct {
     CSNREF *handle_z;
     // inputs
     CSNREF *source_handle;
-    MYFLT *winsize;
-    MYFLT *hopsize;
-    MYFLT *sr;
-    MYFLT *window_type;
-    MYFLT *trig;
+    cs_float *winsize;
+    cs_float *hopsize;
+    cs_float *sr;
+    cs_float *window_type;
+    cs_float *trig;
     // private
     CSN_ARRAY *array_f;
     CSN_ARRAY *array_t;
@@ -121,9 +121,9 @@ typedef struct {
 
 typedef struct {
     CSN_ARRAY stft;
-    MYFLT winsize;
-    MYFLT hopsize;
-    MYFLT window_type;
+    cs_float winsize;
+    cs_float hopsize;
+    cs_float window_type;
     CSN_SCRATCH buffer;
     CSN_SCRATCH window;
     size_t fft_out_size;
@@ -138,11 +138,11 @@ typedef struct {
     CSNREF *handle_x;
     // inputs
     CSNREF *source_handle;
-    MYFLT *winsize;
-    MYFLT *hopsize;
-    MYFLT *sr;
-    MYFLT *window_type;
-    MYFLT *trig;
+    cs_float *winsize;
+    cs_float *hopsize;
+    cs_float *sr;
+    cs_float *window_type;
+    cs_float *trig;
     // private
     CSN_ARRAY *array_t;
     CSN_ARRAY *array_x;
@@ -160,9 +160,9 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *size;
-    MYFLT *d;
-    MYFLT *trig;
+    cs_float *size;
+    cs_float *d;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -175,8 +175,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // axis in the k-rate overload with an explicit axis
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -217,12 +217,12 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *arg_a; // edges mode for every convolve and correlate form;
+    cs_float *arg_a; // edges mode for every convolve and correlate form;
                   // the deconvolve and decorrelate forms take no edges mode, so for them it is
                   // the i-axis (1-D) or the k-trigger (k-rate)
-    MYFLT *arg_b; // i-axis for 1-D, k-trigger for every k-rate form;
+    cs_float *arg_b; // i-axis for 1-D, k-trigger for every k-rate form;
                   // explicit axis for the 1-D k-rate deconvolve and decorrelate forms
-    MYFLT *arg_c; // explicit axis for the 1-D k-rate convolve and correlate forms
+    cs_float *arg_c; // explicit axis for the 1-D k-rate convolve and correlate forms
     // private
     CSN_ARRAY *array;
     K_DATA_FFT k_data_fft_x;
@@ -248,8 +248,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // axis in the k-rate overload with an explicit axis
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     CSN_SCRATCH buffer;
@@ -276,15 +276,15 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *winsize;
-    MYFLT *hopsize;
-    MYFLT *sr;
-    MYFLT *nmfcc;
-    MYFLT *lowf;
-    MYFLT *highf;
-    MYFLT *wintype; // stft window
-    MYFLT *dct_type; // 1 or 2
-    MYFLT *trig;
+    cs_float *winsize;
+    cs_float *hopsize;
+    cs_float *sr;
+    cs_float *nmfcc;
+    cs_float *lowf;
+    cs_float *highf;
+    cs_float *wintype; // stft window
+    cs_float *dct_type; // 1 or 2
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     CSN_MEL_FILTER *fbank;
@@ -307,12 +307,12 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *nfft;
-    MYFLT *nmfcc;
-    MYFLT *lowf;
-    MYFLT *highf;
-    MYFLT *sr;
-    MYFLT *slaney_norm;
+    cs_float *nfft;
+    cs_float *nmfcc;
+    cs_float *lowf;
+    cs_float *highf;
+    cs_float *sr;
+    cs_float *slaney_norm;
     // private
     CSN_ARRAY *array;
 } CSN_MFCC_FBANK;
@@ -323,8 +323,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // axis in the k-rate overload with an explicit axis
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     CSN_ARRAY fft_buffer;
@@ -342,7 +342,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     /* The spectrum lands in the published array and the intermediate holds the

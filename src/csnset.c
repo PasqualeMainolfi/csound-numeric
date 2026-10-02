@@ -457,7 +457,7 @@ int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     uint32_t source_handle = p->source_handle->id;
 
     int32_t res = OK;
-    *p->value = (MYFLT) ((double) p->prev_result);
+    *p->value = (cs_float) ((double) p->prev_result);
     CHECK_KTRIG(p->trig);
     double value = (double) *p->scalar;
 
@@ -470,7 +470,7 @@ int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
         bool is_same_scalar = compare_double(&p->k_data.prev_scalar_param, &value) == 0;
         if (is_same_source && is_same_scalar) {
-            *p->value = (MYFLT) ((double) p->prev_result);
+            *p->value = (cs_float) ((double) p->prev_result);
             goto done;
         }
     }
@@ -480,7 +480,7 @@ int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     binary_search(&index, &founded, 0, source_arr->data, value, source_arr->size, false);
 
     double result_temp = (double) founded;
-    *p->value = (MYFLT) result_temp;
+    *p->value = (cs_float) result_temp;
 
     SET_KDATA_NO_ID_END(p, source_arr->shape, 1U, CSN_REAL);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -957,7 +957,7 @@ static int32_t set_binaryop_predicate_k_helper(CSOUND *csound, CSNSET_BINARYOP_P
         bool is_same_version_a = is_same_array_version(&p->prev_source_version_a, &source_arr_a->version);
         bool is_same_version_b = is_same_array_version(&p->prev_source_version_b, &source_arr_b->version);
         if (is_same_version_a && is_same_version_b) {
-            *p->result = (MYFLT) p->prev_result;
+            *p->result = (cs_float) p->prev_result;
             goto done;
         }
     }

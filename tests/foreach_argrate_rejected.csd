@@ -9,7 +9,7 @@ ksmps = 32
 nchnls = 1
 0dbfs = 1
 
-/* csnforeach writes each element into the callback's argument cell as a MYFLT
+/* csnforeach writes each element into the callback's argument cell as a cs_float
    and reads the result back out. An i-rate callback accepts that write, but a
    UDO always carries a perf function, so it runs an empty performance chain
    and leaves the result cell at whatever its init pass wrote: every element

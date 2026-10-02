@@ -42,11 +42,11 @@ void csn_sh_sn3d_all(int32_t order, double azimuth, double elevation, double *ou
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
-    MYFLT *n;
-    MYFLT *m;
-    MYFLT *x;
+    cs_float *n;
+    cs_float *m;
+    cs_float *x;
 } CSN_LEGENDRE;
 
 typedef struct {
@@ -54,10 +54,10 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *n;
-    MYFLT *m;
+    cs_float *n;
+    cs_float *m;
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -68,13 +68,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
-    MYFLT *n;
-    MYFLT *m;
-    MYFLT *azimuth;
-    MYFLT *elevation;
-    MYFLT *degree;
+    cs_float *n;
+    cs_float *m;
+    cs_float *azimuth;
+    cs_float *elevation;
+    cs_float *degree;
 } CSN_SPHHARM;
 
 typedef struct {
@@ -82,11 +82,11 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *order;
-    MYFLT *azimuth;
-    MYFLT *elevation;
-    MYFLT *degree;
-    MYFLT *trig;
+    cs_float *order;
+    cs_float *azimuth;
+    cs_float *elevation;
+    cs_float *degree;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -99,11 +99,11 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *order;
+    cs_float *order;
     CSNREF *azimuth_handle;
     CSNREF *elevation_handle;
-    MYFLT *degree;
-    MYFLT *trig;
+    cs_float *degree;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;

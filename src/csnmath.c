@@ -454,7 +454,7 @@ static int32_t binop_hs_sh_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg,
     return OK;
 }
 
-static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const MYFLT *scalar_arg, const COMPLEXDAT *complex_arg, CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_BINOP_MODE mode) {
+static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const cs_float *scalar_arg, const COMPLEXDAT *complex_arg, CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_BINOP_MODE mode) {
     double real_scalar = 0.0;
     if (scalar_arg != NULL) {
         real_scalar = (double) *scalar_arg;
@@ -628,7 +628,7 @@ static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const MYFL
 /* The handle and the scalar are passed explicitly rather than read off a
    cast struct: CSN_BINOP_SH lists them in the opposite order to CSN_BINOP_HS,
    so a single cast would silently swap them. */
-static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSNREF *handle_arg, MYFLT *scalar_arg, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
+static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSNREF *handle_arg, cs_float *scalar_arg, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -696,7 +696,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSNREF *handle_arg, MYFLT *scalar_arg, COMPLEXDAT *complex_arg, MYFLT *trig, CSN_BINOP_MODE mode) {
+static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSNREF *handle_arg, cs_float *scalar_arg, COMPLEXDAT *complex_arg, cs_float *trig, CSN_BINOP_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
 
@@ -2025,7 +2025,7 @@ static void unwrap_slice(double *dst, const double *src, size_t n, size_t stride
     }
 }
 
-static int32_t angle_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, double in_period, double in_discount, const MYFLT *axis_in, double *out_period, double *out_discount, int32_t *out_axis, CSN_COMPLEXOP_MODE mode) {
+static int32_t angle_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t source_handle, CSN_ARRAY **source_array, double in_period, double in_discount, const cs_float *axis_in, double *out_period, double *out_discount, int32_t *out_axis, CSN_COMPLEXOP_MODE mode) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -2123,7 +2123,7 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
     CSN_ARRAY *source_arr = NULL;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
     double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
-    const MYFLT *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 3 ? p->arg_c : NULL;
+    const cs_float *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 3 ? p->arg_c : NULL;
     double period = 0.0;
     double discount = 0.0;
     int32_t axis = -1;
@@ -2165,7 +2165,7 @@ static int32_t csnarray_angle_k_init_helper(CSOUND *csound, CSN_ANGLE *p, CSN_CO
     CSN_ARRAY *source_arr = NULL;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
     double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
-    const MYFLT *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 4 ? p->arg_d : NULL;
+    const cs_float *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 4 ? p->arg_d : NULL;
     double period = 0.0;
     double discount = 0.0;
     int32_t axis = -1;
@@ -2208,7 +2208,7 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
         if (res != OK) return res;
     }
 
-    MYFLT *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_c) : p->arg_a;
+    cs_float *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_c) : p->arg_a;
     CHECK_KTRIG(trig);
 
     csound->LockMutex(reg->mutex);
@@ -2216,7 +2216,7 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
     CSN_ARRAY *source_arr = NULL;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
     double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
-    const MYFLT *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 4 ? p->arg_d : NULL;
+    const cs_float *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 4 ? p->arg_d : NULL;
     double period = 0.0;
     double discount = 0.0;
     int32_t axis = -1;
@@ -2293,7 +2293,7 @@ static int32_t angle_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
     return OK;
 }
 
-static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, const MYFLT *axis_in, CSN_COMPLEXOP_MODE mode) {
+static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, const cs_float *axis_in, CSN_COMPLEXOP_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2330,7 +2330,7 @@ static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_C
     uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
 
-    MYFLT *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_c) : p->arg_a;
+    cs_float *trig = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? ((mode == CSN_WRAP) ? p->arg_b : p->arg_c) : p->arg_a;
     CHECK_KTRIG(trig);
 
     csound->LockMutex(reg->mutex);
@@ -2338,7 +2338,7 @@ static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_C
     CSN_ARRAY *source_arr = NULL;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
     double in_discount = mode == CSN_UNWRAP ? (double) *p->arg_b : 0.0;
-    const MYFLT *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 4 ? p->arg_d : NULL;
+    const cs_float *axis_in = mode == CSN_UNWRAP && p->INOCOUNT > 4 ? p->arg_d : NULL;
     double period = 0.0;
     double discount = 0.0;
     int32_t axis = -1;
@@ -2406,12 +2406,12 @@ int32_t csnarray_wrap_angle_in_k(CSOUND *csound, CSN_ANGLE_IN *p) {
 }
 
 int32_t csnarray_unwrap_angle_in(CSOUND *csound, CSN_ANGLE_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->arg_c : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->arg_c : NULL;
     return csnarray_angle_in_helper(csound, p, axis_in, CSN_UNWRAP);
 }
 
 int32_t csnarray_unwrap_angle_in_k_init(CSOUND *csound, CSN_ANGLE_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 4 ? p->arg_d : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 4 ? p->arg_d : NULL;
     return csnarray_angle_in_helper(csound, p, axis_in, CSN_UNWRAP);
 }
 
@@ -2888,7 +2888,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_divmod_hs_sh_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSNREF *source_handle, CSN_ARRAY **p_array_a, CSN_ARRAY **p_array_b, const MYFLT *scalar, bool is_left) {
+static int32_t csnarray_divmod_hs_sh_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSNREF *source_handle, CSN_ARRAY **p_array_a, CSN_ARRAY **p_array_b, const cs_float *scalar, bool is_left) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -3196,7 +3196,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_divmod_hs_sh_k_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **p_array_a, CSN_ARRAY **p_array_b, CSNREF *source_handle, const MYFLT *scalar, K_DATA *k_data, bool is_left, bool *is_published) {
+static int32_t csnarray_divmod_hs_sh_k_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **p_array_a, CSN_ARRAY **p_array_b, CSNREF *source_handle, const cs_float *scalar, K_DATA *k_data, bool is_left, bool *is_published) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, h, reg);
 
@@ -3314,7 +3314,7 @@ int32_t csnarray_divmod_sh_k(CSOUND *csound, CSN_DIVMOD_SH *p) {
    degenerate operand is reported at the rate it is found at, and reported at
    all: division by zero and a zero base under a power have no value, exactly
    as they have none in the array forms. */
-static int32_t nonarr_complex_ops(CSOUND *csound, OPDS *perf_h, const COMPLEXDAT *ca, const COMPLEXDAT *cb, const MYFLT *ra, const MYFLT *rb, COMPLEXDAT *out, CSNCOMPLEX_OPS_MODE mode) {
+static int32_t nonarr_complex_ops(CSOUND *csound, OPDS *perf_h, const COMPLEXDAT *ca, const COMPLEXDAT *cb, const cs_float *ra, const cs_float *rb, COMPLEXDAT *out, CSNCOMPLEX_OPS_MODE mode) {
     CSN_COMPLEXDAT result = {0};
     CSN_COMPLEXDAT a = {0};
     CSN_COMPLEXDAT b = {0};
@@ -3364,8 +3364,8 @@ static int32_t nonarr_complex_ops(CSOUND *csound, OPDS *perf_h, const COMPLEXDAT
             break;
     }
 
-    out->real = (MYFLT) result.re;
-    out->imag = (MYFLT) result.im;
+    out->real = (cs_float) result.re;
+    out->imag = (cs_float) result.im;
     out->isPolar = 0;
 
     return OK;
@@ -3465,8 +3465,8 @@ int32_t nonarr_complex_sqrt(CSOUND *csound, CSN_NONARR_CCOUT_OP *p) {
     CSN_COMPLEXDAT result = {0};
     complexdat_to_rect(p->arg_a, &z.re, &z.im);
     complex_sqrt(&result, z);
-    p->value->real = (MYFLT) result.re;
-    p->value->imag = (MYFLT) result.im;
+    p->value->real = (cs_float) result.re;
+    p->value->imag = (cs_float) result.im;
     p->value->isPolar = 0;
     return OK;
 }
@@ -3477,7 +3477,7 @@ int32_t nonarr_complex_abs(CSOUND *csound, CSN_NONARR_CROUT_OP *p) {
     complexdat_to_rect(p->arg_a, &c.re, &c.im);
     /* hypot, as everywhere else: re*re + im*im overflows above 1.3e154 and
        flushes to zero below 1.5e-162, where the magnitude itself does not. */
-    *p->value = (MYFLT) hypot(c.re, c.im);
+    *p->value = (cs_float) hypot(c.re, c.im);
     return OK;
 }
 
@@ -3485,7 +3485,7 @@ int32_t nonarr_complex_angle(CSOUND *csound, CSN_NONARR_CROUT_OP *p) {
     (void) csound;
     CSN_COMPLEXDAT c = {0};
     complexdat_to_rect(p->arg_a, &c.re, &c.im);
-    *p->value = (MYFLT) atan2(c.im, c.re);
+    *p->value = (cs_float) atan2(c.im, c.re);
     return OK;
 }
 
@@ -3493,8 +3493,8 @@ int32_t nonarr_complex_conj(CSOUND *csound, CSN_NONARR_CCOUT_OP *p) {
     (void) csound;
     CSN_COMPLEXDAT c = {0};
     complexdat_to_rect(p->arg_a, &c.re, &c.im);
-    p->value->real = (MYFLT) c.re;
-    p->value->imag = (MYFLT) -c.im;
+    p->value->real = (cs_float) c.re;
+    p->value->imag = (cs_float) -c.im;
     p->value->isPolar = 0;
     return OK;
 }

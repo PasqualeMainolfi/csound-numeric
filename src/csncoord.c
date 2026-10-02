@@ -43,7 +43,7 @@ static int32_t VALIDATE_ANGLE(CSOUND *csound, OPDS *perf_h, double flag, bool *i
    lists them; c is unused by the planar pair. The degrees flag applies to
    whichever side of the conversion carries angles, so a round trip taken in
    degrees comes back in degrees. */
-static int32_t coord_helper(CSOUND *csound, OPDS *perf_h, MYFLT *a_out, MYFLT *b_out, MYFLT *c_out, const MYFLT *a_in, const MYFLT *b_in, const MYFLT *c_in, const MYFLT *degrees, CSN_COORDS_MODE mode) {
+static int32_t coord_helper(CSOUND *csound, OPDS *perf_h, cs_float *a_out, cs_float *b_out, cs_float *c_out, const cs_float *a_in, const cs_float *b_in, const cs_float *c_in, const cs_float *degrees, CSN_COORDS_MODE mode) {
     double ain = (double) *a_in;
     double bin = (double) *b_in;
     double cin = c_in == NULL ? 0.0 : (double) *c_in;
@@ -124,9 +124,9 @@ static int32_t coord_helper(CSOUND *csound, OPDS *perf_h, MYFLT *a_out, MYFLT *b
         if (coord_has_two_angles(mode)) cout *= CSN_DEG_PER_RAD;
     }
 
-    *a_out = (MYFLT) aout;
-    *b_out = (MYFLT) bout;
-    if (c_out != NULL) *c_out = (MYFLT) cout;
+    *a_out = (cs_float) aout;
+    *b_out = (cs_float) bout;
+    if (c_out != NULL) *c_out = (cs_float) cout;
 
     return OK;
 }
@@ -205,13 +205,13 @@ int32_t csncoord_hoatocar_k(CSOUND *csound, CSN_COORD3 *p) {
 
 int32_t csncoord_degtorad(CSOUND *csound, CSN_COORD1 *p) {
     (void) csound;
-    *p->value = (MYFLT) ((double) *p->arg_a * CSN_RAD_PER_DEG);
+    *p->value = (cs_float) ((double) *p->arg_a * CSN_RAD_PER_DEG);
     return OK;
 }
 
 int32_t csncoord_radtodeg(CSOUND *csound, CSN_COORD1 *p) {
     (void) csound;
-    *p->value = (MYFLT) ((double) *p->arg_a * CSN_DEG_PER_RAD);
+    *p->value = (cs_float) ((double) *p->arg_a * CSN_DEG_PER_RAD);
     return OK;
 }
 
@@ -726,7 +726,7 @@ static int32_t csncoord_nmtoacn_helper(CSOUND *csound, CSN_NM2ACN *p, bool is_pe
     }
 
     int32_t acn = (n * n) + n + m;
-    *p->acn = (MYFLT) acn;
+    *p->acn = (cs_float) acn;
 
     return OK;
 }
@@ -753,8 +753,8 @@ static int32_t csncoord_acntonm_helper(CSOUND *csound, CSN_ACN2NM *p, bool is_pe
     double n = floor(sqrt(acn));
     double m = acn - (n * n) - n;
 
-    *p->n = (MYFLT) n;
-    *p->m = (MYFLT) m;
+    *p->n = (cs_float) n;
+    *p->m = (cs_float) m;
 
     return OK;
 }
@@ -780,7 +780,7 @@ static int32_t csncoord_hoaordtochnls_helper(CSOUND *csound, CSN_COORD1 *p, bool
 
     double n_temp = ord + 1.0;
     double n = n_temp * n_temp;
-    *p->value = (MYFLT) n;
+    *p->value = (cs_float) n;
 
     return OK;
 }
@@ -809,7 +809,7 @@ static int32_t csncoord_chnlstohoaord_helper(CSOUND *csound, CSN_COORD1 *p, bool
     }
 
     double c = root - 1.0;
-    *p->value = (MYFLT) c;
+    *p->value = (cs_float) c;
 
     return OK;
 }

@@ -372,7 +372,7 @@ typedef struct {
     uint32_t index; /* meaningful only when kind == CSN_AXIS_INDEX */
 } CSN_AXIS_SPEC;
 
-CSN_AXIS_SPEC csn_normalize_axis(const MYFLT *axis_in, uint32_t ndim, CSN_AXIS_DEFAULT omitted_default);
+CSN_AXIS_SPEC csn_normalize_axis(const cs_float *axis_in, uint32_t ndim, CSN_AXIS_DEFAULT omitted_default);
 CSN_AXIS_SPEC csn_normalize_axis_value(double axis, uint32_t ndim);
 /* ---------- */
 
@@ -472,7 +472,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
-    MYFLT *itype; // itype = REAL (0) or COMPLEX (1)
+    cs_float *itype; // itype = REAL (0) or COMPLEX (1)
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -484,8 +484,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
-    MYFLT *value;
-    MYFLT *itype;
+    cs_float *value;
+    cs_float *itype;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -510,9 +510,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *shape;
-    MYFLT *min;
-    MYFLT *max;
-    MYFLT *trig;
+    cs_float *min;
+    cs_float *max;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -524,7 +524,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *handle_from; // determines if is real or complex
-    MYFLT *value; // value for fill
+    cs_float *value; // value for fill
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -546,7 +546,7 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *ftable;
+    cs_float *ftable;
     // private
     CSN_ARRAY *array;
 } CSN_FROM_FTABLE;
@@ -563,8 +563,8 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *ftable;
-    MYFLT *resize;
+    cs_float *ftable;
+    cs_float *resize;
 } CSN_TO_FTABLE;
 
 typedef struct {
@@ -578,13 +578,13 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *start;
-    MYFLT *stop;
-    MYFLT *step_num; // step for arange
+    cs_float *start;
+    cs_float *stop;
+    cs_float *step_num; // step for arange
                      // num for linspace, logspace and geomspace
-    MYFLT *arg_a;    // trig for all the others
+    cs_float *arg_a;    // trig for all the others
                      // only for logspace -> base
-    MYFLT *arg_b;    // trig only for logspace
+    cs_float *arg_b;    // trig only for logspace
     // private
     CSN_ARRAY *array;
     uint32_t handle_id;
@@ -596,9 +596,9 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *num;
-    MYFLT *itype;
-    MYFLT *trig;
+    cs_float *num;
+    cs_float *itype;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -607,7 +607,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *handle;
 } CSN_SIZE_DIMS;
@@ -650,9 +650,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *param_a; // axis for i-rate flip, trigger for flip.k
+    cs_float *param_a; // axis for i-rate flip, trigger for flip.k
                     // shift for roll/rollaxis
-    MYFLT *param_b; // axis for flip.k
+    cs_float *param_b; // axis for flip.k
                     // axis for rollaxis
     // private
     CSN_ARRAY *array;
@@ -663,9 +663,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *param_a; // axis for i-rate flip, trigger for flip.in.k
+    cs_float *param_a; // axis for i-rate flip, trigger for flip.in.k
                     // shift for roll/rollaxis
-    MYFLT *param_b; // axis for flip.in.k
+    cs_float *param_b; // axis for flip.in.k
                     // axis for rollaxis
     K_DATA k_data;
     CSN_SCRATCH scratch;
@@ -677,8 +677,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *index;
-    MYFLT *trig;
+    cs_float *index;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -688,7 +688,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // ouputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
@@ -712,7 +712,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
-    MYFLT *value;
+    cs_float *value;
     // private
     K_DATA k_data;
 } CSN_SET;
@@ -733,9 +733,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *index;
-    MYFLT *trig;  // usend only remove_block.k as trigger
+    cs_float *axis;
+    cs_float *index;
+    cs_float *trig;  // usend only remove_block.k as trigger
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -745,11 +745,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *index;
-    MYFLT *trig;  // usend only remove_block.k as trigger
+    cs_float *index;
+    cs_float *trig;  // usend only remove_block.k as trigger
     // private
     K_DATA k_data;
 } CSN_TAKE_FLAT;
@@ -760,7 +760,7 @@ typedef struct {
     COMPLEXDAT *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *index;
+    cs_float *index;
     // private
     K_DATA k_data;
 } CSN_TAKECOMPLEX_FLAT;
@@ -771,10 +771,10 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *start;
-    MYFLT *stop;
-    MYFLT *step;
+    cs_float *axis;
+    cs_float *start;
+    cs_float *stop;
+    cs_float *step;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -785,10 +785,10 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *data_handle;
-    MYFLT *axis;
-    MYFLT *start;
-    MYFLT *stop;
-    MYFLT *step;
+    cs_float *axis;
+    cs_float *start;
+    cs_float *stop;
+    cs_float *step;
     // private
     K_DATA k_data;
 } CSN_SET_SLICE;
@@ -797,8 +797,8 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *in_value; // push at the top
-    MYFLT *index;    // only for put (at index)
+    cs_float *in_value; // push at the top
+    cs_float *index;    // only for put (at index)
 } CSN_PUSH;
 
 typedef struct {
@@ -806,17 +806,17 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     COMPLEXDAT *in_value; // push at the top
-    MYFLT *index;    // only for put (at index)
+    cs_float *index;    // only for put (at index)
 } CSN_PUSHCOMPLEX;
 
 typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *in_value; // push at the top
-    MYFLT *arg_a;    // trig in push_k
+    cs_float *in_value; // push at the top
+    cs_float *arg_a;    // trig in push_k
                      // index in insert_k
-    MYFLT *arg_b;    // trig in insert_k
+    cs_float *arg_b;    // trig in insert_k
     // private
     CSN_REGISTRY *registry;
 } CSN_PUSH_K;
@@ -826,9 +826,9 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     COMPLEXDAT *in_value; // push at the top
-    MYFLT *arg_a;    // trig in push_k
+    cs_float *arg_a;    // trig in push_k
                      // index in insert_k
-    MYFLT *arg_b;    // trig in insert_k
+    cs_float *arg_b;    // trig in insert_k
     // private
     CSN_REGISTRY *registry;
 } CSN_PUSHCOMPLEX_K;
@@ -836,21 +836,21 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *out_value;
+    cs_float *out_value;
     // inputs
     CSNREF *source_handle; // remove the top element
-    MYFLT *index;         // only for remove (at the index)
+    cs_float *index;         // only for remove (at the index)
 } CSN_POP;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *out_value;
+    cs_float *out_value;
     // inputs
     CSNREF *source_handle; // remove the top element
-    MYFLT *arg_a;    // trig in pop_k
+    cs_float *arg_a;    // trig in pop_k
                      // index in remove_k
-    MYFLT *arg_b;    // trig in remove_k
+    cs_float *arg_b;    // trig in remove_k
     // private
     CSN_REGISTRY *registry;
 } CSN_POP_K;
@@ -861,7 +861,7 @@ typedef struct {
     COMPLEXDAT *out_value;
     // inputs
     CSNREF *source_handle; // remove the top element
-    MYFLT *index;          // only for remove (at the index)
+    cs_float *index;          // only for remove (at the index)
 } CSN_POPCOMPLEX;
 
 typedef struct {
@@ -870,9 +870,9 @@ typedef struct {
     COMPLEXDAT *out_value;
     // inputs
     CSNREF *source_handle; // remove the top element
-    MYFLT *arg_a;    // trig in pop_k
+    cs_float *arg_a;    // trig in pop_k
                      // index in remove_k
-    MYFLT *arg_b;    // trig in remove_k
+    cs_float *arg_b;    // trig in remove_k
     // private
     CSN_REGISTRY *registry;
 } CSN_POPCOMPLEX_K;
@@ -882,9 +882,9 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *data_handle; // in block
-    MYFLT *axis;
-    MYFLT *index;
-    MYFLT *trig;
+    cs_float *axis;
+    cs_float *index;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
@@ -897,8 +897,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *data_handle;
-    MYFLT *arg_a; // trig for both k-rate forms; axis for .block at i-rate
-    MYFLT *arg_b; // axis for .block.k
+    cs_float *arg_a; // trig for both k-rate forms; axis for .block at i-rate
+    cs_float *arg_b; // axis for .block.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -910,11 +910,11 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *before;
-    MYFLT *after;
-    MYFLT *value;
-    MYFLT *arg_a; // axis in pad.ax (INOCOUNT > 4), trigger in pad[.ax].k
-    MYFLT *arg_b; // axis in pad.ax.k (INOCOUNT > 5)
+    cs_float *before;
+    cs_float *after;
+    cs_float *value;
+    cs_float *arg_a; // axis in pad.ax (INOCOUNT > 4), trigger in pad[.ax].k
+    cs_float *arg_b; // axis in pad.ax.k (INOCOUNT > 5)
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -926,11 +926,11 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *before;
-    MYFLT *after;
+    cs_float *before;
+    cs_float *after;
     COMPLEXDAT *value;
-    MYFLT *arg_a; // axis in pad.ax.c (INOCOUNT > 4), trigger in pad[.ax].c.k
-    MYFLT *arg_b; // axis in pad.ax.c.k (INOCOUNT > 5)
+    cs_float *arg_a; // axis in pad.ax.c (INOCOUNT > 4), trigger in pad[.ax].c.k
+    cs_float *arg_b; // axis in pad.ax.c.k (INOCOUNT > 5)
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -940,11 +940,11 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *before;
-    MYFLT *after;
-    MYFLT *value;
-    MYFLT *arg_a; // axis in pad.ax.in (INOCOUNT > 4), trigger in pad[.ax].in.k
-    MYFLT *arg_b; // axis in pad.ax.in.k (INOCOUNT > 5)
+    cs_float *before;
+    cs_float *after;
+    cs_float *value;
+    cs_float *arg_a; // axis in pad.ax.in (INOCOUNT > 4), trigger in pad[.ax].in.k
+    cs_float *arg_b; // axis in pad.ax.in.k (INOCOUNT > 5)
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
@@ -955,11 +955,11 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *before;
-    MYFLT *after;
+    cs_float *before;
+    cs_float *after;
     COMPLEXDAT *value;
-    MYFLT *arg_a; // axis in pad.ax.in.c (INOCOUNT > 4), trigger in pad[.ax].in.c.k
-    MYFLT *arg_b; // axis in pad.ax.in.c.k (INOCOUNT > 5)
+    cs_float *arg_a; // axis in pad.ax.in.c (INOCOUNT > 4), trigger in pad[.ax].in.c.k
+    cs_float *arg_b; // axis in pad.ax.in.c.k (INOCOUNT > 5)
     // private
     CSN_REGISTRY *registry;
     CSN_ARRAY *scratch;
@@ -972,9 +972,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *min;
-    MYFLT *max;
-    MYFLT *trig;
+    cs_float *min;
+    cs_float *max;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -984,9 +984,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *min;
-    MYFLT *max;
-    MYFLT *trig;
+    cs_float *min;
+    cs_float *max;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1001,7 +1001,7 @@ typedef struct {
     CSNREF *data_handle;   // array of values (source array will compared with data_handle)
                            // mask in csnselect
                            // weights in bincount
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1016,7 +1016,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1030,8 +1030,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle; // must be sorted 1D (in doc)
     CSNREF *data_handle;
-    MYFLT *side; // 0 -> left, 1 -> right
-    MYFLT *trig;
+    cs_float *side; // 0 -> left, 1 -> right
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1042,12 +1042,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *index;
+    cs_float *index;
     // inputs
     CSNREF *source_handle; // must be sorted 1D (in doc)
-    MYFLT *value;
-    MYFLT *side; // 0 -> left, 1 -> right
-    MYFLT *trig;
+    cs_float *value;
+    cs_float *side; // 0 -> left, 1 -> right
+    cs_float *trig;
     // private
     K_DATA k_data;
     bool is_right_search_side;
@@ -1060,8 +1060,8 @@ typedef struct {
     CSNREF *handle; // index -> [axis 0, axis 1, ..., index]
     // inputs
     CSNREF *source_handle; // array source
-    MYFLT *value;
-    MYFLT *trig;
+    cs_float *value;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1076,7 +1076,7 @@ typedef struct {
     CSNREF *source_handle; // mask
     CSNREF *source_handle_true;
     void *source_handle_false;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1091,7 +1091,7 @@ typedef struct {
     CSNREF *source_handle; // mask
     CSNREF *source_handle_true;
     CSNREF *source_handle_false;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1107,8 +1107,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     CSNREF *source_handle_true; // mask
-    MYFLT *source_scalar_false; // scalar in where_hs; i-axis or k-trigger in compress
-    MYFLT *trig;                // explicit axis in compress.k
+    cs_float *source_scalar_false; // scalar in where_hs; i-axis or k-trigger in compress
+    cs_float *trig;                // explicit axis in compress.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1123,7 +1123,7 @@ typedef struct {
     CSNREF *source_handle; // mask
     CSNREF *source_handle_true;
     CSNREF *source_handle_false;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     double prev_scalar_false;
@@ -1136,8 +1136,8 @@ typedef struct {
     // inputs
     CSNREF *source_handle; // mask
     CSNREF *source_handle_true;
-    MYFLT *source_scalar_false;
-    MYFLT *trig;
+    cs_float *source_scalar_false;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     double prev_scalar_false;
@@ -1151,8 +1151,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle; // array source
-    MYFLT *cmp_value;     // only for gt, lt, ne
-    MYFLT *trig;
+    cs_float *cmp_value;     // only for gt, lt, ne
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1164,12 +1164,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *arg_a;     // compared value for cnteq
+    cs_float *arg_a;     // compared value for cnteq
                       // trig for all
-    MYFLT *arg_b;     // trig only for cnteq
+    cs_float *arg_b;     // trig only for cnteq
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1182,8 +1182,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // axis in the k-rate overload with an explicit axis
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1197,10 +1197,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH scratch;
@@ -1215,7 +1215,7 @@ typedef struct {
     COMPLEXDAT *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig; // .c.k only
+    cs_float *trig; // .c.k only
     // private
     K_DATA k_data;
 } CSN_REDUCTION_COMPLEX_S;
@@ -1227,7 +1227,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1236,13 +1236,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *arg_a; // trig (all)
+    cs_float *arg_a; // trig (all)
                   // dist order (order Minkowski)
-    MYFLT *arg_b; // trig for dist
+    cs_float *arg_b; // trig for dist
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1255,7 +1255,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1283,8 +1283,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *scalar;
-    MYFLT *trig;
+    cs_float *scalar;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1297,7 +1297,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     COMPLEXDAT *scalar;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1309,9 +1309,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;  // i-rate axis; order in the k-rate overload
-    MYFLT *order; // i-rate order; trigger in the k-rate overload
-    MYFLT *trig;  // axis in the k-rate overload
+    cs_float *axis;  // i-rate axis; order in the k-rate overload
+    cs_float *order; // i-rate order; trigger in the k-rate overload
+    cs_float *trig;  // axis in the k-rate overload
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1322,9 +1322,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
-    MYFLT *order;
-    MYFLT *trig;
+    cs_float *axis;
+    cs_float *order;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH scratch;
@@ -1333,10 +1333,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *scalar;
+    cs_float *scalar;
 } CSN_BINOP_HS_SCALAR;
 
 typedef struct {
@@ -1344,9 +1344,9 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *scalar;
+    cs_float *scalar;
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1359,7 +1359,7 @@ typedef struct {
     // inputs
     COMPLEXDAT *scalar;
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1371,7 +1371,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1380,10 +1380,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1395,7 +1395,7 @@ typedef struct {
     COMPLEXDAT *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1405,7 +1405,7 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1417,9 +1417,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;  // i-rate axis; order in the k-rate overload
-    MYFLT *order; // i-rate order; trigger in the k-rate overload
-    MYFLT *trig;  // axis in the k-rate overload
+    cs_float *axis;  // i-rate axis; order in the k-rate overload
+    cs_float *order; // i-rate order; trigger in the k-rate overload
+    cs_float *trig;  // axis in the k-rate overload
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1429,11 +1429,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *order;
-    MYFLT *trig;
+    cs_float *order;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1445,9 +1445,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *winsize;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // axis in the k-rate overload with an explicit axis
+    cs_float *winsize;
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1458,9 +1458,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *winsize;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overloads
-    MYFLT *trig; // explicit axis in the k-rate overloads
+    cs_float *winsize;
+    cs_float *axis; // i-rate axis; trigger in the k-rate overloads
+    cs_float *trig; // explicit axis in the k-rate overloads
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH scratch;
@@ -1479,13 +1479,13 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *arg_a;  // in angle is trig
+    cs_float *arg_a;  // in angle is trig
                    // in wrap is period zero-centered
                    // in unwrap is period (see numpy)
-    MYFLT *arg_b;  // in wrap is trig
+    cs_float *arg_b;  // in wrap is trig
                    // discount for unwrap
-    MYFLT *arg_c;  // i-rate axis; trigger in unwrap.k
-    MYFLT *arg_d;  // axis in unwrap.k
+    cs_float *arg_c;  // i-rate axis; trigger in unwrap.k
+    cs_float *arg_d;  // axis in unwrap.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1495,13 +1495,13 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *arg_a;  // in angle is trig
+    cs_float *arg_a;  // in angle is trig
                    // in wrap is period zero-centered
                    // in unwrap is period (see numpy)
-    MYFLT *arg_b;  // in wrap is trig
+    cs_float *arg_b;  // in wrap is trig
                    // discount for unwrap
-    MYFLT *arg_c;  // i-rate axis; trigger in unwrap.in.k
-    MYFLT *arg_d;  // axis in unwrap.in.k
+    cs_float *arg_c;  // i-rate axis; trigger in unwrap.in.k
+    cs_float *arg_d;  // axis in unwrap.in.k
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1513,9 +1513,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *quantity;
-    MYFLT *axis; // i-rate axis; trigger in the k-rate overload
-    MYFLT *trig; // axis in the k-rate overload
+    cs_float *quantity;
+    cs_float *axis; // i-rate axis; trigger in the k-rate overload
+    cs_float *trig; // axis in the k-rate overload
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1525,11 +1525,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *quantity;
-    MYFLT *trig;
+    cs_float *quantity;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH scratch;
@@ -1538,7 +1538,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *seed;
+    cs_float *seed;
 } CSN_SEED;
 
 typedef struct {
@@ -1563,7 +1563,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -1578,7 +1578,7 @@ typedef struct {
     CSNREF *handle_b;
     // inputs
     CSNREF *source_handle;
-    MYFLT *scalar;
+    cs_float *scalar;
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -1592,7 +1592,7 @@ typedef struct {
     CSNREF *handle_a;
     CSNREF *handle_b;
     // inputs
-    MYFLT *scalar;
+    cs_float *scalar;
     CSNREF *source_handle;
     // private
     CSN_ARRAY *array_a;
@@ -1622,15 +1622,15 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *y;
+    cs_float *y;
     // inputs
-    MYFLT *x;
+    cs_float *x;
     CSNREF *data_handle_x;
     CSNREF *data_handle_y;
-    MYFLT *mode;
-    MYFLT *bounds;
-    MYFLT *fill;
-    MYFLT *trig;
+    cs_float *mode;
+    cs_float *bounds;
+    cs_float *fill;
+    cs_float *trig;
     // private
     double fill_value;
     CSN_INTERP_MODE imode;
@@ -1651,11 +1651,11 @@ typedef struct {
     CSNREF *source_handle;
     CSNREF *data_handle_x;
     CSNREF *data_handle_y;
-    MYFLT *mode;
-    MYFLT *bounds;
-    MYFLT *fill;
-    MYFLT *axis; // trigger
-    MYFLT *trig; // explicit axis in the axis overload
+    cs_float *mode;
+    cs_float *bounds;
+    cs_float *fill;
+    cs_float *axis; // trigger
+    cs_float *trig; // explicit axis in the axis overload
     // private
     CSN_ARRAY *array;
     double fill_value;
@@ -1674,12 +1674,12 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *new_length;
-    MYFLT *mode;
-    MYFLT *bounds;
-    MYFLT *fill;
-    MYFLT *axis; // i-rate axis; trigger in resample.k
-    MYFLT *trig; // explicit axis in resample.k
+    cs_float *new_length;
+    cs_float *mode;
+    cs_float *bounds;
+    cs_float *fill;
+    cs_float *axis; // i-rate axis; trigger in resample.k
+    cs_float *trig; // explicit axis in resample.k
     // private
     CSN_ARRAY *array;
     double fill_value;
@@ -1699,9 +1699,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *length;
-    MYFLT *arg_a; // trigger for k-rate head/truncate; i-rate truncate axis
-    MYFLT *arg_b; // explicit axis for truncate.k
+    cs_float *length;
+    cs_float *arg_a; // trigger for k-rate head/truncate; i-rate truncate axis
+    cs_float *arg_b; // explicit axis for truncate.k
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1712,9 +1712,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *length;
-    MYFLT *axis; // i-rate axis; trigger in truncate.in.k
-    MYFLT *trig; // explicit axis in truncate.in.k
+    cs_float *length;
+    cs_float *axis; // i-rate axis; trigger in truncate.in.k
+    cs_float *trig; // explicit axis in truncate.in.k
     // private
     CSN_REGISTRY *registry;
     K_DATA k_data;
@@ -1728,7 +1728,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *new_shape;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1740,7 +1740,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *new_shape;
-    MYFLT *trig;
+    cs_float *trig;
     // private;
     K_DATA k_data;
     bool is_published;
@@ -1751,7 +1751,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     STRINGDAT *path;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     ARRAY_VERSION prev_source_version;
@@ -1766,7 +1766,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     STRINGDAT *path;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1779,7 +1779,7 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_PRINT_BUFFER pbuffer;
     CSN_REGISTRY *registry;
@@ -1801,8 +1801,8 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *source_sig;
-    MYFLT *rt_lock;
+    cs_float *source_sig;
+    cs_float *rt_lock;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1811,7 +1811,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig;
+    cs_float *sig;
     // inputs
     CSNREF *source_handle;
     // private
@@ -1824,7 +1824,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     ARRAYDAT *source_sig;
-    MYFLT *rt_lock;
+    cs_float *rt_lock;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1846,12 +1846,12 @@ typedef struct {
     OPDS h;
     // outputs
     CSNREF *handle;
-    MYFLT *is_ready;
+    cs_float *is_ready;
     // inputs
-    MYFLT *source_sig;
-    MYFLT *frame_size;
-    MYFLT *hop_size;
-    MYFLT *rt_lock;
+    cs_float *source_sig;
+    cs_float *frame_size;
+    cs_float *hop_size;
+    cs_float *rt_lock;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1863,11 +1863,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig;
-    MYFLT *is_ready;
+    cs_float *sig;
+    cs_float *is_ready;
     // inputs
     CSNREF *source_handle;
-    MYFLT *hop_size;
+    cs_float *hop_size;
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH buffer;
@@ -1882,7 +1882,7 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
 } CSN_RTLOCK;
@@ -1890,7 +1890,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
 } CSN_GRTLOCK;
@@ -1900,7 +1900,7 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *axis;
+    cs_float *axis;
     void *source_handles[VARGMAX - 1];
     // private
     CSN_ARRAY *array;
@@ -1911,8 +1911,8 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *trig;
-    MYFLT *axis;
+    cs_float *trig;
+    cs_float *axis;
     void *source_handles[VARGMAX - 2];
     // private
     CSN_ARRAY *array;
@@ -1930,9 +1930,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *kernel_size;
-    MYFLT *axis;
-    MYFLT *trig;
+    cs_float *kernel_size;
+    cs_float *axis;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1943,9 +1943,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *kernel_size;
-    MYFLT *axis;
-    MYFLT *trig;
+    cs_float *kernel_size;
+    cs_float *axis;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH buffer;
@@ -1957,8 +1957,8 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *kernel_size;
-    MYFLT *trig;
+    cs_float *kernel_size;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -1971,8 +1971,8 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *kernel_size;
-    MYFLT *trig;
+    cs_float *kernel_size;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH buffer;
@@ -1987,7 +1987,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *kernel_sizes;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -2001,7 +2001,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     ARRAYDAT *kernel_sizes;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH buffer;
@@ -2012,11 +2012,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
-    MYFLT *arg_a;
-    MYFLT *arg_b;
-    MYFLT *arg_c;
+    cs_float *arg_a;
+    cs_float *arg_b;
+    cs_float *arg_c;
 } CSN_NONARR_OP;
 
 typedef struct {
@@ -2034,7 +2034,7 @@ typedef struct {
     COMPLEXDAT *value;
     // inputs
     COMPLEXDAT *arg_a;
-    MYFLT *arg_b;
+    cs_float *arg_b;
 } CSN_NONARR_CR_OP;
 
 typedef struct {
@@ -2042,14 +2042,14 @@ typedef struct {
     // outputs
     COMPLEXDAT *value;
     // inputs
-    MYFLT *arg_a;
+    cs_float *arg_a;
     COMPLEXDAT *arg_b;
 } CSN_NONARR_RC_OP;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     COMPLEXDAT *arg_a;
 } CSN_NONARR_CROUT_OP;
@@ -2067,7 +2067,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle;
     OPCODEOBJ *fn;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH buffer;
@@ -2076,12 +2076,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
-    MYFLT *state;
+    cs_float *value;
+    cs_float *state;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
-    MYFLT *reset;
+    cs_float *trig;
+    cs_float *reset;
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH buffer; // source copy. Reject in while changed source
@@ -2093,11 +2093,11 @@ typedef struct {
     OPDS h;
     // outputs
     COMPLEXDAT *value;
-    MYFLT *state;
+    cs_float *state;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
-    MYFLT *reset;
+    cs_float *trig;
+    cs_float *reset;
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH buffer; // source copy. Reject in while changed source

@@ -456,7 +456,7 @@ int32_t csnarray_dot_k(CSOUND *csound, CSN_BINOP_HH *p) {
     return csnarray_vec_k_helper(csound, p, CSN_DOT);
 }
 
-static int32_t scalar_helper_impl_check(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, double dist_order, const MYFLT *out_value, const COMPLEXDAT *out_complex, CSN_VECOP_MODE mode) {
+static int32_t scalar_helper_impl_check(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, double dist_order, const cs_float *out_value, const COMPLEXDAT *out_complex, CSN_VECOP_MODE mode) {
     uint32_t *source_shape_a = source_arr_a->shape;
     uint32_t *source_shape_b = source_arr_b->shape;
     size_t source_dim_a = source_arr_a->ndim;
@@ -486,7 +486,7 @@ static int32_t scalar_helper_impl_check(CSOUND *csound, OPDS *perf_h, CSN_ARRAY 
     return OK;
 }
 
-static void scalar_helper_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, double dist_order, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode) {
+static void scalar_helper_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, double dist_order, cs_float *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode) {
     bool wants_complex = (mode != CSN_DISTANCE) && source_arr_a->itype == CSN_COMPLEX;
     double value = 0.0;
     CSN_COMPLEXDAT acc = { 0.0, 0.0 };
@@ -514,17 +514,17 @@ static void scalar_helper_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *sourc
     }
 
     if (mode == CSN_DISTANCE) {
-        *out_value = (MYFLT) pow(value, 1.0 / dist_order);
+        *out_value = (cs_float) pow(value, 1.0 / dist_order);
     } else if (wants_complex) {
-        out_complex->real = (MYFLT) acc.re;
-        out_complex->imag = (MYFLT) acc.im;
+        out_complex->real = (cs_float) acc.re;
+        out_complex->imag = (cs_float) acc.im;
         out_complex->isPolar = 0;
     } else {
-        *out_value = (MYFLT) acc.re;
+        *out_value = (cs_float) acc.re;
     }
 }
 
-static int32_t csnarray_scalar_helper_impl(CSOUND *csound, CSNREF *ref_a, CSNREF *ref_b, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode, double dist_order, CSN_REGISTRY **registry) {
+static int32_t csnarray_scalar_helper_impl(CSOUND *csound, CSNREF *ref_a, CSNREF *ref_b, cs_float *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode, double dist_order, CSN_REGISTRY **registry) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -560,7 +560,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_scalar_helper_k_impl(CSOUND *csound, CSNREF *ref_a, CSNREF *ref_b, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode, double dist_order, OPDS *perf_h, CSN_REGISTRY *registry, const MYFLT *trig, K_DATA *k_data) {
+static int32_t csnarray_scalar_helper_k_impl(CSOUND *csound, CSNREF *ref_a, CSNREF *ref_b, cs_float *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode, double dist_order, OPDS *perf_h, CSN_REGISTRY *registry, const cs_float *trig, K_DATA *k_data) {
     CSN_REGISTRY *reg = registry;
     if (registry == NULL) {
         return csound->PerfError(csound, perf_h, "[csnarray] Internal error: the csnum array registry is not available");
@@ -608,7 +608,7 @@ static int32_t csnarray_scalar_helper(CSOUND *csound, CSN_BINOP_HH_SCALAR *p, CS
     return csnarray_scalar_helper_impl(csound, p->source_handle_a, p->source_handle_b, p->value, NULL, mode, dist_order, &p->registry);
 }
 
-static int32_t csnarray_scalar_helper_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p, CSN_VECOP_MODE mode, double dist_order, const MYFLT *trig) {
+static int32_t csnarray_scalar_helper_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p, CSN_VECOP_MODE mode, double dist_order, const cs_float *trig) {
     return csnarray_scalar_helper_k_impl(csound, p->source_handle_a, p->source_handle_b, p->value, NULL, mode, dist_order, &p->h, p->registry, trig, &p->k_data);
 }
 
@@ -996,7 +996,7 @@ int32_t csnarray_norm_scalar(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
     }
 
     CSN_ARRAY *source_arr = slot->array;
-    *p->value = (MYFLT) norm_from_scratch(source_arr->data, source_arr->size, order, source_arr->itype);
+    *p->value = (cs_float) norm_from_scratch(source_arr->data, source_arr->size, order, source_arr->itype);
     p->registry = reg;
 
 done:
@@ -1042,7 +1042,7 @@ int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
 
     CSN_ARRAY *source_arr = slot->array;
     if (!CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle_a, source_arr, 0, NULL, NULL, order, 0.0)) {
-        *p->value = (MYFLT) norm_from_scratch(source_arr->data, source_arr->size, order, source_arr->itype);
+        *p->value = (cs_float) norm_from_scratch(source_arr->data, source_arr->size, order, source_arr->itype);
         PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr, 0, NULL, NULL, order, 0.0);
     }
     p->registry = reg;
@@ -1283,7 +1283,7 @@ static CSN_AXIS_DEFAULT unary_ax_default(CSN_UNARYOP_AX_MODE mode) {
     return CSN_AXIS_DEFAULT_REQUIRED;
 }
 
-static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, const MYFLT *axis_in, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch) {
+static int32_t csnarray_unary_ax_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, const cs_float *axis_in, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1362,7 +1362,7 @@ int32_t opunary_ax_in_k_deinit(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
     return OK;
 }
 
-static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, const MYFLT *axis_in, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch, K_DATA *k_data) {
+static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, const OPDS *h, CSNREF *src_ref, const cs_float *axis_in, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch, K_DATA *k_data) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1457,22 +1457,22 @@ done:
    the trigger is bound one slot earlier — into the struct's order field. Both
    structs list the inputs in the same sequence, and INOCOUNT is the declared
    arity, so it tells the two apart. */
-static inline MYFLT *unary_ax_trig(const OPDS *h, MYFLT *order, MYFLT *trig) {
+static inline cs_float *unary_ax_trig(const OPDS *h, cs_float *order, cs_float *trig) {
     return h->optext->t.inArgCount > 3 ? trig : order;
 }
 
 /* In the k-rate unary axis family the public order is source, trigger, axis.
    The existing generic struct supplies two numeric slots named axis and order;
    the wrapper is the only place where that storage detail is interpreted. */
-static inline const MYFLT *unary_ax_k_axis(const OPDS *h, MYFLT *order) {
+static inline const cs_float *unary_ax_k_axis(const OPDS *h, cs_float *order) {
     return h->optext->t.inArgCount > 2 ? order : NULL;
 }
 
-static inline MYFLT *unary_ax_k_trigger(MYFLT *axis_slot) {
+static inline cs_float *unary_ax_k_trigger(cs_float *axis_slot) {
     return axis_slot;
 }
 
-static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref, const MYFLT *axis_in, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch, K_DATA *k_data, const MYFLT *trig) {
+static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSNREF *src_ref, const cs_float *axis_in, double order, CSNREF *out_handle, CSN_ARRAY **out_array, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch, K_DATA *k_data, const cs_float *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -1588,39 +1588,39 @@ done:
 }
 
 int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->order : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->order : NULL;
     double order = p->INOCOUNT > 1 ? (double) *p->axis : 1.0;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, order, p->handle, &p->array, CSN_NORMALIZE, &p->scratch);
 }
 
 int32_t csnarray_normalize_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, axis_in, (double) *p->axis, p->handle, &p->array, CSN_NORMALIZE, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_normalize_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_unary_ax_k_helper(csound, &p->h, p->source_handle, axis_in, (double) *p->axis, p->handle, &p->array, CSN_NORMALIZE, &p->scratch, &p->k_data, p->order);
 }
 
 int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 2 ? p->order : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 2 ? p->order : NULL;
     double order = p->INOCOUNT > 1 ? (double) *p->axis : 1.0;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, order, NULL, NULL, CSN_NORMALIZE, &p->scratch);
 }
 
 int32_t csnarray_normalize_in_k_init(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, axis_in, (double) *p->axis, NULL, NULL, CSN_NORMALIZE, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_normalize_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     return csnarray_unary_ax_k_helper(csound, &p->h, p->source_handle, axis_in, (double) *p->axis, NULL, NULL, CSN_NORMALIZE, &p->scratch, &p->k_data, p->order);
 }
 
 int32_t csnarray_sort_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, NULL, NULL, CSN_SORT, &p->scratch);
 }
 
@@ -1672,7 +1672,7 @@ int32_t csnarray_pair_distance_k(CSOUND *csound, CSN_BINOP_HH *p) {
 }
 
 int32_t csnarray_diff(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, p->handle, &p->array, CSN_DIFF, &p->scratch);
 }
 
@@ -1685,7 +1685,7 @@ int32_t csnarray_diff_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_gradient(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, p->handle, &p->array, CSN_GRADIENT, &p->scratch);
 }
 
@@ -1698,7 +1698,7 @@ int32_t csnarray_gradient_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_cumsum(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, p->handle, &p->array, CSN_CUMSUM, &p->scratch);
 }
 
@@ -1711,7 +1711,7 @@ int32_t csnarray_cumsum_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_cumprod(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, p->handle, &p->array, CSN_CUMPROD, &p->scratch);
 }
 
@@ -1724,7 +1724,7 @@ int32_t csnarray_cumprod_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_sort(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, p->handle, &p->array, CSN_SORT, &p->scratch);
 }
 
@@ -1737,7 +1737,7 @@ int32_t csnarray_sort_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_argsort(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    const MYFLT *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     return csnarray_unary_ax_helper(csound, &p->h, p->source_handle, axis_in, 0.0, p->handle, &p->array, CSN_ARGSORT, &p->scratch);
 }
 
@@ -2088,7 +2088,7 @@ int32_t csnarray_angle_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
 
     if (norm_a == 0.0 || norm_b == 0.0) {
         csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors");
-        *p->value = (MYFLT) NAN;
+        *p->value = (cs_float) NAN;
         goto done;
     }
 
@@ -2101,7 +2101,7 @@ int32_t csnarray_angle_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     c = c < -1.0 ? -1.0 : c;
     double theta = acos(c);
 
-    *p->value = (MYFLT) theta;
+    *p->value = (cs_float) theta;
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -2172,7 +2172,7 @@ int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
 
     if (norm_a == 0.0 || norm_b == 0.0) {
         csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors");
-        *p->value = (MYFLT) NAN;
+        *p->value = (cs_float) NAN;
         goto done;
     }
 
@@ -2185,7 +2185,7 @@ int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     c = c < -1.0 ? -1.0 : c;
     double theta = acos(c);
 
-    *p->value = (MYFLT) theta;
+    *p->value = (cs_float) theta;
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle_a, source_arr_a, source_handle_b, source_arr_b, NULL, 0.0, 0.0);
 
 done:
@@ -2193,7 +2193,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry) {
+static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, cs_float *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2231,15 +2231,15 @@ static int32_t csnarray_trace_impl(CSOUND *csound, CSNREF *src_ref, MYFLT *out_v
             res = csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
             goto done;
         }
-        out_complex->real = (MYFLT) sum.re;
-        out_complex->imag = (MYFLT) sum.im;
+        out_complex->real = (cs_float) sum.re;
+        out_complex->imag = (cs_float) sum.im;
         out_complex->isPolar = 0;
     } else {
         if (out_value == NULL) {
             res = csound->InitError(csound, "[csnarray] Handle holds a real array; declare the result as i");
             goto done;
         }
-        *out_value = (MYFLT) sum.re;
+        *out_value = (cs_float) sum.re;
     }
 
 done:
@@ -2247,7 +2247,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_ref, MYFLT *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry, MYFLT *trig, K_DATA *k_data) {
+static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_ref, cs_float *out_value, COMPLEXDAT *out_complex, CSN_REGISTRY **registry, cs_float *trig, K_DATA *k_data) {
     CSN_REGISTRY *reg = *registry;
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2290,15 +2290,15 @@ static int32_t csnarray_trace_impl_k(CSOUND *csound, OPDS *perf_h, CSNREF *src_r
             csound->UnlockMutex(reg->mutex);
             return csound->PerfError(csound, perf_h, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
         }
-        out_complex->real = (MYFLT) sum.re;
-        out_complex->imag = (MYFLT) sum.im;
+        out_complex->real = (cs_float) sum.re;
+        out_complex->imag = (cs_float) sum.im;
         out_complex->isPolar = 0;
     } else {
         if (out_value == NULL) {
             csound->UnlockMutex(reg->mutex);
             return csound->PerfError(csound, perf_h, "[csnarray] Handle holds a real array; declare the result as i");
         }
-        *out_value = (MYFLT) sum.re;
+        *out_value = (cs_float) sum.re;
     }
     PUBLISH_ELEMENTWISE(k_data, source_handle, source_arr, 0, NULL, NULL, 0.0, 0.0);
 

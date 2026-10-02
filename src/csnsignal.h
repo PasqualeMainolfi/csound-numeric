@@ -79,8 +79,8 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *length;
-    MYFLT *beta;
+    cs_float *length;
+    cs_float *beta;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -101,7 +101,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *axis;
+    cs_float *axis;
     // private
     CSN_ARRAY *array;
 } CSN_ROOTS;
@@ -111,16 +111,16 @@ typedef struct {
     // outputs
     CSNREF *handle_a;
     CSNREF *handle_b;
-    MYFLT *out_gain;
+    cs_float *out_gain;
     // inputs
     CSNREF *source_handle_a; // zeros
                              // b in tf2zpk
     CSNREF *source_handle_b; // poles
                              // a in tf2zpk
-    MYFLT *arg_a; // gain
-    MYFLT *arg_b; // wo in lp2*_* in rad/s
+    cs_float *arg_a; // gain
+    cs_float *arg_b; // wo in lp2*_* in rad/s
                   // fs in bilinear_zpk in Hz
-    MYFLT *arg_c; // bw in lp2bp_zpk, lp2bs_zpk in rad/s
+    cs_float *arg_c; // bw in lp2bp_zpk, lp2bs_zpk in rad/s
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -136,9 +136,9 @@ typedef struct {
                              // b in lp2*
     CSNREF *source_handle_b; // poles in zpk2tf
                              // a in lp2*
-    MYFLT *arg_a; // gain in zpk2tf
+    cs_float *arg_a; // gain in zpk2tf
                   // wo in lp2*
-    MYFLT *arg_b; // bw in lp2bp, lp2bs (unused by zpk2tf)
+    cs_float *arg_b; // bw in lp2bp, lp2bs (unused by zpk2tf)
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -150,20 +150,20 @@ typedef struct {
     CSNREF *handle_a;
     CSNREF *handle_b;
     // inputs
-    MYFLT *arg_a; // order
+    cs_float *arg_a; // order
     ARRAYDAT *fcut; // cutoff
-    MYFLT *arg_b; // ripple in cheby1
+    cs_float *arg_b; // ripple in cheby1
                   // attenuation in cheby2
                   // ripple in ellip
                   // type in butter
-    MYFLT *arg_c; // type in cheby1
+    cs_float *arg_c; // type in cheby1
                   // type in cheby2
                   // attenuation in ellip
                   // fs in butter
-    MYFLT *arg_d; // fs in cheby1
+    cs_float *arg_d; // fs in cheby1
                   // fs in cheby2
                   // type in ellip
-    MYFLT *arg_e; // fs in ellip
+    cs_float *arg_e; // fs in ellip
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -175,20 +175,20 @@ typedef struct {
     CSNREF *handle_a;
     CSNREF *handle_b;
     // inputs
-    MYFLT *arg_a; // order
-    MYFLT *fcut; // cutoff
-    MYFLT *arg_b; // ripple in cheby1
+    cs_float *arg_a; // order
+    cs_float *fcut; // cutoff
+    cs_float *arg_b; // ripple in cheby1
                   // attenuation in cheby2
                   // ripple in ellip
                   // type in butter
-    MYFLT *arg_c; // type in cheby1
+    cs_float *arg_c; // type in cheby1
                   // type in cheby2
                   // attenuation in ellip
                   // fs in butter
-    MYFLT *arg_d; // fs in cheby1
+    cs_float *arg_d; // fs in cheby1
                   // fs in cheby2
                   // type in ellip
-    MYFLT *arg_e; // fs in ellip
+    cs_float *arg_e; // fs in ellip
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -199,20 +199,20 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *arg_a; // order
+    cs_float *arg_a; // order
     ARRAYDAT *fcut; // cutoff
-    MYFLT *arg_b; // ripple in cheby1
+    cs_float *arg_b; // ripple in cheby1
                   // attenuation in cheby2
                   // ripple in ellip
                   // type in butter
-    MYFLT *arg_c; // type in cheby1
+    cs_float *arg_c; // type in cheby1
                   // type in cheby2
                   // attenuation in ellip
                   // fs in butter
-    MYFLT *arg_d; // fs in cheby1
+    cs_float *arg_d; // fs in cheby1
                   // fs in cheby2
                   // type in ellip
-    MYFLT *arg_e; // fs in ellip
+    cs_float *arg_e; // fs in ellip
     // private
     CSN_ARRAY *array;
 } CSN_FDESIGN1F2_SOS;
@@ -222,20 +222,20 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *arg_a; // order
-    MYFLT *fcut; // cutoff
-    MYFLT *arg_b; // ripple in cheby1
+    cs_float *arg_a; // order
+    cs_float *fcut; // cutoff
+    cs_float *arg_b; // ripple in cheby1
                   // attenuation in cheby2
                   // ripple in ellip
                   // type in butter
-    MYFLT *arg_c; // type in cheby1
+    cs_float *arg_c; // type in cheby1
                   // type in cheby2
                   // attenuation in ellip
                   // fs in butter
-    MYFLT *arg_d; // fs in cheby1
+    cs_float *arg_d; // fs in cheby1
                   // fs in cheby2
                   // type in ellip
-    MYFLT *arg_e; // fs in ellip
+    cs_float *arg_e; // fs in ellip
     // private
     CSN_ARRAY *array;
 } CSN_FDESIGN1F1_SOS;
@@ -245,9 +245,9 @@ typedef struct {
     // outputs
     CSNREF *handle_a; // zeros
     CSNREF *handle_b; // poles
-    MYFLT *gain;
+    cs_float *gain;
     // inputs
-    MYFLT *order;
+    cs_float *order;
     // private
     CSN_ARRAY *array_a;
     CSN_ARRAY *array_b;
@@ -260,7 +260,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a; // zeros
     CSNREF *source_handle_b; // poles
-    MYFLT *gain;
+    cs_float *gain;
     // private
     CSN_ARRAY *array;
 } CSN_ZPK2SOS;
@@ -268,11 +268,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig_out;
+    cs_float *sig_out;
     // inputs
     CSNREF *b;
     CSNREF *a;
-    MYFLT *sig_in;
+    cs_float *sig_in;
     // private
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex (imaginary parts zero)
     CSN_ARRAY a_buffer;
@@ -286,10 +286,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig_out;
+    cs_float *sig_out;
     // inputs
     CSNREF *sos;
-    MYFLT *sig_in;
+    cs_float *sig_in;
     // private
     CSN_ARRAY sos_buffer; // (n, 6), complex (imaginary parts zero)
     ARRAY_VERSION sos_version;
@@ -306,8 +306,8 @@ typedef struct {
     CSNREF *b;
     CSNREF *a;
     CSNREF *source_handle;
-    MYFLT *opt_a; // axis in the i-rate form, trig in the k-rate forms
-    MYFLT *opt_b; // axis in the k-rate form
+    cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
+    cs_float *opt_b; // axis in the k-rate form
     // private
     CSN_ARRAY *array;
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex
@@ -329,8 +329,8 @@ typedef struct {
     // inputs
     CSNREF *sos;
     CSNREF *source_handle;
-    MYFLT *opt_a; // axis in the i-rate form, trig in the k-rate forms
-    MYFLT *opt_b; // axis in the k-rate form
+    cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
+    cs_float *opt_b; // axis in the k-rate form
     // private
     CSN_ARRAY *array;
     CSN_ARRAY sos_buffer; // (n, 6), complex
@@ -346,12 +346,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig_out;
+    cs_float *sig_out;
     CSNREF *handle; // new_state z_i
     // inputs
     CSNREF *b;
     CSNREF *a;
-    MYFLT *sig_in;
+    cs_float *sig_in;
     CSNREF *source_handle; // state
     // private
     CSN_ARRAY *array_state;
@@ -368,11 +368,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig_out;
+    cs_float *sig_out;
     CSNREF *handle; // new_state z_i
     // inputs
     CSNREF *sos;
-    MYFLT *sig_in;
+    cs_float *sig_in;
     CSNREF *source_handle; // state
     // private
     CSN_ARRAY *array_state;
@@ -394,8 +394,8 @@ typedef struct {
     CSNREF *a;
     CSNREF *source_handle_a;
     CSNREF *source_handle_b; // state
-    MYFLT *opt_a; // axis in the i-rate form, trig in the k-rate forms
-    MYFLT *opt_b; // axis in the k-rate form
+    cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
+    cs_float *opt_b; // axis in the k-rate form
     // private
     CSN_ARRAY *array;
     CSN_ARRAY *array_state;
@@ -421,8 +421,8 @@ typedef struct {
     CSNREF *sos;
     CSNREF *source_handle_a;
     CSNREF *source_handle_b; // state
-    MYFLT *opt_a; // axis in the i-rate form, trig in the k-rate forms
-    MYFLT *opt_b; // axis in the k-rate form
+    cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
+    cs_float *opt_b; // axis in the k-rate form
     // private
     CSN_ARRAY *array;
     CSN_ARRAY *array_state;
@@ -462,19 +462,19 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *sig_out;
+    cs_float *sig_out;
     // inputs
-    MYFLT *sig_in;
-    MYFLT *order; // order
-    MYFLT *fcut;  // cutoff
-    MYFLT *arg_a; // in BP/BS:
+    cs_float *sig_in;
+    cs_float *order; // order
+    cs_float *fcut;  // cutoff
+    cs_float *arg_a; // in BP/BS:
                   //    bw
                   // in LP/HP:
                   //    ripple in cheby1
                   //    attenuation in cheby2
                   //    ripple in ellip
                   //    type in butter
-    MYFLT *arg_b; // in BP/BS:
+    cs_float *arg_b; // in BP/BS:
                   //    ripple in cheby1
                   //    attenuation in cheby2
                   //    ripple in ellip
@@ -484,7 +484,7 @@ typedef struct {
                   //    type in cheby2
                   //    attenuation in ellip
                   //    fs in butter
-    MYFLT *arg_c; // in BP/BS:
+    cs_float *arg_c; // in BP/BS:
                   //    type in cheby1
                   //    type in cheby2
                   //    attenuation in ellip
@@ -493,13 +493,13 @@ typedef struct {
                   //    fs in cheby1
                   //    fs in cheby2
                   //    type in elli
-    MYFLT *arg_d; // in BP/BS:
+    cs_float *arg_d; // in BP/BS:
                   //    fs in cheby1
                   //    fs in cheby2
                   //    type in ellip
                   // in LP/HP:
                   //    fs in ellip
-    MYFLT *arg_e; // in BP/BS:
+    cs_float *arg_e; // in BP/BS:
                   //    fs in ellip
     // private
     CSN_ARRAY sos;

@@ -680,7 +680,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_determinant_helper(CSOUND *csound, MYFLT *det_real, COMPLEXDAT *det_complex, CSNREF *source_handle_a, K_DATA *k_data, bool *is_published, CSN_SCRATCH *buffer, double *prev_real, CSN_COMPLEXDAT *prev_complex, CSN_LU_INFO *lu_info) {
+static int32_t csnarray_determinant_helper(CSOUND *csound, cs_float *det_real, COMPLEXDAT *det_complex, CSNREF *source_handle_a, K_DATA *k_data, bool *is_published, CSN_SCRATCH *buffer, double *prev_real, CSN_COMPLEXDAT *prev_complex, CSN_LU_INFO *lu_info) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -746,15 +746,15 @@ static int32_t csnarray_determinant_helper(CSOUND *csound, MYFLT *det_real, COMP
     }
 
     if (det_real != NULL) {
-        *det_real = (MYFLT) det_d;
+        *det_real = (cs_float) det_d;
         *prev_real = det_d;
     } else {
-        det_complex->real = (MYFLT) det_c.re;
-        det_complex->imag = (MYFLT) det_c.im;
+        det_complex->real = (cs_float) det_c.re;
+        det_complex->imag = (cs_float) det_c.im;
         det_complex->isPolar = 0;
 
-        prev_complex->re = (MYFLT) det_c.re;
-        prev_complex->im = (MYFLT) det_c.im;
+        prev_complex->re = (cs_float) det_c.re;
+        prev_complex->im = (cs_float) det_c.im;
     }
 
     set_array_version(&k_data->prev_source_version, &source_arr_a->version);
@@ -766,7 +766,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, MYFLT *det_real, COMPLEXDAT *det_complex, CSNREF *source_handle_a, K_DATA *k_data, bool *is_published, CSN_SCRATCH *buffer, double *prev_real, CSN_COMPLEXDAT *prev_complex, CSN_LU_INFO *lu_info) {
+static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, cs_float *det_real, COMPLEXDAT *det_complex, CSNREF *source_handle_a, K_DATA *k_data, bool *is_published, CSN_SCRATCH *buffer, double *prev_real, CSN_COMPLEXDAT *prev_complex, CSN_LU_INFO *lu_info) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -795,10 +795,10 @@ static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, MYFLT *det
     if (*is_published) {
         if (is_same_array_version(&k_data->prev_source_version, &source_arr_a->version)) {
             if (det_real != NULL) {
-                *det_real = (MYFLT) *prev_real;
+                *det_real = (cs_float) *prev_real;
             } else {
-                det_complex->real = (MYFLT) prev_complex->re;
-                det_complex->imag = (MYFLT) prev_complex->im;
+                det_complex->real = (cs_float) prev_complex->re;
+                det_complex->imag = (cs_float) prev_complex->im;
                 det_complex->isPolar = 0;
             }
             goto done;
@@ -835,15 +835,15 @@ static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, MYFLT *det
     }
 
     if (det_real != NULL) {
-        *det_real = (MYFLT) det_d;
+        *det_real = (cs_float) det_d;
         *prev_real = det_d;
     } else {
-        det_complex->real = (MYFLT) det_c.re;
-        det_complex->imag = (MYFLT) det_c.im;
+        det_complex->real = (cs_float) det_c.re;
+        det_complex->imag = (cs_float) det_c.im;
         det_complex->isPolar = 0;
 
-        prev_complex->re = (MYFLT) det_c.re;
-        prev_complex->im = (MYFLT) det_c.im;
+        prev_complex->re = (cs_float) det_c.re;
+        prev_complex->im = (cs_float) det_c.im;
     }
 
     set_array_version(&k_data->prev_source_version, &source_arr_a->version);
@@ -890,7 +890,7 @@ int32_t csnarray_determinant_complex_k(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p
 
 
 // SAVGOL
-static int32_t savgol_validate_params(CSOUND *csound, MYFLT winsize_arg, MYFLT order_arg, MYFLT delta_arg, uint32_t *winsize, uint32_t *ncoef) {
+static int32_t savgol_validate_params(CSOUND *csound, cs_float winsize_arg, cs_float order_arg, cs_float delta_arg, uint32_t *winsize, uint32_t *ncoef) {
     int32_t w = (int32_t) winsize_arg;
     int32_t o = (int32_t) order_arg;
 

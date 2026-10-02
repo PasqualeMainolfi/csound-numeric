@@ -262,7 +262,7 @@ CSN_AXIS_SPEC csn_normalize_axis_value(double value, uint32_t ndim) {
     return spec;
 }
 
-CSN_AXIS_SPEC csn_normalize_axis(const MYFLT *axis_in, uint32_t ndim, CSN_AXIS_DEFAULT omitted_default) {
+CSN_AXIS_SPEC csn_normalize_axis(const cs_float *axis_in, uint32_t ndim, CSN_AXIS_DEFAULT omitted_default) {
     CSN_AXIS_SPEC spec = { .kind = CSN_AXIS_INVALID, .index = 0U };
 
     if (axis_in == NULL) {
@@ -372,7 +372,7 @@ void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *ar
    pass's result instead of recomputing it, but only when both ends have held
    still: the source has not been written, and nothing has disturbed the output
    slot since this opcode filled it. Pass NULL for out_arr on the scalar forms,
-   whose result lives in a MYFLT that nothing else can reach. */
+   whose result lives in a cs_float that nothing else can reach. */
 bool CAN_REUSE_LAST_RESULT(const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr) {
     if (k_data->prev_source_handle != source_handle) return false;
     if (!is_same_array_data_version(&source_arr->version, &k_data->prev_source_version)) return false;
@@ -909,7 +909,7 @@ int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32_t *out
 
     uint32_t ndim = (uint32_t) p_shape->sizes[0];
     for (uint32_t i = 0; i < ndim; i++) {
-        MYFLT extent = p_shape->data[i];
+        cs_float extent = p_shape->data[i];
         /* 0 is allowed: it produces a zero-length array, the empty stack. */
         double value = (double) extent;
         if (!isfinite(value) || value < 0.0 || value > (double) UINT32_MAX || trunc(value) != value) {
@@ -937,7 +937,7 @@ int32_t parse_shape_array_k(CSOUND *csound, OPDS *h, const ARRAYDAT *p_shape, ui
 
     uint32_t ndim = (uint32_t) p_shape->sizes[0];
     for (uint32_t i = 0; i < ndim; i++) {
-        MYFLT extent = p_shape->data[i];
+        cs_float extent = p_shape->data[i];
         /* 0 is allowed: it produces a zero-length array, the empty stack. */
         double value = (double) extent;
         if (!isfinite(value) || value < 0.0 || value > (double) UINT32_MAX || trunc(value) != value) {
@@ -2237,7 +2237,7 @@ PUBLIC int32_t csoundModuleInit(CSOUND *csound) {
     }
 
     if (csn_register_type(csound) != OK) {
-        csound->ErrorMsg(csound, "[csn] registrazione del tipo CsnArray fallita\n");
+        csound->ErrorMsg(csound, "[csn] Internal error: type CsnArray registration failed");
         return CSOUND_ERROR;
     }
 
@@ -2252,5 +2252,5 @@ PUBLIC int32_t csoundModuleDestroy(CSOUND *csound) {
 }
 
 PUBLIC int32_t csoundModuleInfo(void) {
-    return ((CS_VERSION << 16) + (CS_SUBVER << 8) + (int32_t) sizeof(MYFLT));
+    return ((CS_VERSION << 16) + (CS_SUBVER << 8) + (int32_t) sizeof(cs_float));
 }

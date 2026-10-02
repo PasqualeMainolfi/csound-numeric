@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int32_t get_index_offset(CSOUND *csound, OPDS *perf_h, size_t *offset, uint32_t ndim, const CSN_ARRAY *arr, const MYFLT *indexes) {
+static int32_t get_index_offset(CSOUND *csound, OPDS *perf_h, size_t *offset, uint32_t ndim, const CSN_ARRAY *arr, const cs_float *indexes) {
     size_t temp_offset = 0;
     for (uint32_t i = 0; i < ndim; i++) {
         double index_value = (double) indexes[i];
@@ -73,7 +73,7 @@ static int32_t csnarray_resolve_item(
     return OK;
 }
 
-static int32_t csnarray_get_set_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t handle, ARRAYDAT *indexes, MYFLT *value, bool is_get) {
+static int32_t csnarray_get_set_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t handle, ARRAYDAT *indexes, cs_float *value, bool is_get) {
     if (value == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: null value pointer passed to the element accessor");
     }
@@ -86,7 +86,7 @@ static int32_t csnarray_get_set_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTR
     }
 
     if (is_get) {
-        *value = (MYFLT) arr->data[offset];
+        *value = (cs_float) arr->data[offset];
     } else {
         /* Compared first, because a k-rate csnset that stores the same value
            every pass must not look like a write. Feeding an array to an
@@ -117,8 +117,8 @@ static int32_t csnarray_get_set_complex_locked(CSOUND *csound, OPDS *perf_h, CSN
 
     size_t at = offset * 2;
     if (is_get) {
-        value->real = (MYFLT) arr->data[at];
-        value->imag = (MYFLT) arr->data[at + 1];
+        value->real = (cs_float) arr->data[at];
+        value->imag = (cs_float) arr->data[at + 1];
         value->isPolar = 0;
     } else {
         double re, im;
@@ -675,7 +675,7 @@ int32_t csnarray_take_flat(CSOUND *csound, CSN_TAKE_FLAT *p) {
     res = check_take_flat_body(csound, NULL, reg, &slot, &arr, source_handle, (double) *p->index, false);
     if (res != OK) goto done;
 
-    *p->value = (MYFLT) arr->data[(size_t) *p->index];
+    *p->value = (cs_float) arr->data[(size_t) *p->index];
     p->k_data.registry = reg;
 
 done:
@@ -697,7 +697,7 @@ int32_t csnarray_take_flat_k(CSOUND *csound, CSN_TAKE_FLAT *p) {
     res = check_take_flat_body(csound, &p->h, reg, &slot, &arr, source_handle, (double) *p->index, false);
     if (res != OK) goto done;
 
-    *p->value = (MYFLT) arr->data[(size_t) *p->index];
+    *p->value = (cs_float) arr->data[(size_t) *p->index];
     p->k_data.registry = reg;
 
 done:
@@ -720,8 +720,8 @@ int32_t csnarray_takecomp_flat(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p) {
     if (res != OK) goto done;
 
     size_t index = (size_t) *p->index;
-    p->value->real = (MYFLT) arr->data[index * 2];
-    p->value->imag = (MYFLT) arr->data[index * 2 + 1];
+    p->value->real = (cs_float) arr->data[index * 2];
+    p->value->imag = (cs_float) arr->data[index * 2 + 1];
     p->value->isPolar = 0;
     p->k_data.registry = reg;
 
@@ -745,8 +745,8 @@ int32_t csnarray_takecomp_flat_k(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p) {
     if (res != OK) goto done;
 
     size_t index = (size_t) *p->index;
-    p->value->real = (MYFLT) arr->data[index * 2];
-    p->value->imag = (MYFLT) arr->data[index * 2 + 1];
+    p->value->real = (cs_float) arr->data[index * 2];
+    p->value->imag = (cs_float) arr->data[index * 2 + 1];
     p->value->isPolar = 0;
 
 done:
@@ -1131,7 +1131,7 @@ int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SC
     return OK;
 }
 
-static int32_t push_in(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, bool rt_locked, const MYFLT *in_rvalue, COMPLEXDAT *in_cvalue) {
+static int32_t push_in(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, bool rt_locked, const cs_float *in_rvalue, COMPLEXDAT *in_cvalue) {
     size_t new_size = arr->size + 1;
     int32_t res = ensure_mutation_capacity(csound, perf_h, arr, new_size, rt_locked);
     if (res != OK) return res;
@@ -1276,15 +1276,15 @@ static int32_t check_pop_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, C
     return OK;
 }
 
-static void pop_out(CSN_ARRAY *arr, MYFLT *out_rvalue, COMPLEXDAT *out_cvalue) {
+static void pop_out(CSN_ARRAY *arr, cs_float *out_rvalue, COMPLEXDAT *out_cvalue) {
     /* size and shape[0] are written from the same value, so they cannot drift
        apart the way a separate emptiness flag could. */
     size_t new_size = arr->size - 1;
     if (out_rvalue != NULL) {
-        *out_rvalue = (MYFLT) arr->data[new_size];
+        *out_rvalue = (cs_float) arr->data[new_size];
     } else {
-        out_cvalue->real = (MYFLT) arr->data[new_size * 2];
-        out_cvalue->imag = (MYFLT) arr->data[new_size * 2 + 1];
+        out_cvalue->real = (cs_float) arr->data[new_size * 2];
+        out_cvalue->imag = (cs_float) arr->data[new_size * 2 + 1];
         out_cvalue->isPolar = 0;
     }
     arr->size = new_size;
@@ -1398,7 +1398,7 @@ done:
  dst_axis >= index -> src_axis = dst_axis + 1
 */
 
-static int32_t insert_value_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t handle, double index_value, const MYFLT *in_rvalue, COMPLEXDAT *in_cvalue) {
+static int32_t insert_value_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t handle, double index_value, const cs_float *in_rvalue, COMPLEXDAT *in_cvalue) {
     if (!IS_VALID_INDEX(index_value)) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Insert index %g is invalid; indexes must be finite non-negative integers", index_value);
     }
@@ -1492,7 +1492,7 @@ int32_t csnarray_insertcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX_K *p) {
     return res;
 }
 
-static int32_t remove_value_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t handle, double index_value, MYFLT *out_rvalue, COMPLEXDAT *out_cvalue) {
+static int32_t remove_value_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t handle, double index_value, cs_float *out_rvalue, COMPLEXDAT *out_cvalue) {
     if (!IS_VALID_INDEX(index_value)) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Remove index %g is invalid; indexes must be finite non-negative integers", index_value);
     }
@@ -1523,11 +1523,11 @@ static int32_t remove_value_locked(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *r
 
     size_t width = (size_t) arr->itype;
     if (is_complex) {
-        out_cvalue->real = (MYFLT) arr->data[index * 2];
-        out_cvalue->imag = (MYFLT) arr->data[index * 2 + 1];
+        out_cvalue->real = (cs_float) arr->data[index * 2];
+        out_cvalue->imag = (cs_float) arr->data[index * 2 + 1];
         out_cvalue->isPolar = 0;
     } else {
-        *out_rvalue = (MYFLT) arr->data[index];
+        *out_rvalue = (cs_float) arr->data[index];
     }
 
     size_t count = arr->size - index - 1;
@@ -2177,7 +2177,7 @@ done:
     return res;
 }
 
-static int32_t concat_block_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **data_array, uint32_t source_handle, uint32_t data_handle, uint32_t *out_shape, const MYFLT *in_axis, uint32_t *out_axis) {
+static int32_t concat_block_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_ARRAY **data_array, uint32_t source_handle, uint32_t data_handle, uint32_t *out_shape, const cs_float *in_axis, uint32_t *out_axis) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -2403,7 +2403,7 @@ done:
     return res;
 }
 
-static int32_t pad_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, const MYFLT *axis_in, const MYFLT *in_before, const MYFLT *in_after, int32_t *out_axis, uint32_t *out_before, uint32_t *out_after, uint32_t *out_shape, ITEM_TYPE expected_type) {
+static int32_t pad_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, const cs_float *axis_in, const cs_float *in_before, const cs_float *in_after, int32_t *out_axis, uint32_t *out_before, uint32_t *out_after, uint32_t *out_shape, ITEM_TYPE expected_type) {
     CSN_SLOT *source_slot = get_slot(reg, source_handle);
     if (source_slot == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) source_handle);
@@ -2513,7 +2513,7 @@ int32_t pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double r
     return OK;
 }
 
-static int32_t csnarray_pad_helper(CSOUND *csound, const OPDS *h, CSNREF *ohandle, CSNREF *shandle, const MYFLT *in_before, const MYFLT *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const MYFLT *axis_in, CSN_ARRAY **array) {
+static int32_t csnarray_pad_helper(CSOUND *csound, const OPDS *h, CSNREF *ohandle, CSNREF *shandle, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in, CSN_ARRAY **array) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2557,7 +2557,7 @@ done:
    source's shape, and the first pass that pads reshapes the output as before.
    Anything invalid is left for the perf pass to report, as it always was: the
    checks below mirror pad_body's, so the call into it cannot raise. */
-static bool pad_k_init_shape(CSOUND *csound, CSN_REGISTRY *reg, uint32_t source_handle, const CSN_ARRAY *source_arr, const MYFLT *axis_in, const MYFLT *in_before, const MYFLT *in_after, ITEM_TYPE itype, int32_t *axis, uint32_t *before, uint32_t *after, uint32_t *shape) {
+static bool pad_k_init_shape(CSOUND *csound, CSN_REGISTRY *reg, uint32_t source_handle, const CSN_ARRAY *source_arr, const cs_float *axis_in, const cs_float *in_before, const cs_float *in_after, ITEM_TYPE itype, int32_t *axis, uint32_t *before, uint32_t *after, uint32_t *shape) {
     double before_value = (double) *in_before;
     double after_value = (double) *in_after;
     if (!IS_VALID_INDEX(before_value) || !IS_VALID_INDEX(after_value)) return false;
@@ -2605,7 +2605,7 @@ int32_t csnarray_pad_k_init(CSOUND *csound, CSN_PAD *p) {
     int32_t axis = -1;
     uint32_t before = 0;
     uint32_t after = 0;
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     bool padded = pad_k_init_shape(csound, reg, source_handle, source_arr, axis_in, p->before, p->after, CSN_REAL, &axis, &before, &after, shape);
 
     const uint32_t protect[1] = { source_handle };
@@ -2663,7 +2663,7 @@ int32_t csnarray_padcomp_k_init(CSOUND *csound, CSN_PADCOMPLEX *p) {
     int32_t axis = -1;
     uint32_t before = 0;
     uint32_t after = 0;
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     bool padded = pad_k_init_shape(csound, reg, source_handle, source_arr, axis_in, p->before, p->after, CSN_COMPLEX, &axis, &before, &after, shape);
 
     const uint32_t protect[1] = { source_handle };
@@ -2699,7 +2699,7 @@ int32_t csnarray_pad_k(CSOUND *csound, CSN_PAD *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Internal error: output array is not available");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     double trig = (double) *p->arg_a;
 
     if (trig == 0.0) return OK;
@@ -2764,7 +2764,7 @@ int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Internal error: output array is not available");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     double trig = (double) *p->arg_a;
 
     if (trig == 0.0) return OK;
@@ -2824,16 +2824,16 @@ done:
 }
 
 int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
-    const MYFLT *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
+    const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
     return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis, &p->array);
 }
 
 int32_t csnarray_padcomp(CSOUND *csound, CSN_PADCOMPLEX *p) {
-    const MYFLT *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
+    const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
     return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis, &p->array);
 }
 
-static int32_t csnarray_pad_in_helper(CSOUND *csound, CSNREF *shandle, const MYFLT *in_before, const MYFLT *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const MYFLT *axis_in) {
+static int32_t csnarray_pad_in_helper(CSOUND *csound, CSNREF *shandle, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2887,12 +2887,12 @@ done:
 }
 
 int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
-    const MYFLT *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
+    const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
     return csnarray_pad_in_helper(csound, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis);
 }
 
 int32_t csnarray_padcomp_in(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
-    const MYFLT *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
+    const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
     return csnarray_pad_in_helper(csound, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis);
 }
 
@@ -3041,7 +3041,7 @@ int32_t csnarray_pad_in_k(CSOUND *csound, CSN_PAD_IN *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Internal error: temporary buffer not available");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     double trig = (double) *p->arg_a;
 
     if (trig == 0.0) return OK;
@@ -3082,7 +3082,7 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Internal error: temporary buffer not available");
     }
 
-    const MYFLT *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     double trig = (double) *p->arg_a;
 
     if (trig == 0.0) return OK;

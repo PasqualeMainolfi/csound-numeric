@@ -583,7 +583,7 @@ void pcg32_random_init(PCG32_STATE *rng, uint64_t seed) {
 
 // CSN TYPE SYSTEM
 
-static void csnref_init_memory(CSOUND *csound, CS_VARIABLE *var, MYFLT *memblock) {
+static void csnref_init_memory(CSOUND *csound, CS_VARIABLE *var, cs_float *memblock) {
     (void) csound;
     memset(memblock, 0, var->memBlockSize);
 }

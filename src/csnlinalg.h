@@ -25,7 +25,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -41,7 +41,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle_a;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -57,7 +57,7 @@ typedef struct {
     void *det;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH buffer;
@@ -68,10 +68,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *det;
+    cs_float *det;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH buffer;
@@ -87,7 +87,7 @@ typedef struct {
     COMPLEXDAT *det;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     K_DATA k_data;
     CSN_SCRATCH buffer;
@@ -119,9 +119,9 @@ typedef struct {
     // outputs
     CSNREF *handle; // savgol mat
     // inputs;
-    MYFLT *winsize;
-    MYFLT *order;
-    MYFLT *delta;
+    cs_float *winsize;
+    cs_float *order;
+    cs_float *delta;
     // private
     CSN_ARRAY *array;
 } CSN_SAVGOL_MATRIX;
@@ -131,8 +131,8 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *n;
-    MYFLT *trig;
+    cs_float *n;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;

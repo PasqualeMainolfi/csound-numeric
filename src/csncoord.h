@@ -37,33 +37,33 @@ typedef enum {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *a_out;     // x, or r
-    MYFLT *b_out;     // y, or phi (cylindrical) / theta (spherical)
-    MYFLT *c_out;     // z, or phi (spherical)
+    cs_float *a_out;     // x, or r
+    cs_float *b_out;     // y, or phi (cylindrical) / theta (spherical)
+    cs_float *c_out;     // z, or phi (spherical)
     // inputs
-    MYFLT *a_in;
-    MYFLT *b_in;
-    MYFLT *c_in;
-    MYFLT *degrees;   // 0 = radians (default), 1 = degrees
+    cs_float *a_in;
+    cs_float *b_in;
+    cs_float *c_in;
+    cs_float *degrees;   // 0 = radians (default), 1 = degrees
 } CSN_COORD3;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *a_out;     // x, or r
-    MYFLT *b_out;     // y, or phi
+    cs_float *a_out;     // x, or r
+    cs_float *b_out;     // y, or phi
     // inputs
-    MYFLT *a_in;
-    MYFLT *b_in;
-    MYFLT *degrees;   // 0 = radians (default), 1 = degrees
+    cs_float *a_in;
+    cs_float *b_in;
+    cs_float *degrees;   // 0 = radians (default), 1 = degrees
 } CSN_COORD2;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
-    MYFLT *arg_a;
+    cs_float *arg_a;
 } CSN_COORD1;
 
 typedef struct {
@@ -71,10 +71,10 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *angle;
-    MYFLT *axis;
-    MYFLT *degree;
-    MYFLT *trig;
+    cs_float *angle;
+    cs_float *axis;
+    cs_float *degree;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -90,9 +90,9 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *angle;
-    MYFLT *degree;
-    MYFLT *trig;
+    cs_float *angle;
+    cs_float *degree;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -104,11 +104,11 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *yaw;
-    MYFLT *pitch;
-    MYFLT *roll;
-    MYFLT *degree;
-    MYFLT *trig;
+    cs_float *yaw;
+    cs_float *pitch;
+    cs_float *roll;
+    cs_float *degree;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -118,19 +118,19 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *acn;
+    cs_float *acn;
     // inputs
-    MYFLT *n;
-    MYFLT *m;
+    cs_float *n;
+    cs_float *m;
 } CSN_NM2ACN;
 
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *n;
-    MYFLT *m;
+    cs_float *n;
+    cs_float *m;
     // inputs
-    MYFLT *acn;
+    cs_float *acn;
 } CSN_ACN2NM;
 
 typedef struct {
@@ -138,7 +138,7 @@ typedef struct {
     // outputs
     CSNREF *handle;
     // inputs
-    MYFLT *order;
+    cs_float *order;
     // private
     CSN_ARRAY *array;
 } CSN_SN3D;

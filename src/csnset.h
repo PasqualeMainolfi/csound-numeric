@@ -10,7 +10,7 @@ typedef struct {
     CSNREF *handle;
     // inputs
     CSNREF *source_handle;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -22,9 +22,9 @@ typedef struct {
     OPDS h;
     // inputs
     CSNREF *source_handle;
-    MYFLT *arg_a; // trig in unlikeset_k
+    cs_float *arg_a; // trig in unlikeset_k
                   // scalar in insert, remove
-    MYFLT *arg_b; // trig in insert and remove
+    cs_float *arg_b; // trig in insert and remove
     // private
     K_DATA k_data;
     bool is_published;
@@ -33,11 +33,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *value;
+    cs_float *value;
     // inputs
     CSNREF *source_handle;
-    MYFLT *scalar;
-    MYFLT *trig;
+    cs_float *scalar;
+    cs_float *trig;
     // private
     K_DATA k_data;
     bool is_published;
@@ -51,7 +51,7 @@ typedef struct {
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_ARRAY *array;
     K_DATA k_data;
@@ -62,11 +62,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    MYFLT *result;
+    cs_float *result;
     // inputs
     CSNREF *source_handle_a;
     CSNREF *source_handle_b;
-    MYFLT *trig;
+    cs_float *trig;
     // private
     CSN_REGISTRY *registry;
     ARRAY_VERSION prev_source_version_a;

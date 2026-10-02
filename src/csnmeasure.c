@@ -297,7 +297,7 @@ static int32_t csnarray_sabeyr_scalar_helper(CSOUND *csound, CSN_SABEYR_SCALAR *
 
     double result = 0.0;
     sabery_scalar_assign_value(&result, &volume, source_arr_a, source_arr_b, is_sabine);
-    *p->value = (MYFLT) result;
+    *p->value = (cs_float) result;
 
     p->registry = reg;
     set_array_version(&p->versions.prev_a_version, &source_arr_a->version);
@@ -361,14 +361,14 @@ static int32_t csnarray_sabeyr_scalar_k_helper(CSOUND *csound, CSN_SABEYR_SCALAR
         bool is_same_alp = is_same_array_version(&p->versions.prev_b_version, &source_arr_b->version);
         bool is_same_vol = volume == p->prev_volume;
         if (is_same_sur && is_same_alp && is_same_vol) {
-            *p->value = (MYFLT) p->prev_result;
+            *p->value = (cs_float) p->prev_result;
             goto done;
         }
     }
 
     double result = 0.0;
     sabery_scalar_assign_value(&result, &volume, source_arr_a, source_arr_b, is_sabine);
-    *p->value = (MYFLT) result;
+    *p->value = (cs_float) result;
 
     set_array_version(&p->versions.prev_a_version, &source_arr_a->version);
     set_array_version(&p->versions.prev_b_version, &source_arr_b->version);
@@ -440,7 +440,7 @@ static void reqabs_assign_value(uint32_t ndim, CSN_ARRAY *source_arr_a, CSN_ARRA
     }
 }
 
-static int32_t csnarray_reqabsorption_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSNREF *source_a, CSNREF *source_b, CSN_ARRAY **p_array, CSNREF *p_handle, const MYFLT *value_a, const MYFLT *value_b, bool *is_published, CSN_ACOUSTICS_MODE mode) {
+static int32_t csnarray_reqabsorption_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSNREF *source_a, CSNREF *source_b, CSN_ARRAY **p_array, CSNREF *p_handle, const cs_float *value_a, const cs_float *value_b, bool *is_published, CSN_ACOUSTICS_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -624,7 +624,7 @@ done:
     return res;
 }
 
-static int32_t csnarray_reqabsorption_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSNREF *source_a, CSNREF *source_b, CSN_ARRAY **p_array, CSNREF *p_handle, const MYFLT *volume, const MYFLT *t60target, bool *is_published, const MYFLT *trig, CSN_ACOUSTICS_MODE mode) {
+static int32_t csnarray_reqabsorption_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSNREF *source_a, CSNREF *source_b, CSN_ARRAY **p_array, CSNREF *p_handle, const cs_float *volume, const cs_float *t60target, bool *is_published, const cs_float *trig, CSN_ACOUSTICS_MODE mode) {
     CSN_REGISTRY *reg = k_data->registry;
     uint32_t owned_handle = k_data->owned_handle;
     CHECK_REG_HANDLE(csound, h, reg, owned_handle);
@@ -824,7 +824,7 @@ static int32_t csnarray_reqabsorption_ss_helper(CSOUND *csound, CSN_NONARR_OP *p
 
     /* Through the same guarded evaluation the array forms use, so that every
        overload of one opcode answers the same thing for the same operands. */
-    *p->value = (MYFLT) acoustics_value(arg_a, arg_b, mode);
+    *p->value = (cs_float) acoustics_value(arg_a, arg_b, mode);
     return OK;
 }
 
@@ -1065,7 +1065,7 @@ int32_t csnarray_fpqr_1d(CSOUND *csound, CSN_FMODUS_SCALAR *p) {
         s += m * m;
     }
 
-    *p->value = (MYFLT) (fac * sqrt(s));
+    *p->value = (cs_float) (fac * sqrt(s));
     p->prev_fac = fac;
     p->registry = reg;
 
@@ -1276,7 +1276,7 @@ int32_t csnarray_fpqr_1d_k(CSOUND *csound, CSN_FMODUS_SCALAR *p) {
         s += m * m;
     }
 
-    *p->value = (MYFLT) (fac * sqrt(s));
+    *p->value = (cs_float) (fac * sqrt(s));
 
 done:
     csound->UnlockMutex(reg->mutex);
@@ -1500,7 +1500,7 @@ static int32_t csnarray_timeconv_s_helper(CSOUND *csound, CSN_NONARR_OP *p, CSN_
             break;
     }
 
-    *p->value = (MYFLT) value;
+    *p->value = (cs_float) value;
 
     return OK;
 }
@@ -1531,7 +1531,7 @@ static int32_t csnarray_timeconv_s_k_helper(CSOUND *csound, CSN_NONARR_OP *p, CS
             break;
     }
 
-    *p->value = (MYFLT) value;
+    *p->value = (cs_float) value;
 
     return OK;
 }
@@ -1670,7 +1670,7 @@ int32_t csnarray_sumdb_scalar(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     }
 
     double result = 10.0 * log10(y);
-    *p->value = (MYFLT) result;
+    *p->value = (cs_float) result;
 
     p->k_data.registry = reg;
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, result, 0.0);
@@ -1824,7 +1824,7 @@ int32_t csnarray_sumdb_scalar_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
 
     bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
     if (is_same_source) {
-        *p->value = (MYFLT) p->k_data.prev_scalar_param;
+        *p->value = (cs_float) p->k_data.prev_scalar_param;
         goto done;
     }
 
@@ -1834,7 +1834,7 @@ int32_t csnarray_sumdb_scalar_k(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
     }
 
     double result = 10.0 * log10(y);
-    *p->value = (MYFLT) result;
+    *p->value = (cs_float) result;
 
     PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, NULL, result, 0.0);
 
@@ -1850,7 +1850,7 @@ static int32_t csnarray_sumdb_s_helper(CSOUND *csound, CSN_NONARR_OP *p) {
     double ay = pow(10.0, a / 10.0);
     double by = pow(10.0, b / 10.0);
     double y = 10.0 * log10(ay + by);
-    *p->value = (MYFLT) y;
+    *p->value = (cs_float) y;
     return OK;
 }
 
