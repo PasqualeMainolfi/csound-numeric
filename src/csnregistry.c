@@ -23,20 +23,8 @@ static int32_t reset_registry(CSOUND *csound, void *userdata) {
         return OK;
     }
 
-    csound->LockMutex(reg->mutex);
-
-    for (uint32_t i = 0; i < reg->capacity; i++) {
-        CSN_SLOT *slot = &reg->slots[i];
-        if (slot->state == ACTIVE_SLOT && slot->array != NULL) {
-            release_slot(csound, reg, slot);
-        }
-    }
-    reg->active_count = 0;
-
-    csound->UnlockMutex(reg->mutex);
     csound->DestroyMutex(reg->mutex);
     reg->mutex = NULL;
-
     csound->DestroyGlobalVariable(csound, CSN_REGISTRY_NAME);
     return OK;
 }
@@ -60,19 +48,9 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
         return NULL;
     }
 
-    reg->capacity = CSN_MAX_SLTS;
-    reg->active_count = 0;
 #ifdef CSN_VERSION_CROSSCHECK
     reg->csound = csound;
 #endif
-
-    for (uint32_t i = 0; i < CSN_MAX_SLTS; i++) {
-        reg->slots[i].array = NULL;
-        reg->slots[i].gen_id = 1;
-        reg->slots[i].state = INACTIVE_SLOT;
-        reg->slots[i].owner = NULL;
-        reg->slots[i].deferred = 0;
-    }
 
     reg->mutex = csound->Create_Mutex(0);
     if (reg->mutex == NULL) {
@@ -81,9 +59,6 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
     }
 
     pcg32_random_init(&reg->rng, CSN_RND_DEFAULT_STATE);
-    reg->rt_glock_owner = NULL;
-    reg->rt_glock_locked = false;
-    reg->rt_glock_global = false;
 
     if (csound->RegisterResetCallback(csound, reg, reset_registry) != OK) {
         csound->DestroyMutex(reg->mutex);
@@ -92,16 +67,6 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
     }
 
     return reg;
-}
-
-uint32_t find_free_slot(CSN_REGISTRY *registry) {
-    for (uint32_t i = 1; i < registry->capacity; i++) {
-        CSN_SLOT *slot = &registry->slots[i];
-        if (slot->state == INACTIVE_SLOT) {
-            return BUILD_HANDLE(i, slot->gen_id);
-        }
-    }
-    return 0; // full registry
 }
 
 #ifdef CSN_VERSION_CROSSCHECK
@@ -113,69 +78,7 @@ void csn_release_shadow(CSOUND *csound, CSN_ARRAY *array) {
     array->shadow_size = 0;
     array->shadow_data_version = CSN_ARRAY_NULL_VERSION;
 }
-
-void csn_verify_shadow(CSN_REGISTRY *registry, CSN_ARRAY *array, const char *where) {
-    if (registry == NULL || registry->csound == NULL || array == NULL) return;
-    CSOUND *csound = registry->csound;
-
-    size_t doubles = array->data == NULL ? 0 : array->size * (size_t) array->itype;
-
-    /* Only a generation the snapshot was actually taken at can be audited.
-       CSN_ARRAY_NULL_VERSION means no snapshot yet, and a version that has
-       moved since is exactly what the counters are supposed to report. */
-    if (array->shadow_data_version != CSN_ARRAY_NULL_VERSION
-        && array->shadow_data_version == array->version.data_version) {
-        if (doubles != array->shadow_size) {
-            csound->Message(csound,
-                "[csnarray] VERSION CROSSCHECK (%s): array %u held data version %llu while its element count went from %zu to %zu — a writer did not advance it\n",
-                where, array->array_id, (unsigned long long) array->version.data_version,
-                array->shadow_size, doubles);
-        } else if (doubles > 0 && memcmp(array->data, array->shadow, sizeof(double) * doubles) != 0) {
-            csound->Message(csound,
-                "[csnarray] VERSION CROSSCHECK (%s): array %u held data version %llu while its payload changed — a writer did not advance it\n",
-                where, array->array_id, (unsigned long long) array->version.data_version);
-        }
-    }
-
-    if (doubles > array->shadow_capacity) {
-        double *grown = csound->ReAlloc(csound, array->shadow, sizeof(double) * doubles);
-        if (grown == NULL) return; /* leave the old snapshot rather than lie about a new one */
-        array->shadow = grown;
-        array->shadow_capacity = doubles;
-    }
-
-    if (doubles > 0) {
-        memcpy(array->shadow, array->data, sizeof(double) * doubles);
-    }
-    array->shadow_size = doubles;
-    array->shadow_data_version = array->version.data_version;
-}
 #endif
-
-CSN_SLOT *get_slot(CSN_REGISTRY *registry, uint32_t handle) {
-    if (registry == NULL || handle == 0) {
-        return NULL;
-    }
-
-    uint32_t hslt = SLT_FROM_HANDLE(handle);
-    uint32_t hgen = GEN_FROM_HANDLE(handle);
-
-    if (hslt >= registry->capacity) return NULL;
-
-    CSN_SLOT *slot = &registry->slots[hslt];
-    if (slot->state == INACTIVE_SLOT) return NULL;
-    if (slot->gen_id != hgen) return NULL;
-    if (slot->array == NULL) return NULL;
-
-#ifdef CSN_VERSION_CROSSCHECK
-    /* Every opcode resolves its handle here before touching an array, so an
-       unbumped write is caught on whichever pass next looks the array up —
-       whoever that turns out to be. */
-    csn_verify_shadow(registry, slot->array, "get_slot");
-#endif
-
-    return slot;
-}
 
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim) {
     if (ndim == 0) {
@@ -206,107 +109,8 @@ int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *s
     return OK;
 }
 
-/* Changes the array owned by an active slot without changing the slot,
-   generation, handle or CSN_ARRAY object. The caller holds the registry lock,
-   so a layout update can be followed by an opcode-specific fill atomically. */
-int32_t update_slot_array_locked(
-    CSOUND *csound,
-    CSN_REGISTRY *registry,
-    uint32_t handle,
-    uint32_t ndim,
-    const uint32_t *shape,
-    ITEM_TYPE itype,
-    CSN_ARRAY **out_array,
-    const char **err
-) {
-    if (registry == NULL || out_array == NULL || err == NULL) {
-        return NOTOK;
-    }
-    if (itype != CSN_REAL && itype != CSN_COMPLEX) {
-        *err = "Invalid array type";
-        return NOTOK;
-    }
 
-    size_t size = 0;
-    if (get_array_size_from_shape(&size, ndim, shape) != OK) {
-        *err = "Invalid shape or element count exceeds the configured limit";
-        return NOTOK;
-    }
-
-    size_t capacity = size > 0 ? size * 2 : 1;
-    if (capacity > SIZE_MAX / (sizeof(double) * (size_t) itype)) {
-        *err = "Array allocation size overflow";
-        return NOTOK;
-    }
-
-    size_t strides[CSN_MAX_DIMS] = {0};
-    compute_strides(shape, strides, ndim);
-
-    CSN_SLOT *slot = get_slot(registry, handle);
-    if (slot == NULL) {
-        *err = "Output slot is no longer active";
-        return NOTOK;
-    }
-
-    // for safe but unreachble for now
-    if (slot->rt_locked) {
-        *err = "[csnarray] Array is on a real-time path and cannot be reallocated at perf time (clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from)";
-        return NOTOK;
-    }
-
-    size_t bytes = sizeof(double) * capacity * (size_t) itype;
-    double *new_data = csound->Calloc(csound, bytes);
-    if (new_data == NULL) {
-        *err = "Memory allocation failed";
-        return NOTOK;
-    }
-
-    CSN_ARRAY *array = slot->array;
-    double *old_data = array->data;
-
-    array->data = new_data;
-    array->size = size;
-    array->capacity = capacity;
-    array->ndim = ndim;
-    array->itype = itype;
-    memset(array->shape, 0, sizeof(array->shape));
-    memset(array->strides, 0, sizeof(array->strides));
-    memcpy(array->shape, shape, sizeof(uint32_t) * ndim);
-    memcpy(array->strides, strides, sizeof(size_t) * ndim);
-    *out_array = array;
-
-    /* Fresh Calloc'd storage under a possibly new layout: nothing a consumer
-       cached about this array survives, so every counter moves. */
-    update_array_version(&array->version);
-
-    csound->Free(csound, old_data);
-    return OK;
-}
-
-int32_t update_slot_array(
-    CSOUND *csound,
-    CSN_REGISTRY *registry,
-    uint32_t handle,
-    uint32_t ndim,
-    const uint32_t *shape,
-    ITEM_TYPE itype,
-    CSN_ARRAY **out_array,
-    const char **err
-) {
-    if (registry == NULL) {
-        if (err != NULL) {
-            *err = "Array registry is not available";
-        }
-        return NOTOK;
-    }
-
-    csound->LockMutex(registry->mutex);
-    int32_t res = update_slot_array_locked(csound, registry, handle, ndim, shape, itype, out_array, err);
-    csound->UnlockMutex(registry->mutex);
-    return res;
-}
-
-int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype) {
+int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype) {
     if (ndim == 0 || ndim > CSN_MAX_DIMS || shape == NULL) {
         return NOTOK;
     }
@@ -344,7 +148,6 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     array->data = array_data;
     array->size = array_length;
     array->ndim = ndim;
-    array->array_id = array_id;
     array->kind = CSNARR;
     array->set_data_version = 0;
     array->external_lock = false;
@@ -358,79 +161,6 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     array->shadow_size = 0;
     array->shadow_data_version = CSN_ARRAY_NULL_VERSION;
 #endif
-
-    return OK;
-}
-
-static void destroy_array(CSOUND *csound, CSN_ARRAY *array) {
-    if (array != NULL) {
-#ifdef CSN_VERSION_CROSSCHECK
-        csn_release_shadow(csound, array);
-#endif
-        if (array->data != NULL) {
-            csound->Free(csound, array->data);
-        }
-        csound->Free(csound, array);
-    }
-}
-
-int32_t activate_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot, uint32_t ndim, const uint32_t *shape, uint32_t array_id, ITEM_TYPE itype) {
-    if (registry == NULL || slot == NULL) {
-        return NOTOK;
-    }
-
-    if (slot->state != INACTIVE_SLOT || slot->array != NULL) {
-        return NOTOK;
-    }
-    CSN_ARRAY *array = csound->Calloc(csound, sizeof(CSN_ARRAY));
-    if (array == NULL) {
-        return NOTOK;
-    }
-
-    int32_t res = allocate_array(csound, array, ndim, shape, array_id, itype);
-    if (res != OK) {
-        csound->Free(csound, array);
-        return NOTOK;
-    }
-
-    slot->state = ACTIVE_SLOT;
-    slot->array = array;
-    slot->rt_locked = registry->rt_glock_global;
-    registry->active_count++;
-    return OK;
-}
-
-int32_t release_slot(CSOUND *csound, CSN_REGISTRY *registry, CSN_SLOT *slot) {
-    if (registry == NULL || slot == NULL) {
-        return NOTOK;
-    }
-
-    if (slot->state != ACTIVE_SLOT || slot->array == NULL) {
-        return NOTOK;
-    }
-
-    uint32_t deferred = slot->deferred;
-    destroy_array(csound, slot->array);
-
-    slot->array = NULL;
-    slot->state = INACTIVE_SLOT;
-    slot->owner = NULL;
-    slot->deferred = 0;
-    slot->gen_id = (slot->gen_id + 1U) & CSN_GEN_MASK;
-
-    if (slot->gen_id == 0) {
-        slot->gen_id = 1;
-    }
-
-    if (registry->active_count > 0) {
-        registry->active_count--;
-    }
-
-    // the array this one replaced as an operand has no other way out
-    CSN_SLOT *pending = get_slot(registry, deferred);
-    if (pending != NULL) {
-        release_slot(csound, registry, pending);
-    }
 
     return OK;
 }
@@ -583,44 +313,66 @@ void pcg32_random_init(PCG32_STATE *rng, uint64_t seed) {
 
 // CSN TYPE SYSTEM
 
-static void csnref_init_memory(CSOUND *csound, CS_VARIABLE *var, cs_float *memblock) {
+static void csnarr_init_memory(CSOUND *csound, CS_VARIABLE *var, cs_float *memblock) {
     (void) csound;
     memset(memblock, 0, var->memBlockSize);
 }
 
 #ifdef CS_TYPE_ARG_4ARG
-static struct csvariable *csnref_create(void *cs, const struct cstype *type, const void *typeArg, struct insds *ctx) {
+static struct csvariable *csnarr_create(void *cs, const struct cstype *type, const void *typeArg, struct insds *ctx) {
     (void) type;
     (void) typeArg;
 #else
-static struct csvariable *csnref_create(void *cs, void *p, struct insds *ctx) {
+static struct csvariable *csnarr_create(void *cs, void *p, struct insds *ctx) {
     (void) p;
 #endif
     CSOUND *csound = (CSOUND *) cs;
     CS_VARIABLE *var = (CS_VARIABLE *) csound->Calloc(csound, sizeof(CS_VARIABLE));
     if (var == NULL) return NULL;
 
-    var->memBlockSize = CS_FLOAT_ALIGN(sizeof(CSNREF));
-    var->initializeVariableMemory = &csnref_init_memory;
+    var->memBlockSize = CS_FLOAT_ALIGN(sizeof(CSN_ARRAY));
+    var->initializeVariableMemory = &csnarr_init_memory;
     var->ctx = ctx;
     return var;
 }
 
-static void csnref_copy_value(CSOUND *csound, const struct cstype *cstype, void *dest, const void *src, struct insds *ctx) {
-    (void) csound; (void) cstype; (void) ctx;
-    if (src != NULL && dest != NULL) {
-        memcpy(dest, src, sizeof(CSNREF));
+static void csnarr_copy_value(CSOUND *csound, const struct cstype *cstype, void *dest, const void *src, struct insds *ctx) {
+    (void) cstype;
+    (void) ctx;
+    CSN_ARRAY *d = (CSN_ARRAY *) dest;
+    const CSN_ARRAY *s = (const CSN_ARRAY *) src;
+    if (d == s || s->data == NULL) return;
+    if (d->data == NULL) init_array_version(&d->version);
+    if (d->itype != s->itype) {
+        d->capacity = d->itype ? d->capacity * d->itype / s->itype : 0;
+        d->itype = s->itype;
     }
+    size_t req_size = s->size == 0 ? 1 : s->size;
+    if (ensure_mutation_capacity(csound, NULL, d, req_size, false) != OK) return;
+    d->ndim = s->ndim;
+    travase_csnarray(d, s);
+    d->rate = s->rate;
+    update_array_version(&d->version);
+}
+
+static void csnarr_free(void *cs, void *mem) {
+    CSOUND *csound = (CSOUND *) cs;
+    CSN_ARRAY *a = (CSN_ARRAY *) mem;
+#ifdef CSN_VERSION_CROSSCHECK
+    csn_release_shadow(csound, a);
+#endif
+    if (a->data != NULL) csound->Free(csound, a->data);
+    memset(a, 0, sizeof(CSN_ARRAY));
 }
 
 // ARRAY REAL
 static CS_TYPE CS_VAR_TYPE_CSNARRAY = {
     "CsnArr",
-    "csn array registry-id",
+    "csn array",
     CS_ARG_TYPE_BOTH,
-    csnref_create,
-    csnref_copy_value,
-    NULL,
+    csnarr_create,
+    csnarr_copy_value,
+    csnarr_free,
     NULL,
     0
 };
@@ -639,4 +391,43 @@ int32_t csn_register_type(CSOUND *csound) {
     }
 
     return csound->AddVariableType(csound, pool, &CS_VAR_TYPE_CSNARRAY) ? OK : NOTOK;
+}
+
+/* Per thread: Csound's init thread and its perf (and multicore) threads
+   each know only whether they themselves hold the mutex. */
+static _Thread_local bool csn_lock_held = false;
+
+void csn_lock(CSOUND *csound, CSN_REGISTRY *reg) {
+    csound->LockMutex(reg->mutex);
+    csn_lock_held = true;
+}
+
+void csn_unlock(CSOUND *csound, CSN_REGISTRY *reg) {
+    csn_lock_held = false;
+    csound->UnlockMutex(reg->mutex);
+}
+
+bool csn_lock_is_held(void) {
+    return csn_lock_held;
+}
+
+bool csn_lock_if_shared(CSOUND *csound, CSN_REGISTRY *reg, const CSN_ARRAY *const *arrays, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (arrays[i] != NULL && arrays[i]->shared) {
+            csn_lock(csound, reg);
+            return true;
+        }
+    }
+    return false;
+}
+
+void stamp_globals(CSOUND *csound, OPDS *h) {
+    const CS_TYPE *csnarr = csound->GetType(csound, "CsnArr");
+    void **ptrs = (void **) (h + 1);
+    int32_t i = 0;
+    ARG *lists[2] = { h->optext->t.outArgs, h->optext->t.inArgs };
+    for (int32_t l = 0; l < 2; l++)
+        for (ARG *a = lists[l]; a != NULL; a = a->next, i++)
+            if (a->type == ARG_GLOBAL && a->argPtr != NULL && ((CS_VARIABLE *) a->argPtr)->varType == csnarr)
+                ((CSN_ARRAY *) ptrs[i])->shared = true;
 }

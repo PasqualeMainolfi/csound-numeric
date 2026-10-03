@@ -31,14 +31,14 @@ typedef enum {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a; // volume m3 must be 1D
+    CSN_ARRAY *source_handle_a; // volume m3 must be 1D
     /* S and alpha are mat of n x m, where n must be equal to
      * the number of rows of volumes.
      */
-    CSNREF *source_handle_b; // S must be n x m [[s_0, s_1, ..., s_n - 1], ...],
-    CSNREF *source_handle_c; // alpha must be n x m [[a_0, a_1, ..., a_n - 1], ...],
+    CSN_ARRAY *source_handle_b; // S must be n x m [[s_0, s_1, ..., s_n - 1], ...],
+    CSN_ARRAY *source_handle_c; // alpha must be n x m [[a_0, a_1, ..., a_n - 1], ...],
     cs_float *trig;
     // private
     CSN_ARRAY *array;
@@ -53,8 +53,8 @@ typedef struct {
     cs_float *value;
     // inputs
     cs_float *volume;
-    CSNREF *source_handle_a; // S 1D
-    CSNREF *source_handle_b; // alpha 1D
+    CSN_ARRAY *source_handle_a; // S 1D
+    CSN_ARRAY *source_handle_b; // alpha 1D
     cs_float *trig;
     // private
     CSN_REGISTRY *registry;
@@ -67,10 +67,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a; // volume m3 must be 1D
-    CSNREF *source_handle_b; // T60 target must be 1D
+    CSN_ARRAY *source_handle_a; // volume m3 must be 1D
+    CSN_ARRAY *source_handle_b; // T60 target must be 1D
     cs_float *trig;
     // private
     CSN_ARRAY *array;
@@ -81,10 +81,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *arg_a;
-    CSNREF *source_handle; // T60 target
+    CSN_ARRAY *source_handle; // T60 target
     cs_float *trig;
     // private
     CSN_ARRAY *array;
@@ -95,9 +95,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *arg_b; // T60 target
     cs_float *trig;
     // private
@@ -109,10 +109,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a; // room must be n x 3 [[L, W, H], ...]
-    CSNREF *source_handle_b; // mode index must be n x 3 [[p, q, r], ...]
+    CSN_ARRAY *source_handle_a; // room must be n x 3 [[L, W, H], ...]
+    CSN_ARRAY *source_handle_b; // mode index must be n x 3 [[p, q, r], ...]
     cs_float *sound_speed;
     cs_float *trig;
     // private
@@ -126,8 +126,8 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle_a; // room must be n x 3 [[L, W, H], ...]
-    CSNREF *source_handle_b; // mode index [p, q, r]
+    CSN_ARRAY *source_handle_a; // room must be n x 3 [[L, W, H], ...]
+    CSN_ARRAY *source_handle_b; // mode index [p, q, r]
     cs_float *sound_speed;
     cs_float *trig;
     // private
@@ -138,9 +138,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle; // times in millis or seconds
+    CSN_ARRAY *source_handle; // times in millis or seconds
     cs_float *sr;
     cs_float *trig;
     // private

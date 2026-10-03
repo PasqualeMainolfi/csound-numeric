@@ -69,15 +69,14 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *angle;
     cs_float *axis;
     cs_float *degree;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
     bool is_degree;
     /* Which basis axis the matrix turns about, 0, 1 or 2. Not a data axis:
        negative values do not count from the end here, they are an error. */
@@ -87,22 +86,21 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *angle;
     cs_float *degree;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
     bool is_degree;
 } CSN_ROTMAT_AXIS;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *yaw;
     cs_float *pitch;
@@ -110,8 +108,7 @@ typedef struct {
     cs_float *degree;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
     bool is_degree;
 } CSN_ROTMAT_YPR;
 
@@ -136,11 +133,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *order;
-    // private
-    CSN_ARRAY *array;
 } CSN_SN3D;
 
 
@@ -158,15 +153,12 @@ int32_t csncoord_hoatocar(CSOUND *csound, CSN_COORD3 *p);
 int32_t csncoord_cartohoa_k(CSOUND *csound, CSN_COORD3 *p);
 int32_t csncoord_hoatocar_k(CSOUND *csound, CSN_COORD3 *p);
 
-int32_t csncoord_rotmat_deinit(CSOUND *csound, CSN_ROTMAT *p);
 int32_t csncoord_rotmat(CSOUND *csound, CSN_ROTMAT *p);
 int32_t csncoord_rotmat_k_init(CSOUND *csound, CSN_ROTMAT *p);
 int32_t csncoord_rotmat_k(CSOUND *csound, CSN_ROTMAT *p);
-int32_t csncoord_rotmat_axis_deinit(CSOUND *csound, CSN_ROTMAT_AXIS *p);
 int32_t csncoord_rotmat_axis(CSOUND *csound, CSN_ROTMAT_AXIS *p);
 int32_t csncoord_rotmat_axis_k_init(CSOUND *csound, CSN_ROTMAT_AXIS *p);
 int32_t csncoord_rotmat_axis_k(CSOUND *csound, CSN_ROTMAT_AXIS *p);
-int32_t csncoord_rotmat_ypr_deinit(CSOUND *csound, CSN_ROTMAT_YPR *p);
 int32_t csncoord_rotmat_ypr_k_init(CSOUND *csound, CSN_ROTMAT_YPR *p);
 int32_t csncoord_rotmat_ypr(CSOUND *csound, CSN_ROTMAT_YPR *p);
 int32_t csncoord_rotmat_ypr_k(CSOUND *csound, CSN_ROTMAT_YPR *p);
@@ -190,7 +182,6 @@ int32_t csncoord_hoaordtochnls_k(CSOUND *csound, CSN_COORD1 *p);
 int32_t csncoord_chnlstohoaord(CSOUND *csound, CSN_COORD1 *p);
 int32_t csncoord_chnlstohoaord_k(CSOUND *csound, CSN_COORD1 *p);
 
-int32_t csncoord_sn3d_deinit(CSOUND *csound, CSN_SN3D *p);
 int32_t csncoord_sn3dton3d(CSOUND *csound, CSN_SN3D *p);
 int32_t csncoord_n3dtosn3d(CSOUND *csound, CSN_SN3D *p);
 

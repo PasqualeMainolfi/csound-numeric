@@ -10,8 +10,7 @@
 #define CSN_RAD_PER_DEG (CSN_PI / 180.0)
 
 static bool coord_is_to_cartesian(CSN_COORDS_MODE mode) {
-    return mode == CSN_POL2CAR || mode == CSN_CYL2CAR || mode == CSN_SPH2CAR ||
-           mode == CSN_HOA2CAR;
+    return mode == CSN_POL2CAR || mode == CSN_CYL2CAR || mode == CSN_SPH2CAR || mode == CSN_HOA2CAR;
 }
 
 /* Which of the two trailing outputs carry an angle, so the degrees flag knows
@@ -19,8 +18,7 @@ static bool coord_is_to_cartesian(CSN_COORDS_MODE mode) {
    and ambisonics pairs carry two: the inclination or the elevation joins the
    azimuth. */
 static bool coord_has_two_angles(CSN_COORDS_MODE mode) {
-    return mode == CSN_SPH2CAR || mode == CSN_CAR2SPH ||
-           mode == CSN_HOA2CAR || mode == CSN_CAR2HOA;
+    return mode == CSN_SPH2CAR || mode == CSN_CAR2SPH || mode == CSN_HOA2CAR || mode == CSN_CAR2HOA;
 }
 
 /* z/r can leave [-1, 1] by an ulp once r has been rounded, and acos answers
@@ -313,7 +311,6 @@ static int32_t csncoord_rotmat_helper(CSOUND *csound, CSN_ROTMAT *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     p->is_degree = false;
     double flag = (double) *p->degree;
@@ -338,13 +335,9 @@ static int32_t csncoord_rotmat_helper(CSOUND *csound, CSN_ROTMAT *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    csound->LockMutex(reg->mutex);
-    /* Nothing to protect: the angle and the axis are scalars, so this call
-       cannot free an array it is about to read. */
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    res = pres.err;
+    if (res != OK) goto done;
 
     /* Filled on both passes, as csnidentity does with its own k-rate size.
 
@@ -356,27 +349,21 @@ static int32_t csncoord_rotmat_helper(CSOUND *csound, CSN_ROTMAT *p) {
        rotation for a consumer to multiply by. Publishing an empty array
        instead would make every consumer's own init pass fail on a handle that
        carries no elements. */
-    ROTATE_MAT(p->array->data, angle, p->axis_index);
-
-    p->k_data.prev_ndim = new_ndim;
-    memcpy(p->k_data.prev_shape, p->array->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-    p->k_data.prev_itype = CSN_REAL;
-    p->k_data.owned_handle = p->handle->id;
-    p->k_data.registry = reg;
+    ROTATE_MAT(p->handle->data, angle, p->axis_index);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csncoord_rotmat_k_helper(CSOUND *csound, CSN_ROTMAT *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     /* Validated by the init: the axis and the angle unit are i-arguments and
        cannot have moved since. */
@@ -388,28 +375,18 @@ static int32_t csncoord_rotmat_k_helper(CSOUND *csound, CSN_ROTMAT *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    csound->LockMutex(reg->mutex);
-
-    /* The shape never changes, but the slot still has to be resolved again:
-       the handle may have been freed, and an in-place opcode may have
-       rewritten this array's layout since the last pass. The version bump
-       that closes the call is what makes a consumer downstream recompute. */
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, new_ndim, new_shape, 9U, CSN_REAL, err);
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    res = ensure_mutation_capacity(csound, &p->h, p->handle, 9U, p->handle->rt_locked);
     if (res != OK) goto done;
-    p->array = array;
+    set_csnarray_layout(p->handle, new_ndim, new_shape, 9U, CSN_REAL);
 
-    ROTATE_MAT(array->data, angle, p->axis_index);
-
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    ROTATE_MAT(p->handle->data, angle, p->axis_index);
+    /* the layout never changes here: only the payload moved */
+    update_array_data_version(&p->handle->version);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csncoord_rotmat_deinit(CSOUND *csound, CSN_ROTMAT *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csncoord_rotmat(CSOUND *csound, CSN_ROTMAT *p) {
@@ -424,14 +401,11 @@ int32_t csncoord_rotmat_k(CSOUND *csound, CSN_ROTMAT *p) {
     return csncoord_rotmat_k_helper(csound, p);
 }
 
-static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
+static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p, bool is_k) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
 
     p->is_degree = false;
     double flag = (double) *p->degree;
@@ -446,57 +420,55 @@ static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    const CSN_ARRAY *operands[1] = { p->source_handle };
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1);
+    res = pres.err;
+    if (res != OK) goto done;
+
+    /* At k-rate the direction is re-read every pass. If it is the output
+       itself, the first pass has already turned it into the 3 x 3 matrix, so
+       there is no direction left to read: refuse it here, where it is clear,
+       rather than on the first control period. */
+    if (is_k && pres.aliased) {
+        res = csound->InitError(csound, "[csnarray] At k-rate the output cannot be its own direction: after the first pass it holds the 3 x 3 matrix, not the axis; write the matrix to another variable");
         goto done;
     }
-    CSN_ARRAY *source_arr = slot->array;
+
+    /* read under the lock: the direction may be a global */
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U || source_arr->shape[0] != 3U || source_arr->itype != CSN_REAL) {
         res = csound->InitError(csound, "[csnarray] Direction must be 1D real vector of size 3 (x, y, z)");
         goto done;
     }
+
     if (!ROT_AXIS_IS_VALID(source_arr->data)) {
         res = csound->InitError(csound, "[csnarray] Direction must not be the null vector: it names no axis");
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
+    if (pres.aliased) {
+        res = ensure_mutation_capacity(csound, NULL, p->handle, 9U, p->handle->rt_locked);
+        if (res != OK) goto done;
+        set_csnarray_layout(p->handle, new_ndim, new_shape, 9U, CSN_REAL);
     }
 
-    /* Filled on both passes, for the same reason as csnrotmat: the direction
-       is a handle and already holds its values here, the angle is 0 unless an
-       earlier init set it, and a rotation of 0 about any axis is the
-       identity. */
-    if (ROTATE_MAT_AXIS(p->array->data, source_arr->data, angle) != OK) {
-        res = csound->InitError(csound, "[csnarray] Direction must not be the null vector: it names no axis");
-        goto done;
-    }
-
-    p->k_data.prev_ndim = new_ndim;
-    memcpy(p->k_data.prev_shape, p->array->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-    p->k_data.prev_itype = CSN_REAL;
-    p->k_data.owned_handle = p->handle->id;
-    p->k_data.registry = reg;
+    /* ROT_AXIS_IS_VALID has ruled out the null vector, the one case it fails */
+    (void) ROTATE_MAT_AXIS(p->handle->data, source_arr->data, angle);
+    update_array_data_version(&p->handle->version);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csncoord_rotmat_axis_k_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
 
     double angle = (double) *p->angle;
     if (p->is_degree) angle *= CSN_RAD_PER_DEG;
@@ -506,14 +478,14 @@ static int32_t csncoord_rotmat_axis_k_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p)
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { p->source_handle };
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *source_arr = slot->array;
+    /* read under the lock: the direction may be a global. The lock may be
+       held, so the report goes through csn_locked_perf_error. */
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U || source_arr->shape[0] != 3U || source_arr->itype != CSN_REAL) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Direction must be 1D real vector of size 3 (x, y, z)");
         goto done;
@@ -523,32 +495,26 @@ static int32_t csncoord_rotmat_axis_k_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p)
         goto done;
     }
 
-    /* The direction is re-read every pass, so it may have changed; the output
-       slot is re-resolved for the same reasons as csnrotmat. */
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, new_ndim, new_shape, 9U, CSN_REAL, err);
-    if (res != OK) goto done;
-    p->array = array;
+    if (pres.aliased) {
+        res = ensure_mutation_capacity(csound, &p->h, p->handle, 9, p->handle->rt_locked);
+        if (res != OK) goto done;
+        set_csnarray_layout(p->handle, new_ndim, new_shape, 9, CSN_REAL);
+    }
 
-    (void) ROTATE_MAT_AXIS(array->data, source_arr->data, angle);
-
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    (void) ROTATE_MAT_AXIS(p->handle->data, source_arr->data, angle);
+    update_array_data_version(&p->handle->version);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-int32_t csncoord_rotmat_axis_deinit(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
-}
-
 int32_t csncoord_rotmat_axis(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
-    return csncoord_rotmat_axis_helper(csound, p);
+    return csncoord_rotmat_axis_helper(csound, p, false);
 }
 
 int32_t csncoord_rotmat_axis_k_init(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
-    return csncoord_rotmat_axis_helper(csound, p);
+    return csncoord_rotmat_axis_helper(csound, p, true);
 }
 
 int32_t csncoord_rotmat_axis_k(CSOUND *csound, CSN_ROTMAT_AXIS *p) {
@@ -609,7 +575,6 @@ static int32_t csncoord_rotmat_ypr_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     double angle_y = 0.0, angle_p = 0.0, angle_r = 0.0;
     res = ypr_angles(csound, p, true, &angle_y, &angle_p, &angle_r);
@@ -620,38 +585,29 @@ static int32_t csncoord_rotmat_ypr_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    csound->LockMutex(reg->mutex);
-    /* Nothing to protect: the three angles are scalars. */
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    res = pres.err;
+    if (res != OK) goto done;
 
     /* Filled on both passes, as csnrotmat does. In the k-rate form the angles
        are read at whatever the init chain has already written into them, which
        is 0 unless an earlier line set them with init, so the matrix that
        reaches the first control period is normally the identity. */
-    MAT_YPR_COMPOSED(p->array->data, angle_y, angle_p, angle_r);
-
-    p->k_data.prev_ndim = new_ndim;
-    memcpy(p->k_data.prev_shape, p->array->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-    p->k_data.prev_itype = CSN_REAL;
-    p->k_data.owned_handle = p->handle->id;
-    p->k_data.registry = reg;
+    MAT_YPR_COMPOSED(p->handle->data, angle_y, angle_p, angle_r);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csncoord_rotmat_ypr_k_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     /* The angle unit was validated by the init: it is an i-argument. */
     double angle_y = 0.0, angle_p = 0.0, angle_r = 0.0;
@@ -662,24 +618,15 @@ static int32_t csncoord_rotmat_ypr_k_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, new_ndim, new_shape, 9U, CSN_REAL, err);
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    res = pres.err;
     if (res != OK) goto done;
-    p->array = array;
 
-    MAT_YPR_COMPOSED(array->data, angle_y, angle_p, angle_r);
-
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    MAT_YPR_COMPOSED(p->handle->data, angle_y, angle_p, angle_r);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csncoord_rotmat_ypr_deinit(CSOUND *csound, CSN_ROTMAT_YPR *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csncoord_rotmat_ypr(CSOUND *csound, CSN_ROTMAT_YPR *p) {
@@ -852,7 +799,6 @@ static int32_t csncoord_sn3d_helper(CSOUND *csound, CSN_SN3D *p, bool is_n3dtosn
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     double order_value = (double) *p->order;
     if (!IS_VALID_VALUE_INT32(order_value) || order_value < 0.0) {
@@ -861,15 +807,13 @@ static int32_t csncoord_sn3d_helper(CSOUND *csound, CSN_SN3D *p, bool is_n3dtosn
     size_t order = (size_t) order_value;
     size_t nchnls = (order + 1) * (order + 1);
 
-    csound->LockMutex(reg->mutex);
     uint32_t new_ndim = 1U;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) nchnls;
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    res = pres.err;
+    if (res != OK) goto done;
 
     for (size_t i = 0; i <= order; i++) {
         size_t start = i * i;
@@ -877,17 +821,13 @@ static int32_t csncoord_sn3d_helper(CSOUND *csound, CSN_SN3D *p, bool is_n3dtosn
         double gain = sqrt(2.0 * (double) i + 1.0);
         if (is_n3dtosn3d) gain = 1.0 / gain;
         for (size_t j = start; j < end; j++) {
-            p->array->data[j] = gain;
+            p->handle->data[j] = gain;
         }
     }
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csncoord_sn3d_deinit(CSOUND *csound, CSN_SN3D *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csncoord_sn3dton3d(CSOUND *csound, CSN_SN3D *p) {

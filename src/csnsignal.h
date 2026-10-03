@@ -77,7 +77,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *length;
     cs_float *beta;
@@ -98,9 +98,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis;
     // private
     CSN_ARRAY *array;
@@ -109,13 +109,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     cs_float *out_gain;
     // inputs
-    CSNREF *source_handle_a; // zeros
+    CSN_ARRAY *source_handle_a; // zeros
                              // b in tf2zpk
-    CSNREF *source_handle_b; // poles
+    CSN_ARRAY *source_handle_b; // poles
                              // a in tf2zpk
     cs_float *arg_a; // gain
     cs_float *arg_b; // wo in lp2*_* in rad/s
@@ -129,12 +129,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a; // b in zpk2tf
-    CSNREF *handle_b; // a in zpk2tf
+    CSN_ARRAY *handle_a; // b in zpk2tf
+    CSN_ARRAY *handle_b; // a in zpk2tf
     // inputs
-    CSNREF *source_handle_a; // zeros in zpk2tf
+    CSN_ARRAY *source_handle_a; // zeros in zpk2tf
                              // b in lp2*
-    CSNREF *source_handle_b; // poles in zpk2tf
+    CSN_ARRAY *source_handle_b; // poles in zpk2tf
                              // a in lp2*
     cs_float *arg_a; // gain in zpk2tf
                   // wo in lp2*
@@ -147,8 +147,8 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
     cs_float *arg_a; // order
     ARRAYDAT *fcut; // cutoff
@@ -172,8 +172,8 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
     cs_float *arg_a; // order
     cs_float *fcut; // cutoff
@@ -197,7 +197,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *arg_a; // order
     ARRAYDAT *fcut; // cutoff
@@ -220,7 +220,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *arg_a; // order
     cs_float *fcut; // cutoff
@@ -243,8 +243,8 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a; // zeros
-    CSNREF *handle_b; // poles
+    CSN_ARRAY *handle_a; // zeros
+    CSN_ARRAY *handle_b; // poles
     cs_float *gain;
     // inputs
     cs_float *order;
@@ -256,10 +256,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle; // sos[b, ... a, ...]
+    CSN_ARRAY *handle; // sos[b, ... a, ...]
     // inputs
-    CSNREF *source_handle_a; // zeros
-    CSNREF *source_handle_b; // poles
+    CSN_ARRAY *source_handle_a; // zeros
+    CSN_ARRAY *source_handle_b; // poles
     cs_float *gain;
     // private
     CSN_ARRAY *array;
@@ -270,8 +270,8 @@ typedef struct {
     // outputs
     cs_float *sig_out;
     // inputs
-    CSNREF *b;
-    CSNREF *a;
+    CSN_ARRAY *b;
+    CSN_ARRAY *a;
     cs_float *sig_in;
     // private
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex (imaginary parts zero)
@@ -288,7 +288,7 @@ typedef struct {
     // outputs
     cs_float *sig_out;
     // inputs
-    CSNREF *sos;
+    CSN_ARRAY *sos;
     cs_float *sig_in;
     // private
     CSN_ARRAY sos_buffer; // (n, 6), complex (imaginary parts zero)
@@ -301,11 +301,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *b;
-    CSNREF *a;
-    CSNREF *source_handle;
+    CSN_ARRAY *b;
+    CSN_ARRAY *a;
+    CSN_ARRAY *source_handle;
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
@@ -325,10 +325,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *sos;
-    CSNREF *source_handle;
+    CSN_ARRAY *sos;
+    CSN_ARRAY *source_handle;
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
@@ -347,12 +347,12 @@ typedef struct {
     OPDS h;
     // outputs
     cs_float *sig_out;
-    CSNREF *handle; // new_state z_i
+    CSN_ARRAY *handle; // new_state z_i
     // inputs
-    CSNREF *b;
-    CSNREF *a;
+    CSN_ARRAY *b;
+    CSN_ARRAY *a;
     cs_float *sig_in;
-    CSNREF *source_handle; // state
+    CSN_ARRAY *source_handle; // state
     // private
     CSN_ARRAY *array_state;
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex (imaginary parts zero)
@@ -369,11 +369,11 @@ typedef struct {
     OPDS h;
     // outputs
     cs_float *sig_out;
-    CSNREF *handle; // new_state z_i
+    CSN_ARRAY *handle; // new_state z_i
     // inputs
-    CSNREF *sos;
+    CSN_ARRAY *sos;
     cs_float *sig_in;
-    CSNREF *source_handle; // state
+    CSN_ARRAY *source_handle; // state
     // private
     CSN_ARRAY *array_state;
     CSN_ARRAY sos_buffer; // (n, 6), complex (imaginary parts zero)
@@ -387,13 +387,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b; // new_state z_i
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b; // new_state z_i
     // inputs
-    CSNREF *b;
-    CSNREF *a;
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b; // state
+    CSN_ARRAY *b;
+    CSN_ARRAY *a;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b; // state
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
@@ -415,12 +415,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
-    CSNREF *sos;
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b; // state
+    CSN_ARRAY *sos;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b; // state
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
@@ -443,8 +443,8 @@ typedef struct {
 typedef struct {
     K_DATA *k_y;
     K_DATA *k_z;
-    CSNREF *handle_y;
-    CSNREF *handle_z;
+    CSN_ARRAY *handle_y;
+    CSN_ARRAY *handle_z;
     CSN_ARRAY **array_y;
     CSN_ARRAY **array_z;
     CSN_SCRATCH *state;

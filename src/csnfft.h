@@ -59,9 +59,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *fft_size;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
@@ -76,9 +76,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *rows_fft_size;
     cs_float *cols_fft_size;
     cs_float *trig;
@@ -96,11 +96,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_f;
-    CSNREF *handle_t;
-    CSNREF *handle_z;
+    CSN_ARRAY *handle_f;
+    CSN_ARRAY *handle_t;
+    CSN_ARRAY *handle_z;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *winsize;
     cs_float *hopsize;
     cs_float *sr;
@@ -134,10 +134,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_t;
-    CSNREF *handle_x;
+    CSN_ARRAY *handle_t;
+    CSN_ARRAY *handle_x;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *winsize;
     cs_float *hopsize;
     cs_float *sr;
@@ -158,7 +158,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *size;
     cs_float *d;
@@ -172,9 +172,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
@@ -213,10 +213,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b;
     cs_float *arg_a; // edges mode for every convolve and correlate form;
                   // the deconvolve and decorrelate forms take no edges mode, so for them it is
                   // the i-axis (1-D) or the k-trigger (k-rate)
@@ -245,9 +245,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
@@ -273,9 +273,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *winsize;
     cs_float *hopsize;
     cs_float *sr;
@@ -305,7 +305,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *nfft;
     cs_float *nmfcc;
@@ -320,9 +320,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
@@ -339,9 +339,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     CSN_ARRAY *array;

@@ -56,82 +56,21 @@ int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...);
 #define CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, ...) \
     ((perf_h) != NULL ? csn_locked_perf_error((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
 
-#define CHECK_HANDLE(csound, h, handle)                              \
-do {                                                                 \
-    if ((handle) == 0) {                                             \
-        return (csound)->PerfError(                                  \
-            (csound),                                                \
-            (h),                                                     \
-            "[csnarray] k-rate output slot was not initialized"      \
-        );                                                           \
-    }                                                                \
-} while (0)
-
-#define CHECK_REG_HANDLE(csound, h, reg, handle)                     \
-do {                                                                 \
-    if ((reg) == NULL || (handle) == 0) {                            \
-        return (csound)->PerfError(                                  \
-            (csound),                                                \
-            (h),                                                     \
-            "[csnarray] k-rate output slot was not initialized"      \
-        );                                                           \
-    }                                                                \
-} while (0)
-
-#define SET_KDATA_BEGIN(p, reg)                                                              \
-    do {                                                                                     \
-        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));                   \
-        memcpy((p)->k_data.prev_shape, (p)->array->shape, sizeof(uint32_t) * (p)->array->ndim); \
-        (p)->k_data.prev_ndim = (p)->array->ndim;                                            \
-        (p)->k_data.prev_itype = (p)->array->itype;                                          \
-        (p)->k_data.owned_handle = (p)->handle->id;                                          \
-        (p)->k_data.registry = (reg);                                                        \
+#define SET_KDATA_BEGIN(k_data, reg, shape, ndim, itype)                 \
+    do {                                                                 \
+        memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));     \
+        memcpy((k_data).prev_shape, (shape), sizeof(uint32_t) * (ndim)); \
+        (k_data).prev_ndim = (ndim);                                     \
+        (k_data).prev_itype = (itype);                                   \
+        (k_data).registry = (reg);                                       \
     } while (0)
 
-#define SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, itype, handle)                \
-    do {                                                                           \
-        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim));        \
-        (p)->k_data.prev_ndim = (ndim);                                            \
-        (p)->k_data.prev_itype = (itype);                                          \
-        (p)->k_data.owned_handle = (handle);                                       \
-        (p)->k_data.registry = (reg);                                              \
-    } while (0)
-
-#define SET_FROM_KDATA_WITH_ID_BEGIN(k_data, reg, shape, ndim, itype, handle)      \
-    do {                                                                           \
-        memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));               \
-        memcpy((k_data).prev_shape, (shape), sizeof(uint32_t) * (ndim));            \
-        (k_data).prev_ndim = (ndim);                                               \
-        (k_data).prev_itype = (itype);                                             \
-        (k_data).owned_handle = (handle);                                          \
-        (k_data).registry = (reg);                                                 \
-    } while (0)
-
-#define SET_KDATA_END(p, shape, ndim, itype)                                       \
-    do {                                                                           \
-        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim));        \
-        (p)->k_data.prev_ndim = (ndim);                                            \
-        (p)->k_data.prev_itype = (itype);                                          \
-        (p)->handle->id = (p)->k_data.owned_handle;                                \
-    } while (0)
-
-#define SET_FROM_KDATA_END_WITH_ID(k_data, handle_out, shape, ndim, itype)         \
-    do {                                                                           \
-        memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));               \
-        memcpy((k_data).prev_shape, (shape), sizeof(uint32_t) * (ndim));            \
-        (k_data).prev_ndim = (ndim);                                               \
-        (k_data).prev_itype = (itype);                                             \
-        (handle_out)->id = (k_data).owned_handle;                                  \
-    } while (0)
-
-#define SET_KDATA_NO_ID_END(p, shape, ndim, itype)                                 \
-    do {                                                                           \
-        memset((p)->k_data.prev_shape, 0, sizeof((p)->k_data.prev_shape));         \
-        memcpy((p)->k_data.prev_shape, (shape), sizeof(uint32_t) * (ndim));        \
-        (p)->k_data.prev_ndim = (ndim);                                            \
-        (p)->k_data.prev_itype = (itype);                                          \
+#define SET_KDATA_END(k_data, shape, ndim, itype)                        \
+    do {                                                                 \
+        memset((k_data).prev_shape, 0, sizeof((k_data).prev_shape));     \
+        memcpy((k_data).prev_shape, (shape), sizeof(uint32_t) * (ndim)); \
+        (k_data).prev_ndim = (ndim);                                     \
+        (k_data).prev_itype = (itype);                                   \
     } while (0)
 
 typedef enum {
@@ -455,8 +394,6 @@ typedef struct {
     ITEM_TYPE prev_itype;
     uint32_t owned_handle;
     uint32_t owned_data_handle;
-    uint32_t prev_source_handle;
-    uint32_t prev_source_handle_b;
     double prev_scalar_param;
     double prev_scalar_param_b;
     ARRAY_VERSION prev_source_version;
@@ -469,86 +406,78 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *shape;
     cs_float *itype; // itype = REAL (0) or COMPLEX (1)
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_ARR_INIT;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *shape;
     cs_float *value;
     cs_float *itype;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_FULL;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *shape;
     /* The value's own type fixes the array's, so there is no itype argument. */
     COMPLEXDAT *value;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_FULLCOMPLEX;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *shape;
     cs_float *min;
     cs_float *max;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_ARR_RND_INIT;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *handle_from; // determines if is real or complex
+    CSN_ARRAY *handle_from; // determines if is real or complex
     cs_float *value; // value for fill
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_ARR_INIT_LIKE;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *source;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_FROM_ARRAY;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *ftable;
-    // private
-    CSN_ARRAY *array;
 } CSN_FROM_FTABLE;
 
 typedef struct {
@@ -556,13 +485,13 @@ typedef struct {
     // outputs
     ARRAYDAT *array;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
 } CSN_TO_ARRAY;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *ftable;
     cs_float *resize;
 } CSN_TO_FTABLE;
@@ -570,13 +499,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
 } CSN_FREE;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *start;
     cs_float *stop;
@@ -586,7 +515,6 @@ typedef struct {
                      // only for logspace -> base
     cs_float *arg_b;    // trig only for logspace
     // private
-    CSN_ARRAY *array;
     uint32_t handle_id;
     K_DATA k_data;
 } CSN_SPACED_SPACE;
@@ -594,13 +522,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *num;
     cs_float *itype;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_IDENTITY;
 
@@ -609,7 +536,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
 } CSN_SIZE_DIMS;
 
 typedef struct {
@@ -617,26 +544,25 @@ typedef struct {
     // outputs
     ARRAYDAT *shape;
     // inputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
 } CSN_SHAPE;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *new_shape; // shape for reshape
                          // optional axes in transpose
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_RESHAPE;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *new_shape; // shape for reshape
                          // optional axes for transpose
     // private
@@ -647,26 +573,26 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *param_a; // axis for i-rate flip, trigger for flip.k
                     // shift for roll/rollaxis
     cs_float *param_b; // axis for flip.k
                     // axis for rollaxis
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_FLIP_ROLL;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *param_a; // axis for i-rate flip, trigger for flip.in.k
-                    // shift for roll/rollaxis
+                       // shift for roll/rollaxis
     cs_float *param_b; // axis for flip.in.k
-                    // axis for rollaxis
+                       // axis for rollaxis
+    // private
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_FLIP_ROLL_IN;
@@ -674,13 +600,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // ouputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *index;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_GET_ROWCOL;
@@ -690,7 +615,7 @@ typedef struct {
     // ouputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
     // private
     K_DATA k_data;
@@ -701,7 +626,7 @@ typedef struct {
     // ouputs
     COMPLEXDAT *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
     // private
     K_DATA k_data;
@@ -710,7 +635,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     cs_float *value;
     // private
@@ -720,7 +645,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     COMPLEXDAT *value;
     // private
@@ -730,14 +655,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // ouputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis;
     cs_float *index;
     cs_float *trig;  // usend only remove_block.k as trigger
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_TAKE;
 
@@ -747,7 +671,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *index;
     cs_float *trig;  // usend only remove_block.k as trigger
     // private
@@ -759,7 +683,7 @@ typedef struct {
     // outputs
     COMPLEXDAT *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *index;
     // private
     K_DATA k_data;
@@ -768,23 +692,22 @@ typedef struct {
 typedef struct {
     OPDS h;
     // ouputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis;
     cs_float *start;
     cs_float *stop;
     cs_float *step;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_GET_SLICE;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
-    CSNREF *data_handle;
+    CSN_ARRAY *source_handle;
+    CSN_ARRAY *data_handle;
     cs_float *axis;
     cs_float *start;
     cs_float *stop;
@@ -796,7 +719,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *in_value; // push at the top
     cs_float *index;    // only for put (at index)
 } CSN_PUSH;
@@ -804,7 +727,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     COMPLEXDAT *in_value; // push at the top
     cs_float *index;    // only for put (at index)
 } CSN_PUSHCOMPLEX;
@@ -812,7 +735,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *in_value; // push at the top
     cs_float *arg_a;    // trig in push_k
                      // index in insert_k
@@ -824,7 +747,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     COMPLEXDAT *in_value; // push at the top
     cs_float *arg_a;    // trig in push_k
                      // index in insert_k
@@ -838,7 +761,7 @@ typedef struct {
     // outputs
     cs_float *out_value;
     // inputs
-    CSNREF *source_handle; // remove the top element
+    CSN_ARRAY *source_handle; // remove the top element
     cs_float *index;         // only for remove (at the index)
 } CSN_POP;
 
@@ -847,7 +770,7 @@ typedef struct {
     // outputs
     cs_float *out_value;
     // inputs
-    CSNREF *source_handle; // remove the top element
+    CSN_ARRAY *source_handle; // remove the top element
     cs_float *arg_a;    // trig in pop_k
                      // index in remove_k
     cs_float *arg_b;    // trig in remove_k
@@ -860,7 +783,7 @@ typedef struct {
     // outputs
     COMPLEXDAT *out_value;
     // inputs
-    CSNREF *source_handle; // remove the top element
+    CSN_ARRAY *source_handle; // remove the top element
     cs_float *index;          // only for remove (at the index)
 } CSN_POPCOMPLEX;
 
@@ -869,7 +792,7 @@ typedef struct {
     // outputs
     COMPLEXDAT *out_value;
     // inputs
-    CSNREF *source_handle; // remove the top element
+    CSN_ARRAY *source_handle; // remove the top element
     cs_float *arg_a;    // trig in pop_k
                      // index in remove_k
     cs_float *arg_b;    // trig in remove_k
@@ -880,8 +803,8 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
-    CSNREF *data_handle; // in block
+    CSN_ARRAY *source_handle;
+    CSN_ARRAY *data_handle; // in block
     cs_float *axis;
     cs_float *index;
     cs_float *trig;
@@ -893,53 +816,50 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
-    CSNREF *data_handle;
+    CSN_ARRAY *source_handle;
+    CSN_ARRAY *data_handle;
     cs_float *arg_a; // trig for both k-rate forms; axis for .block at i-rate
     cs_float *arg_b; // axis for .block.k
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_CONCAT;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *before;
     cs_float *after;
     cs_float *value;
     cs_float *arg_a; // axis in pad.ax (INOCOUNT > 4), trigger in pad[.ax].k
     cs_float *arg_b; // axis in pad.ax.k (INOCOUNT > 5)
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_PAD;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *before;
     cs_float *after;
     COMPLEXDAT *value;
     cs_float *arg_a; // axis in pad.ax.c (INOCOUNT > 4), trigger in pad[.ax].c.k
     cs_float *arg_b; // axis in pad.ax.c.k (INOCOUNT > 5)
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_PADCOMPLEX;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *before;
     cs_float *after;
     cs_float *value;
@@ -954,7 +874,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *before;
     cs_float *after;
     COMPLEXDAT *value;
@@ -969,21 +889,20 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *min;
     cs_float *max;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_CLIP;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *min;
     cs_float *max;
     cs_float *trig;
@@ -995,15 +914,14 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle; // array source
-    CSNREF *data_handle;   // array of values (source array will compared with data_handle)
+    CSN_ARRAY *source_handle; // array source
+    CSN_ARRAY *data_handle;   // array of values (source array will compared with data_handle)
                            // mask in csnselect
                            // weights in bincount
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
     CSN_THREE_VERSION_K_STATE versions;
@@ -1013,12 +931,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_BINCOUNT_NO_WEIGHTS;
@@ -1026,14 +943,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle; // must be sorted 1D (in doc)
-    CSNREF *data_handle;
+    CSN_ARRAY *source_handle; // must be sorted 1D (in doc)
+    CSN_ARRAY *data_handle;
     cs_float *side; // 0 -> left, 1 -> right
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_right_search_side;
     bool is_published;
@@ -1044,7 +960,7 @@ typedef struct {
     // outputs
     cs_float *index;
     // inputs
-    CSNREF *source_handle; // must be sorted 1D (in doc)
+    CSN_ARRAY *source_handle; // must be sorted 1D (in doc)
     cs_float *value;
     cs_float *side; // 0 -> left, 1 -> right
     cs_float *trig;
@@ -1057,13 +973,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle; // index -> [axis 0, axis 1, ..., index]
+    CSN_ARRAY *handle; // index -> [axis 0, axis 1, ..., index]
     // inputs
-    CSNREF *source_handle; // array source
+    CSN_ARRAY *source_handle; // array source
     cs_float *value;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_ARGWHERE_INDEX;
@@ -1071,14 +986,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle; // mask
-    CSNREF *source_handle_true;
+    CSN_ARRAY *source_handle; // mask
+    CSN_ARRAY *source_handle_true;
     void *source_handle_false;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_WHERE_COMMON;
@@ -1086,14 +1000,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle; // mask
-    CSNREF *source_handle_true;
-    CSNREF *source_handle_false;
+    CSN_ARRAY *source_handle; // mask
+    CSN_ARRAY *source_handle_true;
+    CSN_ARRAY *source_handle_false;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
     CSN_THREE_VERSION_K_STATE versions;
@@ -1103,14 +1016,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
-    CSNREF *source_handle_true; // mask
+    CSN_ARRAY *source_handle;
+    CSN_ARRAY *source_handle_true; // mask
     cs_float *source_scalar_false; // scalar in where_hs; i-axis or k-trigger in compress
     cs_float *trig;                // explicit axis in compress.k
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
     CSN_THREE_VERSION_K_STATE versions;
@@ -1120,9 +1032,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle; // mask
-    CSNREF *source_handle_true;
-    CSNREF *source_handle_false;
+    CSN_ARRAY *source_handle; // mask
+    CSN_ARRAY *source_handle_true;
+    CSN_ARRAY *source_handle_false;
     cs_float *trig;
     // private
     CSN_REGISTRY *registry;
@@ -1134,8 +1046,8 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle; // mask
-    CSNREF *source_handle_true;
+    CSN_ARRAY *source_handle; // mask
+    CSN_ARRAY *source_handle_true;
     cs_float *source_scalar_false;
     cs_float *trig;
     // private
@@ -1148,13 +1060,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle; // array source
+    CSN_ARRAY *source_handle; // array source
     cs_float *cmp_value;     // only for gt, lt, ne
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_COMPARE;
@@ -1166,7 +1077,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *arg_a;     // compared value for cnteq
                       // trig for all
     cs_float *arg_b;     // trig only for cnteq
@@ -1179,13 +1090,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_REDUCTION;
@@ -1199,7 +1109,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     K_DATA k_data;
@@ -1214,7 +1124,7 @@ typedef struct {
     // outputs
     COMPLEXDAT *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig; // .c.k only
     // private
     K_DATA k_data;
@@ -1223,13 +1133,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOP_HH;
 
@@ -1238,8 +1147,8 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b;
     cs_float *arg_a; // trig (all)
                   // dist order (order Minkowski)
     cs_float *arg_b; // trig for dist
@@ -1253,8 +1162,8 @@ typedef struct {
     // outputs
     COMPLEXDAT *value;
     // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
     CSN_REGISTRY *registry;
@@ -1267,53 +1176,49 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     void *arg_a;
     void *arg_b;
     void *arg_c;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOP_COMMON;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *scalar;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOP_HS;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     COMPLEXDAT *scalar;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOPCOMPLEX_HS;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis;  // i-rate axis; order in the k-rate overload
     cs_float *order; // i-rate order; trigger in the k-rate overload
     cs_float *trig;  // axis in the k-rate overload
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_UNARYOP_AX;
@@ -1321,7 +1226,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis;
     cs_float *order;
     cs_float *trig;
@@ -1335,45 +1240,42 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *scalar;
 } CSN_BINOP_HS_SCALAR;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *scalar;
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOP_SH;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     COMPLEXDAT *scalar;
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_BINOPCOMPLEX_SH;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_UNARYOP;
 
@@ -1382,7 +1284,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     CSN_REGISTRY *registry;
@@ -1394,7 +1296,7 @@ typedef struct {
     // outputs
     COMPLEXDAT *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     CSN_REGISTRY *registry;
@@ -1404,7 +1306,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     CSN_REGISTRY *registry;
@@ -1414,14 +1316,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *axis;  // i-rate axis; order in the k-rate overload
     cs_float *order; // i-rate order; trigger in the k-rate overload
     cs_float *trig;  // axis in the k-rate overload
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_NORM_REDUCTION;
@@ -1431,7 +1332,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *order;
     cs_float *trig;
     // private
@@ -1442,14 +1343,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *winsize;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_MOVSTATS;
@@ -1457,7 +1357,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *winsize;
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // explicit axis in the k-rate overloads
@@ -1476,9 +1376,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *arg_a;  // in angle is trig
                    // in wrap is period zero-centered
                    // in unwrap is period (see numpy)
@@ -1487,14 +1387,13 @@ typedef struct {
     cs_float *arg_c;  // i-rate axis; trigger in unwrap.k
     cs_float *arg_d;  // axis in unwrap.k
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_ANGLE;
 
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *arg_a;  // in angle is trig
                    // in wrap is period zero-centered
                    // in unwrap is period (see numpy)
@@ -1510,14 +1409,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *quantity;
     cs_float *axis; // i-rate axis; trigger in the k-rate overload
     cs_float *trig; // axis in the k-rate overload
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH scratch;
 } CSN_PERCQUANT_AX;
@@ -1527,7 +1425,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *quantity;
     cs_float *trig;
     // private
@@ -1544,29 +1442,25 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
     void *arg_a;
     void *arg_b;
     // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
     K_DATA k_data;
 } CSN_DIVMOD_COMMON;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
     K_DATA k_data;
     bool is_published;
 } CSN_DIVMOD_HH;
@@ -1574,14 +1468,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *scalar;
     // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
     K_DATA k_data;
     bool is_published;
 } CSN_DIVMOD_HS;
@@ -1589,14 +1481,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle_a;
-    CSNREF *handle_b;
+    CSN_ARRAY *handle_a;
+    CSN_ARRAY *handle_b;
     // inputs
     cs_float *scalar;
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
     K_DATA k_data;
     bool is_published;
 } CSN_DIVMOD_SH;
@@ -1625,8 +1515,8 @@ typedef struct {
     cs_float *y;
     // inputs
     cs_float *x;
-    CSNREF *data_handle_x;
-    CSNREF *data_handle_y;
+    CSN_ARRAY *data_handle_x;
+    CSN_ARRAY *data_handle_y;
     cs_float *mode;
     cs_float *bounds;
     cs_float *fill;
@@ -1646,18 +1536,17 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
-    CSNREF *data_handle_x;
-    CSNREF *data_handle_y;
+    CSN_ARRAY *source_handle;
+    CSN_ARRAY *data_handle_x;
+    CSN_ARRAY *data_handle_y;
     cs_float *mode;
     cs_float *bounds;
     cs_float *fill;
     cs_float *axis; // trigger
     cs_float *trig; // explicit axis in the axis overload
     // private
-    CSN_ARRAY *array;
     double fill_value;
     CSN_INTERP_MODE imode;
     CSN_INTERP_BOUNDS_MODE ibounds;
@@ -1671,9 +1560,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *new_length;
     cs_float *mode;
     cs_float *bounds;
@@ -1681,7 +1570,6 @@ typedef struct {
     cs_float *axis; // i-rate axis; trigger in resample.k
     cs_float *trig; // explicit axis in resample.k
     // private
-    CSN_ARRAY *array;
     double fill_value;
     CSN_INTERP_MODE imode;
     CSN_INTERP_BOUNDS_MODE ibounds;
@@ -1696,14 +1584,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *length;
     cs_float *arg_a; // trigger for k-rate head/truncate; i-rate truncate axis
     cs_float *arg_b; // explicit axis for truncate.k
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_TRUNCATE;
@@ -1711,7 +1598,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *length;
     cs_float *axis; // i-rate axis; trigger in truncate.in.k
     cs_float *trig; // explicit axis in truncate.in.k
@@ -1724,13 +1611,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *new_shape;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_RESIZE;
@@ -1738,7 +1624,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *new_shape;
     cs_float *trig;
     // private;
@@ -1749,7 +1635,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     STRINGDAT *path;
     cs_float *trig;
     // private
@@ -1763,12 +1649,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     STRINGDAT *path;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer_scratch;
     CSN_SCRATCH path_scratch;
@@ -1778,7 +1663,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     CSN_PRINT_BUFFER pbuffer;
@@ -1788,23 +1673,21 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     void *source_sig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_AUDIO_BRIDGE_COMMON;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *source_sig;
     cs_float *rt_lock;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
 } CSN_FROM_AUDIO;
 
@@ -1813,7 +1696,7 @@ typedef struct {
     // outputs
     cs_float *sig;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     // private
     CSN_REGISTRY *registry;
 } CSN_TO_AUDIO;
@@ -1821,13 +1704,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *source_sig;
     cs_float *rt_lock;
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
     uint32_t prev_nchnls;
 } CSN_PACK_AUDIO;
 
@@ -1836,7 +1718,7 @@ typedef struct {
     // outputs
     ARRAYDAT *sig;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     // private
     CSN_REGISTRY *registry;
     uint32_t prev_nchnls;
@@ -1845,7 +1727,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     cs_float *is_ready;
     // inputs
     cs_float *source_sig;
@@ -1853,8 +1735,7 @@ typedef struct {
     cs_float *hop_size;
     cs_float *rt_lock;
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
     CSN_SCRATCH buffer;
     size_t fsize;
     size_t hsize;
@@ -1866,14 +1747,13 @@ typedef struct {
     cs_float *sig;
     cs_float *is_ready;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *hop_size;
     // private
     CSN_REGISTRY *registry;
     CSN_SCRATCH buffer;
     size_t fsize;
     size_t hsize;
-    uint32_t prev_handle;
     ARRAY_VERSION prev_version;
     size_t phase;
 } CSN_OLA_AUDIO;
@@ -1881,10 +1761,8 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
-    // private
-    CSN_REGISTRY *registry;
 } CSN_RTLOCK;
 
 typedef struct {
@@ -1898,24 +1776,21 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *axis;
     void *source_handles[VARGMAX - 1];
-    // private
-    CSN_ARRAY *array;
 } CSN_STACK;
 
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *trig;
     cs_float *axis;
     void *source_handles[VARGMAX - 2];
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer_handles;
     CSN_SCRATCH buffer_sources;
@@ -1927,14 +1802,13 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *kernel_size;
     cs_float *axis;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer;
 } CSN_MEDFILT;
@@ -1942,7 +1816,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *kernel_size;
     cs_float *axis;
     cs_float *trig;
@@ -1954,13 +1828,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *kernel_size;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer;
     uint32_t kernel_shape[CSN_MAX_DIMS];
@@ -1970,7 +1843,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *kernel_size;
     cs_float *trig;
     // private
@@ -1983,13 +1856,12 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *kernel_sizes;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer;
     uint32_t kernel_shape[CSN_MAX_DIMS];
@@ -1999,7 +1871,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     ARRAYDAT *kernel_sizes;
     cs_float *trig;
     // private
@@ -2065,7 +1937,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     OPCODEOBJ *fn;
     cs_float *trig;
     // private
@@ -2079,7 +1951,7 @@ typedef struct {
     cs_float *value;
     cs_float *state;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     cs_float *reset;
     // private
@@ -2095,7 +1967,7 @@ typedef struct {
     COMPLEXDAT *value;
     cs_float *state;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     cs_float *reset;
     // private
@@ -2108,16 +1980,16 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_x;
-    CSNREF *source_handle_y;
+    CSN_ARRAY *source_handle_x;
+    CSN_ARRAY *source_handle_y;
     // private
     CSN_ARRAY *array;
 } CSN_LAGRANGE;
 
 int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
-void PUBLISH_INPLACE_WRITE(K_DATA *k_data, uint32_t source_handle, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
+void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
 bool IS_VALID_VALUE(double value);
 bool IS_VALID_ZERO_ONE(double value);
@@ -2127,13 +1999,11 @@ int compare_double(const void *a, const void *b);
 size_t get_and_count_unique_double(double *temp, size_t size);
 /* Caller holds the registry mutex. */
 bool csn_slot_rt_locked(CSN_REGISTRY *reg, uint32_t handle);
-int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t required_size, bool rt_locked);
 int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size);
-int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSNREF *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
+int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSN_ARRAY *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
 void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z);
 void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype);
 void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
-int32_t csnarray_deinit_by_handle(CSOUND *csound, uint32_t *handle_id, CSN_ARRAY **array, const OPDS *h);
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
 void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
@@ -2190,6 +2060,7 @@ int32_t nonarr_complex_conj(CSOUND *csound, CSN_NONARR_CCOUT_OP *p);
 // a-rate
 
 int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p);
+int32_t csnarray_to_audio_init(CSOUND *csound, CSN_TO_AUDIO *p);
 int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p);
 int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p);
 int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p);

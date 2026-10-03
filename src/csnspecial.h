@@ -52,11 +52,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *n;
     cs_float *m;
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     CSN_ARRAY *array;
@@ -80,7 +80,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *order;
     cs_float *azimuth;
@@ -97,11 +97,11 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *order;
-    CSNREF *azimuth_handle;
-    CSNREF *elevation_handle;
+    CSN_ARRAY *azimuth_handle;
+    CSN_ARRAY *elevation_handle;
     cs_float *degree;
     cs_float *trig;
     // private

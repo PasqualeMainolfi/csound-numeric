@@ -9,25 +9,32 @@
 #define CSN_PI 3.14159265358979323846
 #define CSN_PI_2 (CSN_PI / 2.0)
 
+typedef struct {
+    bool locked;
+    bool aliased;
+    int32_t err;
+} CSNARR_RES;
+
 int compare_double_from_array_elem(const void *a, const void *b);
 size_t sliding_median_scratch_size(size_t win_size);
 const char *get_out_name(OPDS *h);
 const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_t ndim);
 double median_of_scratch(double *scratch, size_t n);
 double nearest(double x, double x0, double x1, double y0, double y1);
-bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
-bool CAN_REUSE_LAST_RESULT(const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
+bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
+bool CAN_REUSE_LAST_RESULT(const K_DATA *k_data, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
 bool IS_VALID_INDEX(double index);
 bool IS_VALID_SHIFT(double shift);
 bool IS_VALID_VALUE_INT32(double value);
-bool SOURCE_HAS_MOVED(const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *arr);
+bool SOURCE_HAS_MOVED(const K_DATA *k_data, const CSN_ARRAY *arr);
+CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands);
 bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
 bool BROADCAST_ITER_NEXT(CSN_BROADCAST_ITER *it);
 bool AXIS_SLICE_ITER_NEXT(CSN_AXIS_SLICE_ITER *it);
 bool IS_VALID_SR(double value);
 void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array);
-void PUBLISH_DERIVED_RESULT(K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
-void PUBLISH_ELEMENTWISE(K_DATA *k_data, uint32_t handle_a, const CSN_ARRAY *arr_a, uint32_t handle_b, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
+void PUBLISH_DERIVED_RESULT(K_DATA *k_data, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
+void PUBLISH_ELEMENTWISE(K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
 void complex_acos(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_acosh(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_asin(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
@@ -54,11 +61,10 @@ int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, cons
 int32_t BROADCAST_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], uint32_t n_inputs);
 int32_t ND_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t *strides);
 int32_t ND_ITER_SEEK(CSN_BROADCAST_ITER *it, size_t linear_index);
-int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, uint32_t source_handle, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed, bool rt_locked);
+int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed, bool rt_locked);
 int32_t CHECK_SELF_ALIAS_CELL_LOCAL(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t source_handle, const CSN_ARRAY *source_arr, uint32_t new_ndim, const uint32_t *new_shape, ITEM_TYPE new_itype);
 int32_t BROADCAST_INIT(uint32_t *out_ndim, uint32_t *out_shape, size_t *out_size, size_t out_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], const CSN_ARRAY *const sources[], uint32_t n_inputs);
 int32_t complex_pow(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT base, CSN_COMPLEXDAT exponent);
-int32_t create_csnarray_init(CSOUND *csound,const OPDS *h,uint32_t ndim,const uint32_t *shape,CSN_ARRAY **p_array,CSNREF *p_handle,ITEM_TYPE itype);
 int32_t create_empty_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_full_csnarray_k_init(CSOUND *csound, CSN_FULL *p);
 int32_t create_fullcomp_csnarray_k_init(CSOUND *csound, CSN_FULLCOMPLEX *p);

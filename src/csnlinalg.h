@@ -21,10 +21,10 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a;
-    CSNREF *source_handle_b;
+    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
     CSN_ARRAY *array;
@@ -38,9 +38,9 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
-    CSNREF *source_handle_a;
+    CSN_ARRAY *source_handle_a;
     cs_float *trig;
     // private
     CSN_ARRAY *array;
@@ -56,7 +56,7 @@ typedef struct {
     // outputs
     void *det;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     K_DATA k_data;
@@ -70,7 +70,7 @@ typedef struct {
     // outputs
     cs_float *det;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     K_DATA k_data;
@@ -86,7 +86,7 @@ typedef struct {
     // outputs
     COMPLEXDAT *det;
     // inputs
-    CSNREF *source_handle;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
     K_DATA k_data;
@@ -117,7 +117,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle; // savgol mat
+    CSN_ARRAY *handle; // savgol mat
     // inputs;
     cs_float *winsize;
     cs_float *order;
@@ -129,7 +129,7 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    CSNREF *handle;
+    CSN_ARRAY *handle;
     // inputs
     cs_float *n;
     cs_float *trig;

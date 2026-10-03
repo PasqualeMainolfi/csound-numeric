@@ -1,5 +1,6 @@
 /* Opcode implementations for the audio family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
@@ -22,40 +23,31 @@ int32_t csnarray_from_audio_init(CSOUND *csound, CSN_FROM_AUDIO *p) {
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = CS_KSMPS;
 
-    int32_t res = create_csnarray_init(csound, &p->h, 1U, shape, &p->array, p->handle, CSN_REAL);
-    if (res != OK) return res;
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0);
+    if (pres.err != OK) return pres.err;
 
-    csound->LockMutex(reg->mutex);
     bool is_locked = (*p->rt_lock != 0.0);
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot != NULL) slot->rt_locked = is_locked;
-    fill_csnarray(p->array, 0.0);
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
-    csound->UnlockMutex(reg->mutex);
+    p->handle->rt_locked = is_locked;
+    SET_KDATA_BEGIN(p->k_data, reg, shape, 1U, CSN_REAL);
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
 int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t source_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, source_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t nsamples = CS_KSMPS;
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    p->array = slot->array;
-    CSN_ARRAY *buffer = p->array;
+    /* The layout was fixed at init and never changes here, so per pass only
+       the lock is decided; the check still guards a global output that some
+       other opcode has reshaped since. */
+    CSN_ARRAY *buffer = p->handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->ndim != 1U || buffer->itype != CSN_REAL) {
-        csound->UnlockMutex(reg->mutex);
+        if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid slot: array size and dimension mismatch");
     }
 
@@ -70,8 +62,8 @@ int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
     }
 
     update_array_data_version(&buffer->version);
-    SET_KDATA_END(p, buffer->shape, 1U, CSN_REAL);
-    csound->UnlockMutex(reg->mutex);
+    SET_KDATA_END(p->k_data, buffer->shape, 1U, CSN_REAL);
+    if (locked) csn_unlock(csound, reg);
 
     return OK;
 }
@@ -79,55 +71,22 @@ int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
 int32_t csnarray_to_audio_init(CSOUND *csound, CSN_TO_AUDIO *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-    uint32_t nsamples = CS_KSMPS;
-    uint32_t shape[CSN_MAX_DIMS] = {0};
-    shape[0] = nsamples;
-
-    int32_t res = OK;
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *buffer = slot->array;
-    if (buffer->size != CS_KSMPS || buffer->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
-        goto done;
-    }
-
+    stamp_globals(csound, &p->h);
     p->registry = reg;
-
-done:
-    csound->UnlockMutex(reg->mutex);
-    return res;
+    return OK;
 }
 
 int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
-
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-
     uint32_t nsamples = CS_KSMPS;
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *buffer = slot->array;
+    CSN_ARRAY *buffer = p->source_handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->itype != CSN_REAL) {
-        csound->UnlockMutex(reg->mutex);
+        if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
@@ -141,7 +100,7 @@ int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p) {
         p->sig[i] = (cs_float) buffer->data[i];
     }
 
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return OK;
 }
 
@@ -163,25 +122,18 @@ int32_t csnarray_pack_audio_init(CSOUND *csound, CSN_PACK_AUDIO *p) {
     shape[0] = nchnls;
     shape[1] = CS_KSMPS;
 
-    int32_t res = create_csnarray_init(csound, &p->h, 2U, shape, &p->array, p->handle, CSN_REAL);
-    if (res != OK) return res;
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 2U, shape, CSN_REAL, NULL, 0);
+    if (pres.err != OK) return pres.err;
 
-    csound->LockMutex(reg->mutex);
     bool is_locked = (*p->rt_lock != 0.0);
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot != NULL) slot->rt_locked = is_locked;
-    fill_csnarray(p->array, 0.0);
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 2U, CSN_REAL, p->handle->id);
+    p->handle->rt_locked = is_locked;
     p->prev_nchnls = nchnls;
-    csound->UnlockMutex(reg->mutex);
+    p->registry = reg;
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
 int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t source_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, source_handle);
-
     uint32_t nsamples = CS_KSMPS;
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
@@ -196,14 +148,14 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Shape change not allowed on audio path");
     }
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+    CSN_ARRAY *buffer = p->handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ buffer }, 1);
+    if (buffer->ndim != 2U || buffer->shape[0] != nchnls || buffer->shape[1] != CS_KSMPS) {
+        if (locked) csn_unlock(csound, reg);
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
-
-    CSN_ARRAY *buffer = slot->array;
     for (size_t i = 0; i < (size_t) nchnls; i++) {
         cs_float *channel = p->source_sig->data + i * CS_KSMPS;
         double *row = buffer->data + i * CS_KSMPS;
@@ -213,9 +165,7 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
     }
 
     update_array_data_version(&buffer->version);
-    SET_KDATA_END(p, buffer->shape, 2U, CSN_REAL);
-
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return OK;
 }
 
@@ -223,68 +173,47 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
 int32_t csnarray_unpack_audio_init(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    stamp_globals(csound, &p->h);
+    p->registry = reg;
 
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-    int32_t res = OK;
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *buffer = slot->array;
+    CSN_ARRAY *buffer = p->source_handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->itype != CSN_REAL || buffer->shape[1] != CS_KSMPS) {
-        res = csound->InitError(csound, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
-        goto done;
+        if (locked) csn_unlock(csound, reg);
+        return csound->InitError(csound, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
     int32_t nchnls = (int32_t) buffer->shape[0];
+    p->prev_nchnls = buffer->shape[0];
+    if (locked) csn_unlock(csound, reg);
     tabinit(csound, p->sig, nchnls, p->h.insdshead);
     if (p->sig->data == NULL || p->sig->sizes == NULL ||
         p->sig->arrayMemberSize <= 0 ||
         p->sig->allocated / (size_t) p->sig->arrayMemberSize < (size_t) nchnls) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-        goto done;
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
-    p->registry = reg;
-    p->prev_nchnls = buffer->shape[0];
-
-done:
-    csound->UnlockMutex(reg->mutex);
-    return res;
+    return OK;
 }
 
 int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
-    CSN_REGISTRY *reg = p->registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-
     uint32_t nsamples = CS_KSMPS;
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
     uint32_t end_offset = nsamples - early;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *buffer = slot->array;
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+    CSN_ARRAY *buffer = p->source_handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->itype != CSN_REAL || buffer->shape[1] != CS_KSMPS) {
-        csound->UnlockMutex(reg->mutex);
+        if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
     uint32_t nchnls = buffer->shape[0];
     if (nchnls != p->prev_nchnls) {
-        csound->UnlockMutex(reg->mutex);
+        if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Shape change not allowed on audio path");
     }
 
@@ -296,7 +225,7 @@ int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
         }
     }
 
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return OK;
 }
 
@@ -309,7 +238,6 @@ int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
     }
 
     int32_t res = OK;
-    const char *err = NULL;
 
     double frame_size_temp = (double) *p->frame_size;
     if (!IS_VALID_LENGTH(frame_size_temp)) {
@@ -352,30 +280,22 @@ int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
 
     *p->is_ready = FL(0.0);
 
-    csound->LockMutex(reg->mutex);
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = (uint32_t) p->fsize;
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    bool is_locked = (*p->rt_lock != 0.0);
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot != NULL) slot->rt_locked = is_locked;
-    fill_csnarray(p->array, 0.0);
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
+    /* the explicit request wins over the default prepare_output computed */
+    p->handle->rt_locked = (*p->rt_lock != 0.0);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_frame_audio(CSOUND *csound, CSN_FRAME_AUDIO *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t source_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, source_handle);
-
     uint32_t nsamples = CS_KSMPS;
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
@@ -397,14 +317,14 @@ int32_t csnarray_frame_audio(CSOUND *csound, CSN_FRAME_AUDIO *p) {
     }
 
     if (buffer->current_size >= fsize) {
-        csound->LockMutex(reg->mutex);
-        CSN_SLOT *slot = get_slot(reg, source_handle);
-        if (slot == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
+        CSN_REGISTRY *reg = p->registry;
+        CHECK_REGISTRY(csound, &p->h, reg);
+        CSN_ARRAY *frame = p->handle;
+        bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ frame }, 1);
+        if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size != fsize) {
+            if (locked) csn_unlock(csound, reg);
+            return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
         }
-
-        CSN_ARRAY *frame = p->array;
         // reader
         for (size_t i = 0; i < fsize; i++) {
             size_t index = (buffer->reader + i) % buffer->scratch_capacity;
@@ -414,13 +334,12 @@ int32_t csnarray_frame_audio(CSOUND *csound, CSN_FRAME_AUDIO *p) {
         buffer->current_size -= hsize;
 
         update_array_data_version(&frame->version);
+        if (locked) csn_unlock(csound, reg);
         *p->is_ready = FL(1.0);
-        csound->UnlockMutex(reg->mutex);
     } else {
         *p->is_ready = FL(0.0);
     }
 
-    p->handle->id = p->k_data.owned_handle;
     return OK;
 }
 
@@ -442,36 +361,31 @@ int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
         return csound->InitError(csound, "[csnarray] Hop size %d must be greater or equal to ksmps %d", (int32_t) hop_size_temp, (int32_t) CS_KSMPS);
     }
 
-    int32_t res = OK;
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
+    stamp_globals(csound, &p->h);
+    p->registry = reg;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *frame = slot->array;
+    CSN_ARRAY *frame = p->source_handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ frame }, 1);
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size == 0) {
-        res = csound->InitError(csound, "[csnarray] Invalid csn-audio frame: expected a non-empty 1-D real array");
-        goto done;
+        if (locked) csn_unlock(csound, reg);
+        return csound->InitError(csound, "[csnarray] Invalid csn-audio frame: expected a non-empty 1-D real array");
     }
 
     p->fsize = frame->size;
     p->hsize = (size_t) hop_size_temp;
+    /* remember the frame as it is now, so the first pass only adds a frame
+       that has been written since */
+    set_array_version(&p->prev_version, &frame->version);
+    if (locked) csn_unlock(csound, reg);
 
     if (p->hsize > p->fsize) {
-        res = csound->InitError(csound, "[csnarray] Hop size %zu must be less or equal to the frame size %zu", p->hsize, p->fsize);
-        goto done;
+        return csound->InitError(csound, "[csnarray] Hop size %zu must be less or equal to the frame size %zu", p->hsize, p->fsize);
     }
 
     size_t buffer_cap = p->fsize * 2;
     double *buffer_temp = csound->Calloc(csound, sizeof(double) * buffer_cap);
     if (buffer_temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-        goto done;
+        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     p->buffer.scratch = buffer_temp;
@@ -481,24 +395,13 @@ int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
     p->buffer.writer = 0;
     p->buffer.sample_count = 0;
 
-    p->prev_handle = source_handle;
-    set_array_version(&frame->version, &p->prev_version);
-
     p->phase = 0;
     *p->is_ready = FL(0.0);
-    p->registry = reg;
 
-done:
-    csound->UnlockMutex(reg->mutex);
-    return res;
+    return OK;
 }
 
 int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
-    CSN_REGISTRY *reg = p->registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-
     uint32_t nsamples = CS_KSMPS;
     uint32_t offset = p->h.insdshead->ksmps_offset;
     uint32_t early = p->h.insdshead->ksmps_no_end;
@@ -510,22 +413,16 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
     double *acc = (double *) buffer->scratch;
     size_t capacity = buffer->scratch_capacity;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *frame = slot->array;
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+    CSN_ARRAY *frame = p->source_handle;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ frame }, 1);
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size != fsize) {
-        csound->UnlockMutex(reg->mutex);
+        if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
     }
 
-    bool is_same_version = is_same_array_data_version(&frame->version, &p->prev_version);
-    bool is_same = p->prev_handle == source_handle && is_same_version;
+    bool is_same = is_same_array_data_version(&frame->version, &p->prev_version);
 
     p->phase += nsamples;
     bool is_consumed = p->phase >= hsize;
@@ -538,11 +435,9 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
         buffer->writer = (buffer->writer + hsize) % capacity;
         buffer->current_size += hsize;
 
-        p->prev_handle = source_handle;
         set_array_version(&p->prev_version, &frame->version);
     }
-
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
 
     if (buffer->current_size >= (size_t) nsamples) {
         for (uint32_t j = 0; j < nsamples; j++) {
