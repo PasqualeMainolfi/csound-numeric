@@ -55,13 +55,8 @@ static inline size_t NEXT_POWER_OF_TWO(size_t n) {
     return n + 1;
 }
 
-static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, CSN_AXIS_SPEC *axis, const cs_float *axis_in, CSN_AXIS_DEFAULT omitted_default, uint32_t source_handle, CSN_FFT_MODE mode) {
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *source_arr, CSN_AXIS_SPEC *axis, const cs_float *axis_in, CSN_AXIS_DEFAULT omitted_default, CSN_FFT_MODE mode) {
+    (void) reg;
     uint32_t source_ndim = source_arr->ndim;
     ITEM_TYPE itype = source_arr->itype;
 
@@ -80,7 +75,6 @@ static int32_t fft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARR
         *axis = spec;
     }
 
-    *source_array = source_arr;
     return OK;
 }
 
@@ -323,6 +317,7 @@ static void fft_assign_layout_at(size_t *out_size, size_t *work_size, uint32_t *
 }
 
 static void fft_assign_flatten_layout(size_t *out_size, size_t *work_size, uint32_t *new_ndim, uint32_t *new_shape, CSN_ARRAY *source_arr, uint32_t nfft, CSN_FFT_MODE mode) {
+    (void) source_arr;
     *new_ndim = 1U;
     if (work_size != NULL) {
         switch (mode) {
@@ -353,10 +348,9 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *temp_buffer = NULL;
+    void *fft_setup = NULL;
 
     double fftsize_temp = (double) *p->fft_size;
     if (!IS_VALID_FFT_SIZE(fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) fftsize_temp)) {
@@ -364,12 +358,15 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
     }
     int32_t fft_size = (int32_t) fftsize_temp;
 
-    void *fft_setup = NULL;
+    /* Mark the global arguments first, so the lock below already sees them and
+       the validation reads the source under it. */
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
-    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
+    res = fft_body(csound, NULL, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, mode);
     if (res != OK) goto done;
 
     if (mode == CSNRFFT) {
@@ -388,15 +385,18 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    CSN_ARRAY *fft_buffer = p->array;
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
+
+    CSN_ARRAY *fft_buffer = p->handle;
     if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis_spec.index, mode) != OK) {
         res = csound->InitError(csound, "[csnarray] Shape/rank error");
         goto done;
     }
+    update_array_data_version(&fft_buffer->version);
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -406,13 +406,13 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
     p->k_data_fft.buffer_work_size = work_size;
     p->k_data.prev_axis_u = axis_spec.index;
     p->is_published = false;
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_COMPLEX);
 
 done:
     if (res != OK && temp_buffer != NULL) csound->Free(csound, temp_buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -438,38 +438,32 @@ int32_t csnarray_rfft_k_init(CSOUND *csound, CSN_FFT *p) {
 
 static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
-    int32_t res = OK;
-    const char *err = NULL;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->axis);
 
+    int32_t res = OK;
     size_t fft_size = p->k_data_fft.nfft;
     void *fft_setup = p->k_data_fft.fft_setup;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle }, 2);
+
     CSN_AXIS_SPEC axis_spec = {0};
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
-    res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
+    res = fft_body(csound, &p->h, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
 
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot = get_slot(reg, owned_handle);
-        if (slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+    /* The output lives in its own variable, so last pass's transform is still
+       in it unless someone has written it since: with neither end nor the axis
+       moved there is nothing to do. Checked before prepare_output, which would
+       zero the output and move its version. */
+    if (p->is_published && axis == p->k_data.prev_axis_u
+        && is_same_array_version(&p->k_data.prev_source_version, &source_arr->version)
+        && is_same_array_version(&p->k_data.prev_output_version, &p->handle->version)) {
+        goto done;
     }
 
     uint32_t new_ndim = 0;
@@ -478,31 +472,29 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
     size_t work_size = 0;
     fft_assign_layout(&out_size, &work_size, &new_ndim, new_shape, source_arr, (uint32_t) fft_size, mode, axis);
 
-    size_t output_size = 0;
-    if (get_array_size_from_shape(&output_size, new_ndim, new_shape) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] FFT output exceeds the maximum element count");
-        goto done;
-    }
-
-    CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, new_ndim, new_shape, output_size, CSN_COMPLEX, err);
+    /* the init refused an output that is its own source, so it cannot alias here */
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
     if (res != OK) goto done;
-    p->array = fft_buffer;
 
+    CSN_ARRAY *fft_buffer = p->handle;
     cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Shape/rank error");
         goto done;
     }
+    update_array_data_version(&fft_buffer->version);
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
-    SET_KDATA_END(p, fft_buffer->shape, fft_buffer->ndim, CSN_COMPLEX);
+    SET_KDATA_END(p->k_data, fft_buffer->shape, fft_buffer->ndim, CSN_COMPLEX);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -518,9 +510,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *temp_buffer = NULL;
     void *fft_setup = NULL;
 
@@ -530,10 +520,13 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
     }
     int32_t fft_size = (int32_t) fftsize_temp;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
-    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
+    res = fft_body(csound, NULL, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
 
@@ -554,16 +547,18 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
     }
 
     ITEM_TYPE otype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, otype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, otype, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *fft_buffer = p->array;
+    CSN_ARRAY *fft_buffer = p->handle;
     if (ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
         res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
+    update_array_data_version(&fft_buffer->version);
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -573,19 +568,19 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
     p->k_data_fft.buffer_work_size = work_size;
     p->k_data.prev_axis_u = axis;
     p->is_published = false;
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    SET_KDATA_BEGIN(p, reg);
+    set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, otype);
 
 done:
     if (res != OK && temp_buffer != NULL) csound->Free(csound, temp_buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_fft_deinit(CSOUND *csound, CSN_FFT *p) {
     deinit_scratch(csound, &p->buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 int32_t csnarray_ifft(CSOUND *csound, CSN_FFT *p) {
@@ -610,38 +605,30 @@ int32_t csnarray_irfft_k_init(CSOUND *csound, CSN_FFT *p) {
 
 static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
-    int32_t res = OK;
-    const char *err = NULL;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->axis);
 
+    int32_t res = OK;
     size_t fft_size = p->k_data_fft.nfft;
     void *fft_setup = p->k_data_fft.fft_setup;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle }, 2);
+
     CSN_AXIS_SPEC axis_spec = {0};
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
-    res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, mode);
+    res = fft_body(csound, &p->h, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
 
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot = get_slot(reg, owned_handle);
-        if (slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+    /* as in the forward transform: the result is still in the output unless
+       one of the two ends, or the axis, has moved */
+    if (p->is_published && axis == p->k_data.prev_axis_u
+        && is_same_array_version(&p->k_data.prev_source_version, &source_arr->version)
+        && is_same_array_version(&p->k_data.prev_output_version, &p->handle->version)) {
+        goto done;
     }
 
     uint32_t new_ndim = 0;
@@ -650,32 +637,29 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
     size_t work_size = 0;
     fft_assign_layout(&out_size, &work_size, &new_ndim, new_shape, source_arr, (uint32_t) fft_size, mode, axis);
 
-    size_t output_size = 0;
-    if (get_array_size_from_shape(&output_size, new_ndim, new_shape) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] inverse FFT output exceeds the maximum element count");
-        goto done;
-    }
-
     ITEM_TYPE otype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, new_ndim, new_shape, output_size, otype, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, otype, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
     if (res != OK) goto done;
-    p->array = fft_buffer;
 
+    CSN_ARRAY *fft_buffer = p->handle;
     cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     if (ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
+    update_array_data_version(&fft_buffer->version);
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
-    SET_KDATA_END(p, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
+    SET_KDATA_END(p->k_data, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -687,32 +671,19 @@ int32_t csnarray_irfft_k(CSOUND *csound, CSN_FFT *p) {
     return csnarray_ifft_k_helper(csound, p, CSNIRFFT);
 }
 
-static int32_t stft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSN_FFT_MODE *fft_mode) {
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+static int32_t stft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *source_arr, CSN_FFT_MODE *fft_mode) {
+    (void) reg;
     uint32_t source_ndim = source_arr->ndim;
     if (source_ndim != 1U) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] STFT requires 1-D array");
     }
-
     ITEM_TYPE itype = source_arr->itype;
     *fft_mode = itype == CSN_COMPLEX ? CSNFFT : CSNRFFT;
-
-    *source_array = source_arr;
     return OK;
 }
 
-static int32_t istft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, uint32_t nfft) {
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+static int32_t istft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *source_arr, uint32_t nfft) {
+    (void) reg;
     uint32_t source_ndim = source_arr->ndim;
     if (source_ndim != 2U) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] ISTFT requires 2-D array");
@@ -736,7 +707,6 @@ static int32_t istft_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_A
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Array length exceed the maximum element count");
     }
 
-    *source_array = source_arr;
     return OK;
 }
 
@@ -981,9 +951,7 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *temp_buffer = NULL;
     double *win_buffer = NULL;
 
@@ -996,10 +964,13 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
     uint32_t wtype = (uint32_t) *p->window_type;
     void *fft_setup = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle_f, p->handle_t, p->handle_z }, 4);
+
+    CSN_ARRAY *source_arr = p->source_handle;
     CSN_FFT_MODE fft_mode;
-    res = stft_body(csound, NULL, reg, &source_arr, source_handle, &fft_mode);
+    res = stft_body(csound, NULL, reg, source_arr, &fft_mode);
     if (res != OK) goto done;
 
     /* Keep the real setup available even if a k-rate source later switches
@@ -1017,44 +988,49 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
 
     size_t scratch_work_size = (size_t) fft_size * 2U;
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
-    if (temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-        goto done;
-    }
-
     win_buffer = csound->Calloc(csound, sizeof(double) * (size_t) fft_size);
-    if (win_buffer == NULL) {
+    if (temp_buffer == NULL || win_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim_f_t, new_shape_f, &p->array_f, p->handle_f, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    CSN_ARRAY *f_buffer = p->array_f;
+    res = csn_check_outputs_distinct(csound, NULL, (const CSN_ARRAY *[]) { p->handle_f, p->handle_t, p->handle_z }, 3);
+    if (res != OK) goto done;
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim_f_t, new_shape_t, &p->array_t, p->handle_t, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    CSN_ARRAY *t_buffer = p->array_t;
+    /* Three outputs, one lock: the guard in csn_lock keeps a later output from
+       taking it a second time, and done releases it once. */
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out_f = prepare_output(csound, &p->h, NULL, reg, p->handle_f, new_dim_f_t, new_shape_f, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_f.locked;
+    res = out_f.err;
+    if (res != OK) goto done;
+    CSNARR_RES out_t = prepare_output(csound, &p->h, NULL, reg, p->handle_t, new_dim_f_t, new_shape_t, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_t.locked;
+    res = out_t.err;
+    if (res != OK) goto done;
+    CSNARR_RES out_z = prepare_output(csound, &p->h, NULL, reg, p->handle_z, new_dim_z, new_shape_z, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_z.locked;
+    res = out_z.err;
+    if (res != OK) goto done;
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim_z, new_shape_z, &p->array_z, p->handle_z, &source_handle, 1U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    CSN_ARRAY *fft_buffer = p->array_z;
-
+    CSN_ARRAY *f_buffer = p->handle_f;
+    CSN_ARRAY *t_buffer = p->handle_t;
+    CSN_ARRAY *fft_buffer = p->handle_z;
     get_fftfreqs(f_buffer, sr, (uint32_t) fft_size, fft_mode);
     get_timevec(t_buffer, sr, (double) fft_size, (double) overlap_size);
     get_window_function(win_buffer, (uint32_t) fft_size, wtype, 0.0);
     stft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, win_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, fft_mode);
+    update_array_data_version(&f_buffer->version);
+    update_array_data_version(&t_buffer->version);
+    update_array_data_version(&fft_buffer->version);
 
-    SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_f, reg, new_shape_f, new_dim_f_t, CSN_REAL, p->handle_f->id);
-    SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_t, reg, new_shape_t, new_dim_f_t, CSN_REAL, p->handle_t->id);
-    SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_z, reg, new_shape_z, new_dim_z, CSN_COMPLEX, p->handle_z->id);
+    SET_KDATA_BEGIN(p->k_data_f, reg, new_shape_f, new_dim_f_t, CSN_REAL);
+    SET_KDATA_BEGIN(p->k_data_t, reg, new_shape_t, new_dim_f_t, CSN_REAL);
+    SET_KDATA_BEGIN(p->k_data_z, reg, new_shape_z, new_dim_z, CSN_COMPLEX);
     set_array_version(&p->k_data_z.prev_source_version, &source_arr->version);
+    set_array_version(&p->k_data_f.prev_output_version, &f_buffer->version);
+    set_array_version(&p->k_data_t.prev_output_version, &t_buffer->version);
+    set_array_version(&p->k_data_z.prev_output_version, &fft_buffer->version);
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = scratch_work_size;
     p->window.scratch = win_buffer;
@@ -1073,7 +1049,7 @@ done:
         if (temp_buffer != NULL) csound->Free(csound, temp_buffer);
         if (win_buffer != NULL) csound->Free(csound, win_buffer);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1115,7 +1091,7 @@ static int32_t GET_STFT_INIT(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr
     }
 
     FREE_CSNARRDATA(csound, &p->stft);
-    if (allocate_array(csound, &p->stft, new_dim_z, new_shape_z, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, &p->stft, new_dim_z, new_shape_z, CSN_COMPLEX) != OK) {
         csound->Free(csound, temp_buffer);
         csound->Free(csound, win_buffer);
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
@@ -1149,9 +1125,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *temp_buffer = NULL;
     double *win_buffer = NULL;
     double *winsum_buffer = NULL;
@@ -1163,12 +1137,14 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     int32_t overlap_size = (int32_t) *p->hopsize;
     double sr = (double) *p->sr;
     uint32_t wtype = (uint32_t) *p->window_type;
-
     void *ifft_setup = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = istft_body(csound, NULL, reg, &source_arr, source_handle, (uint32_t) fft_size);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle_t, p->handle_x }, 3);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = istft_body(csound, NULL, reg, source_arr, (uint32_t) fft_size);
     if (res != OK) goto done;
 
     CSN_FFT_MODE ifft_mode = source_arr->shape[0] == (uint32_t) fft_size / 2U + 1U ? CSNIRFFT : CSNIFFT;
@@ -1194,30 +1170,28 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
 
     size_t scratch_work_size = (size_t) fft_size * 2U;
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
-    if (temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-        goto done;
-    }
-
     win_buffer = csound->Calloc(csound, sizeof(double) * (size_t) fft_size);
-    if (win_buffer == NULL) {
+    if (temp_buffer == NULL || win_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim_t, new_shape_t, &p->array_t, p->handle_t, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    CSN_ARRAY *t_buffer = p->array_t;
+    res = csn_check_outputs_distinct(csound, NULL, (const CSN_ARRAY *[]){ p->handle_t, p->handle_x }, 2);
+    if (res != OK) goto done;
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim_x, new_shape_x, &p->array_x, p->handle_x, &source_handle, 1U, &err, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    CSN_ARRAY *fft_buffer = p->array_x;
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out_t = prepare_output(csound, &p->h, NULL, reg, p->handle_t, new_dim_t, new_shape_t, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_t.locked;
+    res = out_t.err;
+    if (res != OK) goto done;
+    CSNARR_RES out_x = prepare_output(csound, &p->h, NULL, reg, p->handle_x, new_dim_x, new_shape_x, itype, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_x.locked;
+    res = out_x.err;
+    if (res != OK) goto done;
 
-    winsum_buffer = csound->Calloc(csound, sizeof(double) * p->array_x->size);
+    CSN_ARRAY *t_buffer = p->handle_t;
+    CSN_ARRAY *fft_buffer = p->handle_x;
+    winsum_buffer = csound->Calloc(csound, sizeof(double) * fft_buffer->size);
     if (winsum_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
@@ -1227,16 +1201,20 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     get_window_function_sum(winsum_buffer, win_buffer, source_arr->shape[1], (uint32_t) fft_size, (uint32_t) overlap_size);
     get_timesamples(t_buffer, sr);
     istft_assign_value(csound, ifft_setup, fft_buffer, source_arr, temp_buffer, win_buffer, winsum_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, ifft_mode);
+    update_array_data_version(&t_buffer->version);
+    update_array_data_version(&fft_buffer->version);
 
-    SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_t, reg, new_shape_t, new_dim_t, CSN_REAL, p->handle_t->id);
-    SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_x, reg, new_shape_x, new_dim_x, itype, p->handle_x->id);
+    SET_KDATA_BEGIN(p->k_data_t, reg, new_shape_t, new_dim_t, CSN_REAL);
+    SET_KDATA_BEGIN(p->k_data_x, reg, new_shape_x, new_dim_x, itype);
     set_array_version(&p->k_data_x.prev_source_version, &source_arr->version);
+    set_array_version(&p->k_data_t.prev_output_version, &t_buffer->version);
+    set_array_version(&p->k_data_x.prev_output_version, &fft_buffer->version);
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = scratch_work_size;
     p->window.scratch = win_buffer;
     p->window.scratch_capacity = (size_t) fft_size;
     p->window_sum.scratch = winsum_buffer;
-    p->window_sum.scratch_capacity = p->array_x->size;
+    p->window_sum.scratch_capacity = fft_buffer->size;
     p->k_data_fft.nfft = (size_t) fft_size;
     p->k_data_fft.hopsize = (size_t) overlap_size;
     p->k_data_fft.fft_setup = ifft_setup;
@@ -1252,31 +1230,21 @@ done:
         if (win_buffer != NULL) csound->Free(csound, win_buffer);
         if (winsum_buffer != NULL) csound->Free(csound, winsum_buffer);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_stft_deinit(CSOUND *csound, CSN_STFT *p) {
-    int32_t res = OK;
     deinit_scratch(csound, &p->buffer);
     deinit_scratch(csound, &p->window);
-    res = csnarray_deinit_by_handle(csound, &p->handle_f->id, &p->array_f, &p->h);
-    if (res != OK) return res;
-    res = csnarray_deinit_by_handle(csound, &p->handle_t->id, &p->array_t, &p->h);
-    if (res != OK) return res;
-    res = csnarray_deinit_by_handle(csound, &p->handle_z->id, &p->array_z, &p->h);
-    return res;
+    return OK;
 }
 
 int32_t csnarray_istft_deinit(CSOUND *csound, CSN_ISTFT *p) {
-    int32_t res = OK;
     deinit_scratch(csound, &p->buffer);
     deinit_scratch(csound, &p->window);
     deinit_scratch(csound, &p->window_sum);
-    res = csnarray_deinit_by_handle(csound, &p->handle_t->id, &p->array_t, &p->h);
-    if (res != OK) return res;
-    res = csnarray_deinit_by_handle(csound, &p->handle_x->id, &p->array_x, &p->h);
-    return res;
+    return OK;
 }
 
 int32_t csnarray_stft(CSOUND *csound, CSN_STFT *p) {
@@ -1289,51 +1257,32 @@ int32_t csnarray_istft(CSOUND *csound, CSN_ISTFT *p) {
 
 static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     CSN_REGISTRY *reg = p->k_data_z.registry;
-    uint32_t owned_handle_f = p->k_data_f.owned_handle;
-    uint32_t owned_handle_t = p->k_data_t.owned_handle;
-    uint32_t owned_handle_z = p->k_data_z.owned_handle;
     CHECK_REGISTRY(csound, &p->h, reg);
-    CHECK_HANDLE(csound, &p->h, owned_handle_f);
-    CHECK_HANDLE(csound, &p->h, owned_handle_t);
-    CHECK_HANDLE(csound, &p->h, owned_handle_z);
-
-    uint32_t source_handle = p->source_handle->id;
-    int32_t res = OK;
-    const char *err = NULL;
 
     CHECK_KTRIG(p->trig);
 
+    int32_t res = OK;
     size_t fft_size = p->k_data_fft.nfft;
     size_t overlap_size = p->k_data_fft.hopsize;
     double sr = p->k_data_fft.sr;
     void *fft_setup = p->k_data_fft.fft_setup;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle_f, p->handle_t, p->handle_z }, 4);
+
     CSN_FFT_MODE fft_mode;
-    res = stft_body(csound, &p->h, reg, &source_arr, source_handle, &fft_mode);
+    res = stft_body(csound, &p->h, reg, source_arr, &fft_mode);
     if (res != OK) goto done;
 
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data_z.prev_source_version, &source_arr->version);
-        bool is_same_f = false;
-        bool is_same_t = false;
-        bool is_same_z = false;
-        CSN_SLOT *slot_f = get_slot(reg, owned_handle_f);
-        CSN_SLOT *slot_t = get_slot(reg, owned_handle_t);
-        CSN_SLOT *slot_z = get_slot(reg, owned_handle_z);
-        if (slot_f != NULL && slot_t != NULL && slot_z != NULL) {
-            is_same_f = is_same_array_version(&p->k_data_f.prev_output_version, &slot_f->array->version);
-            is_same_t = is_same_array_version(&p->k_data_t.prev_output_version, &slot_t->array->version);
-            is_same_z = is_same_array_version(&p->k_data_z.prev_output_version, &slot_z->array->version);
-        }
-
-        if (is_same_source && is_same_f && is_same_t && is_same_z) {
-            p->handle_f->id = owned_handle_f;
-            p->handle_t->id = owned_handle_t;
-            p->handle_z->id = owned_handle_z;
-            goto done;
-        }
+    /* all three results are still in their outputs unless the source or one
+       of them has been written since */
+    if (p->is_published
+        && is_same_array_version(&p->k_data_z.prev_source_version, &source_arr->version)
+        && is_same_array_version(&p->k_data_f.prev_output_version, &p->handle_f->version)
+        && is_same_array_version(&p->k_data_t.prev_output_version, &p->handle_t->version)
+        && is_same_array_version(&p->k_data_z.prev_output_version, &p->handle_z->version)) {
+        goto done;
     }
 
     uint32_t shape_f[CSN_MAX_DIMS] = {0};
@@ -1343,37 +1292,35 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     size_t work_size = 0;
     stft_assign_layout(&out_size, &work_size, shape_f, shape_t, shape_z, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, fft_mode);
 
-    size_t size_z = 0;
-    if (get_array_size_from_shape(&size_z, 2U, shape_z) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] STFT output exceeds the maximum element count");
-        goto done;
-    }
-
-    CSN_ARRAY *array_f = NULL;
-    CSN_ARRAY *array_t = NULL;
-    CSN_ARRAY *array_z = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_f, &p->k_data_f, NULL, 1U, shape_f, shape_f[0], CSN_REAL, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out_f = prepare_output(csound, &p->h, &p->h, reg, p->handle_f, 1U, shape_f, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_f.locked;
+    res = out_f.err;
     if (res != OK) goto done;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_t, &p->k_data_t, NULL, 1U, shape_t, shape_t[0], CSN_REAL, err);
+    CSNARR_RES out_t = prepare_output(csound, &p->h, &p->h, reg, p->handle_t, 1U, shape_t, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_t.locked;
+    res = out_t.err;
     if (res != OK) goto done;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_z, &p->k_data_z, NULL, 2U, shape_z, size_z, CSN_COMPLEX, err);
+    CSNARR_RES out_z = prepare_output(csound, &p->h, &p->h, reg, p->handle_z, 2U, shape_z, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_z.locked;
+    res = out_z.err;
     if (res != OK) goto done;
-    p->array_f = array_f;
-    p->array_t = array_t;
-    p->array_z = array_z;
 
     cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     const double *win_buffer = (const double *) p->window.scratch;
-    get_fftfreqs(array_f, sr, (uint32_t) fft_size, fft_mode);
-    get_timevec(array_t, sr, (double) fft_size, (double) overlap_size);
-    stft_assign_value(csound, fft_setup, array_z, source_arr, temp_buffer, win_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, fft_mode);
+    get_fftfreqs(p->handle_f, sr, (uint32_t) fft_size, fft_mode);
+    get_timevec(p->handle_t, sr, (double) fft_size, (double) overlap_size);
+    stft_assign_value(csound, fft_setup, p->handle_z, source_arr, temp_buffer, win_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, fft_mode);
+    update_array_data_version(&p->handle_f->version);
+    update_array_data_version(&p->handle_t->version);
+    update_array_data_version(&p->handle_z->version);
 
-    SET_FROM_KDATA_END_WITH_ID(p->k_data_f, p->handle_f, p->array_f->shape, p->array_f->ndim, CSN_REAL);
-    SET_FROM_KDATA_END_WITH_ID(p->k_data_t, p->handle_t, p->array_t->shape, p->array_t->ndim, CSN_REAL);
-    SET_FROM_KDATA_END_WITH_ID(p->k_data_z, p->handle_z, p->array_z->shape, p->array_z->ndim, p->array_z->itype);
-    set_array_version(&p->k_data_f.prev_output_version, &p->array_f->version);
-    set_array_version(&p->k_data_t.prev_output_version, &p->array_t->version);
-    set_array_version(&p->k_data_z.prev_output_version, &p->array_z->version);
+    SET_KDATA_END(p->k_data_f, shape_f, 1U, CSN_REAL);
+    SET_KDATA_END(p->k_data_t, shape_t, 1U, CSN_REAL);
+    SET_KDATA_END(p->k_data_z, shape_z, 2U, CSN_COMPLEX);
+    set_array_version(&p->k_data_f.prev_output_version, &p->handle_f->version);
+    set_array_version(&p->k_data_t.prev_output_version, &p->handle_t->version);
+    set_array_version(&p->k_data_z.prev_output_version, &p->handle_z->version);
     set_array_version(&p->k_data_z.prev_source_version, &source_arr->version);
     p->k_data_fft.mode = fft_mode;
     p->k_data_fft.buffer_out_size = out_size;
@@ -1381,54 +1328,39 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     CSN_REGISTRY *reg = p->k_data_x.registry;
-    uint32_t owned_handle_t = p->k_data_t.owned_handle;
-    uint32_t owned_handle_x = p->k_data_x.owned_handle;
     CHECK_REGISTRY(csound, &p->h, reg);
-    CHECK_HANDLE(csound, &p->h, owned_handle_t);
-    CHECK_HANDLE(csound, &p->h, owned_handle_x);
 
-    uint32_t source_handle = p->source_handle->id;
+    CHECK_KTRIG(p->trig);
+
     int32_t res = OK;
-    const char *err = NULL;
-
-    CHECK_KTRIG(p->trig) ;
-
     size_t fft_size = p->k_data_fft.nfft;
     size_t overlap_size = p->k_data_fft.hopsize;
     double sr = p->k_data_fft.sr;
     void *ifft_setup = p->k_data_fft.fft_setup;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = istft_body(csound, &p->h, reg, &source_arr, source_handle, (uint32_t) fft_size);
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle_t, p->handle_x }, 3);
+
+    res = istft_body(csound, &p->h, reg, source_arr, (uint32_t) fft_size);
     if (res != OK) goto done;
-
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data_x.prev_source_version, &source_arr->version);
-        bool is_same_t = false;
-        bool is_same_x = false;
-        CSN_SLOT *slot_t = get_slot(reg, owned_handle_t);
-        CSN_SLOT *slot_x = get_slot(reg, owned_handle_x);
-        if (slot_t != NULL && slot_x != NULL) {
-            is_same_t = is_same_array_version(&p->k_data_t.prev_output_version, &slot_t->array->version);
-            is_same_x = is_same_array_version(&p->k_data_x.prev_output_version, &slot_x->array->version);
-        }
-
-        if (is_same_source && is_same_t && is_same_x) {
-            p->handle_t->id = owned_handle_t;
-            p->handle_x->id = owned_handle_x;
-            goto done;
-        }
-    }
 
     CSN_FFT_MODE ifft_mode = source_arr->shape[0] == (uint32_t) fft_size / 2U + 1U ? CSNIRFFT : CSNIFFT;
     ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
+
+    if (p->is_published
+        && is_same_array_version(&p->k_data_x.prev_source_version, &source_arr->version)
+        && is_same_array_version(&p->k_data_t.prev_output_version, &p->handle_t->version)
+        && is_same_array_version(&p->k_data_x.prev_output_version, &p->handle_x->version)) {
+        goto done;
+    }
+
     uint32_t shape_t[CSN_MAX_DIMS] = {0};
     uint32_t shape_x[CSN_MAX_DIMS] = {0};
     size_t out_size = 0;
@@ -1436,33 +1368,36 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     res = istft_assign_layout(csound, &p->h, &out_size, &work_size, shape_t, shape_x, source_arr, (uint32_t) fft_size, (uint32_t) overlap_size, ifft_mode);
     if (res != OK) goto done;
 
-    CSN_ARRAY *array_t = NULL;
-    CSN_ARRAY *array_x = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_t, &p->k_data_t, NULL, 1U, shape_t, shape_t[0], CSN_REAL, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out_t = prepare_output(csound, &p->h, &p->h, reg, p->handle_t, 1U, shape_t, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_t.locked;
+    res = out_t.err;
     if (res != OK) goto done;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array_x, &p->k_data_x, NULL, 1U, shape_x, shape_x[0], otype, err);
+    CSNARR_RES out_x = prepare_output(csound, &p->h, &p->h, reg, p->handle_x, 1U, shape_x, otype, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out_x.locked;
+    res = out_x.err;
     if (res != OK) goto done;
-    p->array_t = array_t;
-    p->array_x = array_x;
 
     /* Sized to the signal output, so on a marked output it can only grow
-       where that slot has already been refused a new shape above. */
-    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data_x.owned_handle), &p->window_sum, array_x->size, sizeof(double));
+       where that output has already been refused a new shape above. */
+    res = csn_scratch_reserve(csound, &p->h, p->handle_x->rt_locked, &p->window_sum, p->handle_x->size, sizeof(double));
     if (res != OK) goto done;
 
     cs_float *temp_buffer = (cs_float *) p->buffer.scratch;
     const double *win_buffer = (const double *) p->window.scratch;
     double *winsum_buffer = (double *) p->window_sum.scratch;
-    memset(array_x->data, 0, sizeof(double) * array_x->size * (size_t) array_x->itype);
-    memset(winsum_buffer, 0, sizeof(double) * array_x->size);
+    /* prepare_output has zeroed the output the frames are added into */
+    memset(winsum_buffer, 0, sizeof(double) * p->handle_x->size);
     get_window_function_sum(winsum_buffer, win_buffer, source_arr->shape[1], (uint32_t) fft_size, (uint32_t) overlap_size);
-    get_timesamples(array_t, sr);
-    istft_assign_value(csound, ifft_setup, array_x, source_arr, temp_buffer, win_buffer, winsum_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, ifft_mode);
+    get_timesamples(p->handle_t, sr);
+    istft_assign_value(csound, ifft_setup, p->handle_x, source_arr, temp_buffer, win_buffer, winsum_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, ifft_mode);
+    update_array_data_version(&p->handle_t->version);
+    update_array_data_version(&p->handle_x->version);
 
-    SET_FROM_KDATA_END_WITH_ID(p->k_data_t, p->handle_t, p->array_t->shape, p->array_t->ndim, CSN_REAL);
-    SET_FROM_KDATA_END_WITH_ID(p->k_data_x, p->handle_x, p->array_x->shape, p->array_x->ndim, p->array_x->itype);
-    set_array_version(&p->k_data_t.prev_output_version, &p->array_t->version);
-    set_array_version(&p->k_data_x.prev_output_version, &p->array_x->version);
+    SET_KDATA_END(p->k_data_t, p->handle_t->shape, p->handle_t->ndim, CSN_REAL);
+    SET_KDATA_END(p->k_data_x, p->handle_x->shape, p->handle_x->ndim, p->handle_x->itype);
+    set_array_version(&p->k_data_t.prev_output_version, &p->handle_t->version);
+    set_array_version(&p->k_data_x.prev_output_version, &p->handle_x->version);
     set_array_version(&p->k_data_x.prev_source_version, &source_arr->version);
     p->k_data_fft.mode = ifft_mode;
     p->k_data_fft.buffer_out_size = out_size;
@@ -1470,7 +1405,7 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1487,7 +1422,6 @@ static int32_t csnarray_fftfreq_helper(CSOUND *csound, CSN_FFTFREQ *p, CSN_FFT_M
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     double size_temp = (double) *p->size;
     if (!IS_VALID_FFT_SIZE(size_temp)) {
@@ -1499,20 +1433,17 @@ static int32_t csnarray_fftfreq_helper(CSOUND *csound, CSN_FFTFREQ *p, CSN_FFT_M
     }
     double sample_spacing = 1.0 / (double) *p->d;
 
-    csound->LockMutex(reg->mutex);
     uint32_t ndim = 1U;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = mode == CSNRFFTFREQ ? size / 2U + 1U : size;
 
-    if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-
-    get_fftfreqs(p->array, sample_spacing, size, mode);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
+    get_fftfreqs(p->handle, sample_spacing, size, mode);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1522,31 +1453,21 @@ static int32_t csnarray_fftfreq_k_init_helper(CSOUND *csound, CSN_FFTFREQ *p, CS
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
-    csound->LockMutex(reg->mutex);
     uint32_t ndim = 1U;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = DEFAULT_TEMPORARY_BUFFER_SIZE;
 
-    if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    reset_empty_csnarray(p->array, ndim, shape, CSN_REAL);
-
-    SET_KDATA_BEGIN(p, reg);
-    p->k_data.prev_output_version = p->array->version;
-    p->is_published = false;
+    reset_empty_csnarray(p->handle, ndim, shape, CSN_REAL);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csnarray_fftfreq_deinit(CSOUND *csound, CSN_FFTFREQ *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csnarray_fftfreq(CSOUND *csound, CSN_FFTFREQ *p) {
@@ -1558,67 +1479,34 @@ int32_t csnarray_rfftfreq(CSOUND *csound, CSN_FFTFREQ *p) {
 }
 
 static int32_t csnarray_fftfreq_k_helper(CSOUND *csound, CSN_FFTFREQ *p, CSN_FFT_MODE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
     int32_t res = OK;
-    const char *err = NULL;
 
     double size_temp = (double) *p->size;
     if (!IS_VALID_FFT_SIZE(size_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid size");
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid size");
     }
     uint32_t size = (uint32_t) size_temp;
 
     if (!IS_VALID_VALUE_GT_ZERO((double) *p->d)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample spacing value");
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid sample spacing value");
     }
     double sample_spacing = 1.0 / (double) *p->d;
-
-    csound->LockMutex(reg->mutex);
-    if (p->is_published) {
-        bool is_same_size = p->k_data.prev_size == size;
-        bool is_same_d = p->k_data.prev_scalar_param == sample_spacing;
-        bool is_same_result = false;
-        CSN_SLOT *slot = get_slot(reg, owned_handle);
-        if (slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
-        }
-
-        if (is_same_size && is_same_d && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
-    }
 
     uint32_t ndim = 1U;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = mode == CSNRFFTFREQ ? size / 2U + 1U : size;
-
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, ndim, shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, ndim, shape, logical_size, CSN_REAL, err);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
     if (res != OK) goto done;
-    p->array = arr;
 
-    get_fftfreqs(p->array, sample_spacing, size, mode);
-
-    SET_KDATA_END(p, p->array->shape, p->array->ndim, CSN_REAL);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
-    p->k_data.prev_size = size;
-    p->k_data.prev_scalar_param = sample_spacing;
-    p->is_published = true;
+    get_fftfreqs(p->handle, sample_spacing, size, mode);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1636,10 +1524,6 @@ int32_t csnarray_fftfreq_k_init(CSOUND *csound, CSN_FFTFREQ *p) {
 
 int32_t csnarray_rfftfreq_k_init(CSOUND *csound, CSN_FFTFREQ *p) {
     return csnarray_fftfreq_k_init_helper(csound, p, CSNRFFTFREQ);
-}
-
-int32_t csnarray_fftshift_deinit(CSOUND *csound, CSN_FFTSHIFT *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 static int32_t fftshift_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t axis, CSN_FFT_MODE mode) {
@@ -1661,25 +1545,48 @@ static int32_t fftshift_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint
     return OK;
 }
 
+/* Reverses items [lo, hi] of one strided slice in place. */
+static void slice_reverse(double *slice, uint32_t lo, uint32_t hi, size_t stride, ITEM_TYPE itype) {
+    while (lo < hi) {
+        CSN_COMPLEXDAT a = slice_get(slice, lo, stride, itype);
+        CSN_COMPLEXDAT b = slice_get(slice, hi, stride, itype);
+        slice_put(slice, lo, stride, itype, b);
+        slice_put(slice, hi, stride, itype, a);
+        lo++;
+        hi--;
+    }
+}
+
+/* X = csnfftshift(X): the shift reads item (i + s) % n while writing item i,
+   so done in place it would read items it has already overwritten. Each slice
+   is instead rotated left by s with three reversals, which needs no scratch. */
+static int32_t fftshift_in_place(CSN_ARRAY *arr, uint32_t axis, CSN_FFT_MODE mode) {
+    CSN_AXIS_SLICE_ITER it;
+    if (AXIS_ITER_SLICE_INIT(&it, arr, arr, axis) != OK) return NOTOK;
+    while (AXIS_SLICE_ITER_NEXT(&it)) {
+        uint32_t n = it.axis_size;
+        uint32_t s = mode == CSNFFTSHIFT ? (n + 1) / 2 : n / 2;
+        if (n < 2 || s == 0 || s == n) continue;
+        double *slice = arr->data + it.src_base * arr->itype;
+        slice_reverse(slice, 0, s - 1, it.src_axis_stride, arr->itype);
+        slice_reverse(slice, s, n - 1, it.src_axis_stride, arr->itype);
+        slice_reverse(slice, 0, n - 1, it.src_axis_stride, arr->itype);
+    }
+    return OK;
+}
+
 static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
 
     const cs_float *axis_in = p->INOCOUNT > 1 ? p->axis : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
@@ -1692,20 +1599,24 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
 
     uint32_t new_ndim = source_ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+    memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, source_arr->itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, source_arr->itype, operands, 1, CSN_ALIAS_CUSTOM);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
 
-    if (fftshift_assign_value(p->array, source_arr, axis, mode) != OK) {
+    /* same shape and type either way: an aliased output is shifted in place */
+    res = out.aliased ? fftshift_in_place(p->handle, axis, mode) : fftshift_assign_value(p->handle, source_arr, axis, mode);
+    if (res != OK) {
         res = csound->InitError(csound, "[csnarray] Incompatible FFT-shift array shapes/ranks");
         goto done;
     }
+    update_array_data_version(&p->handle->version);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1722,119 +1633,75 @@ static int32_t csnarray_fftshift_k_init_helper(CSOUND *csound, CSN_FFTSHIFT *p, 
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    uint32_t new_ndim = source_ndim;
+    CSN_ARRAY *source_arr = p->source_handle;
+    uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+    memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, source_arr->itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, source_arr->itype, operands, 1, CSN_ALIAS_CUSTOM);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
+
+    /* An output that is its own source keeps its data until the first shift:
+       publishing it empty would erase the very array the shift reads. */
+    if (!out.aliased) {
+        reset_empty_csnarray(p->handle, new_ndim, new_shape, source_arr->itype);
     }
-
-    reset_empty_csnarray(p->array, new_ndim, new_shape, source_arr->itype);
-
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
-    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    p->is_published = false;
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT_MODE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
-
     CHECK_KTRIG(p->axis);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
     uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
     const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
         double value = axis_in == NULL ? -1.0 : (double) *axis_in;
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+        goto done;
     }
     uint32_t axis = axis_spec.index;
 
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_axis = p->k_data.prev_axis_u == axis;
-        bool is_same_result = false;
-        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
-        if (res_slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
-        }
-
-        if (is_same_source && is_axis && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
-    }
-
     uint32_t new_ndim = source_ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    memcpy(new_shape, source_shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+    memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, source_arr->itype, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, source_arr->itype, operands, 1, CSN_ALIAS_CUSTOM);
+    pres.locked |= out.locked;
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
 
-    if (fftshift_assign_value(p->array, source_arr, axis, mode) != OK) {
+    res = out.aliased ? fftshift_in_place(p->handle, axis, mode) : fftshift_assign_value(p->handle, source_arr, axis, mode);
+    if (res != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible FFT-shift array shapes/ranks");
         goto done;
     }
-
-    SET_KDATA_END(p, new_shape, new_ndim, source_arr->itype);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
-    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    p->k_data.prev_axis_u = axis;
-    p->is_published = true;
+    update_array_data_version(&p->handle->version);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1854,13 +1721,8 @@ int32_t csnarray_ifftshift_k(CSOUND *csound, CSN_FFTSHIFT *p) {
     return csnarray_fftshift_k_helper(csound, p, CSNIFFTSHIFT);
 }
 
-static int32_t fft2_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY **source_array, uint32_t source_handle, CSN_FFT_MODE mode) {
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+static int32_t fft2_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *source_arr, CSN_FFT_MODE mode) {
+    (void) reg;
     uint32_t source_ndim = source_arr->ndim;
     ITEM_TYPE itype = source_arr->itype;
 
@@ -1872,7 +1734,6 @@ static int32_t fft2_body(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_AR
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] fft2 is allowed for 2-D array only");
     }
 
-    *source_array = source_arr;
     return OK;
 }
 
@@ -2011,9 +1872,7 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *row_temp_buffer = NULL;
     cs_float *col_temp_buffer = NULL;
     CSN_ARRAY intermediate = {0};
@@ -2031,10 +1890,13 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
     int32_t cols_fft_size = (int32_t) cols_fftsize_temp;
 
     void *cols_fft_setup = NULL;
+    stamp_globals(csound, &p->h);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = fft2_body(csound, NULL, reg, &source_arr, source_handle, mode);
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    res = fft2_body(csound, NULL, reg, source_arr, mode);
     if (res != OK) goto done;
 
     if (mode == CSNRFFT) {
@@ -2077,16 +1939,18 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *fft_buffer = p->array;
+
+    CSN_ARRAY *fft_buffer = p->handle;
     fft2_assign_value(csound, cols_fft_setup, &intermediate, source_arr, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
     fft2_assign_value(csound, NULL, fft_buffer, &intermediate, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNFFT);
 
-    SET_KDATA_BEGIN(p, reg);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_COMPLEX);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data_row_fft.nfft = (size_t) rows_fft_size;
@@ -2110,7 +1974,7 @@ done:
         if (col_temp_buffer != NULL) csound->Free(csound, col_temp_buffer);
         if (intermediate.data != NULL) csound->Free(csound, intermediate.data);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2159,9 +2023,7 @@ static void ifft2_assign_value(CSOUND *csound, void *fft_setup, CSN_ARRAY *fft_b
         }
 
         const double *src_slice = source_arr->data + src_base * source_arr->itype;
-        bool block_copy = sizeof(cs_float) == sizeof(double) && src_stride == 1
-                          && source_arr->itype == CSN_COMPLEX
-                          && (mode == CSNIFFT || nfft_copy == nfft / 2U + 1U);
+        bool block_copy = sizeof(cs_float) == sizeof(double) && src_stride == 1 && source_arr->itype == CSN_COMPLEX && (mode == CSNIFFT || nfft_copy == nfft / 2U + 1U);
         if (block_copy && mode == CSNIFFT) {
             memcpy(temp_buffer, src_slice, sizeof(double) * (size_t) nfft_copy * 2U);
         } else if (block_copy) {
@@ -2229,9 +2091,7 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *row_temp_buffer = NULL;
     cs_float *col_temp_buffer = NULL;
     CSN_ARRAY intermediate = {0};
@@ -2249,10 +2109,13 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
     int32_t cols_fft_size = (int32_t) cols_fftsize_temp;
 
     void *cols_fft_setup = NULL;
+    stamp_globals(csound, &p->h);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = fft2_body(csound, NULL, reg, &source_arr, source_handle, mode);
+    CSN_ARRAY *source_arr = p->source_handle;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    res = fft2_body(csound, NULL, reg, source_arr, mode);
     if (res != OK) goto done;
 
     if (mode == CSNIRFFT) {
@@ -2277,9 +2140,7 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
 
     uint32_t intermediate_shape[CSN_MAX_DIMS] = {0};
     intermediate_shape[0] = (uint32_t) rows_out_size;
-    intermediate_shape[1] = mode == CSNIRFFT
-        ? (uint32_t) (cols_fft_size / 2 + 1)
-        : (uint32_t) cols_out_size;
+    intermediate_shape[1] = mode == CSNIRFFT ? (uint32_t) (cols_fft_size / 2 + 1) : (uint32_t) cols_out_size;
     res = fft2_init_intermediate(csound, &intermediate, intermediate_shape);
     if (res != OK) goto done;
 
@@ -2295,16 +2156,18 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
     }
 
     ITEM_TYPE otype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, otype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, otype, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *fft_buffer = p->array;
+
+    CSN_ARRAY *fft_buffer = p->handle;
     ifft2_assign_value(csound, NULL, &intermediate, source_arr, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNIFFT);
     ifft2_assign_value(csound, cols_fft_setup, fft_buffer, &intermediate, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
 
-    SET_KDATA_BEGIN(p, reg);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, otype);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data_row_fft.nfft = (size_t) rows_fft_size;
@@ -2328,7 +2191,7 @@ done:
         if (col_temp_buffer != NULL) csound->Free(csound, col_temp_buffer);
         if (intermediate.data != NULL) csound->Free(csound, intermediate.data);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2336,7 +2199,7 @@ int32_t csnarray_fft2_deinit(CSOUND *csound, CSN_FFT2 *p) {
     deinit_scratch(csound, &p->row_buffer);
     deinit_scratch(csound, &p->col_buffer);
     if (p->intermediate.data != NULL) csound->Free(csound, p->intermediate.data);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 int32_t csnarray_ifft2(CSOUND *csound, CSN_FFT2 *p) {
@@ -2349,13 +2212,11 @@ int32_t csnarray_irfft2(CSOUND *csound, CSN_FFT2 *p) {
 
 static int32_t csnarray_fft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     int32_t res = OK;
     CHECK_KTRIG(p->trig);
 
-    uint32_t source_handle = p->source_handle->id;
     size_t rows_fft_size = p->k_data_row_fft.nfft;
     size_t cols_fft_size = p->k_data_col_fft.nfft;
     void *cols_fft_setup = p->k_data_col_fft.fft_setup;
@@ -2364,39 +2225,34 @@ static int32_t csnarray_fft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE 
     size_t cols_out_size = p->k_data_col_fft.buffer_out_size;
     size_t cols_work_size = p->k_data_col_fft.buffer_work_size;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = fft2_body(csound, &p->h, reg, &source_arr, source_handle, mode);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = fft2_body(csound, &p->h, reg, source_arr, mode);
     if (res != OK) goto done;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
-        if (res_slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_result) goto done;
     }
 
-    uint32_t new_shape[CSN_MAX_DIMS] = {
-        (uint32_t) rows_out_size,
-        (uint32_t) cols_out_size
-    };
+    uint32_t new_shape[CSN_MAX_DIMS] = { (uint32_t) rows_out_size, (uint32_t) cols_out_size };
+
     size_t output_size = 0;
     if (get_array_size_from_shape(&output_size, 2U, new_shape) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] FFT2 output exceeds the maximum element count");
         goto done;
     }
 
-    CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, 2U, new_shape, output_size, CSN_COMPLEX, NULL);
+    const CSN_ARRAY *operands[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, 2U, new_shape, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
     if (res != OK) goto done;
-    p->array = fft_buffer;
+
+    CSN_ARRAY *fft_buffer = p->handle;
 
     cs_float *col_temp_buffer = (cs_float *) p->col_buffer.scratch;
     cs_float *row_temp_buffer = (cs_float *) p->row_buffer.scratch;
@@ -2404,25 +2260,23 @@ static int32_t csnarray_fft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE 
     fft2_assign_value(csound, cols_fft_setup, &p->intermediate, source_arr, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
     fft2_assign_value(csound, NULL, fft_buffer, &p->intermediate, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNFFT);
 
-    SET_KDATA_END(p, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
+    SET_KDATA_END(p->k_data, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     int32_t res = OK;
     CHECK_KTRIG(p->trig);
 
-    uint32_t source_handle = p->source_handle->id;
     size_t rows_fft_size = p->k_data_row_fft.nfft;
     size_t cols_fft_size = p->k_data_col_fft.nfft;
     void *cols_fft_setup = p->k_data_col_fft.fft_setup;
@@ -2431,23 +2285,17 @@ static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE
     size_t cols_out_size = p->k_data_col_fft.buffer_out_size;
     size_t cols_work_size = p->k_data_col_fft.buffer_work_size;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = fft2_body(csound, &p->h, reg, &source_arr, source_handle, mode);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = fft2_body(csound, &p->h, reg, source_arr, mode);
     if (res != OK) goto done;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
-        if (res_slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_result) goto done;
     }
 
     uint32_t new_shape[CSN_MAX_DIMS] = {
@@ -2460,11 +2308,15 @@ static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE
         goto done;
     }
 
+    /* real for irfft2, as the init laid it out */
     ITEM_TYPE otype = mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    CSN_ARRAY *fft_buffer = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &fft_buffer, &p->k_data, NULL, 2U, new_shape, output_size, otype, NULL);
+    const CSN_ARRAY *operands[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, 2U, new_shape, otype, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
     if (res != OK) goto done;
-    p->array = fft_buffer;
+
+    CSN_ARRAY *fft_buffer = p->handle;
 
     cs_float *col_temp_buffer = (cs_float *) p->col_buffer.scratch;
     cs_float *row_temp_buffer = (cs_float *) p->row_buffer.scratch;
@@ -2472,13 +2324,13 @@ static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE
     ifft2_assign_value(csound, NULL, &p->intermediate, source_arr, row_temp_buffer, (uint32_t) rows_fft_size, rows_work_size, rows_out_size, 0U, CSNIFFT);
     ifft2_assign_value(csound, cols_fft_setup, fft_buffer, &p->intermediate, col_temp_buffer, (uint32_t) cols_fft_size, cols_work_size, cols_out_size, 1U, mode);
 
-    SET_KDATA_END(p, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
+    SET_KDATA_END(p->k_data, fft_buffer->shape, fft_buffer->ndim, fft_buffer->itype);
     set_array_version(&p->k_data.prev_output_version, &fft_buffer->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2531,6 +2383,7 @@ static CSN_COMPLEXDAT decorrconv_pivot(const CSN_ARRAY *h, CSN_CORRCONV_MODE mod
 }
 
 static void decorrconv_loop(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, size_t src_base, size_t dst_base, size_t src_stride, size_t dst_stride, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
+    (void) axis;
     CSN_COMPLEXDAT h0 = decorrconv_pivot(h, mode);
     for (uint32_t i = 0; i < out_size; i++) {
         // direct -> output-side
@@ -2905,9 +2758,6 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     /* The inverse forms take no edges mode: they always answer x - h + 1
        samples, so arg_a is already the next argument. */
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
@@ -2921,22 +2771,12 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr_a = slot_a->array;
-    CSN_ARRAY *source_arr_b = slot_b->array;
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
     uint32_t source_ndim_a = source_arr_a->ndim;
     uint32_t *source_shape_a = source_arr_a->shape;
 
@@ -2969,16 +2809,16 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     }
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[2] = { source_arr_a, source_arr_b };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, itype, operands, 2, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
 
     if (flag) {
-        res = corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+        res = corrconv1d_assig_value(p->handle, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
     } else {
-        res = decorrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+        res = decorrconv1d_assig_value(p->handle, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
     }
 
     if (res != OK) {
@@ -2986,14 +2826,14 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
         goto done;
     }
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     p->k_data.prev_axis_i = axis;
     p->k_data.prev_index = edges_mode;
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3007,7 +2847,7 @@ int32_t csnarray_corrconv_deinit(CSOUND *csound, CSN_CORRCONV *p) {
      FREE_CSNARRDATA(csound, &p->ifft_out);
      FREE_CSNARRDATA(csound, &p->x_padded);
      FREE_CSNARRDATA(csound, &p->h_padded);
-     return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+     return OK;
 }
 
 int32_t csnarray_convolve1d(CSOUND *csound, CSN_CORRCONV *p) {
@@ -3052,38 +2892,21 @@ int32_t csnarray_decorrelate1d_k_init(CSOUND *csound, CSN_CORRCONV *p) {
 
 static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t edges_mode = p->k_data.prev_index;
     int32_t axis = p->k_data.prev_axis_i;
 
     int32_t res = OK;
-    const char *err = NULL;
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
-
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
-    if (res != OK) return res;
 
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_a == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_b == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
-    CSN_ARRAY *source_arr_a = slot_a->array;
-    CSN_ARRAY *source_arr_b = slot_b->array;
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
     uint32_t source_ndim_a = source_arr_a->ndim;
     uint32_t *source_shape_a = source_arr_a->shape;
 
@@ -3093,16 +2916,8 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     if (p->is_published) {
         bool is_same_x = is_same_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
         bool is_same_h = is_same_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
-        bool is_same_y = false;
-        CSN_SLOT *slot_y = get_slot(reg, owned_handle);
-        if (slot_y != NULL) {
-            is_same_y = is_same_array_version(&p->k_data.prev_output_version, &slot_y->array->version);
-        }
-
-        if (is_same_x && is_same_h && is_same_y) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_y = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_x && is_same_h && is_same_y) goto done;
     }
 
     size_t size_result = 0;
@@ -3122,37 +2937,31 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
         new_shape[axis] = size_result;
     }
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = (source_arr_a->size == 0 || source_arr_b->size == 0) ? 0 : req_size;
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    const CSN_ARRAY *operands[2] = { source_arr_a, source_arr_b };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, itype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     if (flag) {
-        res = corrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+        res = corrconv1d_assig_value(p->handle, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
     } else {
-        res = decorrconv1d_assig_value(p->array, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
+        res = decorrconv1d_assig_value(p->handle, source_arr_a, source_arr_b, size_result, start_offset, axis, mode);
     }
     if (res != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible convolution array shapes/ranks");
         goto done;
     }
 
-    SET_KDATA_END(p, new_shape, new_ndim, itype);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
     set_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3176,9 +2985,6 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     /* The inverse forms take no edges mode: they always answer x - h + 1
        samples, so arg_a is already the next argument. */
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
@@ -3192,22 +2998,13 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     }
 
     int32_t res = OK;
-    const char *err = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
-    CSN_ARRAY *source_arr_a = slot_a->array;
-    CSN_ARRAY *source_arr_b = slot_b->array;
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
 
     res = corrconv_validate(csound, NULL, source_arr_a, source_arr_b, mode);
     if (res != OK) goto done;
@@ -3222,29 +3019,29 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     }
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[2] = { source_arr_a, source_arr_b };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, itype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     if (flag) {
-        res = corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+        res = corrconv_assig_value(p->handle, source_arr_a, source_arr_b, start_offset, mode);
     } else {
-        res = decorrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+        res = decorrconv_assig_value(p->handle, source_arr_a, source_arr_b, start_offset, mode);
     }
     if (res != OK) {
         res = csound->InitError(csound, "[csnarray] Invalid convolution iterator layout");
         goto done;
     }
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     p->k_data.prev_index = edges_mode;
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3266,37 +3063,20 @@ int32_t csnarray_decorrelate(CSOUND *csound, CSN_CORRCONV *p) {
 
 static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t edges_mode = p->k_data.prev_index;
 
     int32_t res = OK;
-    const char *err = NULL;
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
-
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
-    if (res != OK) return res;
 
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_a == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_b == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 2);
 
-    CSN_ARRAY *source_arr_a = slot_a->array;
-    CSN_ARRAY *source_arr_b = slot_b->array;
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
 
     res = corrconv_validate(csound, &p->h, source_arr_a, source_arr_b, mode);
     if (res != OK) goto done;
@@ -3304,16 +3084,8 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     if (p->is_published) {
         bool is_same_x = is_same_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
         bool is_same_h = is_same_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
-        bool is_same_y = false;
-        CSN_SLOT *slot_y = get_slot(reg, owned_handle);
-        if (slot_y != NULL) {
-            is_same_y = is_same_array_version(&p->k_data.prev_output_version, &slot_y->array->version);
-        }
-
-        if (is_same_x && is_same_h && is_same_y) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_y = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_x && is_same_h && is_same_y) goto done;
     }
 
     uint32_t new_ndim = source_arr_a->ndim;
@@ -3326,35 +3098,30 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     }
 
     ITEM_TYPE itype = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX ? CSN_COMPLEX : CSN_REAL;
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = (source_arr_a->size == 0 || source_arr_b->size == 0) ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    const CSN_ARRAY *operands[2] = { source_arr_a, source_arr_b };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, itype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     if (flag) {
-        res = corrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+        res = corrconv_assig_value(p->handle, source_arr_a, source_arr_b, start_offset, mode);
     } else {
-        res = decorrconv_assig_value(p->array, source_arr_a, source_arr_b, start_offset, mode);
+        res = decorrconv_assig_value(p->handle, source_arr_a, source_arr_b, start_offset, mode);
     }
     if (res != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid convolution iterator layout");
         goto done;
     }
-    SET_KDATA_END(p, new_shape, new_ndim, itype);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
     set_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3390,7 +3157,7 @@ static int32_t allocate_and_zero_pad_before(CSOUND *csound, OPDS *h, bool is_per
             return OK;
         }
     } else {
-        int32_t res = allocate_array(csound, dest, new_ndim, new_shape, 0, source->itype);
+        int32_t res = allocate_array(csound, dest, new_ndim, new_shape, source->itype);
         if (res != OK) return res;
 
         if (flat) {
@@ -3422,7 +3189,7 @@ static int32_t allocate_and_zero_pad_before_ndims(CSOUND *csound, OPDS *h, bool 
         if (res != OK) return res;
         set_csnarray_layout(dest, new_ndim, new_shape, req_size, dest->itype);
     } else {
-        int32_t res = allocate_array(csound, dest, new_ndim, new_shape, 0, source->itype);
+        int32_t res = allocate_array(csound, dest, new_ndim, new_shape, source->itype);
         if (res != OK) return res;
     }
 
@@ -3646,9 +3413,9 @@ static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *
     } else {
         if (allocate_and_zero_pad_before(csound, &p->h, is_perf, &p->x_padded, source_x, p->fc.padded_ndim, p->fc.shape_padded_x, converted_axis, axis == -1) != OK
             || allocate_and_zero_pad_before(csound, &p->h, is_perf, &p->h_padded, source_h, 1U, p->fc.shape_padded_h, 0, true) != OK
-            || allocate_array(csound, &p->fft_buffer_x, p->fc.x_ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK
-            || allocate_array(csound, &p->fft_buffer_h, p->fc.h_ndim, p->fc.h_shape_fft, 0, CSN_COMPLEX) != OK
-            || allocate_array(csound, &p->ifft_buffer, p->fc.x_ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK) {
+            || allocate_array(csound, &p->fft_buffer_x, p->fc.x_ndim, p->fc.x_shape_fft, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->fft_buffer_h, p->fc.h_ndim, p->fc.h_shape_fft, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->ifft_buffer, p->fc.x_ndim, p->fc.x_shape_fft, CSN_COMPLEX) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
     }
@@ -3672,7 +3439,7 @@ static int32_t fftcorrconv_allocate(CSOUND *csound, OPDS *perf_h, CSN_CORRCONV *
         set_csnarray_layout(&p->ifft_out, p->fc.ifft_ndim, p->fc.ifft_shape, req_size, p->ifft_out.itype);
     } else {
         ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-        if (allocate_array(csound, &p->ifft_out, p->fc.ifft_ndim, p->fc.ifft_shape, 0, otype) != OK) {
+        if (allocate_array(csound, &p->ifft_out, p->fc.ifft_ndim, p->fc.ifft_shape, otype) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
     }
@@ -3814,10 +3581,10 @@ static int32_t fftcorrconv_allocate_ndims(CSOUND *csound, OPDS *perf_h, CSN_CORR
         ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
         if (allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->x_padded, source_x, ndim, p->fc.shape_padded_x) != OK
             || allocate_and_zero_pad_before_ndims(csound, &p->h, is_perf, &p->h_padded, source_h, ndim, p->fc.shape_padded_h) != OK
-            || allocate_array(csound, &p->fft_buffer_x, ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK
-            || allocate_array(csound, &p->fft_buffer_h, ndim, p->fc.h_shape_fft, 0, CSN_COMPLEX) != OK
-            || allocate_array(csound, &p->ifft_buffer, ndim, p->fc.x_shape_fft, 0, CSN_COMPLEX) != OK
-            || allocate_array(csound, &p->ifft_out, ndim, p->fc.ifft_shape, 0, otype) != OK) {
+            || allocate_array(csound, &p->fft_buffer_x, ndim, p->fc.x_shape_fft, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->fft_buffer_h, ndim, p->fc.h_shape_fft, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->ifft_buffer, ndim, p->fc.x_shape_fft, CSN_COMPLEX) != OK
+            || allocate_array(csound, &p->ifft_out, ndim, p->fc.ifft_shape, otype) != OK) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
         }
 
@@ -3853,9 +3620,6 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     /* The inverse forms take no edges mode: they always answer x - h + 1
        samples, so arg_a is already the next argument. */
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
@@ -3869,24 +3633,16 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     void *fft_setup = NULL;
     void *ifft_setup = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
-    if (slot_x == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
-    if (slot_h == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-    CSN_ARRAY *source_x = slot_x->array;
-    CSN_ARRAY *source_h = slot_h->array;
+    CSN_ARRAY *source_x = p->source_handle_a;
+    CSN_ARRAY *source_h = p->source_handle_b;
     uint32_t source_ndim_x = source_x->ndim;
 
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim_x, CSN_AXIS_DEFAULT_FLATTEN);
@@ -3932,12 +3688,11 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
         new_shape[axis] = (uint32_t) size_result;
     }
 
-    ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, otype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[2] = { source_x, source_h };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, itype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     res = fftcorrconv_allocate(csound, NULL, p, source_x, source_h, fft_size, fft_mode, ifft_mode, axis);
     if (res != OK) goto done;
@@ -3966,13 +3721,13 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
         res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
-    if (fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
+    if (fftcorrconv_crop(p->handle, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
         res = csound->InitError(csound, "[csnarray] Incompatible convolution output shapes/ranks");
         goto done;
     }
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     p->k_data.prev_axis_i = axis;
     p->k_data.prev_index = edges_mode;
 
@@ -3992,10 +3747,10 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     p->k_data_ifft.buffer_out_size = p->fc.ifft_out_size;
     p->k_data_ifft.buffer_work_size = p->fc.ifft_work_size;
 
-    fftcorrconv_set_external_lock(p, csn_slot_rt_locked(reg, p->k_data.owned_handle) || slot_x->rt_locked || slot_h->rt_locked);
+    fftcorrconv_set_external_lock(p, p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -4043,9 +3798,6 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     /* The inverse forms take no edges mode: they always answer x - h + 1
        samples, so arg_a is already the next argument. */
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
@@ -4059,24 +3811,16 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 2);
 
     void *fft_setup = NULL;
     void *ifft_setup = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
-    if (slot_x == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
-    if (slot_h == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-    CSN_ARRAY *source_x = slot_x->array;
-    CSN_ARRAY *source_h = slot_h->array;
+    CSN_ARRAY *source_x = p->source_handle_a;
+    CSN_ARRAY *source_h = p->source_handle_b;
     uint32_t ndim = source_x->ndim;
 
     res = corrconv_validate(csound, NULL, source_x, source_h, mode);
@@ -4110,12 +3854,11 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
         decorrconv_get_shape_and_edges_offset_ndims(new_shape, direct_offset, source_x, source_h);
     }
 
-    ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, ndim, new_shape, &p->array, p->handle, protect, 2U, &err, otype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[2] = { source_x, source_h };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, new_shape, itype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     res = fftcorrconv_allocate_ndims(csound, NULL, p, source_x, source_h, fft_mode, ifft_mode);
     if (res != OK) goto done;
@@ -4163,13 +3906,13 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
         goto done;
     }
 
-    if (fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
+    if (fftcorrconv_crop_ndims(p->handle, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
         res = csound->InitError(csound, "[csnarray] Invalid convolution crop iterator layout");
         goto done;
     }
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     p->k_data.prev_index = edges_mode;
 
     p->k_data_fft_x.mode = fft_mode;
@@ -4183,10 +3926,10 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     p->k_data_ifft.fft_setup = ifft_setup;
     p->is_published = false;
 
-    fftcorrconv_set_external_lock(p, csn_slot_rt_locked(reg, p->k_data.owned_handle) || slot_x->rt_locked || slot_h->rt_locked);
+    fftcorrconv_set_external_lock(p, p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -4208,21 +3951,16 @@ int32_t csnarray_fftdecorrelate(CSOUND *csound, CSN_CORRCONV *p) {
 
 static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t edges_mode = p->k_data.prev_index;
     int32_t axis = p->k_data.prev_axis_i;
 
     int32_t res = OK;
-    const char *err = NULL;
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle_a, source_handle_b);
-    if (res != OK) return res;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b}, 3);
 
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
@@ -4232,19 +3970,8 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     size_t fft_mode = p->k_data_fft_x.mode;
     size_t ifft_mode = p->k_data_ifft.mode;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
-    if (slot_x == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
-    if (slot_h == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-    CSN_ARRAY *source_x = slot_x->array;
-    CSN_ARRAY *source_h = slot_h->array;
+    CSN_ARRAY *source_x = p->source_handle_a;
+    CSN_ARRAY *source_h = p->source_handle_b;
     uint32_t source_ndim_x = source_x->ndim;
 
     res = corrconv1d_validate(csound, &p->h, source_x, source_h, axis, edges_mode, mode);
@@ -4253,22 +3980,14 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     /* Decided before anything below can allocate: the transform setups, the
        spectra and the work buffers all serve the output, and a mark on it or
        on either operand forbids growing them at perf time. */
-    bool rt_locked = csn_slot_rt_locked(reg, owned_handle) || slot_x->rt_locked || slot_h->rt_locked;
+    bool rt_locked = p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked;
     fftcorrconv_set_external_lock(p, rt_locked);
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_x->version);
         bool is_same_kernel = is_same_array_version(&p->k_data.prev_source_version_b, &source_h->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        if (slot_res != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        }
-
-        if (is_same_source && is_same_kernel && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_kernel && is_same_result) goto done;
     }
 
     size_t xfft_length = axis == -1 ? source_x->size : (size_t) source_x->shape[axis];
@@ -4312,18 +4031,12 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
         new_shape[axis] = (uint32_t) size_result;
     }
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
     ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = source_x->size == 0 ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, otype, err);
+    const CSN_ARRAY *operands[2] = { source_x, source_h };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, otype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     res = fftcorrconv_allocate(csound, &p->h, p, source_x, source_h, fft_size, fft_mode, ifft_mode, axis);
     if (res != OK) goto done;
@@ -4349,13 +4062,13 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
-    if (fftcorrconv_crop(p->array, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
+    if (fftcorrconv_crop(p->handle, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible convolution output shapes/ranks");
         goto done;
     }
 
-    SET_KDATA_END(p, new_shape, new_ndim, p->array->itype);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, p->handle->itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_x->version);
     set_array_version(&p->k_data.prev_source_version_b, &source_h->version);
 
@@ -4369,25 +4082,23 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
 
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t edges_mode = p->k_data.prev_index;
 
     int32_t res = OK;
-    const char *err = NULL;
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b}, 3);
 
     void *fft_setup = p->k_data_fft_x.fft_setup;
     void *ifft_setup = p->k_data_ifft.fft_setup;
@@ -4395,34 +4106,15 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     size_t fft_mode = p->k_data_fft_x.mode;
     size_t ifft_mode = p->k_data_ifft.mode;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_x = get_slot(reg, source_handle_a);
-    if (slot_x == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    CSN_SLOT *slot_h = get_slot(reg, source_handle_b);
-    if (slot_h == NULL) {
-        res = CSN_ACCESSOR_ERROR_LOCKED(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-    CSN_ARRAY *source_x = slot_x->array;
-    CSN_ARRAY *source_h = slot_h->array;
+    CSN_ARRAY *source_x = p->source_handle_a;
+    CSN_ARRAY *source_h = p->source_handle_b;
     uint32_t ndim = source_x->ndim;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_x->version);
         bool is_same_kernel = is_same_array_version(&p->k_data.prev_source_version_b, &source_h->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        if (slot_res != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        }
-
-        if (is_same_source && is_same_kernel && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_kernel && is_same_result) goto done;
     }
 
     res = corrconv_validate(csound, &p->h, source_x, source_h, mode);
@@ -4431,7 +4123,7 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     /* Decided before anything below can allocate: the transform setups, the
        spectra and the work buffers all serve the output, and a mark on it or
        on either operand forbids growing them at perf time. */
-    bool rt_locked = csn_slot_rt_locked(reg, owned_handle) || slot_x->rt_locked || slot_h->rt_locked;
+    bool rt_locked = p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked;
     fftcorrconv_set_external_lock(p, rt_locked);
 
     uint32_t last_axis = ndim - 1U;
@@ -4467,16 +4159,16 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
 
     size_t req_size = 0;
     if (get_array_size_from_shape(&req_size, ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        goto done;
     }
 
     ITEM_TYPE otype = ifft_mode == CSNIRFFT ? CSN_REAL : CSN_COMPLEX;
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = source_x->size == 0 ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, ndim, new_shape, logical_size, otype, err);
+    const CSN_ARRAY *operands[2] = { source_x, source_h };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, new_shape, otype, operands, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     res = fftcorrconv_allocate_ndims(csound, &p->h, p, source_x, source_h, fft_mode, ifft_mode);
     if (res != OK) goto done;
@@ -4521,13 +4213,13 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
         goto done;
     }
 
-    if (fftcorrconv_crop_ndims(p->array, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
+    if (fftcorrconv_crop_ndims(p->handle, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid convolution crop iterator layout");
         goto done;
     }
 
-    SET_KDATA_END(p, new_shape, ndim, p->array->itype);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, ndim, p->handle->itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_x->version);
     set_array_version(&p->k_data.prev_source_version_b, &source_h->version);
 
@@ -4536,9 +4228,8 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     p->k_data_ifft.nfft = p->fc.fft_sizes[last_axis];
     p->is_published = true;
 
-
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -4708,8 +4399,6 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     if (dcst_mode == CSN_DCT_III || dcst_mode == CSN_DCT_IV || dcst_mode == CSN_DST_III || dcst_mode == CSN_DST_IV) {
         return csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
     }
@@ -4717,14 +4406,16 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     ITEM_TYPE itype = CSN_REAL;
 
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *temp_buffer = NULL;
     void *fft_setup = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
-    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fft_mode);
+    res = fft_body(csound, NULL, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, fft_mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
 
@@ -4748,7 +4439,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     /* A second init pass would otherwise drop the previous payload on the
        floor: allocate_array overwrites ->data without looking at it. */
     FREE_CSNARRDATA(csound, &p->dcst_extended);
-    if (allocate_array(csound, &p->dcst_extended, source_arr->ndim, dcst_shape, 0, CSN_REAL) != OK) {
+    if (allocate_array(csound, &p->dcst_extended, source_arr->ndim, dcst_shape, CSN_REAL) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -4775,7 +4466,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     }
 
     FREE_CSNARRDATA(csound, &p->fft_buffer);
-    if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, CSN_COMPLEX) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -4789,12 +4480,14 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     memcpy(new_shape, source_arr->shape, sizeof(new_shape));
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
 
-    if (dcst1d_from_fft_assign_value(p->array, fft_buffer, dcst_mode, axis) != OK) {
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, itype, operands, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
+
+    if (dcst1d_from_fft_assign_value(p->handle, fft_buffer, dcst_mode, axis) != OK) {
         res = csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
         goto done;
     }
@@ -4808,53 +4501,43 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     p->k_data.prev_axis_u = axis;
     p->source_axis_len = source_arr->shape[axis];
     p->is_published = false;
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    SET_KDATA_BEGIN(p, reg);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, itype);
 
 done:
     if (res != OK) if (temp_buffer != NULL) csound->Free(csound, temp_buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_mode, CSN_FFT_MODE fft_mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     ITEM_TYPE itype = CSN_REAL;
 
     int32_t res = OK;
-    const char *err = NULL;
     CHECK_KTRIG(p->axis);
 
     size_t fft_size = p->k_data_fft.nfft;
     void *fft_setup = p->k_data_fft.fft_setup;
     size_t dcst_fft_size = fft_size;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
     const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
-    res = fft_body(csound, &p->h, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fft_mode);
+    res = fft_body(csound, &p->h, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, fft_mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot = get_slot(reg, owned_handle);
-        if (slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_result) goto done;
     }
 
     /* dcst_extended and fft_buffer were sized at init for one source layout and
@@ -4895,30 +4578,25 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     memcpy(new_shape, source_arr->shape, sizeof(new_shape));
-    size_t output_size = 0;
-    if (get_array_size_from_shape(&output_size, new_ndim, new_shape) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] FFT output exceeds the maximum element count");
-        goto done;
-    }
 
-    CSN_ARRAY *arr = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, output_size, CSN_REAL, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, itype, operands, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
-    if (dcst1d_from_fft_assign_value(p->array, fft_buffer, dcst_mode, axis) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] DCT/DST mode not yet implemented");
+    if (dcst1d_from_fft_assign_value(p->handle, fft_buffer, dcst_mode, axis) != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] DCT/DST mode not yet implemented");
     }
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
-    SET_KDATA_END(p, p->array->shape, p->array->ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
+    SET_KDATA_END(p->k_data, p->handle->shape, p->handle->ndim, itype);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -4982,7 +4660,7 @@ int32_t csnarray_dcst_deinit(CSOUND *csound, CSN_DCST *p) {
     deinit_scratch(csound, &p->buffer);
     FREE_CSNARRDATA(csound, &p->dcst_extended);
     FREE_CSNARRDATA(csound, &p->fft_buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 
@@ -5242,17 +4920,14 @@ int32_t csnarray_mfcc_deinit(CSOUND *csound, CSN_MFCC *p) {
     deinit_scratch(csound, &p->stft_buffer.buffer);
     deinit_scratch(csound, &p->stft_buffer.window);
     FREE_CSNARRDATA(csound, &p->stft_buffer.stft);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
 
     p->stft_buffer.winsize = *p->winsize;
     p->stft_buffer.hopsize = *p->hopsize;
@@ -5281,18 +4956,17 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
         return csound->InitError(csound, "[csnarray] Invalid sample rate");
     }
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    /* the scalar parameters above need no lock; from here the arrays are read */
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U) {
         res = csound->InitError(csound, "[csnarray] MFCC requires 1-D array");
         goto done;
     }
+
     res = GET_STFT_INIT(csound, NULL, source_arr, &p->stft_buffer);
     if (res != OK) goto done;
     res = GET_STFT(csound, source_arr, &p->stft_buffer);
@@ -5306,16 +4980,18 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = p->mfcc_count;
     new_shape[1] = p->stft_buffer.stft.shape[1];
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     uint32_t log_mel_shape[CSN_MAX_DIMS] = {0};
     log_mel_shape[0] = p->mel_count;
     log_mel_shape[1] = p->stft_buffer.stft.shape[1];
     FREE_CSNARRDATA(csound, &p->log_mel);
-    if (allocate_array(csound, &p->log_mel, 2U, log_mel_shape, 0, CSN_REAL) != OK) {
+    if (allocate_array(csound, &p->log_mel, 2U, log_mel_shape, CSN_REAL) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -5330,40 +5006,31 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
     res = mfcc_dct_matrix(csound, &p->dct_matrix, p->mfcc_count, p->mel_count, dct_type);
     if (res != OK) goto done;
 
-    res = mfcc_apply_dct(csound, NULL, p->array, &p->log_mel, p->dct_matrix, p->mfcc_count, p->mel_count);
+    res = mfcc_apply_dct(csound, NULL, p->handle, &p->log_mel, p->dct_matrix, p->mfcc_count, p->mel_count);
     if (res != OK) goto done;
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data.prev_size = source_arr->size;
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
-
     CHECK_KTRIG(p->trig);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] MFCC requires 1-D array");
         goto done;
@@ -5376,16 +5043,8 @@ int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p) {
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *res_slot = get_slot(reg, owned_handle);
-        if (res_slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_result) goto done;
     }
 
     res = GET_STFT(csound, source_arr, &p->stft_buffer);
@@ -5395,31 +5054,26 @@ int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p) {
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = p->mfcc_count;
     new_shape[1] = p->stft_buffer.stft.shape[1];
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-        goto done;
-    }
 
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     res = mel_apply_filter_bank(csound, &p->h, &p->log_mel, &p->stft_buffer.stft, p->fbank, p->mel_count);
     if (res != OK) goto done;
 
-    res = mfcc_apply_dct(csound, &p->h, p->array, &p->log_mel, p->dct_matrix, p->mfcc_count, p->mel_count);
+    res = mfcc_apply_dct(csound, &p->h, p->handle, &p->log_mel, p->dct_matrix, p->mfcc_count, p->mel_count);
     if (res != OK) goto done;
 
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -5428,7 +5082,6 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     /* Power of two, matching what stft_validate_params accepts: a bank built
        for any other size cannot be applied to a spectrogram csnum produces. */
@@ -5461,7 +5114,10 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
     }
     bool slaney_norm = (bool) has_norm;
 
-    csound->LockMutex(reg->mutex);
+    /* the scalar parameters above need no lock; from here the output is written */
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
 
     /* One row per band over the bins of a one-sided spectrum, which is the
        shape librosa.filters.mel returns. Adjacent bands always overlap -- band
@@ -5472,20 +5128,21 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = nmfcc;
     new_shape[1] = nbins;
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     CSN_MEL_FILTER *fbank = NULL;
     res = mel_filterbank(csound, NULL, &fbank, nmfcc, lowf, highf, sr, nfft, slaney_norm);
     if (res != OK) goto done;
 
-    size_t bin_stride = p->array->strides[1];
+    size_t bin_stride = p->handle->strides[1];
     for (uint32_t i = 0; i < nmfcc; i++) {
         const CSN_MEL_FILTER *filter = &fbank[i];
-        size_t row_base = (size_t) i * p->array->strides[0];
-        double *row = p->array->data + row_base * p->array->itype;
+        size_t row_base = (size_t) i * p->handle->strides[0];
+        double *row = p->handle->data + row_base * p->handle->itype;
 
         if (is_log) {
             for (uint32_t b = 0; b < nbins; b++) {
@@ -5494,12 +5151,12 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
                     w = filter->weights[b - filter->first_bin];
                 }
                 CSN_COMPLEXDAT y = { log(fmax(w, 1.0e-12)), 0.0 };
-                slice_put(row, b, bin_stride, p->array->itype, y);
+                slice_put(row, b, bin_stride, p->handle->itype, y);
             }
         } else {
             for (uint32_t j = 0; j < filter->count; j++) {
                 CSN_COMPLEXDAT y = { filter->weights[j], 0.0 };
-                slice_put(row, (size_t) filter->first_bin + j, bin_stride, p->array->itype, y);
+                slice_put(row, (size_t) filter->first_bin + j, bin_stride, p->handle->itype, y);
             }
         }
     }
@@ -5507,12 +5164,8 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
     mel_filterbank_free(csound, &fbank, nmfcc);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csnarray_mfbank_deinit(CSOUND *csound, CSN_MFCC_FBANK *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csnarray_mfbank(CSOUND *csound, CSN_MFCC_FBANK *p) {
@@ -5545,7 +5198,7 @@ int32_t csnarray_hilbert_deinit(CSOUND *csound, CSN_HILBERT *p) {
     deinit_scratch(csound, &p->fft_temp_buffer);
     deinit_scratch(csound, &p->kernel_buffer);
     FREE_CSNARRDATA(csound, &p->fft_buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 static int32_t hilbert_assign_value(CSN_ARRAY *fft_buffer, double *kernel, int32_t axis, bool is_analytic) {
@@ -5573,22 +5226,23 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     ITEM_TYPE itype = is_analytic ? CSN_COMPLEX : CSN_REAL;
     CSN_FFT_MODE fwd_mode = is_analytic ? CSNFFT : CSNRFFT;
     CSN_FFT_MODE inv_mode = is_analytic ? CSNIFFT : CSNIRFFT;
 
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *fft_temp_buffer = NULL;
     double *kernel_buffer = NULL;
     void *fft_setup = NULL;
     void *ifft_setup = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
-    res = fft_body(csound, NULL, reg, &source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, source_handle, fwd_mode);
+    res = fft_body(csound, NULL, reg, source_arr, &axis_spec, axis_in, CSN_AXIS_DEFAULT_LAST, fwd_mode);
     if (res != OK) goto done;
     uint32_t axis = axis_spec.index;
 
@@ -5628,7 +5282,7 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
     hilbert_kernel(kernel_buffer, ifft_out_size, is_analytic);
 
     FREE_CSNARRDATA(csound, &p->fft_buffer);
-    if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, CSN_COMPLEX) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -5642,19 +5296,21 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
     uint32_t new_ndim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     memcpy(new_shape, source_arr->shape, sizeof(new_shape));
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, itype, operands, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     if (hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic) != OK
-        || ifft_assign_value(csound, ifft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, ifft_out_size, axis, inv_mode) != OK) {
+        || ifft_assign_value(csound, ifft_setup, p->handle, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, ifft_out_size, axis, inv_mode) != OK) {
         res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->fft_temp_buffer.scratch = fft_temp_buffer;
     p->fft_temp_buffer.scratch_capacity = work_size;
@@ -5676,23 +5332,19 @@ done:
        if (fft_temp_buffer != NULL) csound->Free(csound, fft_temp_buffer);
        if (kernel_buffer != NULL) csound->Free(csound, kernel_buffer);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is_analytic) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
-
-    int32_t res = OK;
-    const char *err = NULL;
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->axis);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
 
     uint32_t axis = p->k_data.prev_axis_u;
     size_t hilb_fft_size = p->k_data_fft.nfft;
@@ -5707,14 +5359,7 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
     CSN_FFT_MODE fwd_mode = is_analytic ? CSNFFT : CSNRFFT;
     CSN_FFT_MODE inv_mode = is_analytic ? CSNIFFT : CSNIRFFT;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csn_locked_perf_error(csound,&p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != fft_buffer->ndim) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Source is now %u-dimensional on axis %u, but the transform was set up for %u-dimensional on axis %u", source_arr->ndim, axis, p->fft_buffer.ndim, p->k_data.prev_axis_u);
         goto done;
@@ -5729,16 +5374,8 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        if (slot_res != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_result) goto done;
     }
 
     if (fft_assign_value(csound, p->k_data_fft.fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode) != OK) {
@@ -5750,31 +5387,25 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     memcpy(new_shape, source_arr->shape, sizeof(new_shape));
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, itype, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, itype, operands, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     if (hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic) != OK
-        || ifft_assign_value(csound, p->k_data_ifft.fft_setup, p->array, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, iout_size, axis, inv_mode) != OK) {
+        || ifft_assign_value(csound, p->k_data_ifft.fft_setup, p->handle, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, iout_size, axis, inv_mode) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
 
-    SET_KDATA_END(p, new_shape, new_ndim, itype);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, itype);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -5815,15 +5446,18 @@ static int32_t hilbert2_transform(CSOUND *csound, CSN_HILBERT2 *p, CSN_ARRAY *so
     double *h_cols = h_rows + p->nrows;
     uint32_t nrows = p->nrows;
     uint32_t ncols = p->ncols;
+    /* The spectrum is built in the output itself, which the init has laid out
+       as nrows x ncols complex; the intermediate holds the half-done pass. */
+    CSN_ARRAY *out = p->handle;
 
     if (fft_assign_value(csound, NULL, &p->intermediate, source_arr, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNFFT) != OK
-        || fft_assign_value(csound, NULL, p->array, &p->intermediate, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNFFT) != OK) return NOTOK;
+        || fft_assign_value(csound, NULL, out, &p->intermediate, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNFFT) != OK) return NOTOK;
 
-    if (hilbert_assign_value(p->array, h_rows, 0, true) != OK
-        || hilbert_assign_value(p->array, h_cols, 1, true) != OK) return NOTOK;
+    if (hilbert_assign_value(out, h_rows, 0, true) != OK
+        || hilbert_assign_value(out, h_cols, 1, true) != OK) return NOTOK;
 
-    if (ifft_assign_value(csound, NULL, &p->intermediate, p->array, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNIFFT) != OK
-        || ifft_assign_value(csound, NULL, p->array, &p->intermediate, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNIFFT) != OK) return NOTOK;
+    if (ifft_assign_value(csound, NULL, &p->intermediate, out, temp, nrows, (size_t) nrows * 2U, nrows, 0U, CSNIFFT) != OK
+        || ifft_assign_value(csound, NULL, out, &p->intermediate, temp, ncols, (size_t) ncols * 2U, ncols, 1U, CSNIFFT) != OK) return NOTOK;
     return OK;
 }
 
@@ -5842,19 +5476,19 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
     cs_float *fft_temp_buffer = NULL;
     double *kernel_buffer = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
     /* CSNRFFT only to borrow the real-input check: the analytic signal of a
        complex array is not defined, since the negative half of its spectrum is
        not the redundant mirror of the positive one. */
-    res = fft_body(csound, NULL, reg, &source_arr, NULL, NULL, CSN_AXIS_DEFAULT_REQUIRED, source_handle, CSNRFFT);
+    res = fft_body(csound, NULL, reg, source_arr, NULL, NULL, CSN_AXIS_DEFAULT_REQUIRED, CSNRFFT);
     if (res != OK) goto done;
 
     if (source_arr->ndim != 2U) {
@@ -5874,13 +5508,8 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     size_t work_size = rows_work_size > cols_work_size ? rows_work_size : cols_work_size;
 
     fft_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
-    if (fft_temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-        goto done;
-    }
-
     kernel_buffer = csound->Calloc(csound, sizeof(double) * (nrows + ncols));
-    if (kernel_buffer == NULL) {
+    if (fft_temp_buffer == NULL || kernel_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -5893,15 +5522,17 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     new_shape[1] = (uint32_t) ncols;
 
     FREE_CSNARRDATA(csound, &p->intermediate);
-    if (allocate_array(csound, &p->intermediate, new_ndim, new_shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, &p->intermediate, new_ndim, new_shape, CSN_COMPLEX) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    /* real source, complex result: never in place */
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
+    if (res != OK) goto done;
 
     p->fft_temp_buffer.scratch = fft_temp_buffer;
     p->fft_temp_buffer.scratch_capacity = work_size;
@@ -5914,18 +5545,20 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
         res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
+    update_array_data_version(&p->handle->version);
 
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_COMPLEX);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = false;
 
 done:
     if (res != OK) {
-        if (fft_temp_buffer != NULL) csound->Free(csound, fft_temp_buffer);
-        if (kernel_buffer != NULL) csound->Free(csound, kernel_buffer);
+        /* the buffers belong to the opcode only once they are stored in it */
+        if (fft_temp_buffer != NULL && p->fft_temp_buffer.scratch != fft_temp_buffer) csound->Free(csound, fft_temp_buffer);
+        if (kernel_buffer != NULL && p->kernel_buffer.scratch != kernel_buffer) csound->Free(csound, kernel_buffer);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -5933,31 +5566,20 @@ int32_t csnarray_hilbert2_deinit(CSOUND *csound, CSN_HILBERT2 *p) {
     deinit_scratch(csound, &p->fft_temp_buffer);
     deinit_scratch(csound, &p->kernel_buffer);
     FREE_CSNARRDATA(csound, &p->intermediate);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
-
-    int32_t res = OK;
-    const char *err = NULL;
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     /* Every buffer in the chain was sized once at init and none of them can be
        grown here, so the source layout has to be the one they were built for. */
     if (source_arr->ndim != 2U) {
@@ -5969,18 +5591,12 @@ static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
         goto done;
     }
 
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        if (slot_res != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        }
-
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+    /* the result is still in the output unless the source or the output has
+       been written since */
+    if (p->is_published
+        && is_same_array_version(&p->k_data.prev_source_version, &source_arr->version)
+        && is_same_array_version(&p->k_data.prev_output_version, &p->handle->version)) {
+        goto done;
     }
 
     uint32_t new_ndim = 2U;
@@ -5988,29 +5604,25 @@ static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     new_shape[0] = p->nrows;
     new_shape[1] = p->ncols;
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-        goto done;
-    }
-
-    CSN_ARRAY *arr = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, req_size, CSN_COMPLEX, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_COMPLEX, operands, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= out.locked;
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
 
     if (hilbert2_transform(csound, p, source_arr) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
+    update_array_data_version(&p->handle->version);
 
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_COMPLEX);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, CSN_COMPLEX);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 

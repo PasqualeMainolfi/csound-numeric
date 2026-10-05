@@ -335,7 +335,7 @@ static int32_t csncoord_rotmat_helper(CSOUND *csound, CSN_ROTMAT *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     res = pres.err;
     if (res != OK) goto done;
 
@@ -421,7 +421,7 @@ static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p, b
     new_shape[1] = 3U;
 
     const CSN_ARRAY *operands[1] = { p->source_handle };
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1, CSN_ALIAS_CUSTOM);
     res = pres.err;
     if (res != OK) goto done;
 
@@ -479,7 +479,7 @@ static int32_t csncoord_rotmat_axis_k_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p)
     new_shape[1] = 3U;
 
     const CSN_ARRAY *operands[1] = { p->source_handle };
-    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1);
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, operands, 1, CSN_ALIAS_CUSTOM);
     res = pres.err;
     if (res != OK) goto done;
 
@@ -585,7 +585,7 @@ static int32_t csncoord_rotmat_ypr_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     res = pres.err;
     if (res != OK) goto done;
 
@@ -618,7 +618,7 @@ static int32_t csncoord_rotmat_ypr_k_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     res = pres.err;
     if (res != OK) goto done;
 
@@ -811,7 +811,7 @@ static int32_t csncoord_sn3d_helper(CSOUND *csound, CSN_SN3D *p, bool is_n3dtosn
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) nchnls;
 
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     res = pres.err;
     if (res != OK) goto done;
 

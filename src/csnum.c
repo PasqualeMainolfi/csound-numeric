@@ -481,11 +481,12 @@ bool IS_VALID_VALUE_INT32(double value) {
 /* Prepares an opcode's output in its own variable memory. At init (perf_h
    NULL) it also marks the global arguments and decides the output's rt mark;
    at perf a marked output is refused growth. When the output is also an
-   operand it is left untouched and aliased tells the caller to compute in
-   place or through its scratch. locked tells the caller to unlock after
-   computing; on failure the lock is already released. */
-CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands) {
-    bool aliased = false;
+   operand, the policy decides: refused, allowed in place when the layout does
+   not change, or left untouched for the opcode to handle, aliased_mask saying
+   which operand it is. locked tells the caller to unlock after computing; on
+   failure the lock is already released. */
+CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy) {
+    uint32_t aliased_mask = 0;
     if (perf_h == NULL) stamp_globals(csound, h);
 
     int32_t res = OK;
@@ -494,10 +495,24 @@ CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *r
     bool need_lock = out->shared;
     for (size_t i = 0; i < n_operands; i++) {
         need_lock |= operands[i]->shared;
-        aliased |= operands[i] == out;
+        if (operands[i] == out && i < 32) aliased_mask |= 1U << i;
     }
+    bool aliased = aliased_mask != 0;
     bool locked = need_lock;
     if (need_lock) csn_lock(csound, reg);
+
+    if (aliased && policy == CSN_ALIAS_REFUSE) {
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] '%s' cannot be written over one of its own operands: the operation reads them while it writes; write it to another variable", get_out_name(h));
+        goto fail;
+    }
+    if (aliased && policy == CSN_ALIAS_ELEMENTWISE) {
+        /* in place is safe only while every element stays where it is */
+        bool same_layout = out->ndim == ndim && out->itype == itype && memcmp(out->shape, shape, sizeof(uint32_t) * ndim) == 0;
+        if (!same_layout) {
+            res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] '%s' cannot be written over its own operand here: the result has a different shape or type; write it to another variable", get_out_name(h));
+            goto fail;
+        }
+    }
 
     if (!aliased) {
         size_t size = 0;
@@ -537,7 +552,9 @@ CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *r
         for (size_t i = 0; i < n_operands && !rt; i++) rt = operands[i]->rt_locked;
         out->rt_locked = rt;
     }
+
     result.aliased = aliased;
+    result.aliased_mask = aliased_mask;
     result.locked = locked;
     result.err = res;
     return result;
@@ -549,6 +566,20 @@ fail:
     result.locked = locked;
     result.err = res;
     return result;
+}
+
+/* Two outputs of one opcode on the same variable (F, F, Z csnstft ...): the
+   second write would land on the first, leaving one array with two layouts.
+   Called at init by every opcode with more than one array output. */
+int32_t csn_check_outputs_distinct(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *const *outputs, size_t n_outputs) {
+    for (size_t i = 0; i < n_outputs; i++) {
+        for (size_t j = i + 1; j < n_outputs; j++) {
+            if (outputs[i] == outputs[j]) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Outputs %zu and %zu of this opcode are the same variable; give each output its own", i + 1, j + 1);
+            }
+        }
+    }
+    return OK;
 }
 
 void fill_csnarray(CSN_ARRAY *array, double value) {
@@ -601,27 +632,6 @@ void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape,
    elements currently present. */
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype) {
     set_csnarray_layout(array, ndim, requested_shape, 0, itype);
-}
-
-/* An opcode that reads one array and republishes another cannot have the two be
-   the same slot: NEED_TO_UPDATE_SLOT reallocates the destination and drops the
-   data it is then asked to read, and the fills index source and destination with
-   different layouts. It bites at k-rate only, where the output handle written on
-   the previous pass comes back in as the input. The in-place overloads (no
-   output handle) exist for that case and use their own scratch buffer.
-
-   Pass 0 for handle_b when the opcode takes a single input; the scalar
-   reduction forms own no slot, and a zero owned_handle never matches. */
-int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b) {
-    uint32_t owned = k_data->owned_handle;
-    if (owned == 0) {
-        return OK;
-    }
-
-    if (handle_a == owned || handle_b == owned) {
-        return csound->PerfError(csound, h, "[csnarray] Input array %u is also this opcode's own output: assigning the result back to its own input is not supported at k-rate, use the in-place overload (the form without an output handle)", owned);
-    }
-    return OK;
 }
 
 /* COMPLEXDAT isPolar -> rectangular */
@@ -1309,17 +1319,16 @@ static OENTRY localops[] = {
     { "csntoarray",              S(CSN_TO_ARRAY),                 0, "i[]",                      ":CsnArr;",                      (SUBR) from_csnarray_to_array,               NULL,                                   NULL,                                    NULL, 0 },
     { "csntoarray.k",            S(CSN_TO_ARRAY),                 0, "k[]",                      ":CsnArr;",                      (SUBR) from_csnarray_to_array,               (SUBR) from_csnarray_to_array_k,        NULL,                                    NULL, 0 },
     { "csntoarray.c",            S(CSN_TO_ARRAY),                 0, ":Complex;[]",              ":CsnArr;",                      (SUBR) from_csnarray_to_complexarray,        (SUBR) from_csnarray_to_complexarray_k, NULL,                                    NULL, 0 },
-    { "csnfree",                 S(CSN_FREE),                     0, "",                         ":CsnArr;",                      (SUBR) free_csnarray,                        NULL,                                   NULL,                                    NULL, 0 },
     { "csndims",                 S(CSN_SIZE_DIMS),                0, "i",                        ":CsnArr;",                      (SUBR) csnarray_dims,                        NULL,                                   NULL,                                    NULL, 0 },
     { "csnsize",                 S(CSN_SIZE_DIMS),                0, "i",                        ":CsnArr;",                      (SUBR) csnarray_size,                        NULL,                                   NULL,                                    NULL, 0 },
     { "csnisempty",              S(CSN_SIZE_DIMS),                0, "i",                        ":CsnArr;",                      (SUBR) csnarray_is_empty,                    NULL,                                   NULL,                                    NULL, 0 },
     { "csnshape",                S(CSN_SHAPE),                    0, "i[]",                      ":CsnArr;",                      (SUBR) csnarray_shape,                       NULL,                                   NULL,                                    NULL, 0 },
-    { "csndims.k",               S(CSN_SIZE_DIMS),                0, "k",                        ":CsnArr;",                      NULL,                                        (SUBR) csnarray_dims_k,                 NULL,                                    NULL, 0 },
-    { "csnsize.k",               S(CSN_SIZE_DIMS),                0, "k",                        ":CsnArr;",                      NULL,                                        (SUBR) csnarray_size_k,                 NULL,                                    NULL, 0 },
-    { "csnisempty.k",            S(CSN_SIZE_DIMS),                0, "k",                        ":CsnArr;",                      NULL,                                        (SUBR) csnarray_is_empty_k,             NULL,                                    NULL, 0 },
-    { "csnshape.k",              S(CSN_SHAPE),                    0, "k[]",                      ":CsnArr;",                      (SUBR) csnarray_shape,                       (SUBR) csnarray_shape_k,                NULL,                                    NULL, 0 },
+    { "csndims.k",               S(CSN_SIZE_DIMS),                0, "k",                        ":CsnArr;",                      NULL,                                        (SUBR) csnarray_dims,                   NULL,                                    NULL, 0 },
+    { "csnsize.k",               S(CSN_SIZE_DIMS),                0, "k",                        ":CsnArr;",                      NULL,                                        (SUBR) csnarray_size,                   NULL,                                    NULL, 0 },
+    { "csnisempty.k",            S(CSN_SIZE_DIMS),                0, "k",                        ":CsnArr;",                      NULL,                                        (SUBR) csnarray_is_empty,               NULL,                                    NULL, 0 },
+    { "csnshape.k",              S(CSN_SHAPE),                    0, "k[]",                      ":CsnArr;",                      (SUBR) csnarray_shape,                       (SUBR) csnarray_shape ,                 NULL,                                    NULL, 0 },
     { "csnidentity",             S(CSN_IDENTITY),                 0, ":CsnArr;",                 "io",                            (SUBR) csnarray_identity,                    NULL,                                   NULL,                                    NULL, 0 },
-    { "csnidentity.k",           S(CSN_IDENTITY),                 0, ":CsnArr;",                 "koP",                            (SUBR) csnarray_identity_k_init,             (SUBR) csnarray_identity_k,             NULL,                                    NULL, 0 },
+    { "csnidentity.k",           S(CSN_IDENTITY),                 0, ":CsnArr;",                 "koP",                           (SUBR) csnarray_identity_k_init,             (SUBR) csnarray_identity_k,             NULL,                                    NULL, 0 },
     { "csnreshape",              S(CSN_RESHAPE),                  0, ":CsnArr;",                 ":CsnArr;i[]",                   (SUBR) csnarray_reshape,                     NULL,                                   NULL,                                    NULL, 0 },
     { "csnreshape.in",           S(CSN_RESHAPE_IN),               0, "",                         ":CsnArr;i[]",                   (SUBR) csnarray_reshape_in,                  NULL,                                   NULL,                                    NULL, 0 },
     { "csnreshape.k",            S(CSN_RESHAPE),                  0, ":CsnArr;",                 ":CsnArr;k[]",                   (SUBR) csnarray_reshape_k_init,              (SUBR) csnarray_reshape_k,              NULL,                                    NULL, 0 },
@@ -1678,6 +1687,7 @@ static OENTRY localops[] = {
     { "csnselect.k",             S(CSN_ARGWHERE),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;P",             (SUBR) csnarray_select_k_init,               (SUBR) csnarray_select_k,               (SUBR) csnarray_argwhere_deinit,         NULL, 0 },
     { "csnstack",                S(CSN_STACK),                    0, ":CsnArr;",                 "i*",                            (SUBR) csnarray_stack,                       NULL,                                   NULL,                                    NULL, 0 },
     { "csnstack.k",              S(CSN_STACK_K),                  0, ":CsnArr;",                 "kk*",                           (SUBR) csnarray_stack_k_init,                (SUBR) csnarray_stack_k,                (SUBR) csnarray_stack_k_deinit,          NULL, 0 },
+
     // set-operations
     { "csnlikeset",              S(CSNSET_UNARYOP),               0, ":CsnArr;",                 ":CsnArr;",                      (SUBR) csnarray_likeset,                     NULL,                                   (SUBR) csnarray_likeset_deinit,          NULL, 0 },
     { "csnlikeset.k",            S(CSNSET_UNARYOP),               0, ":CsnArr;",                 ":CsnArr;P",                     (SUBR) csnarray_likeset_k_init,              (SUBR) csnarray_likeset_k,              (SUBR) csnarray_likeset_deinit,          NULL, 0 },
@@ -1753,12 +1763,12 @@ static OENTRY localops[] = {
     { "csnirfft2",               S(CSN_FFT2),                     0, ":CsnArr;",                 ":CsnArr;ii",                         (SUBR) csnarray_irfft2,                  NULL,                                   (SUBR) csnarray_fft2_deinit,             NULL, 0 },
     { "csnstft",                 S(CSN_STFT),                     0, ":CsnArr;:CsnArr;:CsnArr;", ":CsnArr;iiip",                       (SUBR) csnarray_stft,                    NULL,                                   (SUBR) csnarray_stft_deinit,             NULL, 0 },
     { "csnistft",                S(CSN_ISTFT),                    0, ":CsnArr;:CsnArr;",         ":CsnArr;iiip",                       (SUBR) csnarray_istft,                   NULL,                                   (SUBR) csnarray_istft_deinit,            NULL, 0 },
-    { "csnfftfreq",              S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "ii",                                 (SUBR) csnarray_fftfreq,                 NULL,                                   (SUBR) csnarray_fftfreq_deinit,          NULL, 0 },
-    { "csnrfftfreq",             S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "ii",                                 (SUBR) csnarray_rfftfreq,                NULL,                                   (SUBR) csnarray_fftfreq_deinit,          NULL, 0 },
-    { "csnfftshift",             S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;",                           (SUBR) csnarray_fftshift,                NULL,                                   (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
-    { "csnfftshift",             S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;i",                          (SUBR) csnarray_fftshift,                NULL,                                   (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
-    { "csnifftshift",            S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;",                           (SUBR) csnarray_ifftshift,               NULL,                                   (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
-    { "csnifftshift",            S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;i",                          (SUBR) csnarray_ifftshift,               NULL,                                   (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
+    { "csnfftfreq",              S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "ii",                                 (SUBR) csnarray_fftfreq,                 NULL,                                   NULL,                                    NULL, 0 },
+    { "csnrfftfreq",             S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "ii",                                 (SUBR) csnarray_rfftfreq,                NULL,                                   NULL,                                    NULL, 0 },
+    { "csnfftshift",             S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;",                           (SUBR) csnarray_fftshift,                NULL,                                   NULL,                                    NULL, 0 },
+    { "csnfftshift",             S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;i",                          (SUBR) csnarray_fftshift,                NULL,                                   NULL,                                    NULL, 0 },
+    { "csnifftshift",            S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;",                           (SUBR) csnarray_ifftshift,               NULL,                                   NULL,                                    NULL, 0 },
+    { "csnifftshift",            S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;i",                          (SUBR) csnarray_ifftshift,               NULL,                                   NULL,                                    NULL, 0 },
     { "csnfft.k",                S(CSN_FFT),                      0, ":CsnArr;",                 ":CsnArr;iP",                         (SUBR) csnarray_fft_k_init,              (SUBR) csnarray_fft_k,                  (SUBR) csnarray_fft_deinit,              NULL, 0 },
     { "csnfft.k",                S(CSN_FFT),                      0, ":CsnArr;",                 ":CsnArr;iki",                        (SUBR) csnarray_fft_k_init,              (SUBR) csnarray_fft_k,                  (SUBR) csnarray_fft_deinit,              NULL, 0 },
     { "csnrfft.k",               S(CSN_FFT),                      0, ":CsnArr;",                 ":CsnArr;iP",                         (SUBR) csnarray_rfft_k_init,             (SUBR) csnarray_rfft_k,                 (SUBR) csnarray_fft_deinit,              NULL, 0 },
@@ -1769,12 +1779,12 @@ static OENTRY localops[] = {
     { "csnirfft.k",              S(CSN_FFT),                      0, ":CsnArr;",                 ":CsnArr;iki",                        (SUBR) csnarray_irfft_k_init,            (SUBR) csnarray_irfft_k,                (SUBR) csnarray_fft_deinit,              NULL, 0 },
     { "csnstft.k",               S(CSN_STFT),                     0, ":CsnArr;:CsnArr;:CsnArr;", ":CsnArr;iiipP",                      (SUBR) csnarray_stft,                    (SUBR) csnarray_stft_k,                 (SUBR) csnarray_stft_deinit,             NULL, 0 },
     { "csnistft.k",              S(CSN_ISTFT),                    0, ":CsnArr;:CsnArr;",         ":CsnArr;iiipP",                      (SUBR) csnarray_istft,                   (SUBR) csnarray_istft_k,                (SUBR) csnarray_istft_deinit,            NULL, 0 },
-    { "csnfftfreq.k",            S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "kkP",                                (SUBR) csnarray_fftfreq_k_init,          (SUBR) csnarray_fftfreq_k,              (SUBR) csnarray_fftfreq_deinit,          NULL, 0 },
-    { "csnrfftfreq.k",           S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "kkP",                                (SUBR) csnarray_rfftfreq_k_init,         (SUBR) csnarray_rfftfreq_k,             (SUBR) csnarray_fftfreq_deinit,          NULL, 0 },
-    { "csnfftshift.k",           S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;P",                          (SUBR) csnarray_fftshift_k_init,         (SUBR) csnarray_fftshift_k,             (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
-    { "csnfftshift.k",           S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnarray_fftshift_k_init,         (SUBR) csnarray_fftshift_k,             (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
-    { "csnifftshift.k",          S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;P",                          (SUBR) csnarray_ifftshift_k_init,        (SUBR) csnarray_ifftshift_k,            (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
-    { "csnifftshift.k",          S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnarray_ifftshift_k_init,        (SUBR) csnarray_ifftshift_k,             (SUBR) csnarray_fftshift_deinit,         NULL, 0 },
+    { "csnfftfreq.k",            S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "kkP",                                (SUBR) csnarray_fftfreq_k_init,          (SUBR) csnarray_fftfreq_k,              NULL,                                    NULL, 0 },
+    { "csnrfftfreq.k",           S(CSN_FFTFREQ),                  0, ":CsnArr;",                 "kkP",                                (SUBR) csnarray_rfftfreq_k_init,         (SUBR) csnarray_rfftfreq_k,             NULL,                                    NULL, 0 },
+    { "csnfftshift.k",           S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;P",                          (SUBR) csnarray_fftshift_k_init,         (SUBR) csnarray_fftshift_k,             NULL,                                    NULL, 0 },
+    { "csnfftshift.k",           S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnarray_fftshift_k_init,         (SUBR) csnarray_fftshift_k,             NULL,                                    NULL, 0 },
+    { "csnifftshift.k",          S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;P",                          (SUBR) csnarray_ifftshift_k_init,        (SUBR) csnarray_ifftshift_k,            NULL,                                    NULL, 0 },
+    { "csnifftshift.k",          S(CSN_FFTSHIFT),                 0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnarray_ifftshift_k_init,        (SUBR) csnarray_ifftshift_k,            NULL,                                    NULL, 0 },
     { "csnfft2.k",               S(CSN_FFT2),                     0, ":CsnArr;",                 ":CsnArr;iiP",                        (SUBR) csnarray_fft2,                    (SUBR) csnarray_fft2_k,                 (SUBR) csnarray_fft2_deinit,             NULL, 0 },
     { "csnrfft2.k",              S(CSN_FFT2),                     0, ":CsnArr;",                 ":CsnArr;iiP",                        (SUBR) csnarray_rfft2,                   (SUBR) csnarray_rfft2_k,                (SUBR) csnarray_fft2_deinit,             NULL, 0 },
     { "csnifft2.k",              S(CSN_FFT2),                     0, ":CsnArr;",                 ":CsnArr;iiP",                        (SUBR) csnarray_ifft2,                   (SUBR) csnarray_ifft2_k,                (SUBR) csnarray_fft2_deinit,             NULL, 0 },
@@ -1821,8 +1831,8 @@ static OENTRY localops[] = {
     { "csndsttwo1d.k",           S(CSN_DCST),                     0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnarray_dst_two_k_init,          (SUBR) csnarray_dst_two_k,              (SUBR) csnarray_dcst_deinit,             NULL, 0 },
     { "csnmfcc",                 S(CSN_MFCC),                     0, ":CsnArr;",                 ":CsnArr;iiiiiiii",                   (SUBR) csnarray_mfcc,                    NULL,                                   (SUBR) csnarray_mfcc_deinit,             NULL, 0 },
     { "csnmfcc.k",               S(CSN_MFCC),                     0, ":CsnArr;",                 ":CsnArr;iiiiiiiiP",                  (SUBR) csnarray_mfcc,                    (SUBR) csnarray_mfcc_k,                 (SUBR) csnarray_mfcc_deinit,             NULL, 0 },
-    { "csnmfbank",               S(CSN_MFCC_FBANK),               0, ":CsnArr;",                 "iiiiii",                             (SUBR) csnarray_mfbank,                  NULL,                                   (SUBR) csnarray_mfbank_deinit,           NULL, 0 },
-    { "csnmlogfbank",            S(CSN_MFCC_FBANK),               0, ":CsnArr;",                 "iiiiii",                             (SUBR) csnarray_mlogfbank,               NULL,                                   (SUBR) csnarray_mfbank_deinit,           NULL, 0 },
+    { "csnmfbank",               S(CSN_MFCC_FBANK),               0, ":CsnArr;",                 "iiiiii",                             (SUBR) csnarray_mfbank,                  NULL,                                   NULL,                                    NULL, 0 },
+    { "csnmlogfbank",            S(CSN_MFCC_FBANK),               0, ":CsnArr;",                 "iiiiii",                             (SUBR) csnarray_mlogfbank,               NULL,                                   NULL,                                    NULL, 0 },
     { "csnhilbert1d",            S(CSN_HILBERT),                  0, ":CsnArr;",                 ":CsnArr;",                           (SUBR) csnarray_hilbert1d,               NULL,                                   (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
     { "csnhilbert1d",            S(CSN_HILBERT),                  0, ":CsnArr;",                 ":CsnArr;i",                          (SUBR) csnarray_hilbert1d,               NULL,                                   (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
     { "csnhilbert1d.k",          S(CSN_HILBERT),                  0, ":CsnArr;",                 ":CsnArr;P",                          (SUBR) csnarray_hilbert1d_k_init,        (SUBR) csnarray_hilbert1d_k,            (SUBR) csnarray_hilbert_deinit,          NULL, 0 },

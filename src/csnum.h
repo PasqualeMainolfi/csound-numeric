@@ -411,7 +411,7 @@ typedef struct {
     ARRAYDAT *shape;
     cs_float *itype; // itype = REAL (0) or COMPLEX (1)
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_ARR_INIT;
 
 typedef struct {
@@ -423,7 +423,7 @@ typedef struct {
     cs_float *value;
     cs_float *itype;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_FULL;
 
 typedef struct {
@@ -435,7 +435,7 @@ typedef struct {
     /* The value's own type fixes the array's, so there is no itype argument. */
     COMPLEXDAT *value;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_FULLCOMPLEX;
 
 typedef struct {
@@ -448,7 +448,7 @@ typedef struct {
     cs_float *max;
     cs_float *trig;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_ARR_RND_INIT;
 
 typedef struct {
@@ -459,7 +459,7 @@ typedef struct {
     CSN_ARRAY *handle_from; // determines if is real or complex
     cs_float *value; // value for fill
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_ARR_INIT_LIKE;
 
 typedef struct {
@@ -469,7 +469,7 @@ typedef struct {
     // inputs
     ARRAYDAT *source;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_FROM_ARRAY;
 
 typedef struct {
@@ -486,6 +486,8 @@ typedef struct {
     ARRAYDAT *array;
     // inputs
     CSN_ARRAY *source_handle;
+    // private
+    CSN_REGISTRY *registry;
 } CSN_TO_ARRAY;
 
 typedef struct {
@@ -515,8 +517,7 @@ typedef struct {
                      // only for logspace -> base
     cs_float *arg_b;    // trig only for logspace
     // private
-    uint32_t handle_id;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_SPACED_SPACE;
 
 typedef struct {
@@ -536,7 +537,7 @@ typedef struct {
     // outputs
     cs_float *value;
     // inputs
-    CSN_ARRAY *handle;
+    CSN_ARRAY *source_handle;
 } CSN_SIZE_DIMS;
 
 typedef struct {
@@ -544,7 +545,7 @@ typedef struct {
     // outputs
     ARRAYDAT *shape;
     // inputs
-    CSN_ARRAY *handle;
+    CSN_ARRAY *source_handle;
 } CSN_SHAPE;
 
 typedef struct {
@@ -1988,7 +1989,6 @@ typedef struct {
     CSN_ARRAY *array;
 } CSN_LAGRANGE;
 
-int32_t CHECK_SELF_ALIAS(CSOUND *csound, OPDS *h, const K_DATA *k_data, uint32_t handle_a, uint32_t handle_b);
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
 bool IS_VALID_VALUE(double value);
@@ -1998,7 +1998,6 @@ CSN_COMPLEXDAT slice_get(const double *src, size_t i, size_t stride, ITEM_TYPE i
 int compare_double(const void *a, const void *b);
 size_t get_and_count_unique_double(double *temp, size_t size);
 /* Caller holds the registry mutex. */
-bool csn_slot_rt_locked(CSN_REGISTRY *reg, uint32_t handle);
 int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size);
 int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSN_ARRAY *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
 void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z);
@@ -2094,7 +2093,6 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p);
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p);
 int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p);
-int32_t free_csnarray(CSOUND *csound, CSN_FREE *p);
 int32_t csnarray_arange(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_linspace(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_logspace(CSOUND *csound, CSN_SPACED_SPACE *p);
@@ -2405,10 +2403,6 @@ int32_t csnarray_logspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
 int32_t csnarray_geomspace_k(CSOUND *csound, CSN_SPACED_SPACE *p);
 
 // SHAPE
-int32_t csnarray_dims_k(CSOUND *csound, CSN_SIZE_DIMS *p);
-int32_t csnarray_size_k(CSOUND *csound, CSN_SIZE_DIMS *p);
-int32_t csnarray_is_empty_k(CSOUND *csound, CSN_SIZE_DIMS *p);
-int32_t csnarray_shape_k(CSOUND *csound, CSN_SHAPE *p);
 int32_t csnarray_reshape_k(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_reshape_in_k(CSOUND *csound, CSN_RESHAPE_IN *p);
 int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p);

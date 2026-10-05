@@ -23,7 +23,7 @@ int32_t csnarray_from_audio_init(CSOUND *csound, CSN_FROM_AUDIO *p) {
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = CS_KSMPS;
 
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     if (pres.err != OK) return pres.err;
 
     bool is_locked = (*p->rt_lock != 0.0);
@@ -122,7 +122,7 @@ int32_t csnarray_pack_audio_init(CSOUND *csound, CSN_PACK_AUDIO *p) {
     shape[0] = nchnls;
     shape[1] = CS_KSMPS;
 
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 2U, shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 2U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     if (pres.err != OK) return pres.err;
 
     bool is_locked = (*p->rt_lock != 0.0);
@@ -282,7 +282,7 @@ int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = (uint32_t) p->fsize;
-    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     res = pres.err;
     if (res != OK) goto done;
 

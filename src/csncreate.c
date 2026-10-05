@@ -1,5 +1,6 @@
 /* Opcode implementations for the create family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include <float.h>
@@ -12,29 +13,40 @@
 #include <string.h>
 #include "arrays.h"
 
-static int32_t create_csnarray_from_shape(CSOUND *csound, OPDS *h, const ARRAYDAT *source_shape, CSN_ARRAY **array, CSNREF *handle, ITEM_TYPE itype) {
+
+/* Parses the shape argument and prepares the output. The lock, if taken, is
+   handed back to the caller, which still has to fill the array under it. */
+static CSNARR_RES create_csnarray_from_shape(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, const ARRAYDAT *source_shape, CSN_ARRAY *out, ITEM_TYPE itype) {
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
 
     int32_t res_shape = parse_shape_array(csound, source_shape, &ndim, shape);
     if (res_shape != OK) {
-        return res_shape;
+        return (CSNARR_RES) { .err = res_shape };
     }
 
-    return create_csnarray_init(csound, h, ndim, shape, array, handle, itype);
+    return prepare_output(csound, h, NULL, reg, out, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
 }
 
 int32_t create_empty_csnarray(CSOUND *csound, CSN_ARR_INIT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
     CHECK_ITYPE(csound, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array(csound, p->shape, &ndim, shape);
     if (res != OK) return res;
-    res = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, itype);
-    if (res != OK) return res;
-    reset_empty_csnarray(p->array, ndim, shape, itype);
-    return OK;
+
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
+    reset_empty_csnarray(p->handle, ndim, shape, itype);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 static int32_t create_shape_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p, CSN_K_SHAPE_INIT_MODE mode) {
@@ -42,32 +54,29 @@ static int32_t create_shape_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p, CSN
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    p->registry = reg;
 
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array(csound, p->shape, &ndim, shape);
-    if (res != OK) {
-        return res;
-    }
+    if (res != OK) return res;
 
-    res = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, itype);
-    if (res != OK) {
-        return res;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    csound->LockMutex(reg->mutex);
     /* csnempty publishes the reserved shape with no elements; zeros and ones
        publish a filled array, so that reading the handle before the first
        triggered pass gives the same thing the i-rate form would. */
     if (mode == CSN_K_EMPTY) {
-        reset_empty_csnarray(p->array, ndim, shape, itype);
+        reset_empty_csnarray(p->handle, ndim, shape, itype);
     } else {
-        fill_csnarray(p->array, mode == CSN_K_ONES ? 1.0 : 0.0);
+        fill_csnarray(p->handle, mode == CSN_K_ONES ? 1.0 : 0.0);
     }
-    csound->UnlockMutex(reg->mutex);
 
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, itype, p->handle->id);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t create_empty_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p) {
@@ -83,7 +92,8 @@ int32_t create_ones_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p) {
 }
 
 static int32_t create_shape_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p, CSN_K_SHAPE_INIT_MODE mode) {
-    CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     /* itype is an i-argument, so it cannot change between passes and the init
        has already validated it. */
@@ -92,37 +102,29 @@ static int32_t create_shape_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p, CSN_K_SH
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array_k(csound, &p->h, p->shape, &ndim, shape);
-    if (res != OK) {
-        return res;
-    }
+    if (res != OK) return res;
 
-
-    const char *err = NULL;
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
-    /* csnempty reserves the requested shape but publishes no element yet. */
-    size_t logical_size = mode == CSN_K_EMPTY ? 0 : requested_size;
+    /* prepare_output lays the output out for the requested shape, zeroes it
+       and bumps its version, refusing growth on a marked array */
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    csound->LockMutex(p->k_data.registry->mutex);
-
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, ndim, shape, logical_size, itype, err);
-    if (res != OK) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
-        return res;
-    }
-    p->array = array;
-
-    if (mode != CSN_K_EMPTY) {
-        fill_csnarray(array, mode == CSN_K_ONES ? 1.0 : 0.0);
+    /* csnempty reserves the requested shape but publishes no element yet */
+    if (mode == CSN_K_EMPTY) {
+        reset_empty_csnarray(p->handle, ndim, shape, itype);
+    } else if (mode == CSN_K_ONES) {
+        fill_csnarray(p->handle, 1.0);
     }
 
-    SET_KDATA_END(p, shape, ndim, itype);
-    csound->UnlockMutex(p->k_data.registry->mutex);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t create_empty_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p) {
@@ -138,25 +140,27 @@ int32_t create_ones_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p) {
 }
 
 int32_t create_zeros_csnarray(CSOUND *csound, CSN_ARR_INIT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
     CHECK_ITYPE(csound, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
-    int32_t res_init = create_csnarray_from_shape(csound, &p->h, p->shape, &p->array, p->handle, itype);
-    if (res_init != OK) {
-        return res_init;
-    }
-
-    return OK;
+    /* prepare_output hands the array back already zeroed */
+    CSNARR_RES pres = create_csnarray_from_shape(csound, &p->h, reg, p->shape, p->handle, itype);
+    if (pres.locked) csn_unlock(csound, reg);
+    return pres.err;
 }
 
 int32_t create_ones_csnarray(CSOUND *csound, CSN_ARR_INIT *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
     CHECK_ITYPE(csound, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
-    int32_t res_init = create_csnarray_from_shape(csound, &p->h, p->shape, &p->array, p->handle, itype);
-    if (res_init != OK) {
-        return res_init;
-    }
-
-    fill_csnarray(p->array, 1.0);
+    CSNARR_RES pres = create_csnarray_from_shape(csound, &p->h, reg, p->shape, p->handle, itype);
+    if (pres.err != OK) return pres.err;
+    fill_csnarray(p->handle, 1.0);
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
@@ -164,60 +168,39 @@ int32_t create_like_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    csound->LockMutex(reg->mutex);
-
     int32_t res = OK;
-    const char *err = NULL;
 
-    uint32_t handle_from = p->handle_from->id;
-    CSN_SLOT *slot = get_slot(reg, handle_from);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle_from);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->handle_from;
     uint32_t ndim = source_arr->ndim;
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
     memcpy(shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
-    uint32_t protect[1] = { handle_from };
-    if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, source_arr->itype, operands, 1, CSN_ALIAS_ELEMENTWISE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *arr = p->array;
     double fill_value = (double) *p->value;
-    fill_csnarray(arr, fill_value);
+    fill_csnarray(p->handle, fill_value);
 
-    SET_KDATA_BEGIN(p, reg);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
-    CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t handle_from = p->handle_from->id;
     int32_t res = OK;
 
-    csound->LockMutex(p->k_data.registry->mutex);
-
-    CSN_SLOT *slot = get_slot(p->k_data.registry, handle_from);
-    if (slot == NULL) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle_from);
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->handle_from;
     uint32_t ndim = source_arr->ndim;
     ITEM_TYPE itype = source_arr->itype;
     if (itype != CSN_REAL && itype != CSN_COMPLEX) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
         return csound->PerfError(csound, &p->h, "[csnarray] Source array has invalid internal type %u", itype);
     }
 
@@ -226,22 +209,24 @@ int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
         return csound->PerfError(csound, &p->h, "[csnarray] Source array has an invalid shape");
     }
 
-    const char *err = NULL;
-    CSN_ARRAY *output_arr = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &output_arr, &p->k_data, NULL, ndim, shape, requested_size, itype, err);
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, itype, operands, 1, CSN_ALIAS_ELEMENTWISE);
+    res = pres.err;
     if (res != OK) goto done;
-    p->array = output_arr;
 
-    fill_csnarray(output_arr, (double) *p->value);
+    if (pres.aliased) {
+        res = ensure_mutation_capacity(csound, &p->h, p->handle, requested_size, p->handle->rt_locked);
+        if (res != OK) goto done;
+        set_csnarray_layout(p->handle, ndim, shape, requested_size, itype);
+    }
 
-    SET_KDATA_END(p, shape, ndim, itype);
+    fill_csnarray(p->handle, (double) *p->value);
 
 done:
-    csound->UnlockMutex(p->k_data.registry->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -249,36 +234,23 @@ int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    csound->LockMutex(reg->mutex);
-
     int32_t res = OK;
-    const char *err = NULL;
 
-    uint32_t handle_from = p->handle_from->id;
-    CSN_SLOT *slot = get_slot(reg, handle_from);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) handle_from);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->handle_from;
     uint32_t ndim = source_arr->ndim;
-
     uint32_t shape[CSN_MAX_DIMS] = {0};
     memcpy(shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
-    uint32_t protect[1] = { handle_from };
-    if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, protect, 1U, &err, source_arr->itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *operands[1] = { source_arr };
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, source_arr->itype, operands, 1, CSN_ALIAS_ELEMENTWISE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *arr = p->array;
     double fill_value = (double) *p->value;
-    fill_csnarray(arr, fill_value);
+    fill_csnarray(p->handle, fill_value);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -286,18 +258,13 @@ static int32_t create_random_csnarray_helper(CSOUND *csound, CSN_ARR_RND_INIT *p
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
+    int32_t res = OK;
+
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
 
-    int32_t res_shape = parse_shape_array(csound, p->shape, &ndim, shape);
-    if (res_shape != OK) {
-        return res_shape;
-    }
-
-    int32_t res = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, CSN_REAL);
-    if (res != OK) {
-        return res;
-    }
+    res = parse_shape_array(csound, p->shape, &ndim, shape);
+    if (res != OK) return res;
 
     double min = (double) *p->min;
     double max = (double) *p->max;
@@ -309,13 +276,19 @@ static int32_t create_random_csnarray_helper(CSOUND *csound, CSN_ARR_RND_INIT *p
         return csound->InitError(csound, "[csnarray] Invalid random range");
     }
 
-    /* reg->rng is registry-wide state that every draw mutates, so the fill has
-       to run under the same lock as everything else: two threads drawing at
-       once would otherwise interleave into the generator and could hand out
-       the same stream twice. */
-    csound->LockMutex(reg->mutex);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    CSN_ARRAY *arr = p->array;
+    /* reg->rng is registry-wide state that every draw mutates, so the fill
+       runs under the lock even for a local output: two threads drawing at once
+       would otherwise interleave into the generator and could hand out the
+       same stream twice. */
+    if (!pres.locked) {
+        csn_lock(csound, reg);
+        pres.locked = true;
+    }
+    CSN_ARRAY *arr = p->handle;
     for (size_t i = 0; i < arr->size; i++) {
         if (is_int) {
             arr->data[i] = min + (double) pcg32_bounded_u32(&reg->rng, (uint32_t) (max - min));
@@ -324,20 +297,19 @@ static int32_t create_random_csnarray_helper(CSOUND *csound, CSN_ARR_RND_INIT *p
         }
     }
 
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
+    p->registry = reg;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 static int32_t create_random_csnarray_k_helper(CSOUND *csound, CSN_ARR_RND_INIT *p, bool is_int) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t source_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, source_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     uint32_t new_ndim = 0;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -354,26 +326,16 @@ static int32_t create_random_csnarray_k_helper(CSOUND *csound, CSN_ARR_RND_INIT 
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid random range");
     }
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_ndim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, logical_size, CSN_REAL, err);
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
     if (res != OK) goto done;
-    p->array = arr;
 
+    /* the generator is shared: draw under the lock even for a local output */
+    if (!pres.locked) {
+        csn_lock(csound, reg);
+        pres.locked = true;
+    }
+    CSN_ARRAY *arr = p->handle;
     for (size_t i = 0; i < arr->size; i++) {
         if (is_int) {
             arr->data[i] = min + (double) pcg32_bounded_u32(&reg->rng, (uint32_t) (max - min));
@@ -382,10 +344,8 @@ static int32_t create_random_csnarray_k_helper(CSOUND *csound, CSN_ARR_RND_INIT 
         }
     }
 
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
-
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -403,18 +363,18 @@ int32_t create_random_csnarray_k_init(CSOUND *csound, CSN_ARR_RND_INIT *p) {
 
     uint32_t ndim = 1U;
     uint32_t shape[CSN_MAX_DIMS] = {0};
-    shape[1] = 1U;
+    shape[0] = 1U;
 
-    int32_t res = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, CSN_REAL);
-    if (res != OK) return res;
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    int32_t res = pres.err;
+    if (res != OK) goto done;
 
-    csound->LockMutex(reg->mutex);
+    reset_empty_csnarray(p->handle, ndim, shape, CSN_REAL);
+    p->registry = reg;
 
-    reset_empty_csnarray(p->array, ndim, shape, CSN_REAL);
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, ndim, CSN_REAL, p->handle->id);
-
-    csound->UnlockMutex(reg->mutex);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t create_random_csnarray_k(CSOUND *csound, CSN_ARR_RND_INIT *p) {
@@ -425,32 +385,27 @@ int32_t create_randomint_csnarray_k(CSOUND *csound, CSN_ARR_RND_INIT *p) {
 }
 
 int32_t create_full_csnarray(CSOUND *csound, CSN_FULL *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
     CHECK_ITYPE(csound, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
-    int32_t res_init = create_csnarray_from_shape(csound, &p->h, p->shape, &p->array, p->handle, itype);
-    if (res_init != OK) {
-        return res_init;
-    }
+    CSNARR_RES pres = create_csnarray_from_shape(csound, &p->h, reg, p->shape, p->handle, itype);
+    if (pres.err != OK) return pres.err;
 
-    fill_csnarray(p->array, (double) *p->value);
+    fill_csnarray(p->handle, (double) *p->value);
+    p->registry = reg;
+
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
 int32_t create_full_csnarray_k_init(CSOUND *csound, CSN_FULL *p) {
-    int32_t res = create_full_csnarray(csound, p);
-    if (res != OK) {
-        return res;
-    };
-
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    SET_KDATA_BEGIN(p, reg);
-    return OK;
+    return create_full_csnarray(csound, p);
 }
 
 int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p) {
-    CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     /* Validated by the init: itype is an i-argument. */
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
@@ -458,96 +413,77 @@ int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p) {
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array_k(csound, &p->h, p->shape, &ndim, shape);
-    if (res != OK) {
-        return res;
-    }
+    if (res != OK) return res;
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
-    csound->LockMutex(p->k_data.registry->mutex);
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    const char *err = NULL;
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, ndim, shape, requested_size, itype, err);
-    if (res != OK) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
-        return res;
-    }
-    p->array = array;
+    fill_csnarray(p->handle, (double) *p->value);
+    update_array_data_version(&p->handle->version);
+    p->registry = reg;
 
-    fill_csnarray(array, (double) *p->value);
-
-    SET_KDATA_END(p, shape, ndim, itype);
-
-    csound->UnlockMutex(p->k_data.registry->mutex);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t create_fullcomp_csnarray_k_init(CSOUND *csound, CSN_FULLCOMPLEX *p) {
-    int32_t res = create_fullcomp_csnarray(csound, p);
-    if (res != OK) {
-        return res;
-    };
-
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    SET_KDATA_BEGIN(p, reg);
-    return OK;
+    return create_fullcomp_csnarray(csound, p);
 }
 
 int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p) {
-    CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     int32_t res = parse_shape_array_k(csound, &p->h, p->shape, &ndim, shape);
-    if (res != OK) {
-        return res;
-    }
+    if (res != OK) return res;
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
-    csound->LockMutex(p->k_data.registry->mutex);
-
-    const char *err = NULL;
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, ndim,  shape, requested_size, CSN_COMPLEX, err);
-    if (res != OK) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
-        return res;
-    }
-    p->array = array;
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, CSN_COMPLEX, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
     double re, im;
     complexdat_to_rect(p->value, &re, &im);
-    fill_csnarray_complex(array, re, im);
+    fill_csnarray_complex(p->handle, re, im);
 
-    SET_KDATA_END(p, shape, ndim, CSN_COMPLEX);
-
-    csound->UnlockMutex(p->k_data.registry->mutex);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t create_fullcomp_csnarray(CSOUND *csound, CSN_FULLCOMPLEX *p) {
-    int32_t res_init = create_csnarray_from_shape(csound, &p->h, p->shape, &p->array, p->handle, CSN_COMPLEX);
-    if (res_init != OK) {
-        return res_init;
-    }
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    CSNARR_RES pres = create_csnarray_from_shape(csound, &p->h, reg, p->shape, p->handle, CSN_COMPLEX);
+    if (pres.err != OK) return pres.err;
 
     double re, im;
     complexdat_to_rect(p->value, &re, &im);
-    fill_csnarray_complex(p->array, re, im);
+    fill_csnarray_complex(p->handle, re, im);
+    p->registry = reg;
+
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
 int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
     if (p->source == NULL
         || p->source->data == NULL
         || p->source->sizes == NULL
@@ -572,32 +508,28 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
         return csound->InitError(csound, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
-    int32_t res_init = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, CSN_REAL);
-    if (res_init != OK) {
-        return res_init;
-    }
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    int32_t res = pres.err;
+    if (res != OK) goto done;
 
     for (size_t i = 0; i < total_size; i++) {
-        p->array->data[i] = (double) p->source->data[i];
+        p->handle->data[i] = (double) p->source->data[i];
     }
 
-    return OK;
+    p->registry = reg;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t from_array_to_csnarray_k_init(CSOUND *csound, CSN_FROM_ARRAY *p) {
-    int32_t res = from_array_to_csnarray(csound, p);
-    if (res != OK) {
-        return res;
-    };
-
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    SET_KDATA_BEGIN(p, reg);
-    return OK;
+    return from_array_to_csnarray(csound, p);
 }
 
 int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
     if (p->source == NULL
         || p->source->data == NULL
         || p->source->sizes == NULL
@@ -605,8 +537,6 @@ int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->dimensions > CSN_MAX_DIMS) {
         return csound->PerfError(csound, &p->h, "[csnarray] Source must be a k-array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
-
-    CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -625,29 +555,25 @@ int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
     }
 
     int32_t res = OK;
-    csound->LockMutex(p->k_data.registry->mutex);
 
-    const char *err = NULL;
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, ndim, shape, requested_size, CSN_REAL, err);
-    if (res != OK) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
-        return res;
-    }
-    p->array = array;
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
     for (size_t i = 0; i < requested_size; i++) {
-        array->data[i] = (double) p->source->data[i];
+        p->handle->data[i] = (double) p->source->data[i];
     }
 
-    SET_KDATA_END(p, shape, ndim, CSN_REAL);
-
-    csound->UnlockMutex(p->k_data.registry->mutex);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 /* ARRAYDAT complex is a vector of COMPLEXDAT */
 int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
     if (p->source == NULL
         || p->source->data == NULL
         || p->source->sizes == NULL
@@ -672,36 +598,34 @@ int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
         return csound->InitError(csound, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
-    int32_t res_init = create_csnarray_init(csound, &p->h, ndim, shape, &p->array, p->handle, CSN_COMPLEX);
-    if (res_init != OK) {
-        return res_init;
-    }
+    int32_t res = OK;
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_COMPLEX, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
     const COMPLEXDAT *src = (const COMPLEXDAT *) p->source->data;
     for (size_t i = 0; i < total_size; i++) {
         double re, im;
         complexdat_to_rect(&src[i], &re, &im);
-        p->array->data[i * 2] = re;
-        p->array->data[i * 2 + 1] = im;
+        p->handle->data[i * 2] = re;
+        p->handle->data[i * 2 + 1] = im;
     }
 
-    return OK;
+    p->registry = reg;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t from_complexarray_to_csnarray_k_init(CSOUND *csound, CSN_FROM_ARRAY *p) {
-    int32_t res = from_complexarray_to_csnarray(csound, p);
-    if (res != OK) {
-        return res;
-    };
-
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    SET_KDATA_BEGIN(p, reg);
-    return OK;
+    return from_complexarray_to_csnarray(csound, p);
 }
 
 int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
     if (p->source == NULL
         || p->source->data == NULL
         || p->source->sizes == NULL
@@ -709,8 +633,6 @@ int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->dimensions > CSN_MAX_DIMS) {
         return csound->PerfError(csound, &p->h, "[csnarray] Source must be a complex array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
-
-    CHECK_REG_HANDLE(csound, &p->h, p->k_data.registry, p->k_data.owned_handle);
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -729,29 +651,22 @@ int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
     }
 
     int32_t res = OK;
-    csound->LockMutex(p->k_data.registry->mutex);
 
-    const char *err = NULL;
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, ndim, shape, requested_size, CSN_COMPLEX, err);
-    if (res != OK) {
-        csound->UnlockMutex(p->k_data.registry->mutex);
-        return res;
-    }
-    p->array = array;
+    CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, CSN_COMPLEX, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
     const COMPLEXDAT *src = (const COMPLEXDAT *) p->source->data;
     for (size_t i = 0; i < requested_size; i++) {
         double re, im;
         complexdat_to_rect(&src[i], &re, &im);
-        array->data[i * 2] = re;
-        array->data[i * 2 + 1] = im;
+        p->handle->data[i * 2] = re;
+        p->handle->data[i * 2 + 1] = im;
     }
 
-    SET_KDATA_END(p, shape, ndim, CSN_COMPLEX);
-
-    csound->UnlockMutex(p->k_data.registry->mutex);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 /* A k-rate Csound array output is filled on the audio thread too. Csound owns
@@ -776,48 +691,40 @@ static int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out
 int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    stamp_globals(csound, &p->h);
+    p->registry = reg;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
-    }
-
-    CSN_ARRAY *src = slot->array;
+    CSN_ARRAY *src = p->source_handle;
+    int32_t res = OK;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->size == 0) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        res = csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        goto done;
     }
 
     if (src->itype != CSN_REAL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the output as :Complex;[]");
+        res = csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the output as :Complex;[]");
+        goto done;
     }
 
-    /* dimensions arrives pre-set from the declaration, with sizes[] already
-       allocated to match. A 0 means the variable carries no rank yet, which
-       tabinit would resolve to 1-D. */
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        goto done;
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for an i-array output (limit %d)", total_size, INT32_MAX);
+        res = csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for an i-array output (limit %d)", total_size, INT32_MAX);
+        goto done;
     }
 
-    tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
-    if (p->array->data == NULL || p->array->sizes == NULL
-        || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Could not allocate the %u-D output i-array of %zu elements", ndim, total_size);
+    res = tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
+    if (res!= OK || p->array->data == NULL || p->array->sizes == NULL || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
+        res = csound->InitError(csound, "[csnarray] Could not allocate the %u-D output i-array of %zu elements", ndim, total_size);
+        goto done;
     }
 
     p->array->dimensions = (int32_t) ndim;
@@ -829,58 +736,52 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
         p->array->data[i] = (cs_float) src->data[i];
     }
 
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
+done:
+    if (locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
+    CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
-    }
-
-    CSN_ARRAY *src = slot->array;
+    CSN_ARRAY *src = p->source_handle;
+    int32_t res = OK;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->itype != CSN_REAL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Handle holds a complex array; declare the output as :Complex;[]");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a complex array; declare the output as :Complex;[]");
+        goto done;
     }
 
     if (src->size == 0) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        goto done;
     }
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        goto done;
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Array holds %zu elements, too many for an k-array output (limit %d)", total_size, INT32_MAX);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Array holds %zu elements, too many for an k-array output (limit %d)", total_size, INT32_MAX);
+        goto done;
     }
 
-    if (slot->rt_locked && !krate_array_output_fits(p->array, total_size)) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Array %u is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (uint32_t) p->source_handle->id, total_size, get_out_name(&p->h));
+    if (src->rt_locked && !krate_array_output_fits(p->array, total_size)) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Array is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", total_size, get_out_name(&p->h));
+        goto done;
     }
 
     // use int32_t as return value on tabinit in Csound recent version
-    tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
-    if (p->array->data == NULL || p->array->sizes == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Could not allocate the %u-D output k-array of %zu elements", ndim, total_size);
+    res = tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
+    if (p->array->data == NULL || p->array->sizes == NULL || res != OK) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Could not allocate the %u-D output k-array of %zu elements", ndim, total_size);
+        goto done;
     }
 
     p->array->dimensions = (int32_t) ndim;
@@ -892,53 +793,48 @@ int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
         p->array->data[i] = (cs_float) src->data[i];
     }
 
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
+done:
+    if (locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    stamp_globals(csound, &p->h);
+    p->registry = reg;
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
-    }
-
-    CSN_ARRAY *src = slot->array;
+    CSN_ARRAY *src = p->source_handle;
+    int32_t res = OK;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->size == 0) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        res = csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        goto done;
     }
 
     if (src->itype != CSN_COMPLEX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Handle holds a real array; use csntoarray for it");
+        res = csound->InitError(csound, "[csnarray] Handle holds a real array; use csntoarray for it");
+        goto done;
     }
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        goto done;
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
+        res = csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
+        goto done;
     }
 
-    tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
-    if (p->array->data == NULL || p->array->sizes == NULL
-        || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Could not allocate the %u-D output complex array of %zu elements", ndim, total_size);
+    res = tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
+    if (res != OK || p->array->data == NULL || p->array->sizes == NULL || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
+        res = csound->InitError(csound, "[csnarray] Could not allocate the %u-D output complex array of %zu elements", ndim, total_size);
+        goto done;
     }
 
     p->array->dimensions = (int32_t) ndim;
@@ -953,57 +849,51 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
         dst[i].isPolar = 0;
     }
 
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
+done:
+    if (locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
+    CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->source_handle->id);
-    }
-
-    CSN_ARRAY *src = slot->array;
+    CSN_ARRAY *src = p->source_handle;
+    int32_t res = OK;
+    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->size == 0) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        goto done;
     }
 
     if (src->itype != CSN_COMPLEX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Handle holds a real array; use csntoarray for it");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a real array; use csntoarray for it");
+        goto done;
     }
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        goto done;
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
+        goto done;
     }
 
-    if (slot->rt_locked && !krate_array_output_fits(p->array, total_size)) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Array %u is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", (uint32_t) p->source_handle->id, total_size, get_out_name(&p->h));
+    if (src->rt_locked && !krate_array_output_fits(p->array, total_size)) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Array is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", total_size, get_out_name(&p->h));
+        goto done;
     }
 
-    tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
-    if (p->array->data == NULL || p->array->sizes == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Could not allocate the %u-D output k-array of %zu elements", ndim, total_size);
+    res = tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
+    if (res != OK || p->array->data == NULL || p->array->sizes == NULL) {
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Could not allocate the %u-D output k-array of %zu elements", ndim, total_size);
+        goto done;
     }
 
     p->array->dimensions = (int32_t) ndim;
@@ -1018,213 +908,69 @@ int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p) {
         dst[i].isPolar = 0;
     }
 
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
-}
-
-int32_t free_csnarray(CSOUND *csound, CSN_FREE *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    release_slot(csound, reg, slot);
-
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
+done:
+    if (locked) csn_unlock(csound, reg);
+    return res;
 }
 
 // get dims
 int32_t csnarray_dims(CSOUND *csound, CSN_SIZE_DIMS *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    cs_float dims = (cs_float) slot->array->ndim;
-
-    csound->UnlockMutex(reg->mutex);
-
+    /* a global source may be resized by another thread: read it under the
+       lock, looked up only then, so a local read costs nothing */
+    CSN_REGISTRY *reg = p->source_handle->shared ? get_registry(csound) : NULL;
+    if (reg != NULL) csn_lock(csound, reg);
+    cs_float dims = (cs_float) p->source_handle->ndim;
     *p->value = dims;
-
-    return OK;
-}
-
-int32_t csnarray_dims_k(CSOUND *csound, CSN_SIZE_DIMS *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    cs_float dims = (cs_float) slot->array->ndim;
-
-    csound->UnlockMutex(reg->mutex);
-
-    *p->value = dims;
-
+    if (reg != NULL) csn_unlock(csound, reg);
     return OK;
 }
 
 // get total size (considering all dims)
 int32_t csnarray_size(CSOUND *csound, CSN_SIZE_DIMS *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    cs_float total_size = (cs_float) slot->array->size;
-
-    csound->UnlockMutex(reg->mutex);
-
+    /* a global source may be resized by another thread: read it under the
+       lock, looked up only then, so a local read costs nothing */
+    CSN_REGISTRY *reg = p->source_handle->shared ? get_registry(csound) : NULL;
+    if (reg != NULL) csn_lock(csound, reg);
+    cs_float total_size = (cs_float) p->source_handle->size;
     *p->value = total_size;
-
-    return OK;
-}
-
-int32_t csnarray_size_k(CSOUND *csound, CSN_SIZE_DIMS *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    cs_float total_size = (cs_float) slot->array->size;
-
-    csound->UnlockMutex(reg->mutex);
-
-    *p->value = total_size;
-
+    if (reg != NULL) csn_unlock(csound, reg);
     return OK;
 }
 
 /* Emptiness is derived from the size rather than tracked, so it cannot
    disagree with what the array actually holds. */
 int32_t csnarray_is_empty(CSOUND *csound, CSN_SIZE_DIMS *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    cs_float empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
-
-    csound->UnlockMutex(reg->mutex);
-
+    /* a global source may be resized by another thread: read it under the
+       lock, looked up only then, so a local read costs nothing */
+    CSN_REGISTRY *reg = p->source_handle->shared ? get_registry(csound) : NULL;
+    if (reg != NULL) csn_lock(csound, reg);
+    cs_float empty = p->source_handle->size == 0 ? FL(1.0) : FL(0.0);
     *p->value = empty;
-
-    return OK;
-}
-
-int32_t csnarray_is_empty_k(CSOUND *csound, CSN_SIZE_DIMS *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    cs_float empty = slot->array->size == 0 ? FL(1.0) : FL(0.0);
-
-    csound->UnlockMutex(reg->mutex);
-
-    *p->value = empty;
-
+    if (reg != NULL) csn_unlock(csound, reg);
     return OK;
 }
 
 // get shape -> shape[size dim 1, size dim 2, size dim 3, ...]
 int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    uint32_t dims = (cs_float) slot->array->ndim;
-    uint32_t *shape = slot->array->shape;
+    /* copied under the lock when the source is global, so the output is
+       written from a consistent snapshot without holding it across tabinit */
+    CSN_REGISTRY *reg = p->source_handle->shared ? get_registry(csound) : NULL;
+    if (reg != NULL) csn_lock(csound, reg);
+    uint32_t dims = p->source_handle->ndim;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    memcpy(shape, p->source_handle->shape, sizeof(shape));
+    if (reg != NULL) csn_unlock(csound, reg);
 
     /* The k form reserves every dimension an array can have, so a source that
        changes rank at perf time never makes tabinit allocate. */
-    tabinit(csound, p->shape, (int32_t) dims, p->h.insdshead);
-    if (reserve_krate_array_output(csound, &p->h, p->shape, CSN_MAX_DIMS) != OK) {
-        csound->UnlockMutex(reg->mutex);
+    int32_t res = tabinit(csound, p->shape, (int32_t) dims, p->h.insdshead);
+    if (reserve_krate_array_output(csound, &p->h, p->shape, CSN_MAX_DIMS) != OK || res != OK) {
         return csound->InitError(csound, "[csnarray] Could not allocate the shape output of %u elements", (uint32_t) CSN_MAX_DIMS);
     }
+
     for (uint32_t i = 0; i < dims; i++) {
         p->shape->data[i] = (cs_float) shape[i];
     }
-
-    csound->UnlockMutex(reg->mutex);
-
-    return OK;
-}
-
-int32_t csnarray_shape_k(CSOUND *csound, CSN_SHAPE *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *slot = get_slot(reg, p->handle->id);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", (uint32_t) p->handle->id);
-    }
-
-    uint32_t dims = (cs_float) slot->array->ndim;
-    uint32_t *shape = slot->array->shape;
-
-    tabinit(csound, p->shape, (int32_t) dims, p->h.insdshead);
-    for (uint32_t i = 0; i < dims; i++) {
-        p->shape->data[i] = (cs_float) shape[i];
-    }
-
-    csound->UnlockMutex(reg->mutex);
 
     return OK;
 }
@@ -1291,7 +1037,7 @@ static void spaced_space_assign_value(CSN_ARRAY *array, uint32_t usize, double a
                 array->data[0] = pow(base, start);
             } else {
                 double step = (stop - start) / (double) (usize - 1);
-                for (int32_t i = 0; i < usize; i++) {
+                for (uint32_t i = 0; i < usize; i++) {
                     double exponent = start + (double) i * step;
                     array->data[i] =  pow(base, exponent);
                 }
@@ -1302,7 +1048,7 @@ static void spaced_space_assign_value(CSN_ARRAY *array, uint32_t usize, double a
             if (usize == 1) {
                 array->data[0] = start;
             } else {
-                for (int32_t i = 0; i < usize; i++) {
+                for (uint32_t i = 0; i < usize; i++) {
                     array->data[i] =  start * pow(ratio, i);
                 }
                 array->data[usize - 1] = stop;
@@ -1333,15 +1079,20 @@ static int32_t spaced_space_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SPAC
     int32_t res = spaced_space_body(csound, NULL, arange_step, p->start, p->stop, in_base, &base, &ratio, &usize, mode);
     if (res != OK) return res;
 
-    int32_t res_init = create_csnarray_init(csound, &p->h, 1U, &usize, &p->array, p->handle, CSN_REAL);
-    if (res_init != OK) return res_init;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    shape[0] = usize;
 
-    csound->LockMutex(reg->mutex);
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
+
     double start = (double) *p->start;
     double stop = (double) *p->stop;
-    spaced_space_assign_value(p->array, usize, arange_step, start, stop, base, ratio, mode);
-    csound->UnlockMutex(reg->mutex);
-    return OK;
+    spaced_space_assign_value(p->handle, usize, arange_step, start, stop, base, ratio, mode);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 static int32_t spaced_space_k_init_helper(CSOUND *csound, CSN_SPACED_SPACE *p) {
@@ -1350,23 +1101,22 @@ static int32_t spaced_space_k_init_helper(CSOUND *csound, CSN_SPACED_SPACE *p) {
 
     int32_t res = OK;
     uint32_t shape[CSN_MAX_DIMS] = {0};
-    shape[0] = 1;
-    res = create_csnarray_init(csound, &p->h, 1U, shape, &p->array, p->handle, CSN_REAL);
-    if (res != OK) {
-        return res;
-    }
+    shape[0] = 1U;
+    CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
+    if (res != OK) goto done;
 
-    csound->LockMutex(reg->mutex);
-    reset_empty_csnarray(p->array, 1U, shape, CSN_REAL);
-    csound->UnlockMutex(reg->mutex);
+    reset_empty_csnarray(p->handle, 1U, shape, CSN_REAL);
+    p->registry = reg;
 
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SPACED_SPACE_MODE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     const cs_float *trig = mode == CSN_LOGSPACE ? p->arg_b : p->arg_a;
     CHECK_KTRIG(trig);
@@ -1379,9 +1129,8 @@ static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SP
     }
 
     int32_t res = OK;
-    const char *err = NULL;
-
-    csound->LockMutex(reg->mutex);
+    /* initialised before the first goto: done reads it */
+    CSNARR_RES pres = {0};
 
     double arange_step = num;
     double base = 1.0;
@@ -1394,26 +1143,17 @@ static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SP
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = usize;
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, 1U, shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = usize == 0 ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 1U, shape, logical_size, CSN_REAL, err);
+    pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pres.err;
     if (res != OK) goto done;
-    p->array = arr;
 
     double start = (double) *p->start;
     double stop = (double) *p->stop;
-    spaced_space_assign_value(p->array, usize, arange_step, start, stop, base, ratio, mode);
-    SET_KDATA_NO_ID_END(p, shape, 1U, CSN_REAL);
+    spaced_space_assign_value(p->handle, usize, arange_step, start, stop, base, ratio, mode);
 
 done:
-    csound->UnlockMutex(reg->mutex);
-    return OK;
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t csnarray_spaced_space_k_init(CSOUND *csound, CSN_SPACED_SPACE *p) {

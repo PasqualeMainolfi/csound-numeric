@@ -66,7 +66,6 @@ typedef struct {
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
-    CSN_ARRAY *array;
     CSN_SCRATCH buffer;
     K_DATA k_data;
     K_DATA_FFT k_data_fft;
@@ -83,7 +82,6 @@ typedef struct {
     cs_float *cols_fft_size;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     CSN_ARRAY intermediate;
     CSN_SCRATCH row_buffer;
     CSN_SCRATCH col_buffer;
@@ -107,9 +105,6 @@ typedef struct {
     cs_float *window_type;
     cs_float *trig;
     // private
-    CSN_ARRAY *array_f;
-    CSN_ARRAY *array_t;
-    CSN_ARRAY *array_z;
     CSN_SCRATCH buffer;
     CSN_SCRATCH window;
     K_DATA k_data_f;
@@ -144,8 +139,6 @@ typedef struct {
     cs_float *window_type;
     cs_float *trig;
     // private
-    CSN_ARRAY *array_t;
-    CSN_ARRAY *array_x;
     CSN_SCRATCH buffer;
     CSN_SCRATCH window;
     CSN_SCRATCH window_sum;
@@ -164,9 +157,7 @@ typedef struct {
     cs_float *d;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
-    bool is_published;
+    CSN_REGISTRY *registry;
 } CSN_FFTFREQ;
 
 typedef struct {
@@ -178,9 +169,7 @@ typedef struct {
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
-    CSN_ARRAY *array;
-    K_DATA k_data;
-    bool is_published;
+    CSN_REGISTRY *registry;
 } CSN_FFTSHIFT;
 
 typedef struct {
@@ -224,7 +213,6 @@ typedef struct {
                   // explicit axis for the 1-D k-rate deconvolve and decorrelate forms
     cs_float *arg_c; // explicit axis for the 1-D k-rate convolve and correlate forms
     // private
-    CSN_ARRAY *array;
     K_DATA_FFT k_data_fft_x;
     K_DATA_FFT k_data_fft_h;
     K_DATA_FFT k_data_ifft;
@@ -251,7 +239,6 @@ typedef struct {
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
-    CSN_ARRAY *array;
     CSN_SCRATCH buffer;
     CSN_ARRAY fft_buffer;
     CSN_ARRAY dcst_extended;
@@ -286,7 +273,6 @@ typedef struct {
     cs_float *dct_type; // 1 or 2
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     CSN_MEL_FILTER *fbank;
     CSN_RAW_STFT stft_buffer;
     /* Bands in, coefficients out. They are the same number today because one
@@ -313,8 +299,6 @@ typedef struct {
     cs_float *highf;
     cs_float *sr;
     cs_float *slaney_norm;
-    // private
-    CSN_ARRAY *array;
 } CSN_MFCC_FBANK;
 
 typedef struct {
@@ -326,7 +310,6 @@ typedef struct {
     cs_float *axis; // i-rate axis; trigger in the k-rate overloads
     cs_float *trig; // axis in the k-rate overload with an explicit axis
     // private
-    CSN_ARRAY *array;
     CSN_ARRAY fft_buffer;
     CSN_SCRATCH fft_temp_buffer;
     CSN_SCRATCH kernel_buffer;
@@ -344,7 +327,6 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     /* The spectrum lands in the published array and the intermediate holds the
        half-transformed pass, so the two transforms need no third buffer. */
     CSN_ARRAY intermediate;
@@ -373,8 +355,6 @@ int32_t csnarray_irfft_k_init(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_fft2_deinit(CSOUND *csound, CSN_FFT2 *p);
 int32_t csnarray_stft_deinit(CSOUND *csound, CSN_STFT *p);
 int32_t csnarray_istft_deinit(CSOUND *csound, CSN_ISTFT *p);
-int32_t csnarray_fftfreq_deinit(CSOUND *csound, CSN_FFTFREQ *p);
-int32_t csnarray_fftshift_deinit(CSOUND *csound, CSN_FFTSHIFT*p);
 
 int32_t csnarray_fft(CSOUND *csound, CSN_FFT *p);
 int32_t csnarray_rfft(CSOUND *csound, CSN_FFT *p);
@@ -468,10 +448,8 @@ int32_t csnarray_mfcc_deinit(CSOUND *csound, CSN_MFCC *p);
 int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p);
 int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p);
 
-int32_t csnarray_mfbank_deinit(CSOUND *csound, CSN_MFCC_FBANK *p);
 int32_t csnarray_mfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
 int32_t csnarray_mlogfbank(CSOUND *csound, CSN_MFCC_FBANK *p);
-
 
 int32_t csnarray_hilbert_deinit(CSOUND *csound, CSN_HILBERT *p);
 int32_t csnarray_hilbert1d_k_init(CSOUND *csound, CSN_HILBERT *p);

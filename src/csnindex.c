@@ -1063,11 +1063,6 @@ static int32_t push_check_body(CSOUND *csound, OPDS *perf_h, CSN_SLOT **slot, CS
     return OK;
 }
 
-bool csn_slot_rt_locked(CSN_REGISTRY *reg, uint32_t handle) {
-    CSN_SLOT *slot = get_slot(reg, handle);
-    return slot != NULL && slot->rt_locked;
-}
-
 /* Registry arrays are named by handle; an opcode's private array has none, so
    it is named by the opcode's output. Csound's own report adds the opcode and
    the line either way. */

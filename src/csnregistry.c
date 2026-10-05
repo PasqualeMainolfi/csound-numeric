@@ -398,13 +398,17 @@ int32_t csn_register_type(CSOUND *csound) {
 static _Thread_local bool csn_lock_held = false;
 
 void csn_lock(CSOUND *csound, CSN_REGISTRY *reg) {
-    csound->LockMutex(reg->mutex);
-    csn_lock_held = true;
+    if (!csn_lock_held) {
+        csound->LockMutex(reg->mutex);
+        csn_lock_held = true;
+    }
 }
 
 void csn_unlock(CSOUND *csound, CSN_REGISTRY *reg) {
-    csn_lock_held = false;
-    csound->UnlockMutex(reg->mutex);
+    if (csn_lock_held) {
+        csn_lock_held = false;
+        csound->UnlockMutex(reg->mutex);
+    }
 }
 
 bool csn_lock_is_held(void) {

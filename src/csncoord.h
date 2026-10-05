@@ -2,7 +2,6 @@
 #define __CSN_COORD
 
 #include "csnregistry.h"
-#include "csnum.h"
 #include <csdl.h>
 #include <stdint.h>
 

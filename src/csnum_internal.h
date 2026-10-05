@@ -9,9 +9,20 @@
 #define CSN_PI 3.14159265358979323846
 #define CSN_PI_2 (CSN_PI / 2.0)
 
+/* What an opcode can do when its output is also one of its operands
+   (X = op(X, ...)). Refusing is the default, so an opcode is safe unless it
+   says otherwise. */
+typedef enum {
+    CSN_ALIAS_REFUSE = 0,   /* init error: the operation reads what it writes */
+    CSN_ALIAS_ELEMENTWISE,  /* allowed when the output keeps the operand's shape and
+                               type: element i reads only element i, so in place is safe */
+    CSN_ALIAS_CUSTOM        /* the opcode handles it; aliased_mask says which operand */
+} CSN_ALIAS_POLICY;
+
 typedef struct {
     bool locked;
-    bool aliased;
+    bool aliased;           /* aliased_mask != 0 */
+    uint32_t aliased_mask;  /* bit i set: operands[i] is the output */
     int32_t err;
 } CSNARR_RES;
 
@@ -27,7 +38,8 @@ bool IS_VALID_INDEX(double index);
 bool IS_VALID_SHIFT(double shift);
 bool IS_VALID_VALUE_INT32(double value);
 bool SOURCE_HAS_MOVED(const K_DATA *k_data, const CSN_ARRAY *arr);
-CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands);
+CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy);
+int32_t csn_check_outputs_distinct(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *const *outputs, size_t n_outputs);
 bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
 bool BROADCAST_ITER_NEXT(CSN_BROADCAST_ITER *it);
 bool AXIS_SLICE_ITER_NEXT(CSN_AXIS_SLICE_ITER *it);
