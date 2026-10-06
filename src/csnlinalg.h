@@ -27,7 +27,6 @@ typedef struct {
     CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer_a;
     CSN_SCRATCH buffer_b;
@@ -40,10 +39,9 @@ typedef struct {
     // outputs
     CSN_ARRAY *handle;
     // inputs
-    CSN_ARRAY *source_handle_a;
+    CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer_a;
     CSN_SCRATCH buffer_b;
@@ -122,8 +120,6 @@ typedef struct {
     cs_float *winsize;
     cs_float *order;
     cs_float *delta;
-    // private
-    CSN_ARRAY *array;
 } CSN_SAVGOL_MATRIX;
 
 typedef struct {
@@ -134,7 +130,6 @@ typedef struct {
     cs_float *n;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_HILBERT_MAT;
@@ -157,10 +152,8 @@ int32_t csnarray_determinant_real_k(CSOUND *csound, CSN_LINALG_DET_REAL *p);
 int32_t csnarray_determinant_complex(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p);
 int32_t csnarray_determinant_complex_k(CSOUND *csound, CSN_LINALG_DET_COMPLEX *p);
 
-int32_t csnarray_savgol_mat_deinit(CSOUND *csound, CSN_SAVGOL_MATRIX *p);
 int32_t csnarray_savgol_mat(CSOUND *csound, CSN_SAVGOL_MATRIX *p); // savgol i-rate
 
-int32_t csnarray_hilbertmat_deinit(CSOUND *csound, CSN_HILBERT_MAT *p);
 int32_t csnarray_hilbertmat(CSOUND *csound, CSN_HILBERT_MAT *p);
 int32_t csnarray_hilbertmat_k_init(CSOUND *csound, CSN_HILBERT_MAT *p);
 int32_t csnarray_hilbertmat_k(CSOUND *csound, CSN_HILBERT_MAT *p);

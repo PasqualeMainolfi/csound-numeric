@@ -619,7 +619,7 @@ typedef struct {
     CSN_ARRAY *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_GET;
 
 typedef struct {
@@ -630,7 +630,7 @@ typedef struct {
     CSN_ARRAY *source_handle;
     ARRAYDAT *indexes; // get -> indexes must be the same as dims
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_GETCOMPLEX;
 
 typedef struct {
@@ -640,7 +640,7 @@ typedef struct {
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     cs_float *value;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_SET;
 
 typedef struct {
@@ -650,7 +650,7 @@ typedef struct {
     ARRAYDAT *indexes; // set -> indexes must be the same as dims
     COMPLEXDAT *value;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_SETCOMPLEX;
 
 typedef struct {
@@ -676,7 +676,7 @@ typedef struct {
     cs_float *index;
     cs_float *trig;  // usend only remove_block.k as trigger
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_TAKE_FLAT;
 
 typedef struct {
@@ -687,7 +687,7 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *index;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_TAKECOMPLEX_FLAT;
 
 typedef struct {
@@ -714,7 +714,7 @@ typedef struct {
     cs_float *stop;
     cs_float *step;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
 } CSN_SET_SLICE;
 
 typedef struct {
@@ -1575,7 +1575,6 @@ typedef struct {
     CSN_INTERP_MODE imode;
     CSN_INTERP_BOUNDS_MODE ibounds;
     K_DATA k_data;
-    ARRAY_VERSION prev_x_source_version;
     bool is_published;
     CSN_SCRATCH x_source_scratch;
     CSN_SCRATCH x_data_scratch;
@@ -1619,6 +1618,7 @@ typedef struct {
     cs_float *trig;
     // private
     K_DATA k_data;
+    uint32_t prev_shape[CSN_MAX_DIMS];
     bool is_published;
 } CSN_RESIZE;
 
@@ -1629,7 +1629,9 @@ typedef struct {
     ARRAYDAT *new_shape;
     cs_float *trig;
     // private;
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
+    ARRAY_VERSION prev_source_version;
+    uint32_t prev_shape[CSN_MAX_DIMS];
     bool is_published;
 } CSN_RESIZE_IN;
 
@@ -1643,7 +1645,6 @@ typedef struct {
     CSN_REGISTRY *registry;
     ARRAY_VERSION prev_source_version;
     CSN_SCRATCH scratch;
-    uint32_t prev_array_id;
     bool is_published;
 } CSN_SAVE;
 
@@ -1655,10 +1656,8 @@ typedef struct {
     STRINGDAT *path;
     cs_float *trig;
     // private
-    K_DATA k_data;
+    CSN_REGISTRY *registry;
     CSN_SCRATCH buffer_scratch;
-    CSN_SCRATCH path_scratch;
-    bool is_published;
 } CSN_LOAD;
 
 typedef struct {
@@ -1985,8 +1984,6 @@ typedef struct {
     // inputs
     CSN_ARRAY *source_handle_x;
     CSN_ARRAY *source_handle_y;
-    // private
-    CSN_ARRAY *array;
 } CSN_LAGRANGE;
 
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
@@ -2006,7 +2003,7 @@ void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
 void reset_empty_csnarray(CSN_ARRAY *array, uint32_t ndim, const uint32_t *requested_shape, ITEM_TYPE itype);
 void complex_prod(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
-int32_t pad_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
+int32_t pad_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
@@ -2077,7 +2074,6 @@ int32_t csnarray_set_rtunlock(CSOUND *csound, CSN_RTLOCK *p);
 int32_t csnarray_set_grtlock(CSOUND *csound, CSN_GRTLOCK *p);
 int32_t csnarray_set_grtunlock(CSOUND *csound, CSN_GRTLOCK *p);
 int32_t csnarray_set_grtlock_all(CSOUND *csound, CSN_GRTLOCK *p);
-int32_t csnarray_lagrange_deinit(CSOUND *csound, CSN_LAGRANGE *p);
 int32_t csnarray_lagrange(CSOUND *csound, CSN_LAGRANGE *p);
 
 // CREATION
@@ -2305,6 +2301,8 @@ int32_t csnarray_medfilt1d_in(CSOUND *csound, CSN_MEDFILT_IN *p);
 int32_t csnarray_medfilt(CSOUND *csound, CSN_MEDFILT_ND *p); // same size on every axes
 int32_t csnarray_medfilt_in(CSOUND *csound, CSN_MEDFILT_ND_IN *p);
 int32_t csnarray_medfilt_arr(CSOUND *csound, CSN_MEDFILT_ND_ARR *p); // pass shape of kernels sizes
+int32_t csnarray_medfilt_k_init(CSOUND *csound, CSN_MEDFILT_ND *p);
+int32_t csnarray_medfilt_arr_k_init(CSOUND *csound, CSN_MEDFILT_ND_ARR *p);
 int32_t csnarray_medfilt_arr_in(CSOUND *csound, CSN_MEDFILT_ND_ARR_IN *p);
 
 // VECTORIAL

@@ -371,8 +371,14 @@ void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, b
    pass's result instead of recomputing it, but only when both ends have held
    still: the source has not been written, and nothing has disturbed the output
    slot since this opcode filled it. Pass NULL for out_arr on the scalar forms,
-   whose result lives in a cs_float that nothing else can reach. */
+   whose result lives in a cs_float that nothing else can reach.
+
+   An output that is its own source is never reused, as in
+   CAN_REUSE_ELEMENTWISE: X = csnmedfilt(X, 3) at k-rate is meant to apply
+   again on every pass, and the version this opcode recorded after its own
+   write would otherwise read as "the source has not moved" and freeze it. */
 bool CAN_REUSE_LAST_RESULT(const K_DATA *k_data, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr) {
+    if (out_arr != NULL && out_arr == source_arr) return false;
     if (!is_same_array_data_version(&source_arr->version, &k_data->prev_source_version)) return false;
     if (out_arr == NULL) return true;
     return is_same_array_version(&out_arr->version, &k_data->prev_output_version);
@@ -484,7 +490,13 @@ bool IS_VALID_VALUE_INT32(double value) {
    operand, the policy decides: refused, allowed in place when the layout does
    not change, or left untouched for the opcode to handle, aliased_mask saying
    which operand it is. locked tells the caller to unlock after computing; on
-   failure the lock is already released. */
+   failure the lock is already released.
+
+   The data version is settled here for any output that is not aliased: a
+   fresh array starts at its first version, a reused one is zeroed and bumped,
+   all before the caller writes, which no reader can observe in between. An
+   aliased output is left untouched, so the opcode that writes it in place
+   bumps its data version itself (if (out.aliased) ...). */
 CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy) {
     uint32_t aliased_mask = 0;
     if (perf_h == NULL) stamp_globals(csound, h);
@@ -696,7 +708,6 @@ static int32_t csnarray_resample_deinit(CSOUND *csound, CSN_RESAMPLE *p) {
 
 static int32_t csnarray_load_deinit(CSOUND *csound, CSN_LOAD *p) {
     deinit_scratch(csound, &p->buffer_scratch);
-    deinit_scratch(csound, &p->path_scratch);
     return OK;
 }
 
@@ -1149,7 +1160,7 @@ static OENTRY localops[] = {
     { "csnisinf.k",              S(CSN_UNARYOP),                  0, ":CsnArr;",                 ":CsnArr;P",                     (SUBR) csnarray_isinf,                       (SUBR) csnarray_isinf_k,                NULL,                                    NULL, 0 },
     { "csnisfin",                S(CSN_UNARYOP),                  0, ":CsnArr;",                 ":CsnArr;",                      (SUBR) csnarray_isfin,                       NULL,                                   NULL,                                    NULL, 0 },
     { "csnisfin.k",              S(CSN_UNARYOP),                  0, ":CsnArr;",                 ":CsnArr;P",                     (SUBR) csnarray_isfin,                       (SUBR) csnarray_isfin_k,                NULL,                                    NULL, 0 },
-    { "csnsavgol",               S(CSN_SAVGOL_MATRIX),            0, ":CsnArr;",                 "iip",                           (SUBR) csnarray_savgol_mat,                  NULL,                                   (SUBR) csnarray_savgol_mat_deinit,       NULL, 0 },
+    { "csnsavgol",               S(CSN_SAVGOL_MATRIX),            0, ":CsnArr;",                 "iip",                           (SUBR) csnarray_savgol_mat,                  NULL,                                   NULL,                                    NULL, 0 },
     { "csnmedfilt1d",            S(CSN_MEDFILT),                  0, ":CsnArr;",                 ":CsnArr;i",                     (SUBR) csnarray_medfilt1d,                   NULL,                                   (SUBR) csnarray_medfilt_deinit,          NULL, 0 },
     { "csnmedfilt1d",            S(CSN_MEDFILT),                  0, ":CsnArr;",                 ":CsnArr;ii",                    (SUBR) csnarray_medfilt1d,                   NULL,                                   (SUBR) csnarray_medfilt_deinit,          NULL, 0 },
     { "csnmedfilt1d.k",          S(CSN_MEDFILT),                  0, ":CsnArr;",                 ":CsnArr;iP",                    (SUBR) csnarray_medfilt1d_k_init,            (SUBR) csnarray_medfilt1d_k,            (SUBR) csnarray_medfilt_deinit,          NULL, 0 },
@@ -1159,11 +1170,11 @@ static OENTRY localops[] = {
     { "csnmedfilt1d.in.k",       S(CSN_MEDFILT_IN),               0, "",                         ":CsnArr;iP",                    (SUBR) csnarray_medfilt1d_in_k_init,         (SUBR) csnarray_medfilt1d_in_k,         (SUBR) csnarray_medfilt_in_deinit,       NULL, 0 },
     { "csnmedfilt1d.in.k",       S(CSN_MEDFILT_IN),               0, "",                         ":CsnArr;ikk",                   (SUBR) csnarray_medfilt1d_in_k_init,         (SUBR) csnarray_medfilt1d_in_k,         (SUBR) csnarray_medfilt_in_deinit,       NULL, 0 },
     { "csnmedfilt",              S(CSN_MEDFILT_ND),               0, ":CsnArr;",                 ":CsnArr;i",                     (SUBR) csnarray_medfilt,                     NULL,                                   (SUBR) csnarray_medfilt_nd_deinit,       NULL, 0 },
-    { "csnmedfilt.k",            S(CSN_MEDFILT_ND),               0, ":CsnArr;",                 ":CsnArr;iP",                    (SUBR) csnarray_medfilt,                     (SUBR) csnarray_medfilt_k,              (SUBR) csnarray_medfilt_nd_deinit,       NULL, 0 },
+    { "csnmedfilt.k",            S(CSN_MEDFILT_ND),               0, ":CsnArr;",                 ":CsnArr;iP",                    (SUBR) csnarray_medfilt_k_init,                     (SUBR) csnarray_medfilt_k,       (SUBR) csnarray_medfilt_nd_deinit,       NULL, 0 },
     { "csnmedfilt.in",           S(CSN_MEDFILT_ND_IN),            0, "",                         ":CsnArr;i",                     (SUBR) csnarray_medfilt_in,                  NULL,                                   (SUBR) csnarray_medfilt_nd_in_deinit,    NULL, 0 },
     { "csnmedfilt.in.k",         S(CSN_MEDFILT_ND_IN),            0, "",                         ":CsnArr;iP",                    (SUBR) csnarray_medfilt_in_k_init,           (SUBR) csnarray_medfilt_in_k,           (SUBR) csnarray_medfilt_nd_in_deinit,    NULL, 0 },
     { "csnmedfilt.s",            S(CSN_MEDFILT_ND_ARR),           0, ":CsnArr;",                 ":CsnArr;i[]",                   (SUBR) csnarray_medfilt_arr,                 NULL,                                   (SUBR) csnarray_medfilt_ndarr_deinit,    NULL, 0 },
-    { "csnmedfilt.s.k",          S(CSN_MEDFILT_ND_ARR),           0, ":CsnArr;",                 ":CsnArr;i[]P",                  (SUBR) csnarray_medfilt_arr,                 (SUBR) csnarray_medfilt_arr_k,          (SUBR) csnarray_medfilt_ndarr_deinit,    NULL, 0 },
+    { "csnmedfilt.s.k",          S(CSN_MEDFILT_ND_ARR),           0, ":CsnArr;",                 ":CsnArr;i[]P",                  (SUBR) csnarray_medfilt_arr_k_init,                 (SUBR) csnarray_medfilt_arr_k,   (SUBR) csnarray_medfilt_ndarr_deinit,    NULL, 0 },
     { "csnmedfilt.s.in",         S(CSN_MEDFILT_ND_ARR_IN),        0, "",                         ":CsnArr;i[]",                   (SUBR) csnarray_medfilt_arr_in,              NULL,                                   (SUBR) csnarray_medfilt_ndarr_in_deinit, NULL, 0 },
     { "csnmedfilt.s.in.k",       S(CSN_MEDFILT_ND_ARR_IN),        0, "",                         ":CsnArr;i[]P",                  (SUBR) csnarray_medfilt_arr_in_k_init,       (SUBR) csnarray_medfilt_arr_in_k,       (SUBR) csnarray_medfilt_ndarr_in_deinit, NULL, 0 },
     { "csnindexof",              S(CSN_ARGWHERE_INDEX),           0, ":CsnArr;",                 ":CsnArr;i",                     (SUBR) csnarray_indexof,                     NULL,                                   (SUBR) csnarray_indexof_deinit,          NULL, 0 },
@@ -1179,7 +1190,7 @@ static OENTRY localops[] = {
     { "csnforeach",              S(CSN_FOREACH),                  0, "",                         ":CsnArr;:Opcode;P",             (SUBR) csnarray_foreach_init,                (SUBR) csnarray_foreach_perf,           (SUBR) csnarray_foreach_deinit,          NULL, 0 },
     { "csnnext.r",               S(CSN_NEXT_REAL),                0, "kk",                       ":CsnArr;PO",                    (SUBR) csnarray_next_real_init,              (SUBR) csnarray_next_real_perf,         (SUBR) csnarray_next_real_deinit,        NULL, 0 },
     { "csnnext.c",               S(CSN_NEXT_COMP),                0, ":Complex;k",               ":CsnArr;PO",                    (SUBR) csnarray_next_comp_init,              (SUBR) csnarray_next_comp_perf,         (SUBR) csnarray_next_comp_deinit,        NULL, 0 },
-    { "csnlagrange",             S(CSN_LAGRANGE),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_lagrange,                    NULL,                                   (SUBR) csnarray_lagrange_deinit,         NULL, 0 },
+    { "csnlagrange",             S(CSN_LAGRANGE),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_lagrange,                    NULL,                                   NULL,                                    NULL, 0 },
 
     // COORDS 1
     { "csnpoltocar",             S(CSN_COORD2),                   0, "ii",                       "iio",                           (SUBR) csncoord_poltocar,                    NULL,                                    NULL,                                   NULL, 0 },
@@ -1843,8 +1854,8 @@ static OENTRY localops[] = {
     { "csnhilbert1dr.k",         S(CSN_HILBERT),                  0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnarray_hilbert1dr_k_init,       (SUBR) csnarray_hilbert1dr_k,           (SUBR) csnarray_hilbert_deinit,          NULL, 0 },
     { "csnhilbert2",             S(CSN_HILBERT2),                 0, ":CsnArr;",                 ":CsnArr;",                           (SUBR) csnarray_hilbert2,                NULL,                                   (SUBR) csnarray_hilbert2_deinit,         NULL, 0 },
     { "csnhilbert2.k",           S(CSN_HILBERT2),                 0, ":CsnArr;",                 ":CsnArr;P",                          (SUBR) csnarray_hilbert2,                (SUBR) csnarray_hilbert2_k,             (SUBR) csnarray_hilbert2_deinit,         NULL, 0 },
-    { "csnhilbertmat",           S(CSN_HILBERT_MAT),              0, ":CsnArr;",                 "i",                                  (SUBR) csnarray_hilbertmat,              NULL,                                   (SUBR) csnarray_hilbertmat_deinit,       NULL, 0 },
-    { "csnhilbertmat.k",         S(CSN_HILBERT_MAT),              0, ":CsnArr;",                 "kP",                                 (SUBR) csnarray_hilbertmat_k_init,       (SUBR) csnarray_hilbertmat_k,           (SUBR) csnarray_hilbertmat_deinit,       NULL, 0 },
+    { "csnhilbertmat",           S(CSN_HILBERT_MAT),              0, ":CsnArr;",                 "i",                                  (SUBR) csnarray_hilbertmat,              NULL,                                   NULL,                                    NULL, 0 },
+    { "csnhilbertmat.k",         S(CSN_HILBERT_MAT),              0, ":CsnArr;",                 "kP",                                 (SUBR) csnarray_hilbertmat_k_init,       (SUBR) csnarray_hilbertmat_k,           NULL,                                    NULL, 0 },
 
     // NON-ARR
     { "csnadd.cc",               S(CSN_NONARR_CC_OP),             0, ":Complex;",                ":Complex;:Complex;",               (SUBR) nonarr_complex_add_cc,            (SUBR) nonarr_complex_add_cc,           NULL,                                    NULL, 0 },

@@ -1,5 +1,6 @@
 /* Opcode implementations for the io family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
 #include "csnfile.h"
@@ -15,8 +16,6 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
         return csound->InitError(csound, "[csnarray] File path cannot be empty");
     }
@@ -26,21 +25,21 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
         return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-    CSN_ARRAY *arr = slot->array;
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
 
     const char *path = p->path->data;
-    CSN_FILE_ERROR_CODE err_code = csnfile_save_array(arr, path, dot);
+    CSN_FILE_ERROR_CODE err_code = csnfile_save_array(p->source_handle, path, dot);
     if (err_code != CSN_FILE_NO_ERROR) {
         const char *err_message = NULL;
         csnfile_dispatch_error(&err_message, err_code);
-        return csound->InitError(csound, "[csnarray] %s", err_message);
+        res = csound->InitError(csound, "[csnarray] %s", err_message);
     }
 
-    return OK;
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 typedef union {
@@ -62,12 +61,17 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+    double *buffer = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+
     const char *path = p->path->data;
 
-    double *buffer = csound->Calloc(csound, sizeof(double) * DEFAULT_TEMPORARY_BUFFER_SIZE);
+    buffer = csound->Calloc(csound, sizeof(double) * DEFAULT_TEMPORARY_BUFFER_SIZE);
     if (buffer == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
     }
     size_t buffer_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
 
@@ -76,19 +80,19 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     if (strcmp(dot, CSN_FILE_EXT) == 0) {
         CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_file(csound, &header.csn_header, &buffer, &buffer_capacity, path);
         if (err_code != CSN_FILE_NO_ERROR) {
-            csound->Free(csound, buffer);
             const char *err_message = NULL;
             csnfile_dispatch_error(&err_message, err_code);
-            return csound->InitError(csound, "[csnarray] %s", err_message);
+            res = csound->InitError(csound, "[csnarray] %s", err_message);
+            goto done;
         };
     } else {
         is_numpy = true;
         CSN_FILE_ERROR_CODE err_code = csnfile_load_array_from_numpy_file(csound, &header.numpy_header, &buffer, &buffer_capacity, path);
         if (err_code != CSN_FILE_NO_ERROR) {
-            csound->Free(csound, buffer);
             const char *err_message = NULL;
             csnfile_dispatch_error(&err_message, err_code);
-            return csound->InitError(csound, "[csnarray] %s", err_message);
+            res = csound->InitError(csound, "[csnarray] %s", err_message);
+            goto done;
         };
     }
 
@@ -108,21 +112,19 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
         size = header.numpy_header.size;
     }
 
-    csound->LockMutex(reg->mutex);
-    if (create_csnarray_locked(csound, reg, &p->h, ndim, shape, &p->array, p->handle, NULL, 0, &err, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    CSN_ARRAY *arr = p->array;
+    CSN_ARRAY *arr = p->handle;
     if (size > 0) {
         memcpy(arr->data, buffer, size * itype * sizeof(double));
-        update_array_data_version(&arr->version);
     }
 
 done:
-    csound->Free(csound, buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (buffer != NULL) csound->Free(csound, buffer);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -135,12 +137,7 @@ int32_t csnarray_save_k_init(CSOUND *csound, CSN_SAVE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-    CSN_ARRAY *arr = slot->array;
+    stamp_globals(csound, &p->h);
 
     char *path_buffer = csound->Malloc(csound, DEFAULT_TEMPORARY_BUFFER_SIZE);
     if (path_buffer == NULL) {
@@ -149,8 +146,6 @@ int32_t csnarray_save_k_init(CSOUND *csound, CSN_SAVE *p) {
     p->scratch.scratch = path_buffer;
     p->scratch.scratch_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
     p->registry = reg;
-    p->prev_source_version = arr->version;
-    p->prev_array_id = 0;
     p->is_published = false;
     return OK;
 }
@@ -159,8 +154,6 @@ int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
         return csound->PerfError(csound, &p->h, "[csnarray] File path cannot be empty");
     }
@@ -170,47 +163,40 @@ int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p) {
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
+    int32_t res = OK;
     CHECK_KTRIG(p->trig);
 
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
 
     const char *path = p->path->data;
-    CSN_ARRAY *arr = slot->array;
+    CSN_ARRAY *arr = p->source_handle;
 
     if (p->is_published) {
         bool is_same_array = is_same_array_version(&arr->version, &p->prev_source_version);
         bool is_same_path = strcmp(path, p->scratch.scratch) == 0;
-        bool is_same_array_id = source_handle == p->prev_array_id;
-        if (is_same_array && is_same_path && is_same_array_id) return OK;
+        if (is_same_array && is_same_path) goto done;
     }
 
     CSN_FILE_ERROR_CODE err_code = csnfile_save_array(arr, path, dot);
     if (err_code != CSN_FILE_NO_ERROR) {
         const char *err_message = NULL;
         csnfile_dispatch_error(&err_message, err_code);
-        return csound->PerfError(csound, &p->h, "[csnarray] %s", err_message);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] %s", err_message);
+        goto done;
     }
 
     size_t path_len = strlen(path);
-    if (path_len + 1 > p->scratch.scratch_capacity) {
-        size_t new_path_cap = (path_len + 1) * 2;
-        char *path_buffer = csound->ReAlloc(csound, p->scratch.scratch, sizeof(char) * new_path_cap);
-        if (path_buffer == NULL) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
-        }
-        p->scratch.scratch = path_buffer;
-        p->scratch.scratch_capacity = new_path_cap;
-    }
+    res = csn_scratch_reserve(csound, &p->h, arr->rt_locked, &p->scratch, path_len + 1, sizeof(char));
+    if (res != OK) goto done;
 
     snprintf((char *) p->scratch.scratch, path_len + 1, "%s", path);
-    p->prev_array_id = source_handle;
     set_array_version(&p->prev_source_version, &arr->version);
     p->is_published = true;
 
-    return OK;
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 int32_t csnarray_load_k_init(CSOUND *csound, CSN_LOAD *p) {
@@ -218,7 +204,6 @@ int32_t csnarray_load_k_init(CSOUND *csound, CSN_LOAD *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
 
     double *buffer = csound->Calloc(csound, sizeof(double) * DEFAULT_TEMPORARY_BUFFER_SIZE);
     if (buffer == NULL) {
@@ -227,35 +212,29 @@ int32_t csnarray_load_k_init(CSOUND *csound, CSN_LOAD *p) {
     p->buffer_scratch.scratch = buffer;
     p->buffer_scratch.scratch_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
 
-    char *path_buffer = csound->Malloc(csound, DEFAULT_TEMPORARY_BUFFER_SIZE);
-    if (path_buffer == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-    }
-    p->path_scratch.scratch = path_buffer;
-    p->path_scratch.scratch_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
-
-    csound->LockMutex(reg->mutex);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = 1U;
 
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    reset_empty_csnarray(p->array, 1U, shape, CSN_REAL);
-    SET_KDATA_BEGIN(p, reg);
-    p->is_published = false;
+    reset_empty_csnarray(p->handle, 1U, shape, CSN_REAL);
+    p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
         return csound->PerfError(csound, &p->h, "[csnarray] File path cannot be empty");
@@ -267,8 +246,6 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
     }
 
     int32_t res = OK;
-    const char *err = NULL;
-    const char *path = p->path->data;
 
     /* No reload cache on purpose. csnload reads a file it does not own, so the
        path is not a usable key, and a stat stamp only narrows the window: on
@@ -276,6 +253,7 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
        enough for a same-size rewrite to hide in. The trigger is the contract
        and the only authority: it fires, we read. */
     CHECK_KTRIG(p->trig);
+    const char *path = p->path->data;
 
     double *buffer = (double *) p->buffer_scratch.scratch;
     size_t capacity = p->buffer_scratch.scratch_capacity;
@@ -319,42 +297,22 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
         size = header.numpy_header.size;
     }
 
-    csound->LockMutex(reg->mutex);
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, ndim, shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
 
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, ndim, shape, logical_size, itype, err);
+    /* prepare_output refuses a shape over the element limit, and growth on a
+       real-time path */
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
     if (size > 0) {
-        memcpy(arr->data, buffer, size * itype * sizeof(double));
-        update_array_data_version(&arr->version);
+        memcpy(p->handle->data, buffer, size * itype * sizeof(double));
     }
-
-    size_t path_len = strlen(path);
-    if (path_len + 1 > p->path_scratch.scratch_capacity) {
-        size_t new_path_cap = (path_len + 1) * 2;
-        char *path_buffer = csound->ReAlloc(csound, p->path_scratch.scratch, sizeof(char) * new_path_cap);
-        if (path_buffer == NULL) {
-            csound->UnlockMutex(reg->mutex);
-            return csound->PerfError(csound, &p->h, "[csnarray] Internal error: memory allocation failed");
-        }
-        p->path_scratch.scratch = path_buffer;
-        p->path_scratch.scratch_capacity = new_path_cap;
-    }
-    snprintf((char *) p->path_scratch.scratch, path_len + 1, "%s", path);
-
-    SET_KDATA_END(p, arr->shape, arr->ndim, arr->itype);
-    p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -362,12 +320,9 @@ int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-    CSN_ARRAY *arr = slot->array;
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+
     CSN_PRINT_BUFFER pbuffer = {0};
     char *data = csound->Malloc(csound, CSN_PRINT_BUFFER_INITIAL_CAPACITY);
     if (data == NULL) {
@@ -377,15 +332,18 @@ int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p) {
     pbuffer.length = 0;
     pbuffer.capacity = CSN_PRINT_BUFFER_INITIAL_CAPACITY;
 
-    int32_t res = csnfile_show_array(csound, &pbuffer, arr);
-    if (res == OK) {
-        csound->Message(csound, "%s", pbuffer.data);
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    CSN_ARRAY *arr = p->source_handle;
+    res = csnfile_show_array(csound, &pbuffer, arr);
+    if (res == OK) csound->Message(csound, "%s", pbuffer.data);
     csound->Free(csound, pbuffer.data);
 
     if (res != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: wrong print buffer allocation");
+        res = csound->InitError(csound, "[csnarray] Internal error: wrong print buffer allocation");
     }
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -403,6 +361,8 @@ int32_t csnarray_show_k_deinit(CSOUND *csound, CSN_SHOW *p) {
 int32_t csnarray_show_k_init(CSOUND *csound, CSN_SHOW *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+
+    stamp_globals(csound, &p->h);
 
     p->pbuffer.data = NULL;
     p->pbuffer.length = 0;
@@ -427,18 +387,18 @@ int32_t csnarray_show_k(CSOUND *csound, CSN_SHOW *p) {
 
     CHECK_KTRIG(p->trig);
 
-    uint32_t source_handle = (uint32_t) p->source_handle->id;
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
 
-    CSN_ARRAY *arr = slot->array;
-
+    CSN_ARRAY *arr = p->source_handle;
     if (csnfile_show_array(csound, &p->pbuffer, arr) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: wrong print buffer allocation");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Internal error: wrong print buffer allocation");
+        goto done;
     }
-
     csound->Message(csound, "%s", p->pbuffer.data);
-    return OK;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }

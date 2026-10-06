@@ -239,8 +239,7 @@ bool is_same_array_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *
 }
 
 bool is_same_array_data_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {
-    return version_a->array_uid == version_b->array_uid
-        && version_a->data_version == version_b->data_version;
+    return version_a->array_uid == version_b->array_uid && version_a->data_version == version_b->data_version;
 }
 
 void set_array_version(ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b) {

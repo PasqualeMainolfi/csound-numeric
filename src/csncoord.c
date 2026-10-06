@@ -446,6 +446,11 @@ static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p, b
         goto done;
     }
 
+    /* Aliased: the 3 x 3 layout is set before the direction is read, which is
+       safe only because the direction was validated above and ROTATE_MAT_AXIS
+       reads data[0..2] directly, never through shape or strides; source_arr is
+       the same struct as the output, so it sees the buffer ensure may have
+       moved, and ReAlloc keeps the three values. */
     if (pres.aliased) {
         res = ensure_mutation_capacity(csound, NULL, p->handle, 9U, p->handle->rt_locked);
         if (res != OK) goto done;
@@ -454,7 +459,7 @@ static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p, b
 
     /* ROT_AXIS_IS_VALID has ruled out the null vector, the one case it fails */
     (void) ROTATE_MAT_AXIS(p->handle->data, source_arr->data, angle);
-    update_array_data_version(&p->handle->version);
+    if (pres.aliased) update_array_data_version(&p->handle->version);
     p->registry = reg;
 
 done:
@@ -495,6 +500,7 @@ static int32_t csncoord_rotmat_axis_k_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p)
         goto done;
     }
 
+    /* as in the init: safe because ROTATE_MAT_AXIS reads data[0..2] directly */
     if (pres.aliased) {
         res = ensure_mutation_capacity(csound, &p->h, p->handle, 9, p->handle->rt_locked);
         if (res != OK) goto done;
@@ -502,7 +508,7 @@ static int32_t csncoord_rotmat_axis_k_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p)
     }
 
     (void) ROTATE_MAT_AXIS(p->handle->data, source_arr->data, angle);
-    update_array_data_version(&p->handle->version);
+    if (pres.aliased) update_array_data_version(&p->handle->version);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);

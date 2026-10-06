@@ -396,7 +396,6 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
         res = csound->InitError(csound, "[csnarray] Shape/rank error");
         goto done;
     }
-    update_array_data_version(&fft_buffer->version);
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -485,7 +484,6 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Shape/rank error");
         goto done;
     }
-    update_array_data_version(&fft_buffer->version);
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -558,7 +556,6 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
         res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
-    update_array_data_version(&fft_buffer->version);
 
     p->buffer.scratch = temp_buffer;
     p->buffer.scratch_capacity = work_size;
@@ -650,7 +647,6 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
-    update_array_data_version(&fft_buffer->version);
 
     p->k_data.prev_axis_u = axis;
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
@@ -1020,9 +1016,6 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
     get_timevec(t_buffer, sr, (double) fft_size, (double) overlap_size);
     get_window_function(win_buffer, (uint32_t) fft_size, wtype, 0.0);
     stft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, win_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, fft_mode);
-    update_array_data_version(&f_buffer->version);
-    update_array_data_version(&t_buffer->version);
-    update_array_data_version(&fft_buffer->version);
 
     SET_KDATA_BEGIN(p->k_data_f, reg, new_shape_f, new_dim_f_t, CSN_REAL);
     SET_KDATA_BEGIN(p->k_data_t, reg, new_shape_t, new_dim_f_t, CSN_REAL);
@@ -1201,8 +1194,6 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     get_window_function_sum(winsum_buffer, win_buffer, source_arr->shape[1], (uint32_t) fft_size, (uint32_t) overlap_size);
     get_timesamples(t_buffer, sr);
     istft_assign_value(csound, ifft_setup, fft_buffer, source_arr, temp_buffer, win_buffer, winsum_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, ifft_mode);
-    update_array_data_version(&t_buffer->version);
-    update_array_data_version(&fft_buffer->version);
 
     SET_KDATA_BEGIN(p->k_data_t, reg, new_shape_t, new_dim_t, CSN_REAL);
     SET_KDATA_BEGIN(p->k_data_x, reg, new_shape_x, new_dim_x, itype);
@@ -1311,9 +1302,6 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
     get_fftfreqs(p->handle_f, sr, (uint32_t) fft_size, fft_mode);
     get_timevec(p->handle_t, sr, (double) fft_size, (double) overlap_size);
     stft_assign_value(csound, fft_setup, p->handle_z, source_arr, temp_buffer, win_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, fft_mode);
-    update_array_data_version(&p->handle_f->version);
-    update_array_data_version(&p->handle_t->version);
-    update_array_data_version(&p->handle_z->version);
 
     SET_KDATA_END(p->k_data_f, shape_f, 1U, CSN_REAL);
     SET_KDATA_END(p->k_data_t, shape_t, 1U, CSN_REAL);
@@ -1391,8 +1379,6 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
     get_window_function_sum(winsum_buffer, win_buffer, source_arr->shape[1], (uint32_t) fft_size, (uint32_t) overlap_size);
     get_timesamples(p->handle_t, sr);
     istft_assign_value(csound, ifft_setup, p->handle_x, source_arr, temp_buffer, win_buffer, winsum_buffer, (uint32_t) fft_size, (uint32_t) overlap_size, work_size, out_size, ifft_mode);
-    update_array_data_version(&p->handle_t->version);
-    update_array_data_version(&p->handle_x->version);
 
     SET_KDATA_END(p->k_data_t, p->handle_t->shape, p->handle_t->ndim, CSN_REAL);
     SET_KDATA_END(p->k_data_x, p->handle_x->shape, p->handle_x->ndim, p->handle_x->itype);
@@ -1613,7 +1599,7 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
         res = csound->InitError(csound, "[csnarray] Incompatible FFT-shift array shapes/ranks");
         goto done;
     }
-    update_array_data_version(&p->handle->version);
+    if (out.aliased) update_array_data_version(&p->handle->version);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -1698,7 +1684,7 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible FFT-shift array shapes/ranks");
         goto done;
     }
-    update_array_data_version(&p->handle->version);
+    if (out.aliased) update_array_data_version(&p->handle->version);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -5545,7 +5531,6 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
         res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
-    update_array_data_version(&p->handle->version);
 
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_COMPLEX);
     set_array_version(&p->k_data.prev_output_version, &p->handle->version);
@@ -5614,7 +5599,6 @@ static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
-    update_array_data_version(&p->handle->version);
 
     SET_KDATA_END(p->k_data, new_shape, new_ndim, CSN_COMPLEX);
     set_array_version(&p->k_data.prev_output_version, &p->handle->version);

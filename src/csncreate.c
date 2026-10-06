@@ -183,6 +183,9 @@ int32_t create_like_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
 
     double fill_value = (double) *p->value;
     fill_csnarray(p->handle, fill_value);
+    /* An output that is its own source (ELEMENTWISE) reaches here untouched by
+       prepare_output, which then moved no version: the fill has to. */
+    if (pres.aliased) update_array_data_version(&p->handle->version);
 
     p->registry = reg;
 
@@ -217,13 +220,10 @@ int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
     res = pres.err;
     if (res != OK) goto done;
 
-    if (pres.aliased) {
-        res = ensure_mutation_capacity(csound, &p->h, p->handle, requested_size, p->handle->rt_locked);
-        if (res != OK) goto done;
-        set_csnarray_layout(p->handle, ndim, shape, requested_size, itype);
-    }
-
+    /* ELEMENTWISE has already refused an aliased output whose layout would
+       change, so the output has the requested layout either way */
     fill_csnarray(p->handle, (double) *p->value);
+    if (pres.aliased) update_array_data_version(&p->handle->version);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -248,6 +248,7 @@ int32_t create_like_csnarray(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
 
     double fill_value = (double) *p->value;
     fill_csnarray(p->handle, fill_value);
+    if (pres.aliased) update_array_data_version(&p->handle->version);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -425,7 +426,6 @@ int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p) {
     if (res != OK) goto done;
 
     fill_csnarray(p->handle, (double) *p->value);
-    update_array_data_version(&p->handle->version);
     p->registry = reg;
 
 done:
