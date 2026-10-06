@@ -389,11 +389,9 @@ typedef struct {
     int32_t prev_axis_i;
     uint32_t prev_index;
     int32_t prev_roll_shift;
-    size_t prev_size;
     uint32_t prev_ndim;
+    size_t prev_size;
     ITEM_TYPE prev_itype;
-    uint32_t owned_handle;
-    uint32_t owned_data_handle;
     double prev_scalar_param;
     double prev_scalar_param_b;
     ARRAY_VERSION prev_source_version;

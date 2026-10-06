@@ -43,6 +43,16 @@ bool SOURCE_HAS_MOVED(const K_DATA *k_data, const CSN_ARRAY *arr);
    non-NULL perf is how such an init knows it serves the k form. */
 static inline bool csn_is_k_form(const OPDS *h) { return h->perf != NULL; }
 
+/* For the in-place k-rate opcodes: their target changes at perf from now on,
+   so whatever reads it must follow it there. */
+static inline void csn_mark_krate(CSN_ARRAY *arr) { arr->rate = CSN_RATE_K; }
+
+/* The binary-operation cores behind the csnadd family and the operators. */
+int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute);
+int32_t csn_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode);
+int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute);
+int32_t csn_binop_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode);
+
 CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy);
 int32_t csn_check_outputs_distinct(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *const *outputs, size_t n_outputs);
 bool is_inarg_i_time(OPDS *h, uint32_t arg_index);

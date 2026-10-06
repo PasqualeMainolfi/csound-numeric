@@ -169,6 +169,7 @@ int32_t csnarray_get_complex_k(CSOUND *csound, CSN_GETCOMPLEX *p) {
 int32_t csnarray_set(CSOUND *csound, CSN_SET *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    if (csn_is_k_form(&p->h)) csn_mark_krate(p->source_handle);
     p->registry = reg;
 
     stamp_globals(csound, &p->h);
@@ -197,6 +198,7 @@ int32_t csnarray_set_k(CSOUND *csound, CSN_SET *p) {
 int32_t csnarray_set_complex(CSOUND *csound, CSN_SETCOMPLEX *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    if (csn_is_k_form(&p->h)) csn_mark_krate(p->source_handle);
     p->registry = reg;
 
     stamp_globals(csound, &p->h);
@@ -894,6 +896,7 @@ static int32_t csnarray_set_slice_locked(CSOUND *csound, OPDS *perf_h, CSN_SET_S
 int32_t csnarray_set_slice(CSOUND *csound, CSN_SET_SLICE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    if (csn_is_k_form(&p->h)) csn_mark_krate(p->source_handle);
     p->registry = reg;
 
     stamp_globals(csound, &p->h);
@@ -1039,6 +1042,8 @@ done:
 int32_t csnarray_push_k_init(CSOUND *csound, CSN_PUSH_K *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    /* the target changes at perf: whatever reads it follows it there */
+    csn_mark_krate(p->source_handle);
     p->registry = reg;
     stamp_globals(csound, &p->h);
     return OK;
@@ -1085,6 +1090,7 @@ done:
 int32_t csnarray_pushcomp_k_init(CSOUND *csound, CSN_PUSHCOMPLEX_K *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     stamp_globals(csound, &p->h);
     p->registry = reg;
     return OK;
@@ -1170,6 +1176,7 @@ done:
 int32_t csnarray_pop_k_init(CSOUND *csound, CSN_POP_K *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     stamp_globals(csound, &p->h);
     p->registry = reg;
     return OK;
@@ -1178,6 +1185,7 @@ int32_t csnarray_pop_k_init(CSOUND *csound, CSN_POP_K *p) {
 int32_t csnarray_popcomp_k_init(CSOUND *csound, CSN_POPCOMPLEX_K *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     stamp_globals(csound, &p->h);
     p->registry = reg;
     return OK;
@@ -1611,6 +1619,7 @@ done:
 int32_t csnarray_insert_block_k_init(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
 
     int32_t res = OK;
     free_private_array(csound, &p->scratch);
@@ -2083,7 +2092,6 @@ int32_t csnarray_concat_block_k_init(CSOUND *csound, CSN_CONCAT *p) {
         memcpy(p->handle->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
     }
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
-    p->k_data.prev_size = source_arr->size;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -2120,7 +2128,6 @@ int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     }
     SET_KDATA_END(p->k_data, new_shape, p->handle->ndim, p->handle->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, (double) axis, 0.0);
-    p->k_data.prev_size = p->handle->size;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -2331,7 +2338,6 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
         }
     }
     SET_KDATA_BEGIN(*k_data, reg, shape, source_arr->ndim, source_arr->itype);
-    k_data->prev_size = out_arr->size;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -2386,12 +2392,12 @@ static int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CS
         res = csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
+
     SET_KDATA_END(*k_data, new_shape, out_arr->ndim, out_arr->itype);
     PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out_arr, fill_re, fill_im);
     k_data->prev_axis_i = axis;
     k_data->prev_index = before;
     k_data->prev_roll_shift = (int32_t) after;
-    k_data->prev_size = out_arr->size;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -2480,6 +2486,7 @@ int32_t csnarray_padcomp_in(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
 static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, ITEM_TYPE expected_itype, CSN_REGISTRY **out_registry, CSN_ARRAY **out_scratch) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(source_arr);
 
     int32_t res = OK;
     free_private_array(csound, out_scratch);
@@ -2763,6 +2770,7 @@ done:
 int32_t csnarray_clip_in_k_init(CSOUND *csound, CSN_CLIP_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     p->registry = reg;
     stamp_globals(csound, &p->h);
     return OK;

@@ -80,7 +80,7 @@ typedef struct {
     bool external_lock;
     bool rt_locked;
     bool shared;
-    uint8_t rate; // i/k
+    uint8_t rate; // CSN_RATE: who produces or writes it
 #ifdef CSN_VERSION_CROSSCHECK
     double *shadow;
     size_t shadow_capacity;
@@ -88,6 +88,15 @@ typedef struct {
     uint64_t shadow_data_version;
 #endif
 } CSN_ARRAY;
+
+/* The rate an array lives at: i-rate by default, which is what a zeroed
+   variable reads as, and k-rate once a k-rate opcode produces it or writes it
+   at perf. CsnArr itself has no rate, so the operators (+, -, ...) run their
+   perf pass only while one of their operands is k-rate. */
+typedef enum {
+    CSN_RATE_I = 0,
+    CSN_RATE_K = 1
+} CSN_RATE;
 
 typedef struct {
     uint64_t state;

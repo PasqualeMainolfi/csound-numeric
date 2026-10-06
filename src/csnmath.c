@@ -147,69 +147,114 @@ static int32_t binop_hh_assign_value(CSOUND *csound, OPDS *perf_h, CSN_BROADCAST
    index itself, so binop_hh_assign_value reads each element before it writes
    it, and the other operand, which may be broadcast, is never the output:
    X = csnadd(X, Y) and X = csnmul(X, X) run in place with no working copy. */
-static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BINOP_MODE mode, bool is_k_init) {
+static int32_t binop_hh_layout(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *a, const CSN_ARRAY *b, CSN_BINOP_MODE mode, uint32_t *ndim, uint32_t *shape, CSN_BROADCAST_ITER *it, ITEM_TYPE *itype) {
+    size_t size = 0;
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
+    const CSN_ARRAY *sources[2] = { a, b };
+
+    char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+    if (BROADCAST_INIT(ndim, shape, &size, broad_strides, sources, 2) != OK
+        || BROADCAST_ITER_INIT(it, *ndim, shape, size, broad_strides, 2) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), a->shape, a->ndim), shape_str(bbuf, sizeof(bbuf), b->shape, b->ndim));
+    }
+
+    bool any_complex = a->itype == CSN_COMPLEX || b->itype == CSN_COMPLEX;
+    if (any_complex && (mode == CSN_LOGICAL_AND_HH || mode == CSN_LOGICAL_OR_HH)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Logical and and or supports real array only");
+    }
+    if (any_complex && mode == CSN_HYPOT_HH) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Hypot supports real array only");
+    }
+    if (any_complex && (mode == CSN_MINIMUM_HH || mode == CSN_MAXIMUM_HH)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Minimum/Maximum supports real array only");
+    }
+    if (any_complex && mode == CSN_ATAN2_HH) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] atan2 supports real array only");
+    }
+
+    *itype = any_complex ? CSN_COMPLEX : CSN_REAL;
+    return OK;
+}
+
+/* The array-array core, shared by the csnadd family and the operators.
+
+   An output that is one of its operands has the broadcast shape and type, or
+   CSN_ALIAS_ELEMENTWISE refuses it. That operand's offset is then the linear
+   index itself, so binop_hh_assign_value reads each element before it writes
+   it, and the other operand, which may be broadcast, is never the output:
+   X = csnadd(X, Y) and X = csnmul(X, X) run in place with no working copy.
+   compute false only lays the output out; the first perf pass computes. */
+int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    stamp_globals(csound, &p->h);
+    stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, a, b }, 3);
 
-    CSN_ARRAY *source_arr_a = p->source_handle_a;
-    CSN_ARRAY *source_arr_b = p->source_handle_b;
-
-    size_t new_size = 0;
     uint32_t new_ndim = 0;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
-    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
-
-    char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
-    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
-        goto done;
-    }
-
     CSN_BROADCAST_ITER it = {0};
-    if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
-        goto done;
-    }
-
-    bool any_complex = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX;
-    if (any_complex && (mode == CSN_LOGICAL_AND_HH || mode == CSN_LOGICAL_OR_HH)) {
-        res = csound->InitError(csound, "[csnarray] Logical and and or supports real array only");
-        goto done;
-    }
-    if (any_complex && mode == CSN_HYPOT_HH) {
-        res = csound->InitError(csound, "[csnarray] Hypot supports real array only");
-        goto done;
-    }
-    if (any_complex && (mode == CSN_MINIMUM_HH || mode == CSN_MAXIMUM_HH)) {
-        res = csound->InitError(csound, "[csnarray] Minimum/Maximum supports real array only");
-        goto done;
-    }
-    if (any_complex && mode == CSN_ATAN2_HH) {
-        res = csound->InitError(csound, "[csnarray] atan2 supports real array only");
-        goto done;
-    }
-
-    ITEM_TYPE itype = any_complex ? CSN_COMPLEX : CSN_REAL;
-
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, itype, sources, 2, CSN_ALIAS_ELEMENTWISE);
-    res = out.err;
+    ITEM_TYPE itype = CSN_REAL;
+    res = binop_hh_layout(csound, NULL, a, b, mode, &new_ndim, new_shape, &it, &itype);
     if (res != OK) goto done;
-    pres.locked |= out.locked;
 
-    /* The k form computes on its first pass, where its trigger decides. */
-    if (!is_k_init) {
-        res = binop_hh_assign_value(csound, NULL, &it, source_arr_a, source_arr_b, p->handle, itype, mode);
+    const CSN_ARRAY *sources[2] = { a, b };
+    CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, new_ndim, new_shape, itype, sources, 2, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    if (compute) {
+        res = binop_hh_assign_value(csound, NULL, &it, a, b, out, itype, mode);
         if (res != OK) goto done;
-        if (out.aliased) update_array_data_version(&p->handle->version);
+        if (r.aliased) update_array_data_version(&out->version);
     }
 
-    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, itype);
+    SET_KDATA_BEGIN(*k_data, reg, new_shape, new_ndim, itype);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BINOP_MODE mode, bool is_k_init) {
+    /* the k form computes on its first pass, where its trigger decides */
+    return csn_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, mode, !is_k_init);
+}
+
+int32_t csn_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REGISTRY(csound, h, reg);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, a, b }, 3);
+
+    /* never true for an output that is one of its operands: X = csnadd(X, Y)
+       is meant to apply again on every pass */
+    if (CAN_REUSE_ELEMENTWISE(k_data, a, b, out, 0.0, 0.0)) goto done;
+
+    uint32_t new_ndim = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    CSN_BROADCAST_ITER it = {0};
+    ITEM_TYPE itype = CSN_REAL;
+    res = binop_hh_layout(csound, h, a, b, mode, &new_ndim, new_shape, &it, &itype);
+    if (res != OK) goto done;
+
+    const CSN_ARRAY *sources[2] = { a, b };
+    CSNARR_RES r = prepare_output(csound, h, h, reg, out, new_ndim, new_shape, itype, sources, 2, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    res = binop_hh_assign_value(csound, h, &it, a, b, out, itype, mode);
+    if (res != OK) goto done;
+    if (r.aliased) update_array_data_version(&out->version);
+
+    SET_KDATA_END(*k_data, new_shape, new_ndim, itype);
+    PUBLISH_ELEMENTWISE(k_data, a, b, out, 0.0, 0.0);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -217,75 +262,8 @@ done:
 }
 
 static int32_t csnarray_binop_hh_k_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BINOP_MODE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
-
     CHECK_KTRIG(p->trig);
-
-    int32_t res = OK;
-    CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
-
-    CSN_ARRAY *source_arr_a = p->source_handle_a;
-    CSN_ARRAY *source_arr_b = p->source_handle_b;
-
-    /* never true for an output that is one of its operands: X = csnadd(X, Y)
-       is meant to apply again on every pass */
-    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr_a, source_arr_b, p->handle, 0.0, 0.0)) goto done;
-
-    uint32_t new_ndim = 0;
-    size_t new_size = 0;
-    uint32_t new_shape[CSN_MAX_DIMS] = {0};
-    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
-    const CSN_ARRAY *sources[2] = { source_arr_a, source_arr_b };
-
-    char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
-    if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
-        goto done;
-    }
-
-    CSN_BROADCAST_ITER it = {0};
-    if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
-        goto done;
-    }
-
-    bool any_complex = source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX;
-    if (any_complex && (mode == CSN_LOGICAL_AND_HH || mode == CSN_LOGICAL_OR_HH)) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Logical and and or supports real array only");
-        goto done;
-    }
-    if (any_complex && mode == CSN_HYPOT_HH) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Hypot supports real array only");
-        goto done;
-    }
-    if (any_complex && (mode == CSN_MINIMUM_HH || mode == CSN_MAXIMUM_HH)) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Minimum/Maximum supports real array only");
-        goto done;
-    }
-    if (any_complex && mode == CSN_ATAN2_HH) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] atan2 supports real array only");
-        goto done;
-    }
-
-    ITEM_TYPE itype = any_complex ? CSN_COMPLEX : CSN_REAL;
-
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, itype, sources, 2, CSN_ALIAS_ELEMENTWISE);
-    res = out.err;
-    if (res != OK) goto done;
-    pres.locked |= out.locked;
-
-    res = binop_hh_assign_value(csound, &p->h, &it, source_arr_a, source_arr_b, p->handle, itype, mode);
-    if (res != OK) goto done;
-    if (out.aliased) update_array_data_version(&p->handle->version);
-
-    SET_KDATA_END(p->k_data, new_shape, new_ndim, itype);
-    PUBLISH_ELEMENTWISE(&p->k_data, source_arr_a, source_arr_b, p->handle, 0.0, 0.0);
-
-done:
-    if (pres.locked) csn_unlock(csound, reg);
-    return res;
+    return csn_binop_hh_perf(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, mode);
 }
 
 
@@ -496,71 +474,64 @@ static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const cs_f
    single cast would silently swap them. Each result element comes from the
    element in the same cell, so X = csnmul(X, 0.5) runs in place
    (CSN_ALIAS_ELEMENTWISE). */
-static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
+/* The array-scalar core, shared by the csnadd.hs family and the operators.
+   Each result element comes from the element in the same cell, so
+   X = csnmul(X, 0.5) runs in place (CSN_ALIAS_ELEMENTWISE). compute false only
+   lays the output out, for the k forms whose scalar is a k-argument still at
+   its init value: the first perf pass computes. */
+int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    stamp_globals(csound, &p->h);
+    stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, source_arr }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, source_arr }, 2);
 
     res = binop_hs_sh_body(csound, NULL, source_arr, complex_arg, mode);
     if (res != OK) goto done;
 
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
-    res = out.err;
+    CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
     if (res != OK) goto done;
-    pres.locked |= out.locked;
+    pres.locked |= r.locked;
 
-    res = binop_hs_sh_assign_value(csound, NULL, scalar_arg, complex_arg, source_arr, p->handle, mode);
-    if (res != OK) goto done;
-    if (out.aliased) update_array_data_version(&p->handle->version);
+    if (compute) {
+        res = binop_hs_sh_assign_value(csound, NULL, scalar_arg, complex_arg, source_arr, out, mode);
+        if (res != OK) goto done;
+        if (r.aliased) update_array_data_version(&out->version);
+    }
+
+    SET_KDATA_BEGIN(*k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
+}
+
+/* The array and the scalar are passed explicitly rather than read off a cast
+   struct: CSN_BINOP_SH lists them in the opposite order to CSN_BINOP_HS, so a
+   single cast would silently swap them. */
+static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
+    return csn_binop_hs_sh_init(csound, &p->h, p->handle, source_arr, scalar_arg, complex_arg, &p->k_data, mode, true);
 }
 
 /* The scalar is a k-argument, still at its init value here: the output only
    takes its layout, and the first pass computes. */
 static int32_t csnarray_binop_hs_sh_k_init_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    int32_t res = OK;
-    stamp_globals(csound, &p->h);
-    CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, source_arr }, 2);
-
-    res = binop_hs_sh_body(csound, NULL, source_arr, complex_arg, mode);
-    if (res != OK) goto done;
-
-    const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
-    res = out.err;
-    if (res != OK) goto done;
-    pres.locked |= out.locked;
-
-    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
-
-done:
-    if (pres.locked) csn_unlock(csound, reg);
-    return res;
+    return csn_binop_hs_sh_init(csound, &p->h, p->handle, source_arr, NULL, complex_arg, &p->k_data, mode, false);
 }
 
-static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, cs_float *trig, CSN_BINOP_MODE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
-
-    CHECK_KTRIG(trig);
+int32_t csn_binop_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REGISTRY(csound, h, reg);
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, source_arr }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, source_arr }, 2);
 
-    res = binop_hs_sh_body(csound, &p->h, source_arr, complex_arg, mode);
+    res = binop_hs_sh_body(csound, h, source_arr, complex_arg, mode);
     if (res != OK) goto done;
 
     /* The scalar parameter belongs to the reuse key just as much as the array:
@@ -571,24 +542,29 @@ static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p
         complexdat_to_rect(complex_arg, &scalar_key, &scalar_key_im);
     }
 
-    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, scalar_key, scalar_key_im)) goto done;
+    if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, out, scalar_key, scalar_key_im)) goto done;
 
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
-    res = out.err;
+    CSNARR_RES r = prepare_output(csound, h, h, reg, out, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
     if (res != OK) goto done;
-    pres.locked |= out.locked;
+    pres.locked |= r.locked;
 
-    res = binop_hs_sh_assign_value(csound, &p->h, scalar_arg, complex_arg, source_arr, p->handle, mode);
+    res = binop_hs_sh_assign_value(csound, h, scalar_arg, complex_arg, source_arr, out, mode);
     if (res != OK) goto done;
-    if (out.aliased) update_array_data_version(&p->handle->version);
+    if (r.aliased) update_array_data_version(&out->version);
 
-    SET_KDATA_END(p->k_data, source_arr->shape, source_arr->ndim, source_arr->itype);
-    PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, scalar_key, scalar_key_im);
+    SET_KDATA_END(*k_data, source_arr->shape, source_arr->ndim, source_arr->itype);
+    PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out, scalar_key, scalar_key_im);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
+}
+
+static int32_t csnarray_binop_hs_sh_k_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, cs_float *trig, CSN_BINOP_MODE mode) {
+    CHECK_KTRIG(trig);
+    return csn_binop_hs_sh_perf(csound, &p->h, p->handle, source_arr, scalar_arg, complex_arg, &p->k_data, mode);
 }
 
 int32_t csnarray_add_hh(CSOUND *csound, CSN_BINOP_HH *p) {
@@ -2009,6 +1985,7 @@ done:
 static int32_t csnarray_angle_in_k_init_helper(CSOUND *csound, CSN_ANGLE_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     p->registry = reg;
     stamp_globals(csound, &p->h);
     return OK;
@@ -2351,6 +2328,7 @@ done:
 int32_t csnarray_unaryop_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
 
     p->registry = reg;
     stamp_globals(csound, &p->h);

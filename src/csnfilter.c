@@ -343,6 +343,7 @@ int32_t csnarray_medfilt_in_deinit(CSOUND *csound, CSN_MEDFILT_IN *p) {
 int32_t csnarray_medfilt1d_in_k_init(CSOUND *csound, CSN_MEDFILT_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
 
     p->k_data.registry = reg;
     stamp_globals(csound, &p->h);
@@ -733,6 +734,7 @@ int32_t csnarray_medfilt_arr_k(CSOUND *csound, CSN_MEDFILT_ND_ARR *p) {
 static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *source_arr, const cs_float *kernel_size_in, ARRAYDAT *kernel_shape_in, CSN_SCRATCH *buffer, bool is_kernel_shape, size_t *kernel_total_size, uint32_t *kernel_shape) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(source_arr);
     k_data->registry = reg;
 
     int32_t res = OK;

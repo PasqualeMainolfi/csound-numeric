@@ -8,6 +8,7 @@
 #include "csnset.h"
 #include "csnspecial.h"
 #include "csnregistry.h"
+#include "csnoperations.h"
 #include <float.h>
 #include <csdl.h>
 #include <math.h>
@@ -556,6 +557,11 @@ CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *r
             update_array_data_version(&out->version);
         }
     }
+
+    /* An output produced by a k-rate opcode lives at k-rate. The rate only
+       rises: a variable that some k-rate opcode writes stays k-rate even when
+       an i-rate one also writes it. */
+    if (perf_h == NULL && csn_is_k_form(h)) out->rate = CSN_RATE_K;
 
     /* Decided once per note: recomputing it at perf would undo an explicit
        csnrtunlock on the next pass. */
@@ -1474,6 +1480,56 @@ static OENTRY localops[] = {
     { "csnstd.ax.k",             S(CSN_REDUCTION),                0, ":CsnArr;",                 ":CsnArr;kk",                    (SUBR) csnarray_std_k_init,                  (SUBR) csnarray_std_k,                  (SUBR) csnarray_reduction_deinit,        NULL, 0 },
     { "csnvar.ax",               S(CSN_REDUCTION),                0, ":CsnArr;",                 ":CsnArr;i",                     (SUBR) csnarray_var,                         NULL,                                   (SUBR) csnarray_reduction_deinit,        NULL, 0 },
     { "csnvar.ax.k",             S(CSN_REDUCTION),                0, ":CsnArr;",                 ":CsnArr;kk",                    (SUBR) csnarray_var_k_init,                  (SUBR) csnarray_var_k,                  (SUBR) csnarray_reduction_deinit,        NULL, 0 },
+
+    // OPERATORS: Csound compiles A + B to ##add, A += B to ##addin, -A to ##mul(-1, A), X = A to =.CsnArr
+    { "##add.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_add_hh_init,                    (SUBR) csnop_add_hh_perf,               NULL,                                    NULL, 0 },
+    { "##add.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_add_hi_init,                    (SUBR) csnop_add_hs_perf,               NULL,                                    NULL, 0 },
+    { "##add.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_add_hk_init,                    (SUBR) csnop_add_hs_perf,               NULL,                                    NULL, 0 },
+    { "##add.iH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "i:CsnArr;",                     (SUBR) csnop_add_ih_init,                    (SUBR) csnop_add_sh_perf,               NULL,                                    NULL, 0 },
+    { "##add.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_add_kh_init,                    (SUBR) csnop_add_sh_perf,               NULL,                                    NULL, 0 },
+    { "##add.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_add_hc_init,                    (SUBR) csnop_add_hc_perf,               NULL,                                    NULL, 0 },
+    { "##add.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_add_ch_init,                    (SUBR) csnop_add_ch_perf,               NULL,                                    NULL, 0 },
+    { "##sub.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_sub_hh_init,                    (SUBR) csnop_sub_hh_perf,               NULL,                                    NULL, 0 },
+    { "##sub.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_sub_hi_init,                    (SUBR) csnop_sub_hs_perf,               NULL,                                    NULL, 0 },
+    { "##sub.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_sub_hk_init,                    (SUBR) csnop_sub_hs_perf,               NULL,                                    NULL, 0 },
+    { "##sub.iH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "i:CsnArr;",                     (SUBR) csnop_sub_ih_init,                    (SUBR) csnop_sub_sh_perf,               NULL,                                    NULL, 0 },
+    { "##sub.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_sub_kh_init,                    (SUBR) csnop_sub_sh_perf,               NULL,                                    NULL, 0 },
+    { "##sub.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_sub_hc_init,                    (SUBR) csnop_sub_hc_perf,               NULL,                                    NULL, 0 },
+    { "##sub.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_sub_ch_init,                    (SUBR) csnop_sub_ch_perf,               NULL,                                    NULL, 0 },
+    { "##mul.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_mul_hh_init,                    (SUBR) csnop_mul_hh_perf,               NULL,                                    NULL, 0 },
+    { "##mul.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_mul_hi_init,                    (SUBR) csnop_mul_hs_perf,               NULL,                                    NULL, 0 },
+    { "##mul.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_mul_hk_init,                    (SUBR) csnop_mul_hs_perf,               NULL,                                    NULL, 0 },
+    { "##mul.iH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "i:CsnArr;",                     (SUBR) csnop_mul_ih_init,                    (SUBR) csnop_mul_sh_perf,               NULL,                                    NULL, 0 },
+    { "##mul.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_mul_kh_init,                    (SUBR) csnop_mul_sh_perf,               NULL,                                    NULL, 0 },
+    { "##mul.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_mul_hc_init,                    (SUBR) csnop_mul_hc_perf,               NULL,                                    NULL, 0 },
+    { "##mul.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_mul_ch_init,                    (SUBR) csnop_mul_ch_perf,               NULL,                                    NULL, 0 },
+    { "##div.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_div_hh_init,                    (SUBR) csnop_div_hh_perf,               NULL,                                    NULL, 0 },
+    { "##div.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_div_hi_init,                    (SUBR) csnop_div_hs_perf,               NULL,                                    NULL, 0 },
+    { "##div.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_div_hk_init,                    (SUBR) csnop_div_hs_perf,               NULL,                                    NULL, 0 },
+    { "##div.iH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "i:CsnArr;",                     (SUBR) csnop_div_ih_init,                    (SUBR) csnop_div_sh_perf,               NULL,                                    NULL, 0 },
+    { "##div.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_div_kh_init,                    (SUBR) csnop_div_sh_perf,               NULL,                                    NULL, 0 },
+    { "##div.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_div_hc_init,                    (SUBR) csnop_div_hc_perf,               NULL,                                    NULL, 0 },
+    { "##div.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_div_ch_init,                    (SUBR) csnop_div_ch_perf,               NULL,                                    NULL, 0 },
+    { "##pow.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_pow_hh_init,                    (SUBR) csnop_pow_hh_perf,               NULL,                                    NULL, 0 },
+    { "##pow.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_pow_hi_init,                    (SUBR) csnop_pow_hs_perf,               NULL,                                    NULL, 0 },
+    { "##pow.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_pow_hk_init,                    (SUBR) csnop_pow_hs_perf,               NULL,                                    NULL, 0 },
+    { "##pow.iH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "i:CsnArr;",                     (SUBR) csnop_pow_ih_init,                    (SUBR) csnop_pow_sh_perf,               NULL,                                    NULL, 0 },
+    { "##pow.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_pow_kh_init,                    (SUBR) csnop_pow_sh_perf,               NULL,                                    NULL, 0 },
+    { "##pow.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_pow_hc_init,                    (SUBR) csnop_pow_hc_perf,               NULL,                                    NULL, 0 },
+    { "##pow.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_pow_ch_init,                    (SUBR) csnop_pow_ch_perf,               NULL,                                    NULL, 0 },
+    { "##addin.HH",              S(CSN_OP_IN_HH),                 0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_addin_hh_init,                  (SUBR) csnop_addin_hh_perf,             NULL,                                    NULL, 0 },
+    { "##addin.Hi",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "i",                             (SUBR) csnop_addin_hi_init,                  (SUBR) csnop_addin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##addin.Hk",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "k",                             (SUBR) csnop_addin_hk_init,                  (SUBR) csnop_addin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##subin.HH",              S(CSN_OP_IN_HH),                 0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_subin_hh_init,                  (SUBR) csnop_subin_hh_perf,             NULL,                                    NULL, 0 },
+    { "##subin.Hi",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "i",                             (SUBR) csnop_subin_hi_init,                  (SUBR) csnop_subin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##subin.Hk",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "k",                             (SUBR) csnop_subin_hk_init,                  (SUBR) csnop_subin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##mulin.HH",              S(CSN_OP_IN_HH),                 0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_mulin_hh_init,                  (SUBR) csnop_mulin_hh_perf,             NULL,                                    NULL, 0 },
+    { "##mulin.Hi",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "i",                             (SUBR) csnop_mulin_hi_init,                  (SUBR) csnop_mulin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##mulin.Hk",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "k",                             (SUBR) csnop_mulin_hk_init,                  (SUBR) csnop_mulin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##divin.HH",              S(CSN_OP_IN_HH),                 0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_divin_hh_init,                  (SUBR) csnop_divin_hh_perf,             NULL,                                    NULL, 0 },
+    { "##divin.Hi",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "i",                             (SUBR) csnop_divin_hi_init,                  (SUBR) csnop_divin_hs_perf,             NULL,                                    NULL, 0 },
+    { "##divin.Hk",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "k",                             (SUBR) csnop_divin_hk_init,                  (SUBR) csnop_divin_hs_perf,             NULL,                                    NULL, 0 },
+    { "=.CsnArr",                S(CSN_OP_ASSIGN),                0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_assign_init,                    (SUBR) csnop_assign_perf,               NULL,                                    NULL, 0 },
     { "csnadd",                  S(CSN_BINOP_HH),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_add_hh,                      NULL,                                   NULL,                                    NULL, 0 },
     { "csnadd.k",                S(CSN_BINOP_HH),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;k",             (SUBR) csnarray_add_hh_k_init,               (SUBR) csnarray_add_hh_k,               NULL,                                    NULL, 0 },
     { "csnadd.hs",               S(CSN_BINOP_HS),                 0, ":CsnArr;",                 ":CsnArr;i",                     (SUBR) csnarray_add_hs,                      NULL,                                   NULL,                                    NULL, 0 },

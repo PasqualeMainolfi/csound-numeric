@@ -12,6 +12,7 @@ if(BUILD_CSNUM_OPCODES)
         src/csnselect.c
         src/csnstats.c
         src/csnmath.c
+        src/csnoperations.c
         src/csnvector.c
         src/csnsignal.c
         src/csninterp.c

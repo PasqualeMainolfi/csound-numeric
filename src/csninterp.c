@@ -1542,6 +1542,7 @@ int32_t csnarray_head_k(CSOUND *csound, CSN_TRUNCATE *p) {
 int32_t csnarray_truncate_in_k_init(CSOUND *csound, CSN_TRUNCATE_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     p->k_data.registry = reg;
     stamp_globals(csound, &p->h);
     p->is_published = false;
@@ -1687,6 +1688,7 @@ done:
 int32_t csnarray_resize_in_k_init(CSOUND *csound, CSN_RESIZE_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    csn_mark_krate(p->source_handle);
     p->registry = reg;
     stamp_globals(csound, &p->h);
     p->is_published = false;
