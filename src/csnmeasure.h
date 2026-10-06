@@ -41,7 +41,6 @@ typedef struct {
     CSN_ARRAY *source_handle_c; // alpha must be n x m [[a_0, a_1, ..., a_n - 1], ...],
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     CSN_THREE_VERSION_K_STATE versions;
     K_DATA k_data;
     bool is_published;
@@ -73,7 +72,6 @@ typedef struct {
     CSN_ARRAY *source_handle_b; // T60 target must be 1D
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_REQABSOLEV_HH;
@@ -87,7 +85,6 @@ typedef struct {
     CSN_ARRAY *source_handle; // T60 target
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_REQABSOLEV_SH;
@@ -101,7 +98,6 @@ typedef struct {
     cs_float *arg_b; // T60 target
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_REQABSOLEV_HS;
@@ -116,7 +112,6 @@ typedef struct {
     cs_float *sound_speed;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_FMODUS_ARR;
@@ -144,13 +139,11 @@ typedef struct {
     cs_float *sr;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     bool is_published;
 } CSN_SRTIMES;
 
 
-int32_t csnarray_sabeyr_arr_deinit(CSOUND *csound, CSN_SABEYR_ARR *p);
 int32_t csnarray_sabeyr_scalar_k_init(CSOUND *csound, CSN_SABEYR_SCALAR *p);
 
 int32_t csnarray_sabine_arr(CSOUND *csound, CSN_SABEYR_ARR *p);
@@ -161,10 +154,6 @@ int32_t csnarray_eyring_arr(CSOUND *csound, CSN_SABEYR_ARR *p);
 int32_t csnarray_eyring_scalar(CSOUND *csound, CSN_SABEYR_SCALAR *p);
 int32_t csnarray_eyring_arr_k(CSOUND *csound, CSN_SABEYR_ARR *p);
 int32_t csnarray_eyring_scalar_k(CSOUND *csound, CSN_SABEYR_SCALAR *p);
-
-int32_t csnarray_reqabsorption_hh_deinit(CSOUND *csound, CSN_REQABSOLEV_HH *p);
-int32_t csnarray_reqabsorption_sh_deinit(CSOUND *csound, CSN_REQABSOLEV_SH *p);
-int32_t csnarray_reqabsorption_hs_deinit(CSOUND *csound, CSN_REQABSOLEV_HS *p);
 
 int32_t csnarray_reqabsorption_hh(CSOUND *csound, CSN_REQABSOLEV_HH *p);
 int32_t csnarray_reqabsorption_sh(CSOUND *csound, CSN_REQABSOLEV_SH *p);
@@ -190,14 +179,12 @@ int32_t csnarray_fschroeder_hs_k(CSOUND *csound, CSN_REQABSOLEV_HS *p);
 int32_t csnarray_fschroeder_ss(CSOUND *csound, CSN_NONARR_OP *p);
 int32_t csnarray_fschroeder_ss_k(CSOUND *csound, CSN_NONARR_OP *p);
 
-int32_t csnarray_fpqr_deinit(CSOUND *csound, CSN_FMODUS_ARR *p);
-
 int32_t csnarray_fpqr_nd(CSOUND *csound, CSN_FMODUS_ARR *p);
 int32_t csnarray_fpqr_1d(CSOUND *csound, CSN_FMODUS_SCALAR *p);
+int32_t csnarray_fpqr_nd_k_init(CSOUND *csound, CSN_FMODUS_ARR *p);
 int32_t csnarray_fpqr_nd_k(CSOUND *csound, CSN_FMODUS_ARR *p);
 int32_t csnarray_fpqr_1d_k(CSOUND *csound, CSN_FMODUS_SCALAR *p);
 
-int32_t csnarray_srtimes_deinit(CSOUND *csound, CSN_SRTIMES *p);
 int32_t csnarray_samplestomillis(CSOUND *csound, CSN_SRTIMES *p);
 int32_t csnarray_samplestoseconds(CSOUND *csound, CSN_SRTIMES *p);
 int32_t csnarray_millistosamples(CSOUND *csound, CSN_SRTIMES *p);
@@ -206,6 +193,10 @@ int32_t csnarray_samplestomillis_k(CSOUND *csound, CSN_SRTIMES *p);
 int32_t csnarray_samplestoseconds_k(CSOUND *csound, CSN_SRTIMES *p);
 int32_t csnarray_millistosamples_k(CSOUND *csound, CSN_SRTIMES *p);
 int32_t csnarray_secondstosamples_k(CSOUND *csound, CSN_SRTIMES *p);
+int32_t csnarray_samplestomillis_k_init(CSOUND *csound, CSN_SRTIMES *p);
+int32_t csnarray_samplestoseconds_k_init(CSOUND *csound, CSN_SRTIMES *p);
+int32_t csnarray_millistosamples_k_init(CSOUND *csound, CSN_SRTIMES *p);
+int32_t csnarray_secondstosamples_k_init(CSOUND *csound, CSN_SRTIMES *p);
 
 int32_t csnarray_samplestomillis_s(CSOUND *csound, CSN_NONARR_OP *p);
 int32_t csnarray_samplestoseconds_s(CSOUND *csound, CSN_NONARR_OP *p);
