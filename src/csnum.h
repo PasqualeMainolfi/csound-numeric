@@ -370,8 +370,8 @@ typedef struct {
 } ARRAY_ELEMENT;
 
 typedef struct {
-    uint32_t owned_handle_q;
-    uint32_t owned_handle_r;
+    ARRAY_VERSION prev_q_version;
+    ARRAY_VERSION prev_r_version;
     ARRAY_VERSION prev_source_a_version;
     ARRAY_VERSION prev_source_b_version;
 } CSN_DIVMOD_K_STATE;

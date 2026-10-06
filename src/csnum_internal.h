@@ -38,6 +38,11 @@ bool IS_VALID_INDEX(double index);
 bool IS_VALID_SHIFT(double shift);
 bool IS_VALID_VALUE_INT32(double value);
 bool SOURCE_HAS_MOVED(const K_DATA *k_data, const CSN_ARRAY *arr);
+/* Several k-rate overloads share their init function with the i-rate form.
+   Csound sets an opcode's perf function before its init pass runs, so a
+   non-NULL perf is how such an init knows it serves the k form. */
+static inline bool csn_is_k_form(const OPDS *h) { return h->perf != NULL; }
+
 CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy);
 int32_t csn_check_outputs_distinct(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *const *outputs, size_t n_outputs);
 bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
@@ -273,6 +278,7 @@ int32_t csnarray_unaryop_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p);
 int32_t csnarray_unique_k_init(CSOUND *csound, CSN_COMPARE *p);
 int32_t csnarray_unpack_audio_init(CSOUND *csound, CSN_UNPACK_AUDIO *p);
 int32_t csnarray_unwrap_angle_in_k_init(CSOUND *csound, CSN_ANGLE_IN *p);
+int32_t csnarray_wrap_angle_in_k_init(CSOUND *csound, CSN_ANGLE_IN *p);
 int32_t csnarray_unwrap_angle_k_init(CSOUND *csound, CSN_ANGLE *p);
 int32_t csnarray_var_all_k_init(CSOUND *csound, CSN_REDUCTION_SCALAR *p);
 int32_t csnarray_var_k_init(CSOUND *csound, CSN_REDUCTION *p);
