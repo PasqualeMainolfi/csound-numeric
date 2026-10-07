@@ -276,19 +276,12 @@ static int32_t legendre_arr_helper(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
     int32_t res = read_degree_pair(csound, NULL, (double) *p->n, (double) *p->m, false, &p->degree_n, &p->degree_m);
     if (res != OK) return res;
 
-    uint32_t source_handle = p->source_handle->id;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle, }, 2);
+
     double bad = 0.0;
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-    CSN_ARRAY *source_arr = source_slot->array;
-
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
         res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
@@ -298,91 +291,77 @@ static int32_t legendre_arr_helper(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
         goto done;
     }
 
-    const uint32_t protect[1] = { source_handle };
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, CSN_REAL, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    CSN_ARRAY *arr = p->array;
-    set_csnarray_layout(arr, source_arr->ndim, source_arr->shape, source_arr->size, CSN_REAL);
-    if (!legendre_fill(source_arr, arr, p->degree_n, p->degree_m)) {
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, CSN_REAL);
+
+    /* At k-rate an output that is its own source is computed by every perf
+       pass; computing here as well would apply P twice in the first cycle. */
+    if (csn_is_k_form(&p->h) && out.aliased) goto done;
+
+    CSN_ARRAY *arr = p->handle;
+    bool finite = legendre_fill(source_arr, arr, p->degree_n, p->degree_m);
+    // written in place even when a value overflowed: the version must follow
+    if (out.aliased) update_array_data_version(&arr->version);
+    if (!finite) {
         res = csound->InitError(csound, "[csnarray] P_%d^%d overflows the double range", p->degree_n, p->degree_m);
         goto done;
     }
-    update_array_data_version(&arr->version);
-    SET_KDATA_BEGIN(p, reg);
-    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) p->degree_n, (double) p->degree_m);
+
+    PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, arr, (double) p->degree_n, (double) p->degree_m);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t legendre_arr_k_helper(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
-
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
-    const char *err = NULL;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle, }, 2);
+
     double bad = 0.0;
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_SLOT *source_slot = get_slot(reg, source_handle);
-    if (source_slot == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-    CSN_ARRAY *source_arr = source_slot->array;
-
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
-    /* Cell-local: X = csnlegendre(n, m, X) reads every cell before writing
-       it, so only a change of layout is refused. */
-    res = CHECK_SELF_ALIAS_CELL_LOCAL(csound, &p->h, &p->k_data, source_handle, source_arr, source_arr->ndim, source_arr->shape, CSN_REAL);
-    if (res != OK) goto done;
-
-    CSN_SLOT *out_slot = get_slot(reg, owned_handle);
-    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, out_slot->array, (double) p->degree_n, (double) p->degree_m)) {
-        p->handle->id = owned_handle;
-        goto done;
-    }
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, (double) p->degree_n, (double) p->degree_m)) goto done;
 
     if (!legendre_source_is_valid(source_arr, &bad)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] P_n^m(x) is defined for x in [-1, 1], got %g", bad);
         goto done;
     }
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, source_arr->ndim, source_arr->shape) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-        goto done;
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = source_arr->size == 0 ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, source_arr->ndim, source_arr->shape, logical_size, CSN_REAL, err);
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, source_arr->shape, CSN_REAL, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
-    if (!legendre_fill(source_arr, arr, p->degree_n, p->degree_m)) {
+    bool finite = legendre_fill(source_arr, p->handle, p->degree_n, p->degree_m);
+    if (out.aliased) update_array_data_version(&p->handle->version);
+    if (!finite) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] P_%d^%d overflows the double range", p->degree_n, p->degree_m);
         goto done;
     }
 
-    SET_KDATA_END(p, source_arr->shape, source_arr->ndim, CSN_REAL);
-    PUBLISH_ELEMENTWISE(&p->k_data, source_handle, source_arr, 0, NULL, arr, (double) p->degree_n, (double) p->degree_m);
+    SET_KDATA_END(p->k_data, source_arr->shape, source_arr->ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, (double) p->degree_n, (double) p->degree_m);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -392,10 +371,6 @@ int32_t csnspecial_legendre_arr(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
 
 int32_t csnspecial_legendre_arr_k(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
     return legendre_arr_k_helper(csound, p);
-}
-
-int32_t csnspecial_legendre_arr_deinit(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 /* ---------------------------------------------------------------------------
@@ -437,6 +412,7 @@ int32_t csnspecial_sphharm_k(CSOUND *csound, CSN_SPHHARM *p) {
 static int32_t sphharm_acn_helper(CSOUND *csound, CSN_SPHHARM_ACN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    stamp_globals(csound, &p->h);
 
     /* The order fixes the length of the output and the unit how the angles
        read: both are i-arguments in both overloads, validated once here. */
@@ -452,38 +428,39 @@ static int32_t sphharm_acn_helper(CSOUND *csound, CSN_SPHHARM_ACN *p) {
         elevation *= CSN_RAD_PER_DEG;
     }
 
-    const char *err = NULL;
     uint32_t new_ndim = 1U;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) sh_channels(p->order_value);
 
-    csound->LockMutex(reg->mutex);
-    /* Nothing to protect: every input is a scalar. */
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
+
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
     /* Filled on both passes, as csnrotmat does: in the k-rate form the angles
        hold whatever the init chain wrote into them, and the set at that
        direction is still a proper set for a consumer's own init to read. */
-    csn_sh_sn3d_all(p->order_value, azimuth, elevation, p->array->data, 1U);
-    update_array_data_version(&p->array->version);
-    SET_KDATA_BEGIN(p, reg);
+    csn_sh_sn3d_all(p->order_value, azimuth, elevation, p->handle->data, 1U);
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_REAL);
+    p->k_data.prev_scalar_param = azimuth;
+    p->k_data.prev_scalar_param_b = elevation;
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t sphharm_acn_k_helper(CSOUND *csound, CSN_SPHHARM_ACN *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
-
     int32_t res = OK;
-    const char *err = NULL;
 
     double azimuth = (double) *p->azimuth;
     double elevation = (double) *p->elevation;
@@ -496,22 +473,29 @@ static int32_t sphharm_acn_k_helper(CSOUND *csound, CSN_SPHHARM_ACN *p) {
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) sh_channels(p->order_value);
 
-    csound->LockMutex(reg->mutex);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
-    /* The length never changes, but the slot is resolved again for the same
-       reasons as csnrotmat: the handle may have been freed, or an in-place
-       opcode may have rewritten its layout since the last pass. */
-    CSN_ARRAY *array = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &array, &p->k_data, NULL, new_ndim, new_shape, (size_t) new_shape[0], CSN_REAL, err);
+    /* The same direction gives the same set: republished while the output is
+       as this opcode left it. */
+    bool is_same_direction = azimuth == p->k_data.prev_scalar_param && elevation == p->k_data.prev_scalar_param_b;
+    if (is_same_direction && is_same_array_version(&p->k_data.prev_output_version, &p->handle->version)) goto done;
+
+    /* The length never changes, but the layout is stamped again: an in-place
+       opcode may have rewritten it since the last pass. */
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = array;
+    pres.locked |= out.locked;
 
-    csn_sh_sn3d_all(p->order_value, azimuth, elevation, array->data, 1U);
-
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
+    csn_sh_sn3d_all(p->order_value, azimuth, elevation, p->handle->data, 1U);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, CSN_REAL);
+    p->k_data.prev_scalar_param = azimuth;
+    p->k_data.prev_scalar_param_b = elevation;
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -523,10 +507,6 @@ int32_t csnspecial_sphharm_acn_k(CSOUND *csound, CSN_SPHHARM_ACN *p) {
     return sphharm_acn_k_helper(csound, p);
 }
 
-int32_t csnspecial_sphharm_acn_deinit(CSOUND *csound, CSN_SPHHARM_ACN *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
-}
-
 /* ---------------------------------------------------------------------------
    csnsphharmacn, the whole set at many directions
    ------------------------------------------------------------------------- */
@@ -535,18 +515,7 @@ int32_t csnspecial_sphharm_acn_deinit(CSOUND *csound, CSN_SPHHARM_ACN *p) {
    of the same non-zero length D; the result is then the (channels, D) matrix
    with one direction per column, the layout csnmatmul expects for column
    vectors and the one a mode-matching decoder is the pseudo-inverse of. */
-static int32_t sphharm_mat_sources(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, uint32_t az_handle, uint32_t el_handle, CSN_ARRAY **az_out, CSN_ARRAY **el_out) {
-    CSN_SLOT *az_slot = get_slot(reg, az_handle);
-    if (az_slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", az_handle);
-    }
-    CSN_SLOT *el_slot = get_slot(reg, el_handle);
-    if (el_slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", el_handle);
-    }
-
-    CSN_ARRAY *az = az_slot->array;
-    CSN_ARRAY *el = el_slot->array;
+static int32_t sphharm_mat_sources(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *az, const CSN_ARRAY *el) {
     if (az->itype != CSN_REAL || el->itype != CSN_REAL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Azimuths and elevations must be real arrays");
     }
@@ -560,8 +529,6 @@ static int32_t sphharm_mat_sources(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *r
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %zu azimuths but %zu elevations: one of each per direction", az->size, el->size);
     }
 
-    *az_out = az;
-    *el_out = el;
     return OK;
 }
 
@@ -582,15 +549,13 @@ static int32_t sphharm_mat_helper(CSOUND *csound, CSN_SPHHARM_MAT *p) {
     res = read_angle_unit(csound, NULL, (double) *p->degree, &p->is_degree);
     if (res != OK) return res;
 
-    uint32_t az_handle = p->azimuth_handle->id;
-    uint32_t el_handle = p->elevation_handle->id;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->azimuth_handle, p->elevation_handle }, 3);
 
-    csound->LockMutex(reg->mutex);
-
-    CSN_ARRAY *az = NULL;
-    CSN_ARRAY *el = NULL;
-    res = sphharm_mat_sources(csound, NULL, reg, az_handle, el_handle, &az, &el);
+    CSN_ARRAY *az = p->azimuth_handle;
+    CSN_ARRAY *el = p->elevation_handle;
+    res = sphharm_mat_sources(csound, NULL, az, el);
     if (res != OK) goto done;
 
     uint32_t new_ndim = 2U;
@@ -598,68 +563,56 @@ static int32_t sphharm_mat_helper(CSOUND *csound, CSN_SPHHARM_MAT *p) {
     new_shape[0] = (uint32_t) sh_channels(p->order_value);
     new_shape[1] = (uint32_t) az->size;
 
-    const uint32_t protect[2] = { az_handle, el_handle };
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[2] = { az, el };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_REAL, ops, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    sphharm_mat_fill(p->array->data, p->order_value, az, el, p->is_degree);
-    update_array_data_version(&p->array->version);
-    SET_KDATA_BEGIN(p, reg);
-    PUBLISH_ELEMENTWISE(&p->k_data, az_handle, az, el_handle, el, p->array, (double) p->order_value, p->is_degree ? 1.0 : 0.0);
+    sphharm_mat_fill(p->handle->data, p->order_value, az, el, p->is_degree);
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, az, el, p->handle, (double) p->order_value, p->is_degree ? 1.0 : 0.0);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t sphharm_mat_k_helper(CSOUND *csound, CSN_SPHHARM_MAT *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->azimuth_handle, p->elevation_handle }, 3);
 
-    uint32_t az_handle = p->azimuth_handle->id;
-    uint32_t el_handle = p->elevation_handle->id;
-    const char *err = NULL;
-
-    /* Every output cell reads a whole column of directions, and the output is
-       never the shape of its inputs, so no aliasing is allowed at all. */
-    int32_t res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, az_handle, el_handle);
-    if (res != OK) return res;
-
-    csound->LockMutex(reg->mutex);
-
-    CSN_ARRAY *az = NULL;
-    CSN_ARRAY *el = NULL;
-    res = sphharm_mat_sources(csound, &p->h, reg, az_handle, el_handle, &az, &el);
+    CSN_ARRAY *az = p->azimuth_handle;
+    CSN_ARRAY *el = p->elevation_handle;
+    res = sphharm_mat_sources(csound, &p->h, az, el);
     if (res != OK) goto done;
 
-    CSN_SLOT *out_slot = get_slot(reg, owned_handle);
-    if (out_slot != NULL && CAN_REUSE_ELEMENTWISE(&p->k_data, az_handle, az, el_handle, el, out_slot->array, (double) p->order_value, p->is_degree ? 1.0 : 0.0)) {
-        p->handle->id = owned_handle;
-        goto done;
-    }
+    if (CAN_REUSE_ELEMENTWISE(&p->k_data, az, el, p->handle, (double) p->order_value, p->is_degree ? 1.0 : 0.0)) goto done;
 
     uint32_t new_ndim = 2U;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) sh_channels(p->order_value);
     new_shape[1] = (uint32_t) az->size;
 
-    CSN_ARRAY *arr = NULL;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_ndim, new_shape, (size_t) new_shape[0] * (size_t) new_shape[1], CSN_REAL, err);
+    const CSN_ARRAY *ops[2] = { az, el };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, ops, 2, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
-    sphharm_mat_fill(arr->data, p->order_value, az, el, p->is_degree);
+    sphharm_mat_fill(p->handle->data, p->order_value, az, el, p->is_degree);
 
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
-    PUBLISH_ELEMENTWISE(&p->k_data, az_handle, az, el_handle, el, arr, (double) p->order_value, p->is_degree ? 1.0 : 0.0);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, CSN_REAL);
+    PUBLISH_ELEMENTWISE(&p->k_data, az, el, p->handle, (double) p->order_value, p->is_degree ? 1.0 : 0.0);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -669,8 +622,4 @@ int32_t csnspecial_sphharm_mat(CSOUND *csound, CSN_SPHHARM_MAT *p) {
 
 int32_t csnspecial_sphharm_mat_k(CSOUND *csound, CSN_SPHHARM_MAT *p) {
     return sphharm_mat_k_helper(csound, p);
-}
-
-int32_t csnspecial_sphharm_mat_deinit(CSOUND *csound, CSN_SPHHARM_MAT *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }

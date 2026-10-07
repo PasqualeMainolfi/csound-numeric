@@ -59,7 +59,6 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     int32_t degree_n;
     int32_t degree_m;
@@ -88,7 +87,6 @@ typedef struct {
     cs_float *degree;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     int32_t order_value;
     bool is_degree;
@@ -105,7 +103,6 @@ typedef struct {
     cs_float *degree;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     int32_t order_value;
     bool is_degree;
@@ -115,17 +112,14 @@ int32_t csnspecial_legendre(CSOUND *csound, CSN_LEGENDRE *p);
 int32_t csnspecial_legendre_k(CSOUND *csound, CSN_LEGENDRE *p);
 int32_t csnspecial_legendre_arr(CSOUND *csound, CSN_LEGENDRE_ARR *p);
 int32_t csnspecial_legendre_arr_k(CSOUND *csound, CSN_LEGENDRE_ARR *p);
-int32_t csnspecial_legendre_arr_deinit(CSOUND *csound, CSN_LEGENDRE_ARR *p);
 
 int32_t csnspecial_sphharm(CSOUND *csound, CSN_SPHHARM *p);
 int32_t csnspecial_sphharm_k(CSOUND *csound, CSN_SPHHARM *p);
 
 int32_t csnspecial_sphharm_acn(CSOUND *csound, CSN_SPHHARM_ACN *p);
 int32_t csnspecial_sphharm_acn_k(CSOUND *csound, CSN_SPHHARM_ACN *p);
-int32_t csnspecial_sphharm_acn_deinit(CSOUND *csound, CSN_SPHHARM_ACN *p);
 
 int32_t csnspecial_sphharm_mat(CSOUND *csound, CSN_SPHHARM_MAT *p);
 int32_t csnspecial_sphharm_mat_k(CSOUND *csound, CSN_SPHHARM_MAT *p);
-int32_t csnspecial_sphharm_mat_deinit(CSOUND *csound, CSN_SPHHARM_MAT *p);
 
 #endif
