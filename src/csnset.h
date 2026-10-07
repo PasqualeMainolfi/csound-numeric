@@ -12,7 +12,6 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer;
     bool is_published;
@@ -23,7 +22,7 @@ typedef struct {
     // inputs
     CSN_ARRAY *source_handle;
     cs_float *arg_a; // trig in unlikeset_k
-                  // scalar in insert, remove
+                     // scalar in insert, remove
     cs_float *arg_b; // trig in insert and remove
     // private
     K_DATA k_data;
@@ -53,7 +52,6 @@ typedef struct {
     CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     CSN_SCRATCH buffer;
     bool is_published;

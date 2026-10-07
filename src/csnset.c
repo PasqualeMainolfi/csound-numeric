@@ -1,5 +1,6 @@
 #include "csnregistry.h"
 #include "csnum.h"
+#include "csnum_internal.h"
 #include "csnset.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -45,27 +46,40 @@ size_t get_and_count_unique_double(double *temp, size_t size) {
 
 int32_t csnarray_likeset_deinit(CSOUND *csound, CSNSET_UNARYOP *p) {
     deinit_scratch(csound, &p->buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
+}
+
+/* Writes a set result into its output. The result is always computed into a
+   buffer first, from operands left untouched, so an output that is one of its
+   own operands (A = csnsetunion(A, B), A = csnlikeset(A)) can take it in place:
+   it gets the result's layout, and, since prepare_output left it alone, a new
+   data version. The set mark is stamped last, on the final data version, or
+   the next set operation would read the array as modified outside the set API. */
+static int32_t set_store_result(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *out, bool aliased, const double *values, size_t count) {
+    if (aliased) {
+        int32_t res = ensure_mutation_capacity(csound, perf_h, out, count > 0 ? count : 1, out->rt_locked);
+        if (res != OK) return res;
+        uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) count };
+        set_csnarray_layout(out, 1U, shape, count, CSN_REAL);
+    }
+    if (count > 0) memcpy(out->data, values, sizeof(double) * count);
+    if (aliased) update_array_data_version(&out->version);
+    SET_ARRAY_KIND(out, CSNSET);
+    return OK;
 }
 
 int32_t csnarray_likeset(CSOUND *csound, CSNSET_UNARYOP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
     double *buffer = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
         res = csound->InitError(csound, "[csnarray] Set operation requires real array");
         goto done;
@@ -85,17 +99,17 @@ int32_t csnarray_likeset(CSOUND *csound, CSNSET_UNARYOP *p) {
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) cunique;
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_dim, new_shape, CSN_REAL, ops, 1, CSN_ALIAS_CUSTOM);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    SET_ARRAY_KIND(p->array, CSNSET);
-    memcpy(p->array->data, buffer, sizeof(double) * cunique);
+    res = set_store_result(csound, NULL, p->handle, out.aliased, buffer, cunique);
 
 done:
-    csound->Free(csound, buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (buffer != NULL) csound->Free(csound, buffer);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -103,26 +117,21 @@ int32_t csnarray_likeset_k_init(CSOUND *csound, CSNSET_UNARYOP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
         res = csound->InitError(csound, "[csnarray] Set operation requires real array");
         goto done;
     }
 
     /* The source can grow to its capacity without reallocating; reserving that
-       much keeps a k-rate pass from growing this on a marked path. */
+       much keeps a k-rate pass from growing this on a marked path. A reinit
+       reuses the struct, so the previous buffer goes first. */
+    deinit_scratch(csound, &p->buffer);
     size_t bcap = source_arr->capacity == 0 ? 1 : source_arr->capacity;
     double *buffer = csound->Calloc(csound, sizeof(double) * bcap);
     if (buffer == NULL) {
@@ -132,73 +141,58 @@ int32_t csnarray_likeset_k_init(CSOUND *csound, CSNSET_UNARYOP *p) {
 
     memcpy(buffer, source_arr->data, sizeof(double) * source_arr->size);
     size_t cunique = get_and_count_unique_double(buffer, source_arr->size);
-    p->buffer.scratch = buffer;
-    p->buffer.scratch_capacity = bcap;
 
     uint32_t new_dim = 1U;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) cunique;
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_dim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    p->buffer.scratch = buffer;
+    p->buffer.scratch_capacity = bcap;
 
-    SET_ARRAY_KIND(p->array, CSNSET);
-    double *buffer_copy = (double *) p->buffer.scratch;
-    memcpy(p->array->data, buffer_copy, sizeof(double) * cunique);
-    SET_KDATA_BEGIN(p, reg);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_dim, new_shape, CSN_REAL, ops, 1, CSN_ALIAS_CUSTOM);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
+
+    /* idempotent, so an output that is its own source may take the set form
+       here as well as on every pass */
+    res = set_store_result(csound, NULL, p->handle, out.aliased, buffer, cunique);
+    if (res != OK) goto done;
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_dim, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_likeset_k(CSOUND *csound, CSNSET_UNARYOP *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, owned_handle);
-
-    uint32_t source_handle = p->source_handle->id;
-    int32_t res = OK;
-    const char *err = NULL;
-
-    res = CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0);
-    if (res != OK) return res;
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
+    int32_t res = OK;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Set operation requires real array");
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Set operation requires real array");
+        goto done;
     }
 
     if (p->is_published) {
         bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        bool is_same_result = false;
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        if (slot_res != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        }
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_source && is_same_result) goto done;
     }
 
     size_t source_size = source_arr->size;
-    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, owned_handle), &p->buffer, source_size, sizeof(double));
+    res = csn_scratch_reserve(csound, &p->h, p->handle->rt_locked, &p->buffer, source_size, sizeof(double));
     if (res != OK) goto done;
 
     memcpy(p->buffer.scratch, source_arr->data, sizeof(double) * source_size);
@@ -209,51 +203,45 @@ int32_t csnarray_likeset_k(CSOUND *csound, CSNSET_UNARYOP *p) {
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     new_shape[0] = (uint32_t) cunique;
 
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, new_dim, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, new_dim, new_shape, logical_size, CSN_REAL, err);
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_dim, new_shape, CSN_REAL, ops, 1, CSN_ALIAS_CUSTOM);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
-    SET_ARRAY_KIND(p->array, CSNSET);
-    double *buffer_copy = (double *) p->buffer.scratch;
-    memcpy(p->array->data, buffer_copy, sizeof(double) * cunique);
-    SET_KDATA_END(p, new_shape, new_dim, CSN_REAL);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    res = set_store_result(csound, &p->h, p->handle, out.aliased, buffer_temp, cunique);
+    if (res != OK) goto done;
+    SET_KDATA_END(p->k_data, new_shape, new_dim, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnarray_unlikeset(CSOUND *csound, CSNSET_UNARYOP_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
-    uint32_t source_handle = p->source_handle->id;
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-    SET_ARRAY_KIND(slot->array, CSNARR);
     p->k_data.registry = reg;
-    csound->UnlockMutex(reg->mutex);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    SET_ARRAY_KIND(p->source_handle, CSNARR);
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
 int32_t csnarray_unlikeset_k_init(CSOUND *csound, CSNSET_UNARYOP_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    csn_mark_krate(p->source_handle);
     p->k_data.registry = reg;
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
@@ -261,25 +249,14 @@ int32_t csnarray_unlikeset_k(CSOUND *csound, CSNSET_UNARYOP_IN *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
     CHECK_KTRIG(p->arg_a);
-    uint32_t source_handle = p->source_handle->id;
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-    SET_ARRAY_KIND(slot->array, CSNARR);
-    csound->UnlockMutex(reg->mutex);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    SET_ARRAY_KIND(p->source_handle, CSNARR);
+    if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }
 
-static int32_t set_check_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_array, CSN_REGISTRY *reg, uint32_t source_handle) {
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+static int32_t set_check_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr) {
     if (source_arr->itype == CSN_COMPLEX) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Set operation requires real array");
     }
@@ -296,7 +273,6 @@ static int32_t set_check_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_a
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Set-array was modified outside the set API. Use csnlikeset again to restore sorted unique form");
     }
 
-    *source_array = source_arr;
     return OK;
 }
 
@@ -304,15 +280,16 @@ static int32_t set_insert_remove_helper(CSOUND *csound, CSNSET_UNARYOP_IN *p, OP
     CSN_REGISTRY *reg = perf_h == NULL ? get_registry(csound) : p->k_data.registry;
     CHECK_REGISTRY(csound, perf_h, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
-    int32_t res = OK;
     if (perf_h != NULL) CHECK_KTRIG(p->arg_b);
+    int32_t res = OK;
     double value = (double) *p->arg_a;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = set_check_body(csound, perf_h, &source_arr, reg, source_handle);
+    if (perf_h == NULL) stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = set_check_body(csound, perf_h, source_arr);
     if (res != OK) goto done;
 
     if (perf_h != NULL && p->is_published) {
@@ -332,7 +309,7 @@ static int32_t set_insert_remove_helper(CSOUND *csound, CSNSET_UNARYOP_IN *p, OP
             goto done;
         }
         size_t new_size = source_arr->size + 1;
-        res = ensure_mutation_capacity(csound, perf_h, source_arr, new_size, csn_slot_rt_locked(reg, source_handle));
+        res = ensure_mutation_capacity(csound, perf_h, source_arr, new_size, source_arr->rt_locked);
         if (res != OK) goto done;
         source_arr->shape[0] = (uint32_t) new_size;
         source_arr->size = new_size;
@@ -346,14 +323,21 @@ static int32_t set_insert_remove_helper(CSOUND *csound, CSNSET_UNARYOP_IN *p, OP
         memmove(source_arr->data + index, source_arr->data + index + 1, sizeof(double) * (new_size - index));
     }
 
-    PUBLISH_INPLACE_WRITE(&p->k_data, source_handle, source_arr, true, false, false);
+    /* Both rates changed the data and the extent: a new version either way,
+       then the set mark on it. The k form also records its own write. */
+    if (perf_h != NULL) {
+        PUBLISH_INPLACE_WRITE(&p->k_data, source_arr, true, false, false);
+        SET_KDATA_END(p->k_data, source_arr->shape, 1U, CSN_REAL);
+        p->k_data.prev_scalar_param = value;
+        p->is_published = true;
+    } else {
+        update_array_data_version(&source_arr->version);
+        update_array_layout_version(&source_arr->version, true, false, false);
+    }
     SET_ARRAY_KIND(source_arr, CSNSET);
-    SET_KDATA_NO_ID_END(p, source_arr->shape, 1U, CSN_REAL);
-    p->k_data.prev_scalar_param = value;
-    p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -370,21 +354,22 @@ int32_t csnarray_setinsertremove_k_init(CSOUND *csound, CSNSET_UNARYOP_IN *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
     int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    csn_mark_krate(p->source_handle);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = set_check_body(csound, NULL, &source_arr, reg, source_handle);
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = set_check_body(csound, NULL, source_arr);
     if (res != OK) goto done;
 
-    SET_KDATA_WITH_ID_BEGIN(p, reg, source_arr->shape, 1U, CSN_REAL, source_handle);
-    p->k_data.prev_source_handle = source_handle;
+    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, 1U, CSN_REAL);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -400,14 +385,15 @@ int32_t csnarray_setcontains(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
     double value = (double) *p->scalar;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = set_check_body(csound, NULL, &source_arr, reg, source_handle);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = set_check_body(csound, NULL, source_arr);
     if (res != OK) goto done;
 
     size_t index = 0;
@@ -417,7 +403,7 @@ int32_t csnarray_setcontains(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     *p->value = founded ? FL(1.0) : FL(0.0);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -425,28 +411,29 @@ int32_t csnarray_setcontains_k_init(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
     double value = (double) *p->scalar;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = set_check_body(csound, NULL, &source_arr, reg, source_handle);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = set_check_body(csound, NULL, source_arr);
     if (res != OK) goto done;
 
     bool founded = false;
     binary_search(NULL, &founded, 0, source_arr->data, value, source_arr->size, false);
     *p->value = founded ? FL(1.0) : FL(0.0);
 
-    SET_KDATA_WITH_ID_BEGIN(p, reg, source_arr->shape, 1U, CSN_REAL, source_handle);
+    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, 1U, CSN_REAL);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data.prev_scalar_param = value;
     p->is_published = true;
     p->prev_result = founded;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -454,16 +441,16 @@ int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
+    CHECK_KTRIG(p->trig);
     int32_t res = OK;
     *p->value = (cs_float) ((double) p->prev_result);
-    CHECK_KTRIG(p->trig);
     double value = (double) *p->scalar;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr = NULL;
-    res = set_check_body(csound, &p->h, &source_arr, reg, source_handle);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    res = set_check_body(csound, &p->h, source_arr);
     if (res != OK) goto done;
 
     if (p->is_published) {
@@ -482,29 +469,18 @@ int32_t csnarray_setcontains_k(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     double result_temp = (double) founded;
     *p->value = (cs_float) result_temp;
 
-    SET_KDATA_NO_ID_END(p, source_arr->shape, 1U, CSN_REAL);
+    SET_KDATA_END(p->k_data, source_arr->shape, 1U, CSN_REAL);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data.prev_scalar_param = value;
     p->prev_result = founded;
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-static int32_t set_binaryop_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **source_array_a, CSN_ARRAY **source_array_b, CSN_REGISTRY *reg, uint32_t source_handle_a, uint32_t source_handle_b) {
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_a == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-    }
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_b == NULL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-    }
-
-    CSN_ARRAY *source_arr_a = slot_a->array;
-    CSN_ARRAY *source_arr_b = slot_b->array;
+static int32_t set_binaryop_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b) {
     if (source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Set operation requires real array");
     }
@@ -522,8 +498,6 @@ static int32_t set_binaryop_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY **sourc
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Set-array was modified outside the set API. Use csnlikeset again to restore sorted unique form");
     }
 
-    *source_array_a = source_arr_a;
-    *source_array_b = source_arr_b;
     return OK;
 }
 
@@ -531,16 +505,14 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr_a = NULL;
-    CSN_ARRAY *source_arr_b = NULL;
-    res = set_binaryop_body(csound, NULL, &source_arr_a, &source_arr_b, reg, source_handle_a, source_handle_b);
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
+    res = set_binaryop_body(csound, NULL, source_arr_a, source_arr_b);
     if (res != OK) goto done;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -553,6 +525,7 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
     size_t temp_cap = source_arr_a->capacity + source_arr_b->capacity;
     size_t bcap = temp_cap == 0 ? 1 : temp_cap;
 
+    deinit_scratch(csound, &p->buffer);
     double *temp_buffer = csound->Calloc(csound, sizeof(double) * bcap);
     if (temp_buffer == NULL) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
@@ -641,60 +614,53 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
     }
 
     new_shape[0] = (uint32_t) count_items;
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, new_shape, &p->array, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
+    const CSN_ARRAY *ops[2] = { source_arr_a, source_arr_b };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, new_shape, CSN_REAL, ops, 2, CSN_ALIAS_CUSTOM);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
+
+    /* At k-rate an output that is one of its operands is computed by every
+       perf pass; writing it here too would apply A = A ^ B twice in the first
+       control cycle. */
+    if (!(csn_is_k_form(&p->h) && out.aliased)) {
+        res = set_store_result(csound, NULL, p->handle, out.aliased, buffer, count_items);
+        if (res != OK) goto done;
+    } else {
+        SET_ARRAY_KIND(p->handle, CSNSET);
     }
-    SET_ARRAY_KIND(p->array, CSNSET);
 
-    if (count_items > 0) {
-        memcpy(p->array->data, buffer, sizeof(double) * count_items);
-    }
-
-    SET_KDATA_BEGIN(p, reg);
-
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, 1U, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
     set_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OPS_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
-
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
-    int32_t res = OK;
-    const char *err = NULL;
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
+    int32_t res = OK;
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr_a = NULL;
-    CSN_ARRAY *source_arr_b = NULL;
-    res = set_binaryop_body(csound, &p->h, &source_arr_a, &source_arr_b, reg, source_handle_a, source_handle_b);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
+    res = set_binaryop_body(csound, &p->h, source_arr_a, source_arr_b);
     if (res != OK) goto done;
 
-    if (p->is_published) {
+    if (p->is_published && p->handle != source_arr_a && p->handle != source_arr_b) {
         bool is_same_version_a = is_same_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
         bool is_same_version_b = is_same_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
-        bool is_same_result = false;
-        CSN_SLOT *res_slot = get_slot(reg, p->k_data.owned_handle);
-        if (res_slot != NULL) {
-            is_same_result = is_same_array_version(&p->k_data.prev_output_version, &res_slot->array->version);
-        }
-
-        if (is_same_version_a && is_same_version_b && is_same_result) {
-            p->handle->id = p->k_data.owned_handle;
-            goto done;
-        }
+        bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        if (is_same_version_a && is_same_version_b && is_same_result) goto done;
     }
 
     uint32_t new_ndim = 1U;
@@ -702,9 +668,8 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
 
     size_t source_a_size = source_arr_a->size;
     size_t source_b_size = source_arr_b->size;
-    /* Checked on every pass, the first one included: the operands may have
-       grown since init. */
-    res = csn_scratch_reserve(csound, &p->h, csn_slot_rt_locked(reg, p->k_data.owned_handle), &p->buffer, source_a_size + source_b_size, sizeof(double));
+
+    res = csn_scratch_reserve(csound, &p->h, p->handle->rt_locked, &p->buffer, source_a_size + source_b_size, sizeof(double));
     if (res != OK) goto done;
 
     double *buffer = (double *) p->buffer.scratch;
@@ -787,38 +752,29 @@ static int32_t set_binaryop_k_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_
     }
 
     new_shape[0] = (uint32_t) count_items;
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, 1U, new_shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 1U, new_shape, logical_size, CSN_REAL, err);
+    const CSN_ARRAY *ops[2] = { source_arr_a, source_arr_b };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, 1U, new_shape, CSN_REAL, ops, 2, CSN_ALIAS_CUSTOM);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
-    if (count_items > 0) {
-        memcpy(p->array->data, buffer, sizeof(double) * count_items);
-    }
-    SET_ARRAY_KIND(p->array, CSNSET);
+    res = set_store_result(csound, &p->h, p->handle, out.aliased, buffer, count_items);
+    if (res != OK) goto done;
 
-    SET_KDATA_END(p, new_shape, new_ndim, CSN_REAL);
-    set_array_version(&p->k_data.prev_output_version, &p->array->version);
+    SET_KDATA_END(p->k_data, new_shape, new_ndim, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     set_array_version(&p->k_data.prev_source_version, &source_arr_a->version);
     set_array_version(&p->k_data.prev_source_version_b, &source_arr_b->version);
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-
 int32_t csnarray_set_binaryop_deinit(CSOUND *csound, CSNSET_BINARYOP *p) {
     deinit_scratch(csound, &p->buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 int32_t csnarray_setunion(CSOUND *csound, CSNSET_BINARYOP *p) {
@@ -857,15 +813,14 @@ static int32_t set_binaryop_predicate_helper(CSOUND *csound, CSNSET_BINARYOP_PRE
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle_a, p->source_handle_b }, 2);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr_a = NULL;
-    CSN_ARRAY *source_arr_b = NULL;
-    res = set_binaryop_body(csound, NULL, &source_arr_a, &source_arr_b, reg, source_handle_a, source_handle_b);
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
+    res = set_binaryop_body(csound, NULL, source_arr_a, source_arr_b);
     if (res != OK) goto done;
 
     size_t source_a_size = source_arr_a->size;
@@ -932,7 +887,7 @@ static int32_t set_binaryop_predicate_helper(CSOUND *csound, CSNSET_BINARYOP_PRE
     p->is_published = false;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -940,17 +895,15 @@ static int32_t set_binaryop_predicate_k_helper(CSOUND *csound, CSNSET_BINARYOP_P
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
+    CHECK_KTRIG(p->trig);
     int32_t res = OK;
 
-    CHECK_KTRIG(p->trig);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle_a, p->source_handle_b }, 2);
 
-    csound->LockMutex(reg->mutex);
-    CSN_ARRAY *source_arr_a = NULL;
-    CSN_ARRAY *source_arr_b = NULL;
-    res = set_binaryop_body(csound, &p->h, &source_arr_a, &source_arr_b, reg, source_handle_a, source_handle_b);
+    CSN_ARRAY *source_arr_a = p->source_handle_a;
+    CSN_ARRAY *source_arr_b = p->source_handle_b;
+    res = set_binaryop_body(csound, &p->h, source_arr_a, source_arr_b);
     if (res != OK) goto done;
 
     if (p->is_published) {
@@ -1025,7 +978,7 @@ static int32_t set_binaryop_predicate_k_helper(CSOUND *csound, CSNSET_BINARYOP_P
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
