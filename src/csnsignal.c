@@ -100,27 +100,21 @@ static int32_t window_function_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
-    csound->LockMutex(reg->mutex);
-    uint32_t shape[CSN_MAX_DIMS] = {0};
-    shape[0] = wsize;
+    uint32_t shape[CSN_MAX_DIMS] = { wsize };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, shape, &p->array, p->handle, NULL, 0, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-
-    CSN_ARRAY *arr = p->array;
-    get_window_function(arr->data, wsize,  mode, beta);
+    get_window_function(p->handle->data, wsize,  mode, beta);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csnarray_window_deinit(CSOUND *csound, CSN_WINDOW *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 int32_t csnarray_hanning(CSOUND *csound, CSN_WINDOW *p) {
@@ -158,26 +152,31 @@ int32_t csnarray_window_function_k_init(CSOUND *csound, CSN_WINDOW *p) {
     }
 
     int32_t res = OK;
-    uint32_t shape[CSN_MAX_DIMS] = {0};
-    shape[0] = wsize;
-    res = create_csnarray_init(csound, &p->h, 1U, shape, &p->array, p->handle, CSN_REAL);
-    if (res != OK) return res;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
-    csound->LockMutex(reg->mutex);
-    reset_empty_csnarray(p->array, 1U, shape, CSN_REAL);
-    csound->UnlockMutex(reg->mutex);
+    uint32_t shape[CSN_MAX_DIMS] = { wsize };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    SET_KDATA_WITH_ID_BEGIN(p, reg, shape, 1U, CSN_REAL, p->handle->id);
+    reset_empty_csnarray(p->handle, 1U, shape, CSN_REAL);
+
+    SET_KDATA_BEGIN(p->k_data, reg, shape, 1U, CSN_REAL);
     p->prev_length = p->is_i_time_length ? (int32_t) wsize : -1;
     p->prev_beta = -1.0;
     p->is_published = false;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    uint32_t source_handle = p->k_data.owned_handle;
-    CHECK_REG_HANDLE(csound, &p->h, reg, source_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
     uint32_t wsize = p->is_i_time_length ? (uint32_t) *p->length : 0;
     if (!p->is_i_time_length) {
@@ -196,80 +195,30 @@ static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDO
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
-    csound->LockMutex(reg->mutex);
+    bool is_same_size = (int32_t) wsize == p->prev_length;
+    bool is_same = mode == W_KAISER ? (is_same_size && beta == p->prev_beta) : is_same_size;
+    bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+    if (p->is_published && is_same && is_same_result) goto done;
 
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    }
-
-    bool is_same_size = (int32_t) wsize == p->prev_length && p->is_published;
-    bool is_same = mode == W_KAISER ? (is_same_size && (beta == p->prev_beta)) : is_same_size;
-    if (is_same) goto done;
-
-    uint32_t shape[CSN_MAX_DIMS] = {0};
-    shape[0] = wsize;
-
-    size_t req_size = 0;
-    if (get_array_size_from_shape(&req_size, 1U, shape) != OK) {
-        csound->UnlockMutex(reg->mutex);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
-    }
-
-    CSN_ARRAY *arr = NULL;
-    size_t logical_size = wsize == 0 ? 0 : req_size;
-    res = NEED_TO_UPDATE_SLOT(csound, &p->h, &arr, &p->k_data, NULL, 1U, shape, logical_size, CSN_REAL, err);
+    uint32_t shape[CSN_MAX_DIMS] = { wsize };
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
     if (res != OK) goto done;
-    p->array = arr;
+    pres.locked |= out.locked;
 
-    if (wsize == 1U) {
-        arr->data[0] = 1.0;
-    } else if (wsize > 1U) {
-        for (size_t n = 0; n < (size_t) wsize; n++) {
-            double value = 0.0;
-            double fac = (double) n / (double) (wsize - 1);
-            switch (mode) {
-                case W_RECT:
-                    value = 1.0;
-                    break;
-                case W_HANNING:
-                    value = 0.5 * (1.0 - cos(2.0 * CSN_PI * fac));
-                    break;
-                case W_HAMMING:
-                    value = 0.54 - 0.46 * cos(2.0 * CSN_PI * fac);
-                    break;
-                case W_BARTLETT:
-                    /* The peak is where fac reaches 0.5, not where n reaches
-                       wsize/2: for an even wsize the integer midpoint sits past
-                       half of the 0..1 sweep and the rising branch would take
-                       it above 1. */
-                    value = (fac <= 0.5) ? 2.0 * fac : 2.0 - 2.0 * fac;
-                    break;
-                case W_BLACKMAN:
-                    value = 0.42 - 0.5 * cos(2.0 * CSN_PI * fac) + 0.08 * cos(4.0 * CSN_PI * fac);
-                    break;
-                case W_KAISER: {
-                        double denom = bessel_i0(beta);
-                        double x = (2.0 * fac) - 1.0;
-                        double arg = beta * sqrt(1.0 - x * x);
-                        value = bessel_i0(arg) / denom;
-                    }
-                    break;
-            }
-            arr->data[n] = value;
-        }
-    }
+    get_window_function(p->handle->data, wsize, mode, beta);
 
-    SET_KDATA_END(p, shape, 1U, CSN_REAL);
+    SET_KDATA_END(p->k_data, shape, 1U, CSN_REAL);
+    set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     p->prev_length = (int32_t) wsize;
     p->prev_beta = beta;
     p->is_published = true;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -310,10 +259,6 @@ static CSN_POLYDEV polyeval_and_derivative(const double *coeffs, size_t stride, 
     }
 
     return p;
-}
-
-int32_t csnsig_roots_deinit(CSOUND *csound, CSN_ROOTS *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 static int32_t get_roots(CSOUND *csound, CSN_ARRAY *roots, CSN_ARRAY *source_arr, CSN_AXIS_SPEC axis, uint32_t degree, CSN_COMPLEXDAT *z_buffer, CSN_COMPLEXDAT *z_new_buffer) {
@@ -410,25 +355,18 @@ int32_t csnsig_roots(CSOUND *csound, CSN_ROOTS *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+
     int32_t is_axis_omitted = p->INOCOUNT == 1;
     CSN_COMPLEXDAT *z_buffer = NULL;
     CSN_COMPLEXDAT *z_new_buffer = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-
-    CSN_ARRAY *source_arr = slot->array;
+    CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
-    ITEM_TYPE itype = source_arr->itype;
     CSN_AXIS_SPEC axis = csn_normalize_axis(is_axis_omitted ? NULL : p->axis, source_ndim, CSN_AXIS_DEFAULT_LAST);
     if (axis.kind == CSN_AXIS_INVALID) {
         double value = is_axis_omitted ? 0.0 : (double) *p->axis;
@@ -455,20 +393,20 @@ int32_t csnsig_roots(CSOUND *csound, CSN_ROOTS *p) {
         goto done;
     }
 
-    if (create_csnarray_locked(csound, reg, &p->h, new_ndim, new_shape, &p->array, p->handle, &source_handle, 1U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, new_ndim, new_shape, CSN_COMPLEX, ops, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
 
-    CSN_ARRAY *roots = p->array;
+    CSN_ARRAY *roots = p->handle;
     res = get_roots(csound, roots, source_arr, axis, degree, z_buffer, z_new_buffer);
 
 done:
     if (z_buffer != NULL) csound->Free(csound, z_buffer);
     if (z_new_buffer != NULL) csound->Free(csound, z_new_buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-
 }
 
 static CSN_COMPLEXDAT zpk_get(const CSN_ARRAY *arr, size_t i) {
@@ -609,9 +547,6 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     double gain = (double) *p->arg_a;
     if (!IS_VALID_VALUE(gain)) {
         return csound->InitError(csound, "[csnarray] Invalid gain value");
@@ -634,25 +569,17 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
     }
 
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
+    if (res != OK) goto done;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    if (slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-
-    CSN_ARRAY *zeros_arr = slot_a->array;
+    CSN_ARRAY *zeros_arr = p->source_handle_a;
     uint32_t zeros_ndim = zeros_arr->ndim;
     uint32_t zeros_size = zeros_arr->size;
 
-    CSN_ARRAY *poles_arr = slot_b->array;
+    CSN_ARRAY *poles_arr = p->source_handle_b;
     uint32_t poles_ndim = poles_arr->ndim;
     uint32_t poles_size = poles_arr->size;
 
@@ -692,19 +619,19 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
             break;
     }
 
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, zeros_ndim, zeros_new_shape, &p->array_a, p->handle_a, protect, 2U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[2] = { zeros_arr, poles_arr };
+    CSNARR_RES zout = prepare_output(csound, &p->h, NULL, reg, p->handle_a, zeros_ndim, zeros_new_shape, CSN_COMPLEX, ops, 2, CSN_ALIAS_REFUSE);
+    res = zout.err;
+    if (res != OK) goto done;
+    pres.locked |= zout.locked;
 
-    if (create_csnarray_locked(csound, reg, &p->h, poles_ndim, poles_new_shape, &p->array_b, p->handle_b, protect, 2U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    CSNARR_RES pout = prepare_output(csound, &p->h, NULL, reg, p->handle_b, poles_ndim, poles_new_shape, CSN_COMPLEX, ops, 2, CSN_ALIAS_REFUSE);
+    res = pout.err;
+    if (res != OK) goto done;
+    pres.locked |= pout.locked;
 
-    CSN_ARRAY *zeros_out = p->array_a;
-    CSN_ARRAY *poles_out = p->array_b;
+    CSN_ARRAY *zeros_out = p->handle_a;
+    CSN_ARRAY *poles_out = p->handle_b;
 
     res = map_zpk_roots(csound, zeros_out, zeros_arr, arg_b, bw, mode, "zero");
     if (res != OK) goto done;
@@ -718,14 +645,8 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
     *p->out_gain = (cs_float) get_zpk_gain(zeros_arr, poles_arr, arg_b, bw, gain, rel_degree, mode);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csnsig_fdesign3_deinit(CSOUND *csound, CSN_FDESIGN3 *p) {
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array_a, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_b, &p->h);
 }
 
 int32_t csnsig_lp2lp_zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
@@ -759,7 +680,7 @@ static size_t first_nonzero(const CSN_ARRAY *arr) {
 static int32_t load_trimmed(CSOUND *csound, CSN_ARRAY *dst, const CSN_ARRAY *src, size_t lead) {
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = (uint32_t) (src->size - lead);
-    if (allocate_array(csound, dst, 1U, shape, 0, CSN_COMPLEX) != OK) return NOTOK;
+    if (allocate_array(csound, dst, 1U, shape, CSN_COMPLEX) != OK) return NOTOK;
     for (size_t i = lead; i < src->size; i++) {
         CSN_COMPLEXDAT c = { .re = src->data[i], .im = 0.0 };
         slice_put(dst->data, i - lead, 1, CSN_COMPLEX, c);
@@ -771,30 +692,19 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
     CSN_ARRAY b_trim = {0};
     CSN_ARRAY a_trim = {0};
     CSN_COMPLEXDAT *z_buffer = NULL;
     CSN_COMPLEXDAT *z_new_buffer = NULL;
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
+    if (res != OK) goto done;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    if (slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-
-    CSN_ARRAY *b_arr = slot_a->array;
-    CSN_ARRAY *a_arr = slot_b->array;
+    CSN_ARRAY *b_arr = p->source_handle_a;
+    CSN_ARRAY *a_arr = p->source_handle_b;
 
     if (b_arr->ndim != 1U || a_arr->ndim != 1U) {
         res = csound->InitError(csound, "[csnarray] b and a must be 1-D arrays");
@@ -841,23 +751,24 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
     uint32_t poles_shape[CSN_MAX_DIMS] = {0};
     poles_shape[0] = poles_degree;
 
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, zeros_shape, &p->array_a, p->handle_a, protect, 2U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, poles_shape, &p->array_b, p->handle_b, protect, 2U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[2] = { b_arr, a_arr };
+    CSNARR_RES zout = prepare_output(csound, &p->h, NULL, reg, p->handle_a, 1U, zeros_shape, CSN_COMPLEX, ops, 2, CSN_ALIAS_REFUSE);
+    res = zout.err;
+    if (res != OK) goto done;
+    pres.locked |= zout.locked;
+
+    CSNARR_RES pout = prepare_output(csound, &p->h, NULL, reg, p->handle_b, 1U, poles_shape, CSN_COMPLEX, ops, 2, CSN_ALIAS_REFUSE);
+    res = pout.err;
+    if (res != OK) goto done;
+    pres.locked |= pout.locked;
 
     CSN_AXIS_SPEC axis = csn_normalize_axis(NULL, 1U, CSN_AXIS_DEFAULT_LAST);
     if (zeros_degree > 0U) {
-        res = get_roots(csound, p->array_a, &b_trim, axis, zeros_degree, z_buffer, z_new_buffer);
+        res = get_roots(csound, p->handle_a, &b_trim, axis, zeros_degree, z_buffer, z_new_buffer);
         if (res != OK) goto done;
     }
     if (poles_degree > 0U) {
-        res = get_roots(csound, p->array_b, &a_trim, axis, poles_degree, z_buffer, z_new_buffer);
+        res = get_roots(csound, p->handle_b, &a_trim, axis, poles_degree, z_buffer, z_new_buffer);
         if (res != OK) goto done;
     }
 
@@ -868,14 +779,8 @@ done:
     if (a_trim.data != NULL) csound->Free(csound, a_trim.data);
     if (z_buffer != NULL) csound->Free(csound, z_buffer);
     if (z_new_buffer != NULL) csound->Free(csound, z_new_buffer);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-int32_t csnsig_fdesign2_deinit(CSOUND *csound, CSN_FDESIGN2 *p) {
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array_a, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_b, &p->h);
 }
 
 static void poly_from_root(CSN_COMPLEXDAT *poly, CSN_COMPLEXDAT *tmp_poly, double *roots, size_t nroots, ITEM_TYPE itype) {
@@ -929,11 +834,6 @@ int32_t csnsig_zpk2tf(CSOUND *csound, CSN_FDESIGN2 *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_a = p->source_handle_a->id;
-    uint32_t source_handle_b = p->source_handle_b->id;
-
-    int32_t res = OK;
-    const char *err = NULL;
     CSN_COMPLEXDAT *b_poly = NULL;
     CSN_COMPLEXDAT *a_poly = NULL;
     CSN_COMPLEXDAT *temp_poly = NULL;
@@ -942,20 +842,15 @@ int32_t csnsig_zpk2tf(CSOUND *csound, CSN_FDESIGN2 *p) {
         return csound->InitError(csound, "[csnarray] Invalid gain %g: it must be finite", gain);
     }
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-    if (slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
+    if (res != OK) goto done;
 
-    CSN_ARRAY *zeros_arr = slot_a->array;
-    CSN_ARRAY *poles_arr = slot_b->array;
+    CSN_ARRAY *zeros_arr = p->source_handle_a;
+    CSN_ARRAY *poles_arr = p->source_handle_b;
 
     if (zeros_arr->ndim != 1U || poles_arr->ndim != 1U) {
         res = csound->InitError(csound, "[csnarray] zeros and poles must be 1-D arrays");
@@ -986,24 +881,25 @@ int32_t csnsig_zpk2tf(CSOUND *csound, CSN_FDESIGN2 *p) {
     uint32_t a_shape[CSN_MAX_DIMS] = {0};
     a_shape[0] = (uint32_t) a_len;
 
-    uint32_t protect[2] = { source_handle_a, source_handle_b };
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, b_shape, &p->array_a, p->handle_a, protect, 2U, &err, b_itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, a_shape, &p->array_b, p->handle_b, protect, 2U, &err, a_itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[2] = { zeros_arr, poles_arr };
+    CSNARR_RES zout = prepare_output(csound, &p->h, NULL, reg, p->handle_a, 1U, b_shape, b_itype, ops, 2, CSN_ALIAS_REFUSE);
+    res = zout.err;
+    if (res != OK) goto done;
+    pres.locked |= zout.locked;
 
-    store_poly(p->array_a, b_poly, gain);
-    store_poly(p->array_b, a_poly, 1.0);
+    CSNARR_RES pout = prepare_output(csound, &p->h, NULL, reg, p->handle_b, 1U, a_shape, a_itype, ops, 2, CSN_ALIAS_REFUSE);
+    res = pout.err;
+    if (res != OK) goto done;
+    pres.locked |= pout.locked;
+
+    store_poly(p->handle_a, b_poly, gain);
+    store_poly(p->handle_b, a_poly, 1.0);
 
 done:
     if (b_poly != NULL) csound->Free(csound, b_poly);
     if (a_poly != NULL) csound->Free(csound, a_poly);
     if (temp_poly != NULL) csound->Free(csound, temp_poly);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1099,9 +995,6 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_b = p->source_handle_a->id;
-    uint32_t source_handle_a = p->source_handle_b->id;
-
     double w0 = (double) *p->arg_a;
     if (!IS_VALID_VALUE(w0) || w0 <= 0.0) {
         return csound->InitError(csound, "[csnarray] Invalid w0 %g: it must be finite and greater than zero", w0);
@@ -1115,27 +1008,18 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
     }
 
     int32_t res = OK;
-    const char *err = NULL;
-
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
     CSN_COMPLEXDAT *b = NULL;
     CSN_COMPLEXDAT *a = NULL;
     CSN_COMPLEXDAT *ob = NULL;
     CSN_COMPLEXDAT *oa = NULL;
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
+    if (res != OK) goto done;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_b == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_b);
-        goto done;
-    }
-    if (slot_a == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle_a);
-        goto done;
-    }
-
-    CSN_ARRAY *b_arr = slot_b->array;
-    CSN_ARRAY *a_arr = slot_a->array;
+    CSN_ARRAY *b_arr = p->source_handle_a;
+    CSN_ARRAY *a_arr = p->source_handle_b;
     if (b_arr->ndim != 1U || a_arr->ndim != 1U) {
         res = csound->InitError(csound, "[csnarray] b and a must be 1-D arrays");
         goto done;
@@ -1218,21 +1102,23 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
     uint32_t a_shape[CSN_MAX_DIMS] = {0};
     a_shape[0] = (uint32_t) (na_out - a_off);
 
-    uint32_t protect[2] = { source_handle_b, source_handle_a };
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, b_shape, &p->array_a, p->handle_a, protect, 2U, &err, out_itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, a_shape, &p->array_b, p->handle_b, protect, 2U, &err, out_itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    const CSN_ARRAY *ops[2] = { b_arr, a_arr };
+    CSNARR_RES zout = prepare_output(csound, &p->h, NULL, reg, p->handle_a, 1U, b_shape, out_itype, ops, 2, CSN_ALIAS_REFUSE);
+    res = zout.err;
+    if (res != OK) goto done;
+    pres.locked |= zout.locked;
+
+    CSNARR_RES pout = prepare_output(csound, &p->h, NULL, reg, p->handle_b, 1U, a_shape, out_itype, ops, 2, CSN_ALIAS_REFUSE);
+    res = pout.err;
+    if (res != OK) goto done;
+    pres.locked |= pout.locked;
+
     for (size_t i = 0; i < b_shape[0]; i++) {
-        slice_put(p->array_a->data, i, 1, out_itype, ob[b_off + i]);
+        slice_put(p->handle_a->data, i, 1, out_itype, ob[b_off + i]);
     }
 
     for (size_t i = 0; i < a_shape[0]; i++) {
-        slice_put(p->array_b->data, i, 1, out_itype, oa[a_off + i]);
+        slice_put(p->handle_b->data, i, 1, out_itype, oa[a_off + i]);
     }
 
 done:
@@ -1240,7 +1126,7 @@ done:
     if (a != NULL) csound->Free(csound, a);
     if (ob != NULL) csound->Free(csound, ob);
     if (oa != NULL) csound->Free(csound, oa);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1258,10 +1144,6 @@ int32_t csnsig_lp2bp(CSOUND *csound, CSN_FDESIGN2 *p) {
 
 int32_t csnsig_lp2bs(CSOUND *csound, CSN_FDESIGN2 *p) {
     return tf_transform_helper(csound, p, LP2BS);
-}
-
-int32_t csnsig_zpk2sos_deinit(CSOUND *csound, CSN_ZPK2SOS *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
 }
 
 static int compare_root_order(const void *x, const void *y) {
@@ -1521,32 +1403,20 @@ int32_t csnsig_zpk2sos(CSOUND *csound, CSN_ZPK2SOS *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t zeros_handle = p->source_handle_a->id;
-    uint32_t poles_handle = p->source_handle_b->id;
-
     double gain = (double) *p->gain;
     if (!IS_VALID_VALUE(gain)) {
         return csound->InitError(csound, "[csnarray] Invalid gain %g: it must be finite", gain);
     }
 
     int32_t res = OK;
-    const char *err = NULL;
     double *sos = NULL;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_z = get_slot(reg, zeros_handle);
-    CSN_SLOT *slot_p = get_slot(reg, poles_handle);
-    if (slot_z == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", zeros_handle);
-        goto done;
-    }
-    if (slot_p == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", poles_handle);
-        goto done;
-    }
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
-    CSN_ARRAY *zeros_arr = slot_z->array;
-    CSN_ARRAY *poles_arr = slot_p->array;
+    CSN_ARRAY *zeros_arr = p->source_handle_a;
+    CSN_ARRAY *poles_arr = p->source_handle_b;
     if (zeros_arr->ndim != 1U || poles_arr->ndim != 1U) {
         res = csound->InitError(csound, "[csnarray] zeros and poles must be 1-D arrays");
         goto done;
@@ -1559,24 +1429,19 @@ int32_t csnsig_zpk2sos(CSOUND *csound, CSN_ZPK2SOS *p) {
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = (uint32_t) n_sections;
     shape[1] = 6U;
-    uint32_t protect[2] = { zeros_handle, poles_handle };
-    if (create_csnarray_locked(csound, reg, &p->h, 2U, shape, &p->array, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    memcpy(p->array->data, sos, sizeof(double) * 6 * n_sections);
+
+    const CSN_ARRAY *ops[2] = { zeros_arr, poles_arr };
+    CSNARR_RES zout = prepare_output(csound, &p->h, NULL, reg, p->handle, 2U, shape, CSN_REAL, ops, 2, CSN_ALIAS_REFUSE);
+    res = zout.err;
+    if (res != OK) goto done;
+    pres.locked |= zout.locked;
+
+    memcpy(p->handle->data, sos, sizeof(double) * 6 * n_sections);
 
 done:
     if (sos != NULL) csound->Free(csound, sos);
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-
-int32_t csnsig_buttap_deinit(CSOUND *csound, CSN_BUTTAP *p) {
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array_a, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_b, &p->h);
 }
 
 static void buttap_assign(double *data, size_t order) {
@@ -1595,50 +1460,40 @@ int32_t csnsig_buttap(CSOUND *csound, CSN_BUTTAP *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    int32_t res = OK;
-    const char *err = NULL;
-
     double ord_value = (double) *p->order;
     if (!IS_VALID_LENGTH(ord_value)) {
         return csound->InitError(csound, "[csnarray] Invalid Butterworth order %g: it must be a non-negative integer", ord_value);
     }
     size_t order = (size_t) ord_value;
 
-    csound->LockMutex(reg->mutex);
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
 
+    // scipy.signal.buttap: no zeros, `order` poles
     uint32_t zeros_shape[CSN_MAX_DIMS] = {0};
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, zeros_shape, &p->array_a, p->handle_a, NULL, 0U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    reset_empty_csnarray(p->array_a, 1U, zeros_shape, CSN_COMPLEX);
+    uint32_t poles_shape[CSN_MAX_DIMS] = { (uint32_t) order };
 
-    uint32_t poles_shape[CSN_MAX_DIMS] = {0};
-    poles_shape[0] = (uint32_t) order;
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, poles_shape, &p->array_b, p->handle_b, NULL, 0U, &err, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
+    if (res != OK) goto done;
 
-    buttap_assign(p->array_b->data, order);
+    CSNARR_RES zout = prepare_output(csound, &p->h, NULL, reg, p->handle_a, 1U, zeros_shape, CSN_COMPLEX, NULL, 0, CSN_ALIAS_REFUSE);
+    res = zout.err;
+    if (res != OK) goto done;
+    pres.locked |= zout.locked;
+
+    CSNARR_RES pout = prepare_output(csound, &p->h, NULL, reg, p->handle_b, 1U, poles_shape, CSN_COMPLEX, NULL, 0, CSN_ALIAS_REFUSE);
+    res = pout.err;
+    if (res != OK) goto done;
+    pres.locked |= pout.locked;
+
+    buttap_assign(p->handle_b->data, order);
     *p->gain = FL(1.0);
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
-}
-
-
-int32_t csnsig_fdesign1f2_deinit(CSOUND *csound, CSN_FDESIGN1F2 *p) {
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array_a, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_b, &p->h);
-}
-
-int32_t csnsig_fdesign1f1_deinit(CSOUND *csound, CSN_FDESIGN1F1 *p) {
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array_a, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_b, &p->h);
 }
 
 /* The part every IIR design shares once its analog lowpass prototype exists:
@@ -1675,7 +1530,7 @@ static int32_t iir_digital_zpk(CSOUND *csound, const CSN_ARRAY *ztap, const CSN_
         default:
             return csound->InitError(csound, "[csnarray] Internal error: invalid filter transform");
     }
-    if (allocate_array(csound, &zeros, 1U, zeros_shape, 0, CSN_COMPLEX) != OK || allocate_array(csound, &poles, 1U, poles_shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, &zeros, 1U, zeros_shape, CSN_COMPLEX) != OK || allocate_array(csound, &poles, 1U, poles_shape, CSN_COMPLEX) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -1692,7 +1547,7 @@ static int32_t iir_digital_zpk(CSOUND *csound, const CSN_ARRAY *ztap, const CSN_
     size_t bil_degree = poles.size - zeros.size;
     uint32_t bil_shape[CSN_MAX_DIMS] = {0};
     bil_shape[0] = (uint32_t) poles.size;
-    if (allocate_array(csound, bil_zeros, 1U, bil_shape, 0, CSN_COMPLEX) != OK || allocate_array(csound, bil_poles, 1U, bil_shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, bil_zeros, 1U, bil_shape, CSN_COMPLEX) != OK || allocate_array(csound, bil_poles, 1U, bil_shape, CSN_COMPLEX) != OK) {
         res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
@@ -1711,18 +1566,19 @@ done:
 }
 
 // the digital filter as b, a published on two handles
-static int32_t iir_zpk_to_ba(CSOUND *csound, OPDS *h, CSNREF *handle_b, CSNREF *handle_a, CSN_ARRAY **array_b, CSN_ARRAY **array_a, const CSN_ARRAY *ztap, const CSN_ARRAY *ptap, double ktap, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs) {
+static int32_t iir_zpk_to_ba(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_b, CSN_ARRAY *arr_a, const CSN_ARRAY *ztap, const CSN_ARRAY *ptap, double ktap, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, h);
+
     CSN_ARRAY bil_zeros = {0};
     CSN_ARRAY bil_poles = {0};
     CSN_COMPLEXDAT *b_poly = NULL;
     CSN_COMPLEXDAT *a_poly = NULL;
     CSN_COMPLEXDAT *temp_poly = NULL;
-    bool locked = false;
+    CSNARR_RES pres = {0};
 
     double bil_gain = 0.0;
     res = iir_digital_zpk(csound, ztap, ptap, ktap, pf, w0, bw, fs, &bil_zeros, &bil_poles, &bil_gain);
@@ -1749,19 +1605,22 @@ static int32_t iir_zpk_to_ba(CSOUND *csound, OPDS *h, CSNREF *handle_b, CSNREF *
     uint32_t a_shape[CSN_MAX_DIMS] = {0};
     a_shape[0] = (uint32_t) a_len;
 
-    csound->LockMutex(reg->mutex);
-    locked = true;
-    if (create_csnarray_locked(csound, reg, h, 1U, b_shape, array_b, handle_b, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    if (create_csnarray_locked(csound, reg, h, 1U, a_shape, array_a, handle_a, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { arr_a, arr_b }, 2);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { arr_b, arr_a }, 2);
+    if (res != OK) goto done;
 
-    store_poly(*array_b, b_poly, bil_gain);
-    store_poly(*array_a, a_poly, 1.0);
+    CSNARR_RES bout = prepare_output(csound, h, NULL, reg, arr_b, 1U, b_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = bout.err;
+    if (res != OK) goto done;
+    pres.locked |= bout.locked;
+
+    CSNARR_RES aout = prepare_output(csound, h, NULL, reg, arr_a, 1U, a_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = aout.err;
+    if (res != OK) goto done;
+    pres.locked |= aout.locked;
+
+    store_poly(arr_b, b_poly, bil_gain);
+    store_poly(arr_a, a_poly, 1.0);
 
 done:
     if (bil_zeros.data != NULL) csound->Free(csound, bil_zeros.data);
@@ -1769,21 +1628,22 @@ done:
     if (b_poly != NULL) csound->Free(csound, b_poly);
     if (a_poly != NULL) csound->Free(csound, a_poly);
     if (temp_poly != NULL) csound->Free(csound, temp_poly);
-    if (locked) csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 // the digital filter as an (n, 6) array of second-order sections
-static int32_t iir_zpk_to_sos(CSOUND *csound, OPDS *h, CSNREF *handle, CSN_ARRAY **array, const CSN_ARRAY *ztap, const CSN_ARRAY *ptap, double ktap, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs) {
+static int32_t iir_zpk_to_sos(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, const CSN_ARRAY *ztap, const CSN_ARRAY *ptap, double ktap, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    const char *err = NULL;
+    stamp_globals(csound, h);
+
     CSN_ARRAY bil_zeros = {0};
     CSN_ARRAY bil_poles = {0};
     double *sos = NULL;
-    bool locked = false;
+    CSNARR_RES pres = {0};
 
     double bil_gain = 0.0;
     res = iir_digital_zpk(csound, ztap, ptap, ktap, pf, w0, bw, fs, &bil_zeros, &bil_poles, &bil_gain);
@@ -1797,19 +1657,20 @@ static int32_t iir_zpk_to_sos(CSOUND *csound, OPDS *h, CSNREF *handle, CSN_ARRAY
     sos_shape[0] = (uint32_t) n_sections;
     sos_shape[1] = 6U;
 
-    csound->LockMutex(reg->mutex);
-    locked = true;
-    if (create_csnarray_locked(csound, reg, h, 2U, sos_shape, array, handle, NULL, 0U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    memcpy((*array)->data, sos, sizeof(double) * 6 * n_sections);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { arr }, 1);
+
+    CSNARR_RES out = prepare_output(csound, h, NULL, reg, arr, 2U, sos_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
+
+    memcpy(arr->data, sos, sizeof(double) * 6 * n_sections);
 
 done:
     if (bil_zeros.data != NULL) csound->Free(csound, bil_zeros.data);
     if (bil_poles.data != NULL) csound->Free(csound, bil_poles.data);
     if (sos != NULL) csound->Free(csound, sos);
-    if (locked) csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -1982,7 +1843,7 @@ static int32_t iir_prototype(CSOUND *csound, const CSN_IIR_SPEC *spec, size_t or
     uint32_t pshape[CSN_MAX_DIMS] = {0};
     zshape[0] = (uint32_t) nz;
     pshape[0] = (uint32_t) n;
-    if (allocate_array(csound, ztap, 1U, zshape, 0, CSN_COMPLEX) != OK || allocate_array(csound, ptap, 1U, pshape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, ztap, 1U, zshape, CSN_COMPLEX) != OK || allocate_array(csound, ptap, 1U, pshape, CSN_COMPLEX) != OK) {
         return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
     CSN_COMPLEXDAT *z = (CSN_COMPLEXDAT *) ztap->data;
@@ -2131,24 +1992,16 @@ static int32_t iir_check_common(CSOUND *csound, const CSN_IIR_SPEC *spec, double
     return OK;
 }
 
-int32_t csnsig_fdesign1f1_sos_deinit(CSOUND *csound, CSN_FDESIGN1F1_SOS *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
-}
-
-int32_t csnsig_fdesign1f2_sos_deinit(CSOUND *csound, CSN_FDESIGN1F2_SOS *p) {
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
-}
-
-static int32_t iir_design_and_publish(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, size_t order, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs, bool is_sos) {
+static int32_t iir_design_and_publish(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_a, CSN_ARRAY *arr_b, const CSN_IIR_SPEC *spec, size_t order, CSN_PF_DESIGN_MODE pf, double w0, double bw, double fs, bool is_sos) {
     CSN_ARRAY ztap = {0};
     CSN_ARRAY ptap = {0};
     double ktap = 1.0;
     int32_t res = iir_prototype(csound, spec, order, &ztap, &ptap, &ktap);
     if (res == OK) {
         if (is_sos) {
-            res = iir_zpk_to_sos(csound, h, handle_a, array_a, &ztap, &ptap, ktap, pf, w0, bw, fs);
+            res = iir_zpk_to_sos(csound, h, arr_a, &ztap, &ptap, ktap, pf, w0, bw, fs);
         } else {
-            res = iir_zpk_to_ba(csound, h, handle_a, handle_b, array_a, array_b, &ztap, &ptap, ktap, pf, w0, bw, fs);
+            res = iir_zpk_to_ba(csound, h, arr_a, arr_b, &ztap, &ptap, ktap, pf, w0, bw, fs);
         }
     }
     if (ztap.data != NULL) csound->Free(csound, ztap.data);
@@ -2156,7 +2009,7 @@ static int32_t iir_design_and_publish(CSOUND *csound, OPDS *h, CSNREF *handle_a,
     return res;
 }
 
-static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const ARRAYDAT *fcut, const cs_float *arg_type, const cs_float *arg_fs, bool is_sos) {
+static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_a, CSN_ARRAY *arr_b, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const ARRAYDAT *fcut, const cs_float *arg_type, const cs_float *arg_fs, bool is_sos) {
     size_t order = 0;
     double fs = (double) *arg_fs;
     if (iir_check_common(csound, spec, (double) *arg_order, (double) *arg_type, fs, true, &order) != OK) return NOTOK;
@@ -2175,10 +2028,10 @@ static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF
     double w1 = 2.0 * fs * tan(CSN_PI * f1 / fs);
     double w2 = 2.0 * fs * tan(CSN_PI * f2 / fs);
     CSN_PF_DESIGN_MODE pf = ftype == CSN_BP ? LP2BP_ZPK : LP2BS_ZPK;
-    return iir_design_and_publish(csound, h, handle_a, handle_b, array_a, array_b, spec, order, pf, sqrt(w1 * w2), w2 - w1, fs, is_sos);
+    return iir_design_and_publish(csound, h, arr_a, arr_b, spec, order, pf, sqrt(w1 * w2), w2 - w1, fs, is_sos);
 }
 
-static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNREF *handle_b, CSN_ARRAY **array_a, CSN_ARRAY **array_b, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const cs_float *fcut, const cs_float *arg_type, const cs_float *arg_fs, bool is_sos) {
+static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_a, CSN_ARRAY *arr_b, const CSN_IIR_SPEC *spec, const cs_float *arg_order, const cs_float *fcut, const cs_float *arg_type, const cs_float *arg_fs, bool is_sos) {
     size_t order = 0;
     double fs = (double) *arg_fs;
     if (iir_check_common(csound, spec, (double) *arg_order, (double) *arg_type, fs, false, &order) != OK) return NOTOK;
@@ -2192,7 +2045,7 @@ static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNR
     // pre-warp the cutoff so the digital filter hits it exactly
     double w0 = 2.0 * fs * tan(CSN_PI * fc / fs);
     CSN_PF_DESIGN_MODE pf = ftype == CSN_LP ? LP2LP_ZPK : LP2HP_ZPK;
-    return iir_design_and_publish(csound, h, handle_a, handle_b, array_a, array_b, spec, order, pf, w0, 0.0, fs, is_sos);
+    return iir_design_and_publish(csound, h, arr_a, arr_b, spec, order, pf, w0, 0.0, fs, is_sos);
 }
 
 /* Entry points. Butterworth: order, cutoff, type, fs. Chebyshev: order,
@@ -2200,82 +2053,82 @@ static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSNREF *handle_a, CSNR
 
 int32_t csnsig_butter_band(CSOUND *csound, CSN_FDESIGN1F2 *p) {
     IIR_SPEC(CSN_BUTTER, 0.0, 0.0);
-    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, false);
+    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, false);
 }
 
 int32_t csnsig_butter_noband(CSOUND *csound, CSN_FDESIGN1F1 *p) {
     IIR_SPEC(CSN_BUTTER, 0.0, 0.0);
-    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, false);
+    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, false);
 }
 
 int32_t csnsig_butter_band_sos(CSOUND *csound, CSN_FDESIGN1F2_SOS *p) {
     IIR_SPEC(CSN_BUTTER, 0.0, 0.0);
-    return iir_band_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, true);
+    return iir_band_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, true);
 }
 
 int32_t csnsig_butter_noband_sos(CSOUND *csound, CSN_FDESIGN1F1_SOS *p) {
     IIR_SPEC(CSN_BUTTER, 0.0, 0.0);
-    return iir_noband_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, true);
+    return iir_noband_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_b, p->arg_c, true);
 }
 
 int32_t csnsig_cheby1_band(CSOUND *csound, CSN_FDESIGN1F2 *p) {
     IIR_SPEC(CSN_CHEBY1, (double) *p->arg_b, 0.0);
-    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
+    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
 }
 
 int32_t csnsig_cheby1_noband(CSOUND *csound, CSN_FDESIGN1F1 *p) {
     IIR_SPEC(CSN_CHEBY1, (double) *p->arg_b, 0.0);
-    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
+    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
 }
 
 int32_t csnsig_cheby1_band_sos(CSOUND *csound, CSN_FDESIGN1F2_SOS *p) {
     IIR_SPEC(CSN_CHEBY1, (double) *p->arg_b, 0.0);
-    return iir_band_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
+    return iir_band_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
 }
 
 int32_t csnsig_cheby1_noband_sos(CSOUND *csound, CSN_FDESIGN1F1_SOS *p) {
     IIR_SPEC(CSN_CHEBY1, (double) *p->arg_b, 0.0);
-    return iir_noband_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
+    return iir_noband_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
 }
 
 int32_t csnsig_cheby2_band(CSOUND *csound, CSN_FDESIGN1F2 *p) {
     IIR_SPEC(CSN_CHEBY2, 0.0, (double) *p->arg_b);
-    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
+    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
 }
 
 int32_t csnsig_cheby2_noband(CSOUND *csound, CSN_FDESIGN1F1 *p) {
     IIR_SPEC(CSN_CHEBY2, 0.0, (double) *p->arg_b);
-    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
+    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, false);
 }
 
 int32_t csnsig_cheby2_band_sos(CSOUND *csound, CSN_FDESIGN1F2_SOS *p) {
     IIR_SPEC(CSN_CHEBY2, 0.0, (double) *p->arg_b);
-    return iir_band_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
+    return iir_band_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
 }
 
 int32_t csnsig_cheby2_noband_sos(CSOUND *csound, CSN_FDESIGN1F1_SOS *p) {
     IIR_SPEC(CSN_CHEBY2, 0.0, (double) *p->arg_b);
-    return iir_noband_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
+    return iir_noband_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_c, p->arg_d, true);
 }
 
 int32_t csnsig_ellip_band(CSOUND *csound, CSN_FDESIGN1F2 *p) {
     IIR_SPEC(CSN_ELLIP, (double) *p->arg_b, (double) *p->arg_c);
-    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, false);
+    return iir_band_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, false);
 }
 
 int32_t csnsig_ellip_noband(CSOUND *csound, CSN_FDESIGN1F1 *p) {
     IIR_SPEC(CSN_ELLIP, (double) *p->arg_b, (double) *p->arg_c);
-    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &p->array_a, &p->array_b, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, false);
+    return iir_noband_helper(csound, &p->h, p->handle_a, p->handle_b, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, false);
 }
 
 int32_t csnsig_ellip_band_sos(CSOUND *csound, CSN_FDESIGN1F2_SOS *p) {
     IIR_SPEC(CSN_ELLIP, (double) *p->arg_b, (double) *p->arg_c);
-    return iir_band_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, true);
+    return iir_band_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, true);
 }
 
 int32_t csnsig_ellip_noband_sos(CSOUND *csound, CSN_FDESIGN1F1_SOS *p) {
     IIR_SPEC(CSN_ELLIP, (double) *p->arg_b, (double) *p->arg_c);
-    return iir_noband_helper(csound, &p->h, p->handle, NULL, &p->array, NULL, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, true);
+    return iir_noband_helper(csound, &p->h, p->handle, NULL, &spec, p->arg_a, p->fcut, p->arg_d, p->arg_e, true);
 }
 
 /* ---------------------------------------------------------------------------
@@ -2301,7 +2154,7 @@ static int32_t load_tf_coeffs(CSOUND *csound, const CSN_ARRAY *b_arr, const CSN_
     size_t n = (b_arr->size > a_arr->size ? b_arr->size : a_arr->size);
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = (uint32_t) n;
-    if (allocate_array(csound, b_buf, 1U, shape, 0, CSN_COMPLEX) != OK || allocate_array(csound, a_buf, 1U, shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, b_buf, 1U, shape, CSN_COMPLEX) != OK || allocate_array(csound, a_buf, 1U, shape, CSN_COMPLEX) != OK) {
         return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
     CSN_COMPLEXDAT *b = (CSN_COMPLEXDAT *) b_buf->data;
@@ -2330,7 +2183,7 @@ static int32_t load_sos(CSOUND *csound, const CSN_ARRAY *sos_arr, CSN_ARRAY *sos
             return csound->InitError(csound, "[csnarray] Section %zu has a0 = %g: every sos[:, 3] must be 1", s, a0.re);
         }
     }
-    if (allocate_array(csound, sos_buf, 2U, sos_arr->shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, sos_buf, 2U, sos_arr->shape, CSN_COMPLEX) != OK) {
         return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
     for (size_t i = 0; i < n * 6; i++) {
@@ -2392,8 +2245,7 @@ static CSN_COMPLEXDAT sos_section_step(const CSN_COMPLEXDAT *sec, CSN_COMPLEXDAT
 
 /* One slice of n samples, read from x with stride sx and written to y with
    stride sy, through the transposed direct form II. */
-static void df2t_slice(const CSN_COMPLEXDAT *b, const CSN_COMPLEXDAT *a, size_t order, CSN_COMPLEXDAT *z,
-                       const double *x, size_t sx, ITEM_TYPE xt, double *y, size_t sy, ITEM_TYPE yt, size_t n) {
+static void df2t_slice(const CSN_COMPLEXDAT *b, const CSN_COMPLEXDAT *a, size_t order, CSN_COMPLEXDAT *z, const double *x, size_t sx, ITEM_TYPE xt, double *y, size_t sy, ITEM_TYPE yt, size_t n) {
     for (size_t i = 0; i < n; i++) {
         CSN_COMPLEXDAT out = df2t_step(b, a, order, z, slice_get(x, i, sx, xt));
         slice_put(y, i, sy, yt, out);
@@ -2402,8 +2254,7 @@ static void df2t_slice(const CSN_COMPLEXDAT *b, const CSN_COMPLEXDAT *a, size_t 
 
 /* The same slice through the cascade: each section feeds the next, and each
    keeps its two states at z + 2 * section. */
-static void sos_slice(const CSN_COMPLEXDAT *sos, size_t n_sections, CSN_COMPLEXDAT *z,
-                      const double *x, size_t sx, ITEM_TYPE xt, double *y, size_t sy, ITEM_TYPE yt, size_t n) {
+static void sos_slice(const CSN_COMPLEXDAT *sos, size_t n_sections, CSN_COMPLEXDAT *z, const double *x, size_t sx, ITEM_TYPE xt, double *y, size_t sy, ITEM_TYPE yt, size_t n) {
     for (size_t i = 0; i < n; i++) {
         CSN_COMPLEXDAT v = slice_get(x, i, sx, xt);
         for (size_t s = 0; s < n_sections; s++) {
@@ -2491,20 +2342,13 @@ int32_t csnsig_lfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle_b = p->b->id;
-    uint32_t source_handle_a = p->a->id;
     int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->a, p->b }, 2);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
-    if (slot_b == NULL || slot_a == NULL) {
-        uint32_t missing = slot_b == NULL ? source_handle_b : source_handle_a;
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-        goto done;
-    }
-    CSN_ARRAY *b_arr = slot_b->array;
-    CSN_ARRAY *a_arr = slot_a->array;
+    CSN_ARRAY *b_arr = p->b;
+    CSN_ARRAY *a_arr = p->a;
     if (b_arr->itype == CSN_COMPLEX || a_arr->itype == CSN_COMPLEX) {
         res = csound->InitError(csound, "[csnarray] The audio lfilter needs real b and a");
         goto done;
@@ -2526,7 +2370,7 @@ int32_t csnsig_lfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO *p) {
     p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2534,20 +2378,14 @@ int32_t csnsig_lfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle_b = p->b->id;
-    uint32_t source_handle_a = p->a->id;
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, source_handle_b);
-    CSN_SLOT *slot_a = get_slot(reg, source_handle_a);
     int32_t res = OK;
-    if (slot_b == NULL || slot_a == NULL) {
-        uint32_t missing = slot_b == NULL ? source_handle_b : source_handle_a;
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    } else if (!is_same_array_version(&p->b_version, &slot_b->array->version) || !is_same_array_version(&p->a_version, &slot_a->array->version)) {
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->a, p->b }, 2);
+
+    if (!is_same_array_version(&p->b_version, &p->b->version) || !is_same_array_version(&p->a_version, &p->a->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] b or a changed after the filter was initialised");
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     if (res != OK) return res;
 
     uint32_t offset = p->h.insdshead->ksmps_offset;
@@ -2578,16 +2416,12 @@ int32_t csnsig_sosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t source_handle = p->sos->id;
     int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->sos }, 1);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
-    if (slot == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-        goto done;
-    }
-    CSN_ARRAY *sos_arr = slot->array;
+    CSN_ARRAY *sos_arr = p->sos;
     if (sos_arr->itype == CSN_COMPLEX) {
         res = csound->InitError(csound, "[csnarray] The audio sosfilter needs real sections");
         goto done;
@@ -2606,7 +2440,7 @@ int32_t csnsig_sosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO *p) {
     p->registry = reg;
 
 done:
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2614,17 +2448,14 @@ int32_t csnsig_sosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle = p->sos->id;
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
     int32_t res = OK;
-    if (slot == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", source_handle);
-    } else if (!is_same_array_version(&p->sos_version, &slot->array->version)) {
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->sos }, 1);
+
+    if (!is_same_array_version(&p->sos_version, &p->sos->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] sos changed after the filter was initialised");
     }
-    csound->UnlockMutex(reg->mutex);
+    if (pres.locked) csn_unlock(csound, reg);
     if (res != OK) return res;
 
     uint32_t offset = p->h.insdshead->ksmps_offset;
@@ -2660,113 +2491,97 @@ int32_t csnsig_lfilter_arr_deinit(CSOUND *csound, CSN_LFILTER *p) {
     deinit_scratch(csound, &p->filter_state);
     FREE_CSNARRDATA(csound, &p->b_buffer);
     FREE_CSNARRDATA(csound, &p->a_buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
 int32_t csnsig_sosfilter_arr_deinit(CSOUND *csound, CSN_SOSFILTER *p) {
     deinit_scratch(csound, &p->filter_state);
     FREE_CSNARRDATA(csound, &p->sos_buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array, &p->h);
+    return OK;
 }
 
-/* Init of the array forms, i-rate and k-rate: coefficients, axis, output
-   array, and a zeroed state for every slice. */
-static int32_t lfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **b_out, CSN_ARRAY **a_out) {
-    const char *err = NULL;
-    CSN_SLOT *slot_b = get_slot(reg, p->b->id);
-    CSN_SLOT *slot_a = get_slot(reg, p->a->id);
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    uint32_t missing = slot_b == NULL ? p->b->id : slot_a == NULL ? p->a->id : slot == NULL ? p->source_handle->id : 0;
-    if (slot_b == NULL || slot_a == NULL || slot == NULL) {
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
+/* y follows x and may be x itself: each slice is read sample by sample just
+   before the same cell is written. It may not be a coefficient array (coef_b
+   is NULL for sos): those are copied at init, and the k forms refuse a pass
+   once their version moves. */
+static int32_t filter_prepare_y(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *y, const CSN_ARRAY *x, const CSN_ARRAY *coef_a, const CSN_ARRAY *coef_b, ITEM_TYPE out_itype, bool *locked, bool *aliased) {
+    if (y == coef_a || (coef_b != NULL && y == coef_b)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] '%s' cannot be written over the filter coefficients; write it to another variable", get_out_name(h));
     }
-    CSN_ARRAY *source_arr = slot->array;
+    const CSN_ARRAY *ops[1] = { x };
+    CSNARR_RES out = prepare_output(csound, h, perf_h, reg, y, x->ndim, x->shape, out_itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    if (out.err != OK) return out.err;
+    *locked |= out.locked;
+    *aliased = out.aliased;
+    return OK;
+}
 
+/* Init of the array forms, i-rate and k-rate: coefficients, axis, and a zeroed
+   state for every slice. */
+static int32_t lfilter_arr_load(CSOUND *csound, CSN_LFILTER *p, const cs_float *axis_in) {
+    CSN_ARRAY *source_arr = p->source_handle;
     int32_t res = filter_axis(csound, axis_in, source_arr->ndim, &p->axis_spec);
     if (res != OK) return res;
 
-    size_t per_slice = 0;
     FREE_CSNARRDATA(csound, &p->b_buffer);
     FREE_CSNARRDATA(csound, &p->a_buffer);
-    res = load_tf_coeffs(csound, slot_b->array, slot_a->array, &p->b_buffer, &p->a_buffer, &p->order);
+    res = load_tf_coeffs(csound, p->b, p->a, &p->b_buffer, &p->a_buffer, &p->order);
     if (res != OK) return res;
     p->coef_is_complex = coef_array_is_complex(&p->b_buffer) || coef_array_is_complex(&p->a_buffer);
-    per_slice = p->order;
 
     size_t slices = slice_count_of(source_arr, p->axis_spec.index);
-    size_t need = per_slice * slices;
+    size_t need = p->order * slices;
     res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
     if (res != OK) return res;
     memset(p->filter_state.scratch, 0, sizeof(CSN_COMPLEXDAT) * (need > 0 ? need : 1));
     p->filter_state.current_size = slices;
-
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || p->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    uint32_t protect[3] = { p->b->id, p->a->id, p->source_handle->id };
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 3U, &err, out_itype) != OK) {
-        return csound->InitError(csound, "[csnarray] %s", err);
-    }
-
-    *source_out = source_arr;
-    *b_out = slot_b->array;
-    *a_out = slot_a->array;
     return OK;
 }
 
-static int32_t sosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **sos_out) {
-    const char *err = NULL;
-    CSN_SLOT *slot_sos = get_slot(reg, p->sos->id);
-    CSN_SLOT *slot = get_slot(reg, p->source_handle->id);
-    uint32_t missing = slot_sos == NULL ? p->sos->id : slot == NULL ? p->source_handle->id : 0;
-    if (missing != 0) {
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    }
-    CSN_ARRAY *source_arr = slot->array;
-
+static int32_t sosfilter_arr_load(CSOUND *csound, CSN_SOSFILTER *p, const cs_float *axis_in) {
+    CSN_ARRAY *source_arr = p->source_handle;
     int32_t res = filter_axis(csound, axis_in, source_arr->ndim, &p->axis_spec);
     if (res != OK) return res;
 
-    size_t per_slice = 0;
     FREE_CSNARRDATA(csound, &p->sos_buffer);
-    res = load_sos(csound, slot_sos->array, &p->sos_buffer, &p->n_sections);
+    res = load_sos(csound, p->sos, &p->sos_buffer, &p->n_sections);
     if (res != OK) return res;
     p->coef_is_complex = coef_array_is_complex(&p->sos_buffer);
-    per_slice = 2 * p->n_sections;
 
     size_t slices = slice_count_of(source_arr, p->axis_spec.index);
-    size_t need = per_slice * slices;
+    size_t need = 2 * p->n_sections * slices;
     res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
     if (res != OK) return res;
     memset(p->filter_state.scratch, 0, sizeof(CSN_COMPLEXDAT) * (need > 0 ? need : 1));
     p->filter_state.current_size = slices;
-
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || p->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    uint32_t protect[2] = { p->sos->id, p->source_handle->id };
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle, protect, 2U, &err, out_itype) != OK) {
-        return csound->InitError(csound, "[csnarray] %s", err);
-    }
-
-    *source_out = source_arr;
-    *sos_out = slot_sos->array;
     return OK;
+}
+
+static ITEM_TYPE filter_out_itype(const CSN_ARRAY *x, const CSN_ARRAY *zi, bool coef_is_complex) {
+    bool complex_out = x->itype == CSN_COMPLEX || coef_is_complex || (zi != NULL && zi->itype == CSN_COMPLEX);
+    return complex_out ? CSN_COMPLEX : CSN_REAL;
 }
 
 int32_t csnsig_lfilter_arr(CSOUND *csound, CSN_LFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 4 ? p->opt_a : NULL;
-    CSN_ARRAY *source_arr = NULL;
-    CSN_ARRAY *b_arr = NULL;
-    CSN_ARRAY *a_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = lfilter_arr_init(csound, reg, p, axis_in, &source_arr, &b_arr, &a_arr);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->a, p->b, p->handle }, 4);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    bool aliased = false;
+    int32_t res = lfilter_arr_load(csound, p, axis_in);
+    if (res == OK) res = filter_prepare_y(csound, &p->h, NULL, reg, p->handle, source_arr, p->b, p->a, filter_out_itype(source_arr, NULL, p->coef_is_complex), &pres.locked, &aliased);
     if (res == OK) {
-        const CSN_COMPLEXDAT *b_comp = (const CSN_COMPLEXDAT *) p->b_buffer.data;
-        const CSN_COMPLEXDAT *a_comp = (const CSN_COMPLEXDAT *) p->a_buffer.data;
         CSN_COMPLEXDAT *state = (CSN_COMPLEXDAT *) p->filter_state.scratch;
-        res = lfilter_slices(csound, NULL, source_arr, p->array, p->axis_spec.index, b_comp, a_comp, p->order, state, p->order);
+        res = lfilter_slices(csound, NULL, source_arr, p->handle, p->axis_spec.index, (const CSN_COMPLEXDAT *) p->b_buffer.data, (const CSN_COMPLEXDAT *) p->a_buffer.data, p->order, state, p->order);
+        if (res == OK && aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
     }
-    csound->UnlockMutex(reg->mutex);
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2774,43 +2589,52 @@ int32_t csnsig_sosfilter_arr(CSOUND *csound, CSN_SOSFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 3 ? p->opt_a : NULL;
-    CSN_ARRAY *source_arr = NULL;
-    CSN_ARRAY *sos_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = sosfilter_arr_init(csound, reg, p, axis_in, &source_arr, &sos_arr);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->sos, p->handle }, 3);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    bool aliased = false;
+    int32_t res = sosfilter_arr_load(csound, p, axis_in);
+    if (res == OK) res = filter_prepare_y(csound, &p->h, NULL, reg, p->handle, source_arr, p->sos, NULL, filter_out_itype(source_arr, NULL, p->coef_is_complex), &pres.locked, &aliased);
     if (res == OK) {
-        const CSN_COMPLEXDAT *sos_comp = (const CSN_COMPLEXDAT *) p->sos_buffer.data;
         CSN_COMPLEXDAT *state = (CSN_COMPLEXDAT *) p->filter_state.scratch;
-        res = sosfilter_slices(csound, NULL, source_arr, p->array, p->axis_spec.index, sos_comp, p->n_sections, state, 2 * p->n_sections);
+        res = sosfilter_slices(csound, NULL, source_arr, p->handle, p->axis_spec.index, (const CSN_COMPLEXDAT *) p->sos_buffer.data, p->n_sections, state, 2 * p->n_sections);
+        if (res == OK && aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
     }
-    csound->UnlockMutex(reg->mutex);
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 /* k-rate: the state of every slice carries over from one pass to the next, so
    successive blocks filter as one continuous signal, like lfilter with zi set
-   to the previous zf. A change in the number of slices restarts the filter. */
+   to the previous zf. A change in the number of slices restarts the filter.
+   The init only lays the output out: the first pass filters. */
 
 int32_t csnsig_lfilter_arr_k_init(CSOUND *csound, CSN_LFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 5 ? p->opt_b : NULL;
-    CSN_ARRAY *source_arr = NULL;
-    CSN_ARRAY *b_arr = NULL;
-    CSN_ARRAY *a_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = lfilter_arr_init(csound, reg, p, axis_in, &source_arr, &b_arr, &a_arr);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->a, p->b, p->handle }, 4);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    bool aliased = false;
+    int32_t res = lfilter_arr_load(csound, p, axis_in);
+    if (res == OK) res = filter_prepare_y(csound, &p->h, NULL, reg, p->handle, source_arr, p->b, p->a, filter_out_itype(source_arr, NULL, p->coef_is_complex), &pres.locked, &aliased);
     if (res == OK) {
-        SET_KDATA_BEGIN(p, reg);
-        set_array_version(&p->b_version, &b_arr->version);
-        set_array_version(&p->a_version, &a_arr->version);
-        set_array_version(&p->k_data.prev_output_version, &p->array->version);
-        set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        memset(&p->k_data, 0, sizeof(p->k_data));
+        SET_KDATA_BEGIN(p->k_data, reg, p->handle->shape, p->handle->ndim, p->handle->itype);
+        set_array_version(&p->b_version, &p->b->version);
+        set_array_version(&p->a_version, &p->a->version);
         p->is_published = false;
     }
-    csound->UnlockMutex(reg->mutex);
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -2818,158 +2642,110 @@ int32_t csnsig_sosfilter_arr_k_init(CSOUND *csound, CSN_SOSFILTER *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 4 ? p->opt_b : NULL;
-    CSN_ARRAY *source_arr = NULL;
-    CSN_ARRAY *sos_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = sosfilter_arr_init(csound, reg, p, axis_in, &source_arr, &sos_arr);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->sos, p->handle }, 3);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    bool aliased = false;
+    int32_t res = sosfilter_arr_load(csound, p, axis_in);
+    if (res == OK) res = filter_prepare_y(csound, &p->h, NULL, reg, p->handle, source_arr, p->sos, NULL, filter_out_itype(source_arr, NULL, p->coef_is_complex), &pres.locked, &aliased);
     if (res == OK) {
-        SET_KDATA_BEGIN(p, reg);
-        set_array_version(&p->sos_version, &sos_arr->version);
-        set_array_version(&p->k_data.prev_output_version, &p->array->version);
-        set_array_version(&p->k_data.prev_source_version, &source_arr->version);
+        memset(&p->k_data, 0, sizeof(p->k_data));
+        SET_KDATA_BEGIN(p->k_data, reg, p->handle->shape, p->handle->ndim, p->handle->itype);
+        set_array_version(&p->sos_version, &p->sos->version);
         p->is_published = false;
     }
-    csound->UnlockMutex(reg->mutex);
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 /* Shared performance pass: republish when nothing moved, otherwise make sure
    the state fits the current slices (restarting it if their count changed)
-   and run the next block through. */
-static int32_t lfilter_arr_perf(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER *p, CSN_SLOT *slot, const CSN_COMPLEXDAT *b, const CSN_COMPLEXDAT *a) {
-    const char *err = NULL;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CSN_ARRAY *source_arr = slot->array;
-
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        bool is_same_result = slot_res != NULL && is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            return OK;
-        }
+   and run the next block through. An output that is its own source is never
+   reused: X = csnlfilter(b, a, X) filters again on every pass. */
+static int32_t filter_arr_perf(CSOUND *csound, CSN_REGISTRY *reg, OPDS *h, CSN_ARRAY *y, CSN_ARRAY *source_arr, const CSN_ARRAY *coef_a, const CSN_ARRAY *coef_b, K_DATA *k_data, CSN_SCRATCH *filter_state, const CSN_AXIS_SPEC *axis_spec, size_t per_slice, bool coef_is_complex, bool *is_published, bool *locked, const CSN_COMPLEXDAT *b, const CSN_COMPLEXDAT *a, size_t order, const CSN_COMPLEXDAT *sos, size_t n_sections) {
+    if (*is_published && y != source_arr) {
+        bool is_same_source = is_same_array_version(&k_data->prev_source_version, &source_arr->version);
+        bool is_same_result = is_same_array_version(&k_data->prev_output_version, &y->version);
+        if (is_same_source && is_same_result) return OK;
     }
 
-    if (p->axis_spec.index >= source_arr->ndim) {
-        return csn_locked_perf_error(csound, &p->h, "[csnarray] The source is now %u-D, which has no axis %u", source_arr->ndim, p->axis_spec.index);
+    if (axis_spec->index >= source_arr->ndim) {
+        return csn_locked_perf_error(csound, h, "[csnarray] The source is now %u-D, which has no axis %u", source_arr->ndim, axis_spec->index);
     }
 
-    size_t slices = slice_count_of(source_arr, p->axis_spec.index);
-    if (slices != p->filter_state.current_size) {
-        size_t need = p->order * slices;
-        int32_t res = csn_scratch_reserve(csound, &p->h, slot->rt_locked, &p->filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
-        if (res != OK) return res;
-        memset(p->filter_state.scratch, 0, sizeof(CSN_COMPLEXDAT) * (need > 0 ? need : 1));
-        p->filter_state.current_size = slices;
-    }
-
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || p->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    int32_t res = NEED_TO_UPDATE_SLOT(csound, &p->h, &p->array, &p->k_data, NULL, source_arr->ndim, source_arr->shape, source_arr->size, out_itype, err);
-    if (res != OK) return res;
-
-    CSN_ARRAY *arr = p->array;
-    res = lfilter_slices(csound, &p->h, source_arr, arr, p->axis_spec.index, b, a, p->order, (CSN_COMPLEXDAT *) p->filter_state.scratch, p->order);
-    if (res != OK) return res;
-
-    SET_FROM_KDATA_END_WITH_ID(p->k_data, p->handle, source_arr->shape, source_arr->ndim, out_itype);
-    set_array_version(&p->k_data.prev_output_version, &arr->version);
-    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    p->is_published = true;
-    return OK;
-}
-
-static int32_t sosfilter_arr_perf(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER *p, CSN_SLOT *slot, const CSN_COMPLEXDAT *sos) {
-    const char *err = NULL;
-    uint32_t owned_handle = p->k_data.owned_handle;
-    CSN_ARRAY *source_arr = slot->array;
-
-    if (p->is_published) {
-        bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        CSN_SLOT *slot_res = get_slot(reg, owned_handle);
-        bool is_same_result = slot_res != NULL && is_same_array_version(&p->k_data.prev_output_version, &slot_res->array->version);
-        if (is_same_source && is_same_result) {
-            p->handle->id = owned_handle;
-            return OK;
-        }
-    }
-
-    if (p->axis_spec.index >= source_arr->ndim) {
-        return csn_locked_perf_error(csound, &p->h, "[csnarray] The source is now %u-D, which has no axis %u", source_arr->ndim, p->axis_spec.index);
-    }
-
-    size_t per_slice = 2 * p->n_sections;
-    size_t slices = slice_count_of(source_arr, p->axis_spec.index);
-    if (slices != p->filter_state.current_size) {
+    size_t slices = slice_count_of(source_arr, axis_spec->index);
+    if (slices != filter_state->current_size) {
         size_t need = per_slice * slices;
-        int32_t res = csn_scratch_reserve(csound, &p->h, slot->rt_locked, &p->filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
+        int32_t res = csn_scratch_reserve(csound, h, source_arr->rt_locked, filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
         if (res != OK) return res;
-        memset(p->filter_state.scratch, 0, sizeof(CSN_COMPLEXDAT) * (need > 0 ? need : 1));
-        p->filter_state.current_size = slices;
+        memset(filter_state->scratch, 0, sizeof(CSN_COMPLEXDAT) * (need > 0 ? need : 1));
+        filter_state->current_size = slices;
     }
 
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || p->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    int32_t res = NEED_TO_UPDATE_SLOT(csound, &p->h, &p->array, &p->k_data, NULL, source_arr->ndim, source_arr->shape, source_arr->size, out_itype, err);
+    ITEM_TYPE out_itype = filter_out_itype(source_arr, NULL, coef_is_complex);
+    bool aliased = false;
+    int32_t res = filter_prepare_y(csound, h, h, reg, y, source_arr, coef_a, coef_b, out_itype, locked, &aliased);
     if (res != OK) return res;
 
-    CSN_ARRAY *arr = p->array;
-    res = sosfilter_slices(csound, &p->h, source_arr, arr, p->axis_spec.index, sos, p->n_sections, (CSN_COMPLEXDAT *) p->filter_state.scratch, per_slice);
+    CSN_COMPLEXDAT *state = (CSN_COMPLEXDAT *) filter_state->scratch;
+    if (sos != NULL) {
+        res = sosfilter_slices(csound, h, source_arr, y, axis_spec->index, sos, n_sections, state, per_slice);
+    } else {
+        res = lfilter_slices(csound, h, source_arr, y, axis_spec->index, b, a, order, state, per_slice);
+    }
     if (res != OK) return res;
+    if (aliased && source_arr->size > 0) update_array_data_version(&y->version);
 
-    SET_FROM_KDATA_END_WITH_ID(p->k_data, p->handle, source_arr->shape, source_arr->ndim, out_itype);
-    set_array_version(&p->k_data.prev_output_version, &arr->version);
-    set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-    p->is_published = true;
+    SET_KDATA_END(*k_data, source_arr->shape, source_arr->ndim, out_itype);
+    set_array_version(&k_data->prev_output_version, &y->version);
+    set_array_version(&k_data->prev_source_version, &source_arr->version);
+    *is_published = true;
     return OK;
 }
 
 int32_t csnsig_lfilter_arr_k(CSOUND *csound, CSN_LFILTER *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-    if (CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0) != OK) return NOTOK;
     CHECK_KTRIG(p->opt_a);
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, p->b->id);
-    CSN_SLOT *slot_a = get_slot(reg, p->a->id);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
     int32_t res = OK;
-    if (slot_b == NULL || slot_a == NULL || slot == NULL) {
-        uint32_t missing = slot_b == NULL ? p->b->id : slot_a == NULL ? p->a->id : source_handle;
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    } else if (!is_same_array_version(&p->b_version, &slot_b->array->version) || !is_same_array_version(&p->a_version, &slot_a->array->version)) {
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->a, p->b, p->handle }, 4);
+
+    if (!is_same_array_version(&p->b_version, &p->b->version) || !is_same_array_version(&p->a_version, &p->a->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] b or a changed after the filter was initialised");
     } else {
-        res = lfilter_arr_perf(csound, reg, p, slot, (const CSN_COMPLEXDAT *) p->b_buffer.data, (const CSN_COMPLEXDAT *) p->a_buffer.data);
+        res = filter_arr_perf(csound, reg, &p->h, p->handle, p->source_handle, p->b, p->a, &p->k_data, &p->filter_state, &p->axis_spec, p->order, p->coef_is_complex, &p->is_published, &pres.locked,
+                              (const CSN_COMPLEXDAT *) p->b_buffer.data, (const CSN_COMPLEXDAT *) p->a_buffer.data, p->order, NULL, 0);
     }
-    csound->UnlockMutex(reg->mutex);
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnsig_sosfilter_arr_k(CSOUND *csound, CSN_SOSFILTER *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
+    CHECK_REGISTRY(csound, &p->h, reg);
 
-    uint32_t source_handle = p->source_handle->id;
-    if (CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, source_handle, 0) != OK) return NOTOK;
     CHECK_KTRIG(p->opt_a);
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_sos = get_slot(reg, p->sos->id);
-    CSN_SLOT *slot = get_slot(reg, source_handle);
     int32_t res = OK;
-    if (slot_sos == NULL || slot == NULL) {
-        uint32_t missing = slot_sos == NULL ? p->sos->id : source_handle;
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    } else if (!is_same_array_version(&p->sos_version, &slot_sos->array->version)) {
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->sos, p->handle }, 3);
+
+    if (!is_same_array_version(&p->sos_version, &p->sos->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] sos changed after the filter was initialised");
     } else {
-        res = sosfilter_arr_perf(csound, reg, p, slot, (const CSN_COMPLEXDAT *) p->sos_buffer.data);
+        res = filter_arr_perf(csound, reg, &p->h, p->handle, p->source_handle, p->sos, NULL, &p->k_data, &p->filter_state, &p->axis_spec, 2 * p->n_sections, p->coef_is_complex, &p->is_published, &pres.locked,
+                              NULL, NULL, 0, (const CSN_COMPLEXDAT *) p->sos_buffer.data, p->n_sections);
     }
-    csound->UnlockMutex(reg->mutex);
+
+    if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3067,139 +2843,150 @@ int32_t csnsig_zlfilter_arr_deinit(CSOUND *csound, CSN_LFILTER_Z *p) {
     deinit_scratch(csound, &p->filter_state);
     FREE_CSNARRDATA(csound, &p->b_buffer);
     FREE_CSNARRDATA(csound, &p->a_buffer);
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_state, &p->h);
+    return OK;
 }
 
 int32_t csnsig_zsosfilter_arr_deinit(CSOUND *csound, CSN_SOSFILTER_Z *p) {
     deinit_scratch(csound, &p->filter_state);
     FREE_CSNARRDATA(csound, &p->sos_buffer);
-    int32_t res = csnarray_deinit_by_handle(csound, &p->handle_a->id, &p->array, &p->h);
-    if (res != OK) return res;
-    return csnarray_deinit_by_handle(csound, &p->handle_b->id, &p->array_state, &p->h);
+    return OK;
 }
 
-/* Shared init of the zi forms: coefficients, axis, zi checked and loaded into
-   the state buffer, y and zf created. Nothing is filtered here. */
-static int32_t zlfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_LFILTER_Z *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **zi_out, CSN_ARRAY **b_out, CSN_ARRAY **a_out) {
-    const char *err = NULL;
-    uint32_t hb = p->b->id, ha = p->a->id, hx = p->source_handle_a->id, hz = p->source_handle_b->id;
-    CSN_SLOT *slot_b = get_slot(reg, hb);
-    CSN_SLOT *slot_a = get_slot(reg, ha);
-    CSN_SLOT *slot = get_slot(reg, hx);
-    CSN_SLOT *slot_zi = get_slot(reg, hz);
-    if (slot_b == NULL || slot_a == NULL || slot == NULL || slot_zi == NULL) {
-        uint32_t missing = slot_b == NULL ? hb : slot_a == NULL ? ha : slot == NULL ? hx : hz;
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
+/* zf may be zi, the usual feedback: zi is copied into the state before any
+   output is laid out. It may not be x, which is still to be read, nor y, nor a
+   coefficient array. */
+static int32_t zfilter_prepare_zf(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, const CSN_ZFILTER_PASS *zp, uint32_t z_ndim, const uint32_t *z_shape, ITEM_TYPE out_itype, bool *locked) {
+    const CSN_ARRAY *outs[2] = { zp->y, zp->zf };
+    int32_t res = csn_check_outputs_distinct(csound, perf_h, outs, 2);
+    if (res != OK) return res;
+    if (zp->zf == zp->coef_a || (zp->coef_b != NULL && zp->zf == zp->coef_b)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] zf cannot be written over the filter coefficients; write it to another variable");
     }
-    CSN_ARRAY *source_arr = slot->array;
-    CSN_ARRAY *zi_arr = slot_zi->array;
+    const CSN_ARRAY *ops[1] = { zp->x };
+    CSNARR_RES out = prepare_output(csound, h, perf_h, reg, zp->zf, z_ndim, z_shape, out_itype, ops, 1, CSN_ALIAS_REFUSE);
+    if (out.err != OK) return out.err;
+    *locked |= out.locked;
+    return OK;
+}
 
-    int32_t res = filter_axis(csound, axis_in, source_arr->ndim, &p->axis_spec);
+/* One run of the zi forms: zi checked and loaded into the state, y and zf
+   laid out, x filtered into y, the final state written to zf. With compute
+   false (the k init) only the outputs are laid out. */
+static int32_t zfilter_run(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, const CSN_ZFILTER_PASS *zp, bool compute, bool *locked) {
+    CSN_ARRAY *x = zp->x;
+    uint32_t axis = zp->axis_spec->index;
+    if (axis >= x->ndim) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The source is now %u-D, which has no axis %u", x->ndim, axis);
+    }
+
+    uint32_t z_ndim = 0;
+    uint32_t z_shape[CSN_MAX_DIMS];
+    int32_t res = zi_check(csound, perf_h, zp->zi, x, axis, zp->is_sos, zp->order, zp->n_sections, &z_ndim, z_shape);
     if (res != OK) return res;
 
+    size_t per_slice = zp->is_sos ? 2 * zp->n_sections : zp->order;
+    size_t slices = slice_count_of(x, axis);
+    size_t need = per_slice * slices;
+    res = csn_scratch_reserve(csound, perf_h, x->rt_locked, zp->state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
+    if (res != OK) return res;
+    zp->state->current_size = slices;
+    uint32_t zaxis = zp->is_sos ? axis + 1U : axis;
+    CSN_COMPLEXDAT *state = (CSN_COMPLEXDAT *) zp->state->scratch;
+    if (compute) {
+        res = zi_transfer(csound, perf_h, zp->zi, zaxis, slices, per_slice, state, true);
+        if (res != OK) return res;
+    }
+
+    ITEM_TYPE out_itype = filter_out_itype(x, zp->zi, zp->coef_is_complex);
+    bool y_aliased = false;
+    res = filter_prepare_y(csound, h, perf_h, reg, zp->y, x, zp->coef_a, zp->coef_b, out_itype, locked, &y_aliased);
+    if (res != OK) return res;
+    res = zfilter_prepare_zf(csound, h, perf_h, reg, zp, z_ndim, z_shape, out_itype, locked);
+    if (res != OK || !compute) return res;
+
+    if (zp->is_sos) {
+        res = sosfilter_slices(csound, perf_h, x, zp->y, axis, zp->sos, zp->n_sections, state, per_slice);
+    } else {
+        res = lfilter_slices(csound, perf_h, x, zp->y, axis, zp->b, zp->a, zp->order, state, per_slice);
+    }
+    if (res != OK) return res;
+    if (y_aliased && x->size > 0) update_array_data_version(&zp->y->version);
+    return zi_transfer(csound, perf_h, zp->zf, zaxis, slices, per_slice, state, false);
+}
+
+static void zlfilter_pass(CSN_ZFILTER_PASS *zp, CSN_LFILTER_Z *p) {
+    *zp = (CSN_ZFILTER_PASS) {
+        .x = p->source_handle_a,
+        .zi = p->source_handle_b,
+        .y = p->handle_a,
+        .zf = p->handle_b,
+        .coef_a = p->b,
+        .coef_b = p->a,
+        .state = &p->filter_state,
+        .axis_spec = &p->axis_spec,
+        .coef_is_complex = p->coef_is_complex,
+        .is_sos = false,
+        .b = (const CSN_COMPLEXDAT *) p->b_buffer.data,
+        .a = (const CSN_COMPLEXDAT *) p->a_buffer.data,
+        .order = p->order,
+    };
+}
+
+static void zsosfilter_pass(CSN_ZFILTER_PASS *zp, CSN_SOSFILTER_Z *p) {
+    *zp = (CSN_ZFILTER_PASS) {
+        .x = p->source_handle_a,
+        .zi = p->source_handle_b,
+        .y = p->handle_a,
+        .zf = p->handle_b,
+        .coef_a = p->sos,
+        .coef_b = NULL,
+        .state = &p->filter_state,
+        .axis_spec = &p->axis_spec,
+        .coef_is_complex = p->coef_is_complex,
+        .is_sos = true,
+        .sos = (const CSN_COMPLEXDAT *) p->sos_buffer.data,
+        .n_sections = p->n_sections,
+    };
+}
+
+static int32_t zlfilter_load(CSOUND *csound, CSN_LFILTER_Z *p, const cs_float *axis_in) {
+    int32_t res = filter_axis(csound, axis_in, p->source_handle_a->ndim, &p->axis_spec);
+    if (res != OK) return res;
     FREE_CSNARRDATA(csound, &p->b_buffer);
     FREE_CSNARRDATA(csound, &p->a_buffer);
-    res = load_tf_coeffs(csound, slot_b->array, slot_a->array, &p->b_buffer, &p->a_buffer, &p->order);
+    res = load_tf_coeffs(csound, p->b, p->a, &p->b_buffer, &p->a_buffer, &p->order);
     if (res != OK) return res;
     p->coef_is_complex = coef_array_is_complex(&p->b_buffer) || coef_array_is_complex(&p->a_buffer);
-
-    uint32_t z_ndim = 0;
-    uint32_t z_shape[CSN_MAX_DIMS];
-    res = zi_check(csound, NULL, zi_arr, source_arr, p->axis_spec.index, false, p->order, 0, &z_ndim, z_shape);
-    if (res != OK) return res;
-
-    size_t slices = slice_count_of(source_arr, p->axis_spec.index);
-    size_t need = p->order * slices;
-    res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
-    if (res != OK) return res;
-    p->filter_state.current_size = slices;
-    res = zi_transfer(csound, NULL, zi_arr, p->axis_spec.index, slices, p->order, (CSN_COMPLEXDAT *) p->filter_state.scratch, true);
-    if (res != OK) return res;
-
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || zi_arr->itype == CSN_COMPLEX || p->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    uint32_t protect[4] = { hb, ha, hx, hz };
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle_a, protect, 4U, &err, out_itype) != OK) {
-        return csound->InitError(csound, "[csnarray] %s", err);
-    }
-    if (create_csnarray_locked(csound, reg, &p->h, z_ndim, z_shape, &p->array_state, p->handle_b, protect, 4U, &err, out_itype) != OK) {
-        return csound->InitError(csound, "[csnarray] %s", err);
-    }
-
-    *source_out = source_arr;
-    *zi_out = zi_arr;
-    *b_out = slot_b->array;
-    *a_out = slot_a->array;
     return OK;
 }
 
-static int32_t zsosfilter_arr_init(CSOUND *csound, CSN_REGISTRY *reg, CSN_SOSFILTER_Z *p, const cs_float *axis_in, CSN_ARRAY **source_out, CSN_ARRAY **zi_out, CSN_ARRAY **sos_out) {
-    const char *err = NULL;
-    uint32_t hs = p->sos->id, hx = p->source_handle_a->id, hz = p->source_handle_b->id;
-    CSN_SLOT *slot_sos = get_slot(reg, hs);
-    CSN_SLOT *slot = get_slot(reg, hx);
-    CSN_SLOT *slot_zi = get_slot(reg, hz);
-    if (slot_sos == NULL || slot == NULL || slot_zi == NULL) {
-        uint32_t missing = slot_sos == NULL ? hs : slot == NULL ? hx : hz;
-        return csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    }
-    CSN_ARRAY *source_arr = slot->array;
-    CSN_ARRAY *zi_arr = slot_zi->array;
-
-    int32_t res = filter_axis(csound, axis_in, source_arr->ndim, &p->axis_spec);
+static int32_t zsosfilter_load(CSOUND *csound, CSN_SOSFILTER_Z *p, const cs_float *axis_in) {
+    int32_t res = filter_axis(csound, axis_in, p->source_handle_a->ndim, &p->axis_spec);
     if (res != OK) return res;
-
     FREE_CSNARRDATA(csound, &p->sos_buffer);
-    res = load_sos(csound, slot_sos->array, &p->sos_buffer, &p->n_sections);
+    res = load_sos(csound, p->sos, &p->sos_buffer, &p->n_sections);
     if (res != OK) return res;
     p->coef_is_complex = coef_array_is_complex(&p->sos_buffer);
-
-    uint32_t z_ndim = 0;
-    uint32_t z_shape[CSN_MAX_DIMS];
-    res = zi_check(csound, NULL, zi_arr, source_arr, p->axis_spec.index, true, 0, p->n_sections, &z_ndim, z_shape);
-    if (res != OK) return res;
-
-    size_t per_slice = 2 * p->n_sections;
-    size_t slices = slice_count_of(source_arr, p->axis_spec.index);
-    size_t need = per_slice * slices;
-    res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
-    if (res != OK) return res;
-    p->filter_state.current_size = slices;
-    res = zi_transfer(csound, NULL, zi_arr, p->axis_spec.index + 1U, slices, per_slice, (CSN_COMPLEXDAT *) p->filter_state.scratch, true);
-    if (res != OK) return res;
-
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || zi_arr->itype == CSN_COMPLEX || p->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    uint32_t protect[3] = { hs, hx, hz };
-    if (create_csnarray_locked(csound, reg, &p->h, source_arr->ndim, source_arr->shape, &p->array, p->handle_a, protect, 3U, &err, out_itype) != OK) {
-        return csound->InitError(csound, "[csnarray] %s", err);
-    }
-    if (create_csnarray_locked(csound, reg, &p->h, z_ndim, z_shape, &p->array_state, p->handle_b, protect, 3U, &err, out_itype) != OK) {
-        return csound->InitError(csound, "[csnarray] %s", err);
-    }
-
-    *source_out = source_arr;
-    *zi_out = zi_arr;
-    *sos_out = slot_sos->array;
     return OK;
 }
+
+#define ZLFILTER_OPERANDS(p) (CSN_CONARR) { (p)->b, (p)->a, (p)->source_handle_a, (p)->source_handle_b, (p)->handle_a, (p)->handle_b }, 6
+#define ZSOSFILTER_OPERANDS(p) (CSN_CONARR) { (p)->sos, (p)->source_handle_a, (p)->source_handle_b, (p)->handle_a, (p)->handle_b }, 5
 
 int32_t csnsig_zlfilter_arr(CSOUND *csound, CSN_LFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 5 ? p->opt_a : NULL;
-    CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *b_arr = NULL, *a_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = zlfilter_arr_init(csound, reg, p, axis_in, &source_arr, &zi_arr, &b_arr, &a_arr);
+    stamp_globals(csound, &p->h);
+    bool locked = csn_lock_if_shared(csound, reg, ZLFILTER_OPERANDS(p));
+    int32_t res = zlfilter_load(csound, p, axis_in);
     if (res == OK) {
-        CSN_COMPLEXDAT *state = (CSN_COMPLEXDAT *) p->filter_state.scratch;
-        res = lfilter_slices(csound, NULL, source_arr, p->array, p->axis_spec.index, (const CSN_COMPLEXDAT *) p->b_buffer.data, (const CSN_COMPLEXDAT *) p->a_buffer.data, p->order, state, p->order);
+        CSN_ZFILTER_PASS zp;
+        zlfilter_pass(&zp, p);
+        res = zfilter_run(csound, &p->h, NULL, reg, &zp, true, &locked);
     }
-    if (res == OK) {
-        res = zi_transfer(csound, NULL, p->array_state, p->axis_spec.index, p->filter_state.current_size, p->order, (CSN_COMPLEXDAT *) p->filter_state.scratch, false);
-    }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3207,18 +2994,16 @@ int32_t csnsig_zsosfilter_arr(CSOUND *csound, CSN_SOSFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 4 ? p->opt_a : NULL;
-    CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *sos_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = zsosfilter_arr_init(csound, reg, p, axis_in, &source_arr, &zi_arr, &sos_arr);
-    size_t per_slice = 2 * p->n_sections;
+    stamp_globals(csound, &p->h);
+    bool locked = csn_lock_if_shared(csound, reg, ZSOSFILTER_OPERANDS(p));
+    int32_t res = zsosfilter_load(csound, p, axis_in);
     if (res == OK) {
-        res = sosfilter_slices(csound, NULL, source_arr, p->array, p->axis_spec.index, (const CSN_COMPLEXDAT *) p->sos_buffer.data, p->n_sections, (CSN_COMPLEXDAT *) p->filter_state.scratch, per_slice);
+        CSN_ZFILTER_PASS zp;
+        zsosfilter_pass(&zp, p);
+        res = zfilter_run(csound, &p->h, NULL, reg, &zp, true, &locked);
     }
-    if (res == OK) {
-        res = zi_transfer(csound, NULL, p->array_state, p->axis_spec.index + 1U, p->filter_state.current_size, per_slice, (CSN_COMPLEXDAT *) p->filter_state.scratch, false);
-    }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3226,22 +3011,23 @@ int32_t csnsig_zlfilter_arr_k_init(CSOUND *csound, CSN_LFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 6 ? p->opt_b : NULL;
-    CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *b_arr = NULL, *a_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = zlfilter_arr_init(csound, reg, p, axis_in, &source_arr, &zi_arr, &b_arr, &a_arr);
+    stamp_globals(csound, &p->h);
+    bool locked = csn_lock_if_shared(csound, reg, ZLFILTER_OPERANDS(p));
+    int32_t res = zlfilter_load(csound, p, axis_in);
     if (res == OK) {
-        SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data, reg, p->array->shape, p->array->ndim, p->array->itype, p->handle_a->id);
-        SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_state, reg, p->array_state->shape, p->array_state->ndim, p->array_state->itype, p->handle_b->id);
-        set_array_version(&p->b_version, &b_arr->version);
-        set_array_version(&p->a_version, &a_arr->version);
-        set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        set_array_version(&p->k_data.prev_source_version_b, &zi_arr->version);
-        set_array_version(&p->k_data.prev_output_version, &p->array->version);
-        set_array_version(&p->k_data_state.prev_output_version, &p->array_state->version);
+        CSN_ZFILTER_PASS zp;
+        zlfilter_pass(&zp, p);
+        res = zfilter_run(csound, &p->h, NULL, reg, &zp, false, &locked);
+    }
+    if (res == OK) {
+        memset(&p->k_data, 0, sizeof(p->k_data));
+        p->k_data.registry = reg;
+        set_array_version(&p->b_version, &p->b->version);
+        set_array_version(&p->a_version, &p->a->version);
         p->is_published = false;
     }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3249,180 +3035,84 @@ int32_t csnsig_zsosfilter_arr_k_init(CSOUND *csound, CSN_SOSFILTER_Z *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     const cs_float *axis_in = p->INOCOUNT == 5 ? p->opt_b : NULL;
-    CSN_ARRAY *source_arr = NULL, *zi_arr = NULL, *sos_arr = NULL;
 
-    csound->LockMutex(reg->mutex);
-    int32_t res = zsosfilter_arr_init(csound, reg, p, axis_in, &source_arr, &zi_arr, &sos_arr);
+    stamp_globals(csound, &p->h);
+    bool locked = csn_lock_if_shared(csound, reg, ZSOSFILTER_OPERANDS(p));
+    int32_t res = zsosfilter_load(csound, p, axis_in);
     if (res == OK) {
-        SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data, reg, p->array->shape, p->array->ndim, p->array->itype, p->handle_a->id);
-        SET_FROM_KDATA_WITH_ID_BEGIN(p->k_data_state, reg, p->array_state->shape, p->array_state->ndim, p->array_state->itype, p->handle_b->id);
-        set_array_version(&p->sos_version, &sos_arr->version);
-        set_array_version(&p->k_data.prev_source_version, &source_arr->version);
-        set_array_version(&p->k_data.prev_source_version_b, &zi_arr->version);
-        set_array_version(&p->k_data.prev_output_version, &p->array->version);
-        set_array_version(&p->k_data_state.prev_output_version, &p->array_state->version);
+        CSN_ZFILTER_PASS zp;
+        zsosfilter_pass(&zp, p);
+        res = zfilter_run(csound, &p->h, NULL, reg, &zp, false, &locked);
+    }
+    if (res == OK) {
+        memset(&p->k_data, 0, sizeof(p->k_data));
+        p->k_data.registry = reg;
+        set_array_version(&p->sos_version, &p->sos->version);
         p->is_published = false;
     }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
-static int32_t zfilter_arr_perf(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, const CSN_ZFILTER_PASS *zp, CSN_SLOT *slot, CSN_ARRAY *zi_arr) {
-    CSN_ARRAY *source_arr = slot->array;
-
-    if (*zp->is_published) {
-        CSN_SLOT *slot_y = get_slot(reg, zp->k_y->owned_handle);
-        CSN_SLOT *slot_z = get_slot(reg, zp->k_z->owned_handle);
-        bool is_same_source = is_same_array_version(&zp->k_y->prev_source_version, &source_arr->version);
-        bool is_same_source_b = is_same_array_version(&zp->k_y->prev_source_version_b, &zi_arr->version);
-        bool is_same_y = slot_y != NULL && is_same_array_version(&zp->k_y->prev_output_version, &slot_y->array->version);
-        bool is_same_z = slot_z != NULL && is_same_array_version(&zp->k_z->prev_output_version, &slot_z->array->version);
-        bool unchanged = is_same_source && is_same_source_b && is_same_y && is_same_z;
-        if (unchanged) {
-            zp->handle_y->id = zp->k_y->owned_handle;
-            zp->handle_z->id = zp->k_z->owned_handle;
-            return OK;
-        }
+/* Shared performance pass of the zi forms: republish when neither x nor zi
+   moved, otherwise filter from zi. A zi that is this opcode's own zf moves on
+   every pass, and the version recorded is the one read, so feeding it back
+   counts as new input. y written over x is never reused. */
+static int32_t zfilter_arr_k(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, const CSN_ZFILTER_PASS *zp, K_DATA *k_data, ARRAY_VERSION *prev_zf_version, bool *is_published, bool *locked) {
+    if (*is_published && zp->y != zp->x) {
+        bool is_same_source = is_same_array_version(&k_data->prev_source_version, &zp->x->version);
+        bool is_same_zi = is_same_array_version(&k_data->prev_source_version_b, &zp->zi->version);
+        bool is_same_y = is_same_array_version(&k_data->prev_output_version, &zp->y->version);
+        bool is_same_zf = is_same_array_version(prev_zf_version, &zp->zf->version);
+        if (is_same_source && is_same_zi && is_same_y && is_same_zf) return OK;
     }
 
-    uint32_t axis = zp->axis_spec->index;
-    if (axis >= source_arr->ndim) {
-        return csn_locked_perf_error(csound, h, "[csnarray] The source is now %u-D, which has no axis %u", source_arr->ndim, axis);
-    }
-
-    uint32_t z_ndim = 0;
-    uint32_t z_shape[CSN_MAX_DIMS];
-    int32_t res = zi_check(csound, h, zi_arr, source_arr, axis, zp->is_sos, zp->order, zp->n_sections, &z_ndim, z_shape);
-    if (res != OK) return res;
-
-    size_t per_slice = zp->is_sos ? 2 * zp->n_sections : zp->order;
-    size_t slices = slice_count_of(source_arr, axis);
-    size_t need = per_slice * slices;
-    res = csn_scratch_reserve(csound, h, slot->rt_locked, zp->state, need > 0 ? need : 1, sizeof(CSN_COMPLEXDAT));
-    if (res != OK) return res;
-    zp->state->current_size = slices;
-    uint32_t zaxis = zp->is_sos ? axis + 1U : axis;
-    CSN_COMPLEXDAT *state = (CSN_COMPLEXDAT *) zp->state->scratch;
-    res = zi_transfer(csound, h, zi_arr, zaxis, slices, per_slice, state, true);
-    if (res != OK) return res;
     ARRAY_VERSION zi_version;
-    set_array_version(&zi_version, &zi_arr->version); // zi_arr may be the zf slot rewritten below
-
-    const char *err = NULL;
-    ITEM_TYPE out_itype = (source_arr->itype == CSN_COMPLEX || zi_arr->itype == CSN_COMPLEX || zp->coef_is_complex) ? CSN_COMPLEX : CSN_REAL;
-    res = NEED_TO_UPDATE_SLOT(csound, h, zp->array_y, zp->k_y, NULL, source_arr->ndim, source_arr->shape, source_arr->size, out_itype, err);
-    if (res != OK) return res;
-    size_t z_size = 0;
-    get_array_size_from_shape(&z_size, z_ndim, z_shape);
-    res = NEED_TO_UPDATE_SLOT(csound, h, zp->array_z, zp->k_z, NULL, z_ndim, z_shape, z_size, out_itype, err);
+    set_array_version(&zi_version, &zp->zi->version);
+    int32_t res = zfilter_run(csound, h, h, reg, zp, true, locked);
     if (res != OK) return res;
 
-    if (zp->is_sos) {
-        res = sosfilter_slices(csound, h, source_arr, *zp->array_y, axis, zp->sos, zp->n_sections, state, per_slice);
-    } else {
-        res = lfilter_slices(csound, h, source_arr, *zp->array_y, axis, zp->b, zp->a, zp->order, state, per_slice);
-    }
-    if (res != OK) return res;
-    res = zi_transfer(csound, h, *zp->array_z, zaxis, slices, per_slice, state, false);
-    if (res != OK) return res;
-
-    SET_FROM_KDATA_END_WITH_ID(*zp->k_y, zp->handle_y, source_arr->shape, source_arr->ndim, out_itype);
-    SET_FROM_KDATA_END_WITH_ID(*zp->k_z, zp->handle_z, z_shape, z_ndim, out_itype);
-    set_array_version(&zp->k_y->prev_output_version, &(*zp->array_y)->version);
-    set_array_version(&zp->k_z->prev_output_version, &(*zp->array_z)->version);
-    set_array_version(&zp->k_y->prev_source_version, &source_arr->version);
-    // a zi that is our own zf has just moved on: remember the version we wrote, so feeding it back counts as new input
-    if (zi_arr == *zp->array_z) {
-        set_array_version(&zp->k_y->prev_source_version_b, &zi_version);
-    } else {
-        set_array_version(&zp->k_y->prev_source_version_b, &zi_arr->version);
-    }
-    *zp->is_published = true;
+    set_array_version(&k_data->prev_source_version, &zp->x->version);
+    set_array_version(&k_data->prev_source_version_b, zp->zi == zp->zf ? &zi_version : &zp->zi->version);
+    set_array_version(&k_data->prev_output_version, &zp->y->version);
+    set_array_version(prev_zf_version, &zp->zf->version);
+    *is_published = true;
     return OK;
 }
 
 int32_t csnsig_zlfilter_arr_k(CSOUND *csound, CSN_LFILTER_Z *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
-
-    uint32_t hx = p->source_handle_a->id, hz = p->source_handle_b->id;
-    // y must not be x; zi may be this opcode's own zf, the usual feedback
-    if (CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, hx, 0) != OK) return NOTOK;
+    CHECK_REGISTRY(csound, &p->h, reg);
     CHECK_KTRIG(p->opt_a);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, p->b->id);
-    CSN_SLOT *slot_a = get_slot(reg, p->a->id);
-    CSN_SLOT *slot = get_slot(reg, hx);
-    CSN_SLOT *slot_zi = get_slot(reg, hz);
     int32_t res = OK;
-    if (slot_b == NULL || slot_a == NULL || slot == NULL || slot_zi == NULL) {
-        uint32_t missing = slot_b == NULL ? p->b->id : slot_a == NULL ? p->a->id : slot == NULL ? hx : hz;
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    } else if (!is_same_array_version(&p->b_version, &slot_b->array->version) || !is_same_array_version(&p->a_version, &slot_a->array->version)) {
+    bool locked = csn_lock_if_shared(csound, reg, ZLFILTER_OPERANDS(p));
+    if (!is_same_array_version(&p->b_version, &p->b->version) || !is_same_array_version(&p->a_version, &p->a->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] b or a changed after the filter was initialised");
     } else {
-        CSN_ZFILTER_PASS zp = {
-            .k_y = &p->k_data,
-            .k_z = &p->k_data_state,
-            .handle_y = p->handle_a,
-            .handle_z = p->handle_b,
-            .array_y = &p->array,
-            .array_z = &p->array_state,
-            .state = &p->filter_state,
-            .axis_spec = &p->axis_spec,
-            .is_published = &p->is_published,
-            .coef_is_complex = p->coef_is_complex,
-            .is_sos = false,
-            .b = (const CSN_COMPLEXDAT *) p->b_buffer.data,
-            .a = (const CSN_COMPLEXDAT *) p->a_buffer.data,
-            .order = p->order,
-        };
-
-        res = zfilter_arr_perf(csound, &p->h, reg, &zp, slot, slot_zi->array);
+        CSN_ZFILTER_PASS zp;
+        zlfilter_pass(&zp, p);
+        res = zfilter_arr_k(csound, &p->h, reg, &zp, &p->k_data, &p->prev_zf_version, &p->is_published, &locked);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
 int32_t csnsig_zsosfilter_arr_k(CSOUND *csound, CSN_SOSFILTER_Z *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REG_HANDLE(csound, &p->h, reg, p->k_data.owned_handle);
-
-    uint32_t hx = p->source_handle_a->id, hz = p->source_handle_b->id;
-    if (CHECK_SELF_ALIAS(csound, &p->h, &p->k_data, hx, 0) != OK) return NOTOK;
+    CHECK_REGISTRY(csound, &p->h, reg);
     CHECK_KTRIG(p->opt_a);
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_sos = get_slot(reg, p->sos->id);
-    CSN_SLOT *slot = get_slot(reg, hx);
-    CSN_SLOT *slot_zi = get_slot(reg, hz);
     int32_t res = OK;
-    if (slot_sos == NULL || slot == NULL || slot_zi == NULL) {
-        uint32_t missing = slot_sos == NULL ? p->sos->id : slot == NULL ? hx : hz;
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-    } else if (!is_same_array_version(&p->sos_version, &slot_sos->array->version)) {
+    bool locked = csn_lock_if_shared(csound, reg, ZSOSFILTER_OPERANDS(p));
+    if (!is_same_array_version(&p->sos_version, &p->sos->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] sos changed after the filter was initialised");
     } else {
-        CSN_ZFILTER_PASS zp = {
-            .k_y = &p->k_data,
-            .k_z = &p->k_data_state,
-            .handle_y = p->handle_a,
-            .handle_z = p->handle_b,
-            .array_y = &p->array,
-            .array_z = &p->array_state,
-            .state = &p->filter_state,
-            .axis_spec = &p->axis_spec,
-            .is_published = &p->is_published,
-            .coef_is_complex = p->coef_is_complex,
-            .is_sos = true,
-            .sos = (const CSN_COMPLEXDAT *) p->sos_buffer.data,
-            .n_sections = p->n_sections,
-        };
-
-        res = zfilter_arr_perf(csound, &p->h, reg, &zp, slot, slot_zi->array);
+        CSN_ZFILTER_PASS zp;
+        zsosfilter_pass(&zp, p);
+        res = zfilter_arr_k(csound, &p->h, reg, &zp, &p->k_data, &p->prev_zf_version, &p->is_published, &locked);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3432,13 +3122,13 @@ int32_t csnsig_zlfilter_audio_deinit(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
     deinit_scratch(csound, &p->filter_state);
     FREE_CSNARRDATA(csound, &p->b_buffer);
     FREE_CSNARRDATA(csound, &p->a_buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array_state, &p->h);
+    return OK;
 }
 
 int32_t csnsig_zsosfilter_audio_deinit(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
     deinit_scratch(csound, &p->filter_state);
     FREE_CSNARRDATA(csound, &p->sos_buffer);
-    return csnarray_deinit_by_handle(csound, &p->handle->id, &p->array_state, &p->h);
+    return OK;
 }
 
 // zi of an audio filter: real, and exactly the shape given
@@ -3451,126 +3141,20 @@ static int32_t audio_zi_check(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *zi,
     return OK;
 }
 
-int32_t csnsig_zlfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    uint32_t hb = p->b->id;
-    uint32_t ha = p->a->id;
-    uint32_t hz = p->source_handle->id;
-    const char *err = NULL;
-    int32_t res = OK;
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, hb);
-    CSN_SLOT *slot_a = get_slot(reg, ha);
-    CSN_SLOT *slot_zi = get_slot(reg, hz);
-    if (slot_b == NULL || slot_a == NULL || slot_zi == NULL) {
-        uint32_t missing = slot_b == NULL ? hb : slot_a == NULL ? ha : hz;
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", missing);
-        goto done;
+/* Writes the n states into zf. zf may be zi, the usual feedback, which is
+   then rewritten in place: its shape was checked when it was read. It may not
+   be a coefficient array. Its layout never changes after init, so a perf
+   pass allocates nothing. */
+static int32_t audio_store_zf(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *zf, const CSN_ARRAY *zi, const CSN_ARRAY *coef_a, const CSN_ARRAY *coef_b, uint32_t ndim, const uint32_t *shape, const double *z, size_t n, bool *locked) {
+    if (zf == coef_a || (coef_b != NULL && zf == coef_b)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] zf cannot be written over the filter coefficients; write it to another variable");
     }
-    if (slot_b->array->itype == CSN_COMPLEX || slot_a->array->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] The audio lfilter needs real b and a");
-        goto done;
-    }
-    FREE_CSNARRDATA(csound, &p->b_buffer);
-    FREE_CSNARRDATA(csound, &p->a_buffer);
-    res = load_tf_coeffs(csound, slot_b->array, slot_a->array, &p->b_buffer, &p->a_buffer, &p->order);
-    if (res != OK) goto done;
-
-    uint32_t z_shape[CSN_MAX_DIMS] = {0};
-    z_shape[0] = (uint32_t) p->order;
-    res = audio_zi_check(csound, NULL, slot_zi->array, 1U, z_shape);
-    if (res != OK) goto done;
-
-    res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, p->order > 0 ? p->order : 1, sizeof(double));
-    if (res != OK) goto done;
-
-    uint32_t protect[3] = { hb, ha, hz };
-    if (create_csnarray_locked(csound, reg, &p->h, 1U, z_shape, &p->array_state, p->handle, protect, 3U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    memcpy(p->array_state->data, slot_zi->array->data, sizeof(double) * p->order); // zf starts as zi
-    p->state_handle = p->handle->id;
-    set_array_version(&p->b_version, &slot_b->array->version);
-    set_array_version(&p->a_version, &slot_a->array->version);
-    p->registry = reg;
-
-done:
-    csound->UnlockMutex(reg->mutex);
-    return res;
-}
-
-int32_t csnsig_zsosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
-
-    uint32_t hs = p->sos->id;
-    uint32_t hz = p->source_handle->id;
-    const char *err = NULL;
-    int32_t res = OK;
-
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_sos = get_slot(reg, hs);
-    CSN_SLOT *slot_zi = get_slot(reg, hz);
-    if (slot_sos == NULL || slot_zi == NULL) {
-        res = csound->InitError(csound, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", slot_sos == NULL ? hs : hz);
-        goto done;
-    }
-    if (slot_sos->array->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] The audio sosfilter needs real sections");
-        goto done;
-    }
-    FREE_CSNARRDATA(csound, &p->sos_buffer);
-    res = load_sos(csound, slot_sos->array, &p->sos_buffer, &p->n_sections);
-    if (res != OK) goto done;
-
-    uint32_t z_shape[CSN_MAX_DIMS] = {0};
-    z_shape[0] = (uint32_t) p->n_sections;
-    z_shape[1] = 2U;
-    res = audio_zi_check(csound, NULL, slot_zi->array, 2U, z_shape);
-    if (res != OK) goto done;
-
-    res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, 2 * p->n_sections, sizeof(double));
-    if (res != OK) goto done;
-
-    uint32_t protect[2] = { hs, hz };
-    if (create_csnarray_locked(csound, reg, &p->h, 2U, z_shape, &p->array_state, p->handle, protect, 2U, &err, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] %s", err);
-        goto done;
-    }
-    memcpy(p->array_state->data, slot_zi->array->data, sizeof(double) * 2 * p->n_sections); // zf starts as zi
-    p->state_handle = p->handle->id;
-    set_array_version(&p->sos_version, &slot_sos->array->version);
-    p->registry = reg;
-
-done:
-    csound->UnlockMutex(reg->mutex);
-    return res;
-}
-
-/* Every control period: zi read under the lock, the block filtered without
-   it, zf written back in place (no allocation, so a real-time path is fine). */
-static int32_t audio_load_zi(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, uint32_t zi_handle, uint32_t ndim, const uint32_t *shape, double *z, size_t n) {
-    CSN_SLOT *slot_zi = get_slot(reg, zi_handle);
-    if (slot_zi == NULL) {
-        return csn_locked_perf_error(csound, h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", zi_handle);
-    }
-    int32_t res = audio_zi_check(csound, h, slot_zi->array, ndim, shape);
-    if (res != OK) return res;
-    memcpy(z, slot_zi->array->data, sizeof(double) * n);
-    return OK;
-}
-
-static int32_t audio_store_zf(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, uint32_t zf_handle, const double *z, size_t n) {
-    CSN_SLOT *slot_zf = get_slot(reg, zf_handle);
-    if (slot_zf == NULL) {
-        return csn_locked_perf_error(csound, h, "[csnarray] The zf array %u of this filter is no longer registered", zf_handle);
-    }
-    memcpy(slot_zf->array->data, z, sizeof(double) * n);
-    update_array_data_version(&slot_zf->array->version);
+    const CSN_ARRAY *ops[1] = { zi };
+    CSNARR_RES out = prepare_output(csound, h, perf_h, reg, zf, ndim, shape, CSN_REAL, ops, 1, CSN_ALIAS_CUSTOM);
+    if (out.err != OK) return out.err;
+    *locked |= out.locked;
+    if (n > 0) memcpy(zf->data, z, sizeof(double) * n);
+    if (out.aliased) update_array_data_version(&zf->version);
     return OK;
 }
 
@@ -3586,6 +3170,88 @@ static uint32_t audio_block(OPDS *h, cs_float *out, uint32_t *offset) {
     return nsmps;
 }
 
+int32_t csnsig_zlfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    stamp_globals(csound, &p->h);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->b, p->a, p->source_handle, p->handle }, 4);
+
+    int32_t res = OK;
+    CSN_ARRAY *zi = p->source_handle;
+    if (p->b->itype == CSN_COMPLEX || p->a->itype == CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] The audio lfilter needs real b and a");
+        goto done;
+    }
+    FREE_CSNARRDATA(csound, &p->b_buffer);
+    FREE_CSNARRDATA(csound, &p->a_buffer);
+    res = load_tf_coeffs(csound, p->b, p->a, &p->b_buffer, &p->a_buffer, &p->order);
+    if (res != OK) goto done;
+
+    uint32_t z_shape[CSN_MAX_DIMS] = {0};
+    z_shape[0] = (uint32_t) p->order;
+    res = audio_zi_check(csound, NULL, zi, 1U, z_shape);
+    if (res != OK) goto done;
+
+    res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, p->order > 0 ? p->order : 1, sizeof(double));
+    if (res != OK) goto done;
+    if (p->order > 0) memcpy(p->filter_state.scratch, zi->data, sizeof(double) * p->order);
+
+    // zf starts as zi
+    res = audio_store_zf(csound, &p->h, NULL, reg, p->handle, zi, p->b, p->a, 1U, z_shape, (const double *) p->filter_state.scratch, p->order, &locked);
+    if (res != OK) goto done;
+
+    set_array_version(&p->b_version, &p->b->version);
+    set_array_version(&p->a_version, &p->a->version);
+    p->registry = reg;
+
+done:
+    if (locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnsig_zsosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    stamp_globals(csound, &p->h);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->sos, p->source_handle, p->handle }, 3);
+
+    int32_t res = OK;
+    CSN_ARRAY *zi = p->source_handle;
+    if (p->sos->itype == CSN_COMPLEX) {
+        res = csound->InitError(csound, "[csnarray] The audio sosfilter needs real sections");
+        goto done;
+    }
+    FREE_CSNARRDATA(csound, &p->sos_buffer);
+    res = load_sos(csound, p->sos, &p->sos_buffer, &p->n_sections);
+    if (res != OK) goto done;
+
+    uint32_t z_shape[CSN_MAX_DIMS] = {0};
+    z_shape[0] = (uint32_t) p->n_sections;
+    z_shape[1] = 2U;
+    res = audio_zi_check(csound, NULL, zi, 2U, z_shape);
+    if (res != OK) goto done;
+
+    size_t n_states = 2 * p->n_sections;
+    res = csn_scratch_reserve(csound, NULL, false, &p->filter_state, n_states, sizeof(double));
+    if (res != OK) goto done;
+    memcpy(p->filter_state.scratch, zi->data, sizeof(double) * n_states);
+
+    // zf starts as zi
+    res = audio_store_zf(csound, &p->h, NULL, reg, p->handle, zi, p->sos, NULL, 2U, z_shape, (const double *) p->filter_state.scratch, n_states, &locked);
+    if (res != OK) goto done;
+
+    set_array_version(&p->sos_version, &p->sos->version);
+    p->registry = reg;
+
+done:
+    if (locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* Every control period: zi read under the lock, the block filtered without
+   it, zf written back under it again. */
 int32_t csnsig_zlfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
@@ -3595,18 +3261,15 @@ int32_t csnsig_zlfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
     uint32_t z_shape[CSN_MAX_DIMS] = {0};
     z_shape[0] = (uint32_t) order;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_b = get_slot(reg, p->b->id);
-    CSN_SLOT *slot_a = get_slot(reg, p->a->id);
     int32_t res = OK;
-    if (slot_b == NULL || slot_a == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", slot_b == NULL ? p->b->id : p->a->id);
-    } else if (!is_same_array_version(&p->b_version, &slot_b->array->version) || !is_same_array_version(&p->a_version, &slot_a->array->version)) {
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->b, p->a, p->source_handle, p->handle }, 4);
+    if (!is_same_array_version(&p->b_version, &p->b->version) || !is_same_array_version(&p->a_version, &p->a->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] b or a changed after the filter was initialised");
     } else {
-        res = audio_load_zi(csound, &p->h, reg, p->source_handle->id, 1U, z_shape, z, order);
+        res = audio_zi_check(csound, &p->h, p->source_handle, 1U, z_shape);
+        if (res == OK && order > 0) memcpy(z, p->source_handle->data, sizeof(double) * order);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     if (res != OK) return res;
 
     uint32_t offset = 0;
@@ -3622,10 +3285,9 @@ int32_t csnsig_zlfilter_audio(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
         p->sig_out[i] = (cs_float) y;
     }
 
-    csound->LockMutex(reg->mutex);
-    res = audio_store_zf(csound, &p->h, reg, p->state_handle, z, order);
-    p->handle->id = p->state_handle;
-    csound->UnlockMutex(reg->mutex);
+    locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->b, p->a, p->source_handle, p->handle }, 4);
+    res = audio_store_zf(csound, &p->h, &p->h, reg, p->handle, p->source_handle, p->b, p->a, 1U, z_shape, z, order, &locked);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3639,17 +3301,15 @@ int32_t csnsig_zsosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
     z_shape[0] = (uint32_t) n_sections;
     z_shape[1] = 2U;
 
-    csound->LockMutex(reg->mutex);
-    CSN_SLOT *slot_sos = get_slot(reg, p->sos->id);
     int32_t res = OK;
-    if (slot_sos == NULL) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Unknown array handle %u: no array with this id is registered (it may have been freed already)", p->sos->id);
-    } else if (!is_same_array_version(&p->sos_version, &slot_sos->array->version)) {
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->sos, p->source_handle, p->handle }, 3);
+    if (!is_same_array_version(&p->sos_version, &p->sos->version)) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] sos changed after the filter was initialised");
     } else {
-        res = audio_load_zi(csound, &p->h, reg, p->source_handle->id, 2U, z_shape, z, 2 * n_sections);
+        res = audio_zi_check(csound, &p->h, p->source_handle, 2U, z_shape);
+        if (res == OK) memcpy(z, p->source_handle->data, sizeof(double) * 2 * n_sections);
     }
-    csound->UnlockMutex(reg->mutex);
+    if (locked) csn_unlock(csound, reg);
     if (res != OK) return res;
 
     uint32_t offset = 0;
@@ -3668,10 +3328,9 @@ int32_t csnsig_zsosfilter_audio(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
         p->sig_out[i] = (cs_float) v;
     }
 
-    csound->LockMutex(reg->mutex);
-    res = audio_store_zf(csound, &p->h, reg, p->state_handle, z, 2 * n_sections);
-    p->handle->id = p->state_handle;
-    csound->UnlockMutex(reg->mutex);
+    locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->sos, p->source_handle, p->handle }, 3);
+    res = audio_store_zf(csound, &p->h, &p->h, reg, p->handle, p->source_handle, p->sos, NULL, 2U, z_shape, z, 2 * n_sections, &locked);
+    if (locked) csn_unlock(csound, reg);
     return res;
 }
 
@@ -3698,7 +3357,7 @@ static int32_t allocate_sos_perf_init(CSOUND *csound, const CSN_ARRAY *ptap, CSN
     uint32_t sos_shape[CSN_MAX_DIMS] = {0};
     sos_shape[0] = (uint32_t) n_sections;
     sos_shape[1] = 6U;
-    if (allocate_array(csound, sos, 2U, sos_shape, 0, CSN_REAL) != OK) {
+    if (allocate_array(csound, sos, 2U, sos_shape, CSN_REAL) != OK) {
         return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
@@ -3753,7 +3412,7 @@ int32_t csnsig_rtbutter_noband_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
     // the digital roots the perf pass rebuilds; LP zeros are -1 and HP zeros +1
     uint32_t bil_shape[CSN_MAX_DIMS] = {0};
     bil_shape[0] = (uint32_t) p->ptap.size;
-    if (allocate_array(csound, &p->bilinear_zeros, 1U, bil_shape, 0, CSN_COMPLEX) != OK || allocate_array(csound, &p->bilinear_poles, 1U, bil_shape, 0, CSN_COMPLEX) != OK) {
+    if (allocate_array(csound, &p->bilinear_zeros, 1U, bil_shape, CSN_COMPLEX) != OK || allocate_array(csound, &p->bilinear_poles, 1U, bil_shape, CSN_COMPLEX) != OK) {
         return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
     }
     return OK;

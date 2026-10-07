@@ -82,7 +82,6 @@ typedef struct {
     cs_float *length;
     cs_float *beta;
     // private
-    CSN_ARRAY *array;
     K_DATA k_data;
     int32_t prev_length;
     double prev_beta;
@@ -102,8 +101,6 @@ typedef struct {
     // inputs
     CSN_ARRAY *source_handle;
     cs_float *axis;
-    // private
-    CSN_ARRAY *array;
 } CSN_ROOTS;
 
 typedef struct {
@@ -121,9 +118,6 @@ typedef struct {
     cs_float *arg_b; // wo in lp2*_* in rad/s
                   // fs in bilinear_zpk in Hz
     cs_float *arg_c; // bw in lp2bp_zpk, lp2bs_zpk in rad/s
-    // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
 } CSN_FDESIGN3;
 
 typedef struct {
@@ -139,9 +133,6 @@ typedef struct {
     cs_float *arg_a; // gain in zpk2tf
                   // wo in lp2*
     cs_float *arg_b; // bw in lp2bp, lp2bs (unused by zpk2tf)
-    // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
 } CSN_FDESIGN2;
 
 typedef struct {
@@ -164,9 +155,6 @@ typedef struct {
                   // fs in cheby2
                   // type in ellip
     cs_float *arg_e; // fs in ellip
-    // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
 } CSN_FDESIGN1F2;
 
 typedef struct {
@@ -189,9 +177,6 @@ typedef struct {
                   // fs in cheby2
                   // type in ellip
     cs_float *arg_e; // fs in ellip
-    // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
 } CSN_FDESIGN1F1;
 
 typedef struct {
@@ -213,8 +198,6 @@ typedef struct {
                   // fs in cheby2
                   // type in ellip
     cs_float *arg_e; // fs in ellip
-    // private
-    CSN_ARRAY *array;
 } CSN_FDESIGN1F2_SOS;
 
 typedef struct {
@@ -236,8 +219,6 @@ typedef struct {
                   // fs in cheby2
                   // type in ellip
     cs_float *arg_e; // fs in ellip
-    // private
-    CSN_ARRAY *array;
 } CSN_FDESIGN1F1_SOS;
 
 typedef struct {
@@ -248,9 +229,6 @@ typedef struct {
     cs_float *gain;
     // inputs
     cs_float *order;
-    // private
-    CSN_ARRAY *array_a;
-    CSN_ARRAY *array_b;
 } CSN_BUTTAP;
 
 typedef struct {
@@ -261,8 +239,6 @@ typedef struct {
     CSN_ARRAY *source_handle_a; // zeros
     CSN_ARRAY *source_handle_b; // poles
     cs_float *gain;
-    // private
-    CSN_ARRAY *array;
 } CSN_ZPK2SOS;
 
 typedef struct {
@@ -309,7 +285,6 @@ typedef struct {
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
-    CSN_ARRAY *array;
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex
     CSN_ARRAY a_buffer; // a / a[0], zero-padded to order + 1, complex
     CSN_SCRATCH filter_state; // order states per slice, complex; current_size = slices held
@@ -332,7 +307,6 @@ typedef struct {
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
-    CSN_ARRAY *array;
     CSN_ARRAY sos_buffer; // (n, 6), complex
     CSN_SCRATCH filter_state; // 2 states per section per slice, complex; current_size = slices held
     ARRAY_VERSION sos_version;
@@ -354,14 +328,12 @@ typedef struct {
     cs_float *sig_in;
     CSN_ARRAY *source_handle; // state
     // private
-    CSN_ARRAY *array_state;
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex (imaginary parts zero)
     CSN_ARRAY a_buffer;
     ARRAY_VERSION b_version;
     ARRAY_VERSION a_version;
     CSN_SCRATCH filter_state; // order real states, loaded from zi every control period
     CSN_REGISTRY *registry;
-    uint32_t state_handle;    // the zf array this opcode owns
     size_t order;
 } CSN_LFILTER_AUDIO_Z;
 
@@ -375,12 +347,10 @@ typedef struct {
     cs_float *sig_in;
     CSN_ARRAY *source_handle; // state
     // private
-    CSN_ARRAY *array_state;
     CSN_ARRAY sos_buffer; // (n, 6), complex (imaginary parts zero)
     ARRAY_VERSION sos_version;
     CSN_SCRATCH filter_state; // 2 real states per section, loaded from zi every control period
     CSN_REGISTRY *registry;
-    uint32_t state_handle;    // the zf array this opcode owns
     size_t n_sections;
 } CSN_SOSFILTER_AUDIO_Z;
 
@@ -397,8 +367,6 @@ typedef struct {
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
-    CSN_ARRAY *array;
-    CSN_ARRAY *array_state;
     CSN_ARRAY b_buffer; // b / a[0], zero-padded to order + 1, complex
     CSN_ARRAY a_buffer; // a / a[0], zero-padded to order + 1, complex
     CSN_SCRATCH filter_state; // zi of every slice, order states each, complex; current_size = slices held
@@ -406,7 +374,7 @@ typedef struct {
     ARRAY_VERSION a_version;
     CSN_AXIS_SPEC axis_spec;
     K_DATA k_data;       // y; prev_source_version_b follows zi
-    K_DATA k_data_state; // zf
+    ARRAY_VERSION prev_zf_version;
     size_t order;
     bool coef_is_complex;
     bool is_published;
@@ -424,32 +392,28 @@ typedef struct {
     cs_float *opt_a; // axis in the i-rate form, trig in the k-rate forms
     cs_float *opt_b; // axis in the k-rate form
     // private
-    CSN_ARRAY *array;
-    CSN_ARRAY *array_state;
     CSN_ARRAY sos_buffer; // (n, 6), complex
     CSN_SCRATCH filter_state; // 2 states per section per slice, complex; current_size = slices held
     ARRAY_VERSION sos_version;
     CSN_AXIS_SPEC axis_spec;
     K_DATA k_data;       // y; prev_source_version_b follows zi
-    K_DATA k_data_state; // zf
+    ARRAY_VERSION prev_zf_version;
     size_t n_sections;
     bool coef_is_complex;
     bool is_published;
 } CSN_SOSFILTER_Z;
 
-/* Shared performance pass of the zi forms: republish when neither x nor zi
-   moved, otherwise load zi, filter, and write y and zf. zi is copied out
-   before either output is touched, so zi may be this opcode's own zf. */
+/* One run of the zi forms: the four arrays, the coefficient arrays the
+   outputs may not be written over (coef_b NULL for sos), and the filter. */
 typedef struct {
-    K_DATA *k_y;
-    K_DATA *k_z;
-    CSN_ARRAY *handle_y;
-    CSN_ARRAY *handle_z;
-    CSN_ARRAY **array_y;
-    CSN_ARRAY **array_z;
+    CSN_ARRAY *x;
+    CSN_ARRAY *zi;
+    CSN_ARRAY *y;
+    CSN_ARRAY *zf;
+    const CSN_ARRAY *coef_a;
+    const CSN_ARRAY *coef_b;
     CSN_SCRATCH *state;
     const CSN_AXIS_SPEC *axis_spec;
-    bool *is_published;
     bool coef_is_complex;
     bool is_sos;
     const CSN_COMPLEXDAT *b;
@@ -525,7 +489,6 @@ typedef struct {
 
 void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, double beta);
 
-int32_t csnarray_window_deinit(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_window_function_k_init(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_hanning(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_hamming(CSOUND *csound, CSN_WINDOW *p);
@@ -538,15 +501,7 @@ int32_t csnarray_bartlett_k(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_blackman_k(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_kaiser_k(CSOUND *csound, CSN_WINDOW *p);
 
-int32_t csnsig_roots_deinit(CSOUND *csound, CSN_ROOTS *p);
 int32_t csnsig_roots(CSOUND *csound, CSN_ROOTS *p);
-
-int32_t csnsig_fdesign3_deinit(CSOUND *csound, CSN_FDESIGN3 *p);
-int32_t csnsig_fdesign2_deinit(CSOUND *csound, CSN_FDESIGN2 *p);
-int32_t csnsig_fdesign1f1_deinit(CSOUND *csound, CSN_FDESIGN1F1 *p);
-int32_t csnsig_fdesign1f2_deinit(CSOUND *csound, CSN_FDESIGN1F2 *p);
-int32_t csnsig_fdesign1f1_sos_deinit(CSOUND *csound, CSN_FDESIGN1F1_SOS *p);
-int32_t csnsig_fdesign1f2_sos_deinit(CSOUND *csound, CSN_FDESIGN1F2_SOS *p);
 
 int32_t csnsig_lp2lp_zpk(CSOUND *csound, CSN_FDESIGN3 *p);
 int32_t csnsig_lp2hp_zpk(CSOUND *csound, CSN_FDESIGN3 *p);
@@ -578,10 +533,8 @@ int32_t csnsig_ellip_noband(CSOUND *csound, CSN_FDESIGN1F1 *p);
 int32_t csnsig_ellip_band_sos(CSOUND *csound, CSN_FDESIGN1F2_SOS *p);
 int32_t csnsig_ellip_noband_sos(CSOUND *csound, CSN_FDESIGN1F1_SOS *p);
 
-int32_t csnsig_zpk2sos_deinit(CSOUND *csound, CSN_ZPK2SOS *p);
 int32_t csnsig_zpk2sos(CSOUND *csound, CSN_ZPK2SOS *p);
 
-int32_t csnsig_buttap_deinit(CSOUND *csound, CSN_BUTTAP *p);
 int32_t csnsig_buttap(CSOUND *csound, CSN_BUTTAP *p);
 
 int32_t csnsig_lfilter_arr_deinit(CSOUND *csound, CSN_LFILTER *p);
