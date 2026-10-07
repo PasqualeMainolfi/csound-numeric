@@ -191,7 +191,7 @@ int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a,
     int32_t res = OK;
     stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, a, b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, a, b }, 3);
 
     uint32_t new_ndim = 0;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -230,7 +230,7 @@ int32_t csn_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a,
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, a, b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, a, b }, 3);
 
     /* never true for an output that is one of its operands: X = csnadd(X, Y)
        is meant to apply again on every pass */
@@ -486,7 +486,7 @@ int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
     int32_t res = OK;
     stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, source_arr }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, source_arr }, 2);
 
     res = binop_hs_sh_body(csound, NULL, source_arr, complex_arg, mode);
     if (res != OK) goto done;
@@ -529,7 +529,7 @@ int32_t csn_binop_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, source_arr }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, source_arr }, 2);
 
     res = binop_hs_sh_body(csound, h, source_arr, complex_arg, mode);
     if (res != OK) goto done;
@@ -1281,7 +1281,7 @@ static int32_t csnarray_unaryop_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNARY
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     ITEM_TYPE new_itype = CSN_REAL;
@@ -1316,7 +1316,7 @@ static int32_t csnarray_unaryop_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_UNA
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     ITEM_TYPE new_itype = CSN_REAL;
@@ -1579,7 +1579,7 @@ static int32_t csnarray_complop_unary_helper(CSOUND *csound, CSN_UNARYOP *p, CSN
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     res = complop_check(csound, NULL, source_arr, mode);
@@ -1616,7 +1616,7 @@ static int32_t csnarray_complop_unary_k_helper(CSOUND *csound, CSN_UNARYOP *p, C
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     res = complop_check(csound, &p->h, source_arr, mode);
@@ -1822,7 +1822,7 @@ static int32_t csnarray_angle_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEXOP
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
@@ -1858,7 +1858,7 @@ static int32_t csnarray_angle_k_init_helper(CSOUND *csound, CSN_ANGLE *p, CSN_CO
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
@@ -1892,7 +1892,7 @@ static int32_t csnarray_angle_k_helper(CSOUND *csound, CSN_ANGLE *p, CSN_COMPLEX
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
@@ -1960,7 +1960,7 @@ static int32_t csnarray_angle_in_helper(CSOUND *csound, CSN_ANGLE_IN *p, const c
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *source_arr = p->source_handle;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
@@ -2000,7 +2000,7 @@ static int32_t csnarray_angle_in_k_helper(CSOUND *csound, CSN_ANGLE_IN *p, CSN_C
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *source_arr = p->source_handle;
     double in_period = (mode == CSN_WRAP || mode == CSN_UNWRAP) ? (double) *p->arg_a : 0.0;
@@ -2099,7 +2099,7 @@ static int32_t csnarray_type_helper(CSOUND *csound, OPDS *perf_h, CSN_UNARYOP_SC
     p->registry = reg;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
     *p->value = p->source_handle->itype == CSN_REAL ? FL(0.0) : FL(1.0);
     if (pres.locked) csn_unlock(csound, reg);
     return OK;
@@ -2166,7 +2166,7 @@ static int32_t csnarray_copy_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     const CSN_ARRAY *ops[1] = { source_arr };
@@ -2198,7 +2198,7 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0)) goto done;
@@ -2264,11 +2264,11 @@ static int32_t csnarray_unaryop_in_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    p->registry = reg;
+    p->k_data.registry = reg;
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX && (mode == CSN_DEG2RAD || mode == CSN_RAD2DEG)) {
@@ -2297,14 +2297,14 @@ int32_t csnarray_radtodeg_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
 }
 
 int32_t csnarray_unaryop_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_UNARY_MODE mode) {
-    CSN_REGISTRY *reg = p->registry;
+    CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX && (mode == CSN_DEG2RAD || mode == CSN_RAD2DEG)) {
@@ -2330,7 +2330,7 @@ int32_t csnarray_unaryop_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
     CHECK_REGISTRY(csound, NULL, reg);
     csn_mark_krate(p->source_handle);
 
-    p->registry = reg;
+    p->k_data.registry = reg;
     stamp_globals(csound, &p->h);
     return OK;
 }
@@ -2383,7 +2383,7 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p, bool 
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -2392,7 +2392,7 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p, bool 
         goto done;
     }
 
-    res = csn_check_outputs_distinct(csound, NULL, (const CSN_ARRAY *[]) { p->handle_a, p->handle_b }, 2);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_a, p->handle_b }, 2);
     if (res != OK) goto done;
 
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -2466,14 +2466,14 @@ static int32_t csnarray_divmod_hs_sh_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *
     int32_t res = OK;
     stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { q_arr, r_arr, source_arr }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { q_arr, r_arr, source_arr }, 3);
 
     if (source_arr->itype == CSN_COMPLEX) {
         res = csound->InitError(csound, "[csnarray] Divmod operation requires real array");
         goto done;
     }
 
-    res = csn_check_outputs_distinct(csound, NULL, (const CSN_ARRAY *[]) { q_arr, r_arr }, 2);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { q_arr, r_arr }, 2);
     if (res != OK) goto done;
 
     const CSN_ARRAY *ops[1] = { source_arr };
@@ -2536,7 +2536,7 @@ static int32_t csnarray_divmod_hh_k_helper(CSOUND *csound, CSN_DIVMOD_HH *p) {
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle_a, p->handle_b, p->source_handle_a, p->source_handle_b }, 4);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -2593,7 +2593,7 @@ static int32_t csnarray_divmod_hs_sh_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { q_arr, r_arr, source_arr }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { q_arr, r_arr, source_arr }, 3);
 
     if (source_arr->itype == CSN_COMPLEX) {
         res = csn_locked_perf_error(csound, h, "[csnarray] Divmod operation requires real array");

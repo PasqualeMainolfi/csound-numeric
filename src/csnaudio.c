@@ -45,7 +45,7 @@ int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
        the lock is decided; the check still guards a global output that some
        other opcode has reshaped since. */
     CSN_ARRAY *buffer = p->handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { buffer }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->ndim != 1U || buffer->itype != CSN_REAL) {
         if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid slot: array size and dimension mismatch");
@@ -84,7 +84,7 @@ int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p) {
     uint32_t early = p->h.insdshead->ksmps_no_end;
 
     CSN_ARRAY *buffer = p->source_handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { buffer }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->itype != CSN_REAL) {
         if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
@@ -151,7 +151,7 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
     CSN_ARRAY *buffer = p->handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ buffer }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->shape[0] != nchnls || buffer->shape[1] != CS_KSMPS) {
         if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
@@ -177,7 +177,7 @@ int32_t csnarray_unpack_audio_init(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     p->registry = reg;
 
     CSN_ARRAY *buffer = p->source_handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ buffer }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->itype != CSN_REAL || buffer->shape[1] != CS_KSMPS) {
         if (locked) csn_unlock(csound, reg);
         return csound->InitError(csound, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
@@ -205,7 +205,7 @@ int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
     CSN_ARRAY *buffer = p->source_handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ buffer }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->itype != CSN_REAL || buffer->shape[1] != CS_KSMPS) {
         if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
@@ -320,7 +320,7 @@ int32_t csnarray_frame_audio(CSOUND *csound, CSN_FRAME_AUDIO *p) {
         CSN_REGISTRY *reg = p->registry;
         CHECK_REGISTRY(csound, &p->h, reg);
         CSN_ARRAY *frame = p->handle;
-        bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ frame }, 1);
+        bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ frame }, 1);
         if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size != fsize) {
             if (locked) csn_unlock(csound, reg);
             return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
@@ -365,7 +365,7 @@ int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
     p->registry = reg;
 
     CSN_ARRAY *frame = p->source_handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ frame }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ frame }, 1);
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size == 0) {
         if (locked) csn_unlock(csound, reg);
         return csound->InitError(csound, "[csnarray] Invalid csn-audio frame: expected a non-empty 1-D real array");
@@ -416,7 +416,7 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
     CSN_REGISTRY *reg = p->registry;
     CHECK_REGISTRY(csound, &p->h, reg);
     CSN_ARRAY *frame = p->source_handle;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]){ frame }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ frame }, 1);
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size != fsize) {
         if (locked) csn_unlock(csound, reg);
         return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);

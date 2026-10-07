@@ -375,7 +375,7 @@ static int32_t csncoord_rotmat_k_helper(CSOUND *csound, CSN_ROTMAT *p) {
     new_shape[0] = 3U;
     new_shape[1] = 3U;
 
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
     res = ensure_mutation_capacity(csound, &p->h, p->handle, 9U, p->handle->rt_locked);
     if (res != OK) goto done;
     set_csnarray_layout(p->handle, new_ndim, new_shape, 9U, CSN_REAL);

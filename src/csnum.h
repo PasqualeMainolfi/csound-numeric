@@ -917,8 +917,8 @@ typedef struct {
     // inputs
     CSN_ARRAY *source_handle; // array source
     CSN_ARRAY *data_handle;   // array of values (source array will compared with data_handle)
-                           // mask in csnselect
-                           // weights in bincount
+                              // mask in csnselect
+                              // weights in bincount
     cs_float *trig;
     // private
     K_DATA k_data;
@@ -1077,12 +1077,12 @@ typedef struct {
     cs_float *value;
     // inputs
     CSN_ARRAY *source_handle;
-    cs_float *arg_a;     // compared value for cnteq
+    cs_float *arg_a;  // compared value for cnteq
                       // trig for all
-    cs_float *arg_b;     // trig only for cnteq
+    cs_float *arg_b;  // trig only for cnteq
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
+    bool is_published;
 } CSN_COUNT;
 
 /* Reducing along an axis drops that axis and yields an array. */
@@ -1276,6 +1276,7 @@ typedef struct {
     cs_float *trig;
     // private
     K_DATA k_data;
+    CSN_SCRATCH scratch;
 } CSN_UNARYOP;
 
 typedef struct {
@@ -1308,7 +1309,6 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
 } CSN_UNARYOP_IN;
 
@@ -1790,10 +1790,8 @@ typedef struct {
     void *source_handles[VARGMAX - 2];
     // private
     K_DATA k_data;
-    CSN_SCRATCH buffer_handles;
-    CSN_SCRATCH buffer_sources;
-    CSN_SCRATCH buffer_temp_sources;
     int32_t nargs;
+    CSN_SCRATCH versions;
     bool is_published;
 } CSN_STACK_K;
 
@@ -1994,7 +1992,6 @@ int compare_double(const void *a, const void *b);
 size_t get_and_count_unique_double(double *temp, size_t size);
 /* Caller holds the registry mutex. */
 int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size);
-int32_t create_csnarray_locked(CSOUND *csound, CSN_REGISTRY *reg, const OPDS *h, uint32_t ndim, const uint32_t *shape, CSN_ARRAY **p_array, CSN_ARRAY *p_handle, const uint32_t *protect, uint32_t protect_count, const char **err, ITEM_TYPE itype);
 void slice_put(double *dst, size_t i, size_t stride, ITEM_TYPE itype, CSN_COMPLEXDAT z);
 void set_csnarray_layout(CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, size_t size, ITEM_TYPE itype);
 void deinit_scratch(CSOUND *csound, CSN_SCRATCH *scratch);
@@ -2149,9 +2146,10 @@ int32_t csnarray_padcomp_in(CSOUND *csound, CSN_PADCOMPLEX_IN *p);
 int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p);
 int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p);
 int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
-int32_t csnarray_argnonzero(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
-int32_t csnarray_argunique(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
-int32_t csnarray_argisnan(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_argnonzero(CSOUND *csound, CSN_UNARYOP *p);   // return (count, ndim)
+int32_t csnarray_argunique_deinit(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnarray_argunique(CSOUND *csound, CSN_UNARYOP *p);    // return (count, ndim)
+int32_t csnarray_argisnan(CSOUND *csound, CSN_UNARYOP *p);     // return (count, ndim)
 int32_t csnarray_argmin(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
 int32_t csnarray_argmax(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
 int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p);        // return array 1D
@@ -2179,12 +2177,9 @@ int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p);
 int32_t csnarray_isnan(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isinf(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_isfin(CSOUND *csound, CSN_UNARYOP *p); // return mask
-int32_t csnarray_indexof_deinit(CSOUND *csound, CSN_ARGWHERE_INDEX *p);
 int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
 int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p);
-int32_t csnarray_bincount_no_w_deinit(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
-int32_t csnarray_searchsorted_a_deinit(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
 int32_t csnarray_searchsorted_s_deinit(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
 int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
@@ -2449,9 +2444,9 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p);
 int32_t csnarray_clip_k(CSOUND *csound, CSN_CLIP *p);
 int32_t csnarray_clip_in_k(CSOUND *csound, CSN_CLIP_IN *p);
 int32_t csnarray_argwhere_k(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
-int32_t csnarray_argnonzero_k(CSOUND *csound, CSN_ARGWHERE *p);   // return (count, ndim)
-int32_t csnarray_argunique_k(CSOUND *csound, CSN_ARGWHERE *p);    // return (count, ndim)
-int32_t csnarray_argisnan_k(CSOUND *csound, CSN_ARGWHERE *p);     // return (count, ndim)
+int32_t csnarray_argnonzero_k(CSOUND *csound, CSN_UNARYOP *p);   // return (count, ndim)
+int32_t csnarray_argunique_k(CSOUND *csound, CSN_UNARYOP *p);    // return (count, ndim)
+int32_t csnarray_argisnan_k(CSOUND *csound, CSN_UNARYOP *p);     // return (count, ndim)
 int32_t csnarray_argmin_k(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
 int32_t csnarray_argmax_k(CSOUND *csound, CSN_REDUCTION *p);      // omitted axis returns one coordinate; explicit axis returns one per lane
 int32_t csnarray_unique_k(CSOUND *csound, CSN_COMPARE *p);        // return array 1D

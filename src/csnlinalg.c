@@ -324,7 +324,7 @@ int32_t csnarray_solve(CSOUND *csound, CSN_LINALG_SOLVE *p) {
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -411,7 +411,7 @@ int32_t csnarray_solve_k(CSOUND *csound, CSN_LINALG_SOLVE *p) {
     CHECK_KTRIG(p->trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -514,7 +514,7 @@ int32_t csnarray_inverse(CSOUND *csound, CSN_LINALG_INVERSE *p) {
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -570,7 +570,7 @@ int32_t csnarray_inverse_k(CSOUND *csound, CSN_LINALG_INVERSE *p) {
     CHECK_KTRIG(p->trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -631,7 +631,7 @@ static int32_t csnarray_determinant_helper(CSOUND *csound, OPDS *h, cs_float *de
     int32_t res = OK;
     stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
@@ -709,7 +709,7 @@ static int32_t csnarray_determinant_k_helper(CSOUND *csound, OPDS *h, cs_float *
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
@@ -1017,7 +1017,7 @@ int32_t csnarray_savgol_mat(CSOUND *csound, CSN_SAVGOL_MATRIX *p) {
     }
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     uint32_t ndim = 2U;
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -1063,7 +1063,7 @@ int32_t csnarray_hilbertmat(CSOUND *csound, CSN_HILBERT_MAT *p) {
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     uint32_t new_ndim = 2U;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -1095,7 +1095,7 @@ int32_t csnarray_hilbertmat_k_init(CSOUND *csound, CSN_HILBERT_MAT *p) {
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     uint32_t new_ndim = 2U;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -1133,7 +1133,7 @@ int32_t csnarray_hilbertmat_k(CSOUND *csound, CSN_HILBERT_MAT *p) {
     CHECK_KTRIG(p->trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     if (p->is_published) {
         bool is_same_n = p->k_data.prev_size == n;

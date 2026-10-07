@@ -189,7 +189,7 @@ static int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h) {
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { out, in }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, in }, 2);
 
     if (in->data == NULL) {
         res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The array being assigned has never been created");

@@ -696,7 +696,7 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     CSN_ARRAY *src = p->source_handle;
     int32_t res = OK;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->size == 0) {
@@ -747,7 +747,7 @@ int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     CSN_ARRAY *src = p->source_handle;
     int32_t res = OK;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->itype != CSN_REAL) {
@@ -806,7 +806,7 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     CSN_ARRAY *src = p->source_handle;
     int32_t res = OK;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->size == 0) {
@@ -860,7 +860,7 @@ int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     CSN_ARRAY *src = p->source_handle;
     int32_t res = OK;
-    bool locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { src }, 1);
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { src }, 1);
     uint32_t ndim = src->ndim;
 
     if (src->size == 0) {

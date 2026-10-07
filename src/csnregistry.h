@@ -89,6 +89,8 @@ typedef struct {
 #endif
 } CSN_ARRAY;
 
+typedef const CSN_ARRAY *CSN_CONARR[];
+
 /* The rate an array lives at: i-rate by default, which is what a zeroed
    variable reads as, and k-rate once a k-rate opcode produces it or writes it
    at perf. CsnArr itself has no rate, so the operators (+, -, ...) run their

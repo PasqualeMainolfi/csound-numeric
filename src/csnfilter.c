@@ -114,7 +114,7 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
     }
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -225,7 +225,7 @@ static int32_t csnarray_medfilt1d_in_init_helper(CSOUND *csound, CSN_MEDFILT_IN 
     }
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -276,7 +276,7 @@ int32_t csnarray_medfilt1d_k(CSOUND *csound, CSN_MEDFILT *p) {
     size_t kernel_size = (size_t) *p->kernel_size;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -379,7 +379,7 @@ int32_t csnarray_medfilt1d_in_k(CSOUND *csound, CSN_MEDFILT_IN *p) {
     CHECK_KTRIG(p->axis);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -458,7 +458,7 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
     }
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, out_arr }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, out_arr }, 2);
 
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
@@ -575,7 +575,7 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
     }
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     uint32_t source_ndim = source_arr->ndim;
 
@@ -674,7 +674,7 @@ static int32_t csnarray_medfilt_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sou
     CHECK_KTRIG(trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, out_arr }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, out_arr }, 2);
 
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
@@ -759,7 +759,7 @@ static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA
     buffer->scratch_capacity = 0;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
     uint32_t source_ndim = source_arr->ndim;
 
     if (source_arr->itype != CSN_REAL) {
@@ -838,7 +838,7 @@ static int32_t csnarray_medfilt_in_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *
     CHECK_KTRIG(trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     uint32_t source_ndim = source_arr->ndim;
 

@@ -362,7 +362,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
        the validation reads the source under it. */
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
@@ -447,7 +447,7 @@ static int32_t csnarray_fft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE mo
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, p->handle }, 2);
 
     CSN_AXIS_SPEC axis_spec = {0};
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
@@ -520,7 +520,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
@@ -612,7 +612,7 @@ static int32_t csnarray_ifft_k_helper(CSOUND *csound, CSN_FFT *p, CSN_FFT_MODE m
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, p->handle }, 2);
 
     CSN_AXIS_SPEC axis_spec = {0};
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
@@ -962,7 +962,7 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle_f, p->handle_t, p->handle_z }, 4);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle_f, p->handle_t, p->handle_z }, 4);
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSN_FFT_MODE fft_mode;
@@ -990,7 +990,7 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
         goto done;
     }
 
-    res = csn_check_outputs_distinct(csound, NULL, (const CSN_ARRAY *[]) { p->handle_f, p->handle_t, p->handle_z }, 3);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR) { p->handle_f, p->handle_t, p->handle_z }, 3);
     if (res != OK) goto done;
 
     /* Three outputs, one lock: the guard in csn_lock keeps a later output from
@@ -1134,7 +1134,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle_t, p->handle_x }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle_t, p->handle_x }, 3);
 
     CSN_ARRAY *source_arr = p->source_handle;
     res = istft_body(csound, NULL, reg, source_arr, (uint32_t) fft_size);
@@ -1169,7 +1169,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
         goto done;
     }
 
-    res = csn_check_outputs_distinct(csound, NULL, (const CSN_ARRAY *[]){ p->handle_t, p->handle_x }, 2);
+    res = csn_check_outputs_distinct(csound, NULL, (CSN_CONARR){ p->handle_t, p->handle_x }, 2);
     if (res != OK) goto done;
 
     const CSN_ARRAY *operands[1] = { source_arr };
@@ -1260,7 +1260,7 @@ static int32_t csnarray_stft_k_helper(CSOUND *csound, CSN_STFT *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle_f, p->handle_t, p->handle_z }, 4);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, p->handle_f, p->handle_t, p->handle_z }, 4);
 
     CSN_FFT_MODE fft_mode;
     res = stft_body(csound, &p->h, reg, source_arr, &fft_mode);
@@ -1334,7 +1334,7 @@ static int32_t csnarray_istft_k_helper(CSOUND *csound, CSN_ISTFT *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle_t, p->handle_x }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, p->handle_t, p->handle_x }, 3);
 
     res = istft_body(csound, &p->h, reg, source_arr, (uint32_t) fft_size);
     if (res != OK) goto done;
@@ -1569,7 +1569,7 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t source_ndim = source_arr->ndim;
@@ -1623,7 +1623,7 @@ static int32_t csnarray_fftshift_k_init_helper(CSOUND *csound, CSN_FFTSHIFT *p, 
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     uint32_t new_ndim = source_arr->ndim;
@@ -1657,7 +1657,7 @@ static int32_t csnarray_fftshift_k_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_F
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { source_arr, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, p->handle }, 2);
 
     uint32_t source_ndim = source_arr->ndim;
     const cs_float *axis_in = p->INOCOUNT > 2 ? p->trig : NULL;
@@ -1880,7 +1880,7 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     res = fft2_body(csound, NULL, reg, source_arr, mode);
     if (res != OK) goto done;
@@ -2099,7 +2099,7 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     res = fft2_body(csound, NULL, reg, source_arr, mode);
     if (res != OK) goto done;
@@ -2212,7 +2212,7 @@ static int32_t csnarray_fft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE 
     size_t cols_work_size = p->k_data_col_fft.buffer_work_size;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     res = fft2_body(csound, &p->h, reg, source_arr, mode);
@@ -2272,7 +2272,7 @@ static int32_t csnarray_ifft2_k_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE
     size_t cols_work_size = p->k_data_col_fft.buffer_work_size;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     res = fft2_body(csound, &p->h, reg, source_arr, mode);
@@ -2759,7 +2759,7 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -2889,7 +2889,7 @@ static int32_t csnarray_corrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -2987,7 +2987,7 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -3059,7 +3059,7 @@ static int32_t csnarray_corrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_C
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 2);
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
@@ -3622,7 +3622,7 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 3);
 
     void *fft_setup = NULL;
     void *ifft_setup = NULL;
@@ -3800,7 +3800,7 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b }, 2);
 
     void *fft_setup = NULL;
     void *ifft_setup = NULL;
@@ -3946,7 +3946,7 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     bool flag = mode == CSN_CONVOLUTION || mode == CSN_CORRELATION;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b}, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b}, 3);
 
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
@@ -4084,7 +4084,7 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     CHECK_KTRIG(flag ? p->arg_b : p->arg_a);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle_a, p->source_handle_b}, 3);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle_a, p->source_handle_b}, 3);
 
     void *fft_setup = p->k_data_fft_x.fft_setup;
     void *ifft_setup = p->k_data_ifft.fft_setup;
@@ -4397,7 +4397,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
@@ -4511,7 +4511,7 @@ static int32_t dcst1d_k_helper(CSOUND *csound, CSN_DCST *p, CSN_DCST_MODE dcst_m
     size_t dcst_fft_size = fft_size;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
@@ -4945,7 +4945,7 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
     /* the scalar parameters above need no lock; from here the arrays are read */
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U) {
@@ -5014,7 +5014,7 @@ int32_t csnarray_mfcc_k(CSOUND *csound, CSN_MFCC *p) {
     CHECK_KTRIG(p->trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U) {
@@ -5103,7 +5103,7 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
     /* the scalar parameters above need no lock; from here the output is written */
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     /* One row per band over the bins of a one-sided spectrum, which is the
        shape librosa.filters.mel returns. Adjacent bands always overlap -- band
@@ -5224,7 +5224,7 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     CSN_AXIS_SPEC axis_spec = {0};
@@ -5330,7 +5330,7 @@ static int32_t csnarray_hilbert_k_helper(CSOUND *csound, CSN_HILBERT *p, bool is
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     uint32_t axis = p->k_data.prev_axis_u;
     size_t hilb_fft_size = p->k_data_fft.nfft;
@@ -5468,7 +5468,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     /* CSNRFFT only to borrow the real-input check: the analytic signal of a
@@ -5562,7 +5562,7 @@ static int32_t csnarray_hilbert2_k_helper(CSOUND *csound, CSN_HILBERT2 *p) {
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
 
     CSN_ARRAY *source_arr = p->source_handle;
     /* Every buffer in the chain was sized once at init and none of them can be

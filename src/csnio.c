@@ -28,7 +28,7 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     int32_t res = OK;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     const char *path = p->path->data;
     CSN_FILE_ERROR_CODE err_code = csnfile_save_array(p->source_handle, path, dot);
@@ -64,7 +64,7 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     double *buffer = NULL;
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     const char *path = p->path->data;
 
@@ -167,7 +167,7 @@ int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p) {
     CHECK_KTRIG(p->trig);
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     const char *path = p->path->data;
     CSN_ARRAY *arr = p->source_handle;
@@ -214,7 +214,7 @@ int32_t csnarray_load_k_init(CSOUND *csound, CSN_LOAD *p) {
 
     stamp_globals(csound, &p->h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = 1U;
@@ -298,7 +298,7 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
     }
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
 
     /* prepare_output refuses a shape over the element limit, and growth on a
        real-time path */
@@ -333,7 +333,7 @@ int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p) {
     pbuffer.capacity = CSN_PRINT_BUFFER_INITIAL_CAPACITY;
 
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
     CSN_ARRAY *arr = p->source_handle;
     res = csnfile_show_array(csound, &pbuffer, arr);
     if (res == OK) csound->Message(csound, "%s", pbuffer.data);
@@ -389,7 +389,7 @@ int32_t csnarray_show_k(CSOUND *csound, CSN_SHOW *p) {
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (const CSN_ARRAY *[]) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *arr = p->source_handle;
     if (csnfile_show_array(csound, &p->pbuffer, arr) != OK) {
