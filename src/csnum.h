@@ -8,7 +8,7 @@
 #include "csnregistry.h"
 
 #define CSN_SHAPE_STR_MAX (CSN_MAX_DIMS * 12 + 3)
-#define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) (k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0
+#define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) ((k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0)
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
 #define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
 #define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))
@@ -528,6 +528,7 @@ typedef struct {
     cs_float *trig;
     // private
     K_DATA k_data;
+    bool is_published;
 } CSN_IDENTITY;
 
 typedef struct {
@@ -552,18 +553,25 @@ typedef struct {
     CSN_ARRAY *handle;
     // inputs
     CSN_ARRAY *source_handle;
-    ARRAYDAT *new_shape; // shape for reshape
-                         // optional axes in transpose
+    union {
+        ARRAYDAT *new_shape; // shape for reshape
+                             // optional axes in transpose
+        cs_float *trig;      // csntranspose.k and csnflatten.k, which take no shape
+    };
     // private
     K_DATA k_data;
+    CSN_SCRATCH scratch; // transpose of an output that is its own source
 } CSN_RESHAPE;
 
 typedef struct {
     OPDS h;
     // inputs
     CSN_ARRAY *source_handle;
-    ARRAYDAT *new_shape; // shape for reshape
-                         // optional axes for transpose
+    union {
+        ARRAYDAT *new_shape; // shape for reshape
+                             // optional axes for transpose
+        cs_float *trig;      // csntranspose.in.k and csnflatten.in.k, which take no shape
+    };
     // private
     K_DATA k_data;
     CSN_SCRATCH scratch;
@@ -593,7 +601,6 @@ typedef struct {
                        // axis for rollaxis
     // private
     K_DATA k_data;
-    CSN_SCRATCH scratch;
 } CSN_FLIP_ROLL_IN;
 
 typedef struct {
