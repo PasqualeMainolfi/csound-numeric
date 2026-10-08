@@ -24,8 +24,8 @@ instr 1
     prints("q0.25=%g q0.5=%g q0.9=%.2f\n", q25, q50, q90)
 
     ; the same thing said in percent
-    p25:i        = csnpercentile(data, 25)
-    prints("csnpercentile(25) = %g\n", p25)
+    pc25:i        = csnpercentile(data, 25)
+    prints("csnpercentile(25) = %g\n", pc25)
 
     ; per row of a matrix
     shape:i[]    = fillarray(2, 3)

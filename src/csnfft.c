@@ -3338,8 +3338,9 @@ static int32_t fftcorrconv_crop_ndims(CSN_ARRAY *y, CSN_ARRAY *source_arr, const
 }
 
 /* The transform buffers are private arrays, so they carry the mark as their own
-   external_lock. They serve the output and are sized from both operands, so
-   any of the three marks forbids growing them at perf time. */
+   external_lock. They serve the output, so its mark forbids growing them at
+   perf time: the init passes a marked operand's mark on to the output, and
+   csnrtunlock on the output clears it for these as well. */
 static void fftcorrconv_set_external_lock(CSN_CORRCONV *p, bool locked) {
     p->fft_buffer_x.external_lock = locked;
     p->fft_buffer_h.external_lock = locked;
@@ -3733,7 +3734,7 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     p->k_data_ifft.buffer_out_size = p->fc.ifft_out_size;
     p->k_data_ifft.buffer_work_size = p->fc.ifft_work_size;
 
-    fftcorrconv_set_external_lock(p, p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked);
+    fftcorrconv_set_external_lock(p, p->handle->rt_locked);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -3912,7 +3913,7 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     p->k_data_ifft.fft_setup = ifft_setup;
     p->is_published = false;
 
-    fftcorrconv_set_external_lock(p, p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked);
+    fftcorrconv_set_external_lock(p, p->handle->rt_locked);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -3964,9 +3965,10 @@ static int32_t fftcorrconv1d_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRC
     if (res != OK) goto done;
 
     /* Decided before anything below can allocate: the transform setups, the
-       spectra and the work buffers all serve the output, and a mark on it or
-       on either operand forbids growing them at perf time. */
-    bool rt_locked = p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked;
+       spectra and the work buffers all serve the output, so its mark (which
+       the init passed on from a marked operand, and csnrtunlock clears)
+       forbids growing them at perf time. */
+    bool rt_locked = p->handle->rt_locked;
     fftcorrconv_set_external_lock(p, rt_locked);
 
     if (p->is_published) {
@@ -4107,9 +4109,10 @@ static int32_t fftcorrconv_k_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCON
     if (res != OK) goto done;
 
     /* Decided before anything below can allocate: the transform setups, the
-       spectra and the work buffers all serve the output, and a mark on it or
-       on either operand forbids growing them at perf time. */
-    bool rt_locked = p->handle->rt_locked || source_x->rt_locked || source_h->rt_locked;
+       spectra and the work buffers all serve the output, so its mark (which
+       the init passed on from a marked operand, and csnrtunlock clears)
+       forbids growing them at perf time. */
+    bool rt_locked = p->handle->rt_locked;
     fftcorrconv_set_external_lock(p, rt_locked);
 
     uint32_t last_axis = ndim - 1U;

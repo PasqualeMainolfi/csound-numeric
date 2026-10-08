@@ -70,27 +70,32 @@ instr 2
 endin
 
 instr 3
-    ; Constructors must regenerate content even when their layout is unchanged.
+    ; Constructors must regenerate content even when their layout is unchanged:
+    ; the csnset of instr 2 is overwritten on the next pass. The copies taken
+    ; there still hold the values written over.
     iIndex0[] = array(0)
-    assert(csnget(ZerosAlias, iIndex0) == 0)
-    assert(csnget(OnesAlias, iIndex0) == 1)
-    assert(csnget(LikeAlias, iIndex0) == 5)
+    assert(csnget(Zeros, iIndex0) == 0)
+    assert(csnget(Ones, iIndex0) == 1)
+    assert(csnget(Like, iIndex0) == 5)
+    assert(csnget(ZerosAlias, iIndex0) == 0 && csnget(OnesAlias, iIndex0) == 1 && csnget(LikeAlias, iIndex0) == 5)
 endin
 
 instr 4
     ; A changed fill value must not require a layout change.
     iIndex1[] = array(1)
     assert(csnsize(Like) == 2 && csnsize(LikeAlias) == 2)
-    assert(csnget(Like, iIndex1) == 7 && csnget(LikeAlias, iIndex1) == 7)
+    assert(csnget(Like, iIndex1) == 7 && csnget(LikeAlias, iIndex1) == 5)
 endin
 
 instr 5
-    ; Shape changes update the existing slots observed through all aliases.
+    ; Shape changes reach the arrays the constructors write; the copies keep
+    ; the shape they were taken with.
     iIndex2[] = array(2)
-    assert(csnsize(ZerosAlias) == 3 && csnsize(OnesAlias) == 3 && csnsize(LikeAlias) == 3)
-    assert(csnget(ZerosAlias, iIndex2) == 0)
-    assert(csnget(OnesAlias, iIndex2) == 1)
-    assert(csnget(LikeAlias, iIndex2) == 7)
+    assert(csnsize(Zeros) == 3 && csnsize(Ones) == 3 && csnsize(Like) == 3)
+    assert(csnsize(ZerosAlias) == 2 && csnsize(OnesAlias) == 2 && csnsize(LikeAlias) == 2)
+    assert(csnget(Zeros, iIndex2) == 0)
+    assert(csnget(Ones, iIndex2) == 1)
+    assert(csnget(Like, iIndex2) == 7)
 endin
 
 instr 6

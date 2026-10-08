@@ -399,10 +399,8 @@ int32_t csnarray_fftdeconvolve(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftdecorrelate1d(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftdecorrelate(CSOUND *csound, CSN_CORRCONV *p);
 
-int32_t csnarray_fftcorrconv1d_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrelate1d_k(CSOUND *csound, CSN_CORRCONV *p);
-int32_t csnarray_fftcorrconv_k_init(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftconvolve_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftcorrelate_k(CSOUND *csound, CSN_CORRCONV *p);
 int32_t csnarray_fftdeconvolve1d_k(CSOUND *csound, CSN_CORRCONV *p);

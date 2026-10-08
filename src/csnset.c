@@ -422,11 +422,16 @@ int32_t csnarray_setcontains_k_init(CSOUND *csound, CSNSET_BINARYOP_SCALAR *p) {
     res = set_check_body(csound, NULL, source_arr);
     if (res != OK) goto done;
 
+    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, 1U, CSN_REAL);
+    p->is_published = false;
+
+    /* a k value is not known at init: the first pass answers */
+    if (!csn_known_at_init(csound, p->scalar)) goto done;
+
     bool founded = false;
     binary_search(NULL, &founded, 0, source_arr->data, value, source_arr->size, false);
     *p->value = founded ? FL(1.0) : FL(0.0);
 
-    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, 1U, CSN_REAL);
     set_array_version(&p->k_data.prev_source_version, &source_arr->version);
     p->k_data.prev_scalar_param = value;
     p->is_published = true;

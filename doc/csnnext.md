@@ -12,7 +12,7 @@ is exhausted the state falls to 0 and the value output holds the last element
 read. The array is walked flat, so the rank does not matter.
 
 The walk is taken over a copy of the elements made at init, which is what lets
-the iterator answer without locking the registry once the array is exhausted.
+the iterator answer without reading the source once the array is exhausted.
 That copy must not go stale: a write to the source while the walk is in
 progress raises an error rather than serving the old values. Reading the source
 with other opcodes is fine.
@@ -27,9 +27,8 @@ Real and complex arrays are two distinct overloads, chosen by the type of the
 value output: `k` for a real array, `:Complex;` for a complex one. Handing
 either the other's element type is an init error, not a performance one.
 
-Once the array is exhausted the handle is no longer resolved, so an array freed
-after the walk ended leaves `csnnext` republishing its last element with a zero
-state instead of reporting a dead handle.
+Once the array is exhausted, `csnnext` keeps republishing its last element with
+a zero state without rereading the source, until a reset starts a new walk.
 
 ## Syntax
 

@@ -762,19 +762,25 @@ static int32_t csnarray_get_slice_impl(CSOUND *csound, CSN_GET_SLICE *p, bool is
     uint32_t start = 0;
     uint32_t step = 0;
     size_t output_size = 0;
-    /* The k form takes the whole spec at k-rate, so during the init pass it
-       normally still reads start=stop=step=0, which no validation can accept.
-       Stand in the full extent of axis 0 there: the slot only has to exist with
-       a usable layout, and the first performance pass republishes it. */
+    /* The k form slices here only with a spec known at init. A k argument
+       reads 0 there, and it also fixes the slice's extents: the output keeps
+       the source's layout reserved but empty (a slice keeps the rank), and the
+       first performance pass slices. */
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    p->k_data.registry = reg;
+    if (is_ktime && !(csn_known_at_init(csound, p->axis) && csn_known_at_init(csound, p->start)
+                      && csn_known_at_init(csound, p->stop) && csn_known_at_init(csound, p->step))) {
+        const CSN_ARRAY *ops[1] = { arr };
+        CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, arr->shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+        res = out.err;
+        pres.locked |= out.locked;
+        if (res == OK) reset_empty_csnarray(p->handle, ndim, arr->shape, arr->itype);
+        goto done;
+    }
     double in_start = (double) *p->start;
     double in_stop = (double) *p->stop;
     double in_step = (double) *p->step;
     double in_axis = (double) *p->axis;
-    if (is_ktime && in_step == 0.0 && in_start == 0.0 && in_stop == 0.0) {
-        in_axis = 0.0;
-        in_stop = (double) arr->shape[0];
-        in_step = 1.0;
-    }
     res = validate_slice_spec(csound, NULL, arr, in_axis, in_start, in_stop, in_step, &axis, &start, &step, shape, &output_size);
     if (res != OK) goto done;
 
@@ -790,6 +796,10 @@ static int32_t csnarray_get_slice_impl(CSOUND *csound, CSN_GET_SLICE *p, bool is
     }
 
     SET_KDATA_BEGIN(p->k_data, reg, shape, ndim, arr->itype);
+    if (is_ktime) {
+        PUBLISH_ELEMENTWISE(&p->k_data, arr, NULL, p->handle, (double) start, (double) step);
+        p->k_data.prev_axis_u = axis;
+    }
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -944,8 +954,8 @@ static int32_t push_check_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, boo
     return OK;
 }
 
-/* rt_locked is the mark of the slot arr belongs to or, for an array private to
-   an opcode, of the slot it serves; external_lock covers the private arrays
+/* rt_locked is the mark of arr or, for an array private to an opcode, of the
+   array it serves; external_lock covers the private arrays
    that carry their own flag. A marked array must already be large enough at
    perf time: growing it would call the allocator on the audio thread, so the
    growth is refused instead. Init-time growth stays allowed. */
@@ -968,10 +978,10 @@ int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, s
 }
 
 /* The same rule for an opcode's private scratch, counted in items of
-   item_size bytes: at perf time a scratch serving a marked slot must have been
-   reserved at init. A first reservation is exact; growth doubles, so a
+   item_size bytes: at perf time a scratch serving a marked array must have
+   been reserved at init. A first reservation is exact; growth doubles, so a
    buffer that keeps growing off a marked path does not reallocate every
-   pass. The caller holds the registry mutex. */
+   pass. A shared operand has the lock held by the caller. */
 int32_t csn_scratch_reserve(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *scratch, size_t required, size_t item_size) {
     if (scratch->scratch != NULL && required <= scratch->scratch_capacity) {
         return OK;
@@ -1914,7 +1924,7 @@ int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
 
     /* The output grows past both operands, so it can be neither of them. */
     const CSN_ARRAY *ops[2] = { source_arr, data_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
@@ -1945,7 +1955,7 @@ int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p) {
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, 0.0, 0.0)) goto done;
 
     const CSN_ARRAY *ops[2] = { source_arr, data_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, 1U, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, 1U, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
@@ -2054,7 +2064,7 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
 
     const CSN_ARRAY *ops[2] = { source_arr, data_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
@@ -2081,17 +2091,38 @@ int32_t csnarray_concat_block_k_init(CSOUND *csound, CSN_CONCAT *p) {
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle, p->data_handle }, 3);
 
     CSN_ARRAY *source_arr = p->source_handle;
-    const CSN_ARRAY *ops[2] = { source_arr, p->data_handle };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE);
+    CSN_ARRAY *data_arr = p->data_handle;
+    const CSN_ARRAY *ops[2] = { source_arr, data_arr };
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    p->k_data.registry = reg;
+
+    /* A k axis is not known at init, and it fixes the joined extents: the
+       output keeps the source's layout reserved but empty (joining keeps the
+       rank) and the first pass joins. */
+    if (!csn_known_at_init(csound, p->arg_b)) {
+        CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE);
+        res = out.err;
+        pres.locked |= out.locked;
+        if (res == OK) reset_empty_csnarray(p->handle, source_arr->ndim, source_arr->shape, source_arr->itype);
+        goto done;
+    }
+
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    uint32_t axis = 0;
+    res = concat_block_body(csound, NULL, source_arr, data_arr, new_shape, p->arg_b, &axis);
+    if (res != OK) goto done;
+
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    p->handle->size = source_arr->size;
-    if (source_arr->size > 0) {
-        memcpy(p->handle->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+    if (concat_block_assign_value(source_arr, data_arr, p->handle, axis) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid concatenate iterator layout");
+        goto done;
     }
-    SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
+    SET_KDATA_BEGIN(p->k_data, reg, new_shape, p->handle->ndim, p->handle->itype);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, (double) axis, 0.0);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -2117,7 +2148,7 @@ int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, (double) axis, 0.0)) goto done;
 
     const CSN_ARRAY *ops[2] = { source_arr, data_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 2, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
@@ -2256,7 +2287,7 @@ static int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, 
     /* Every cell moves, so writing over the source is not an option: the
        in-place form is csnpad.in. */
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
@@ -2297,7 +2328,7 @@ static bool pad_k_init_shape(CSOUND *csound, const CSN_ARRAY *source_arr, const 
     return pad_body(csound, NULL, source_arr, axis_in, in_before, in_after, axis, before, after, shape, itype) == OK;
 }
 
-static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in) {
+static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, const cs_float *value_arg, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2313,29 +2344,53 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
         goto done;
     }
 
+    memset(k_data, 0, sizeof(*k_data));
+    k_data->registry = reg;
+    const CSN_ARRAY *ops[1] = { source_arr };
+
+    /* Padded here only when the widths, the value and the axis are known at
+       init; they also fix the padded extents, so otherwise the output keeps
+       the source's layout reserved but empty and the first pass pads. */
+    bool known = csn_known_at_init(csound, (void *) in_before) && csn_known_at_init(csound, (void *) in_after)
+        && csn_known_at_init(csound, (void *) value_arg) && csn_known_at_init(csound, (void *) axis_in);
+    if (!known) {
+        /* The init values are no result, but they are the best guess at the
+           room the perf pass will need: a marked output keeps the storage it
+           is created with, so it is created at the padded shape they give
+           (when they give one) and then emptied. */
+        uint32_t hint_shape[CSN_MAX_DIMS] = {0};
+        memcpy(hint_shape, source_arr->shape, sizeof(hint_shape));
+        int32_t hint_axis = -1;
+        uint32_t hint_before = 0, hint_after = 0;
+        if (!pad_k_init_shape(csound, source_arr, axis_in, in_before, in_after, expected_itype, &hint_axis, &hint_before, &hint_after, hint_shape)) {
+            memcpy(hint_shape, source_arr->shape, sizeof(hint_shape));
+        }
+        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, source_arr->ndim, hint_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+        res = out.err;
+        pres.locked |= out.locked;
+        if (res == OK) reset_empty_csnarray(out_arr, source_arr->ndim, source_arr->shape, source_arr->itype);
+        goto done;
+    }
+
     uint32_t shape[CSN_MAX_DIMS] = {0};
     memcpy(shape, source_arr->shape, sizeof(shape));
     int32_t axis = -1;
     uint32_t before = 0;
     uint32_t after = 0;
-    bool padded = pad_k_init_shape(csound, source_arr, axis_in, in_before, in_after, expected_itype, &axis, &before, &after, shape);
+    if (!pad_k_init_shape(csound, source_arr, axis_in, in_before, in_after, expected_itype, &axis, &before, &after, shape)) {
+        res = pad_body(csound, NULL, source_arr, axis_in, in_before, in_after, &axis, &before, &after, shape, expected_itype);
+        if (res == OK) res = csound->InitError(csound, "[csnarray] Pad widths exceed the largest extent an array can have");
+        goto done;
+    }
 
-    const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, source_arr->ndim, shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, source_arr->ndim, shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (padded) {
-        if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
-            res = csound->InitError(csound, "[csnarray] Invalid pad iterator layout");
-            goto done;
-        }
-    } else {
-        out_arr->size = source_arr->size;
-        if (source_arr->size > 0) {
-            memcpy(out_arr->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
-        }
+    if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid pad iterator layout");
+        goto done;
     }
     SET_KDATA_BEGIN(*k_data, reg, shape, source_arr->ndim, source_arr->itype);
 
@@ -2346,12 +2401,12 @@ done:
 
 int32_t csnarray_pad_k_init(CSOUND *csound, CSN_PAD *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis_in);
+    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, p->value, (double) *p->value, NULL, CSN_REAL, axis_in);
 }
 
 int32_t csnarray_padcomp_k_init(CSOUND *csound, CSN_PADCOMPLEX *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis_in);
+    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, NULL, 0.0, p->value, CSN_COMPLEX, axis_in);
 }
 
 /* The fill value is folded into the two scalars of the elementwise check (the
@@ -2383,7 +2438,7 @@ static int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CS
     /* Every cell of the padded shape is written below, so the logical size is
        the physical one even when the source is logically empty. */
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
@@ -2696,11 +2751,18 @@ int32_t csnarray_clip_k_init(CSOUND *csound, CSN_CLIP *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (!out.aliased) {
-        p->handle->size = source_arr->size;
-        memcpy(p->handle->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
-    }
+    memset(&p->k_data, 0, sizeof(p->k_data));
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
+
+    /* Clipped here only with bounds known at init; an output that is its own
+       source is clipped by every perf pass. Otherwise the layout is the
+       source's and the values are left to the first pass. */
+    if (out.aliased || source_arr->itype != CSN_REAL) goto done;
+    if (!csn_known_at_init(csound, p->min) || !csn_known_at_init(csound, p->max)) goto done;
+    double min_value = (double) *p->min;
+    double max_value = (double) *p->max;
+    clip_into(p->handle, source_arr, false, min_value, max_value);
+    PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, min_value, max_value);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);

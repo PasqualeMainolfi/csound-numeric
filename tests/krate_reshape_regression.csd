@@ -11,13 +11,11 @@ nchnls = 1
 
 Source@global:CsnArr = csnfromarray(array(1, 2, 3, 4))
 Reshaped@global:CsnArr = csnreshape(Source, array(2, 2))
-ReshapedAlias@global:CsnArr = csnreshape(Source, array(2, 2))
 InPlace@global:CsnArr = csnfromarray(array(1, 2, 3, 4))
 /* itype is an i-argument, so the complex source keeps its type for the whole
    note; reshaping it must preserve that type across every layout change. */
 DynamicSource@global:CsnArr = csnfull(array(1), 5, 1)
 DynamicReshaped@global:CsnArr = csnreshape(DynamicSource, array(1))
-DynamicAlias@global:CsnArr = csnreshape(DynamicSource, array(1))
 
 instr 1
     kElapsed = timeinsts()
@@ -36,38 +34,36 @@ endin
 instr 2
     iSourceIndex[] = array(0)
     iInPlaceIndex[] = array(0, 0)
-    ReshapedAlias = Reshaped
-    DynamicAlias = DynamicReshaped
     csnset(Source, iSourceIndex, 9)
     csnset(InPlace, iInPlaceIndex, 8)
 endin
 
 instr 3
     iIndex[] = array(0, 0)
-    assert(csnget(ReshapedAlias, iIndex) == 9)
+    assert(csnget(Reshaped, iIndex) == 9)
     assert(csnget(InPlace, iIndex) == 8)
-    DEarly:Complex = csnget(DynamicAlias, iIndex)
+    DEarly:Complex = csnget(DynamicReshaped, iIndex)
     iDEarlyReal = real(DEarly)
-    assert(csntype(DynamicAlias) == 1 && iDEarlyReal == 5)
+    assert(csntype(DynamicReshaped) == 1 && iDEarlyReal == 5)
 endin
 
 instr 4
     iIndex[] = array(0, 0)
     iLast[] = array(0, 3)
-    iReshapedShape[] = csnshape(ReshapedAlias)
+    iReshapedShape[] = csnshape(Reshaped)
     iInPlaceShape[] = csnshape(InPlace)
 
-    assert(csnget(ReshapedAlias, iIndex) == 9)
+    assert(csnget(Reshaped, iIndex) == 9)
     assert(csnget(InPlace, iIndex) == 8)
-    assert(csnget(ReshapedAlias, iLast) == 4)
+    assert(csnget(Reshaped, iLast) == 4)
     assert(csnget(InPlace, iLast) == 4)
     assert(iReshapedShape[0] == 1 && iReshapedShape[1] == 4)
     assert(iInPlaceShape[0] == 1 && iInPlaceShape[1] == 4)
 
-    D:Complex = csnget(DynamicAlias, iIndex)
+    D:Complex = csnget(DynamicReshaped, iIndex)
     iDReal = real(D)
     iDImag = imag(D)
-    assert(csntype(DynamicAlias) == 1)
+    assert(csntype(DynamicReshaped) == 1)
     assert(iDReal == 5 && iDImag == 0)
 endin
 </CsInstruments>

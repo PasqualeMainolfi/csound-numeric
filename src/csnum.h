@@ -213,11 +213,6 @@ typedef enum {
 } CSN_MOVSTATS_MODE;
 
 typedef enum {
-    DEGREE = 0,
-    RADIANS
-} CSN_ANGLE_MODE;
-
-typedef enum {
     CSN_K_EMPTY,
     CSN_K_ZEROS,
     CSN_K_ONES
@@ -495,12 +490,6 @@ typedef struct {
     cs_float *ftable;
     cs_float *resize;
 } CSN_TO_FTABLE;
-
-typedef struct {
-    OPDS h;
-    // inputs
-    CSN_ARRAY *handle;
-} CSN_FREE;
 
 typedef struct {
     OPDS h;
@@ -1242,15 +1231,6 @@ typedef struct {
 typedef struct {
     OPDS h;
     // outputs
-    cs_float *value;
-    // inputs
-    CSN_ARRAY *source_handle;
-    cs_float *scalar;
-} CSN_BINOP_HS_SCALAR;
-
-typedef struct {
-    OPDS h;
-    // outputs
     CSN_ARRAY *handle;
     // inputs
     cs_float *scalar;
@@ -1440,18 +1420,6 @@ typedef struct {
     // inputs
     cs_float *seed;
 } CSN_SEED;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    CSN_ARRAY *handle_a;
-    CSN_ARRAY *handle_b;
-    // inputs
-    void *arg_a;
-    void *arg_b;
-    // private
-    K_DATA k_data;
-} CSN_DIVMOD_COMMON;
 
 typedef struct {
     OPDS h;
@@ -1670,16 +1638,6 @@ typedef struct {
     CSN_PRINT_BUFFER pbuffer;
     CSN_REGISTRY *registry;
 } CSN_SHOW;
-
-typedef struct {
-    OPDS h;
-    // outputs
-    CSN_ARRAY *handle;
-    // inputs
-    void *source_sig;
-    // private
-    K_DATA k_data;
-} CSN_AUDIO_BRIDGE_COMMON;
 
 typedef struct {
     OPDS h;
@@ -1986,7 +1944,6 @@ typedef struct {
 } CSN_LAGRANGE;
 
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
-int32_t NEED_TO_UPDATE_SLOT(CSOUND *csound, OPDS *h, CSN_ARRAY **destination, K_DATA *k_data, uint32_t *owned_handle, uint32_t ndim, const uint32_t *shape, size_t logical_size, ITEM_TYPE itype, const char *err);
 bool IS_VALID_VALUE(double value);
 bool IS_VALID_ZERO_ONE(double value);
 bool IS_VALID_LENGTH(double length);
@@ -2183,7 +2140,6 @@ int32_t csnarray_isfin(CSOUND *csound, CSN_UNARYOP *p); // return mask
 int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p); // return index of value
 int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p);
 int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p);
-int32_t csnarray_searchsorted_s_deinit(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p);
 int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p);
 

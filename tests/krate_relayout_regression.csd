@@ -29,7 +29,7 @@ instr 1
     kShape[] = fillarray(2, 3)
 
     Flipped = csnflip(Source, kAxis)
-    Transposed = csntranspose(Source)
+    Transposed = csntranspose(Source, 1)
     Zeros = csnzeros(kShape, 0)
 endin
 

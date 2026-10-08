@@ -377,16 +377,23 @@ static int32_t mask_select_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPARE_MO
         goto done;
     }
 
+    /* Each cell is classified from itself, so the mask may be its own source. */
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, CSN_REAL, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
     CSN_ARRAY *arr = p->handle;
-    set_csnarray_layout(arr, source_arr->ndim, source_arr->shape, source_arr->size, CSN_REAL);
-    mask_select_assign_value(source_arr, arr, mode);
+    memset(&p->k_data, 0, sizeof(p->k_data));
     SET_KDATA_BEGIN(p->k_data, reg, arr->shape, arr->ndim, arr->itype);
+
+    /* At k-rate an output that is its own source is classified by every perf
+       pass; doing it here as well would apply it twice in the first cycle. */
+    if (csn_is_k_form(&p->h) && out.aliased) goto done;
+
+    mask_select_assign_value(source_arr, arr, mode);
+    if (out.aliased && source_arr->size > 0) update_array_data_version(&arr->version);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, arr, 0.0, 0.0);
 
 done:
@@ -413,12 +420,13 @@ static int32_t mask_select_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPARE_
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0)) goto done;
 
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, source_arr->shape, CSN_REAL, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
     mask_select_assign_value(source_arr, p->handle, mode);
+    if (out.aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
 
     SET_KDATA_END(p->k_data, source_arr->shape, source_arr->ndim, CSN_REAL);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0);
@@ -828,23 +836,26 @@ static int32_t csnarray_compare_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPA
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
 
+    /* Each cell is compared with itself only, so the result may be its own
+       source; both branches are written, as an aliased output is not zeroed. */
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
     for (size_t i = 0; i < source_arr->size; ++i) {
         double value = source_arr->data[i];
-        if (compare_match(value, cmp_value, mode)) p->handle->data[i] = 1.0;
+        p->handle->data[i] = compare_match(value, cmp_value, mode) ? 1.0 : 0.0;
     }
+    if (out.aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-int32_t csnarray_compare_k_init(CSOUND *csound, CSN_COMPARE *p) {
+static int32_t compare_k_init_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPARE_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -860,21 +871,51 @@ int32_t csnarray_compare_k_init(CSOUND *csound, CSN_COMPARE *p) {
     }
 
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (source_arr->size > 0) {
-        memcpy(p->handle->data, source_arr->data, sizeof(double) * source_arr->size);
-        p->handle->size = source_arr->size;
-    }
-
+    memset(&p->k_data, 0, sizeof(p->k_data));
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
+
+    /* Compared here only against a value known at init; an output that is its
+       own source is compared by every perf pass. Otherwise the layout is the
+       source's and the values are left to the first pass. */
+    if (out.aliased || !csn_known_at_init(csound, p->cmp_value)) goto done;
+    double cmp_value = (double) *p->cmp_value;
+    for (size_t i = 0; i < source_arr->size; ++i) {
+        p->handle->data[i] = compare_match(source_arr->data[i], cmp_value, mode) ? 1.0 : 0.0;
+    }
+    PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, cmp_value, 0.0);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
+}
+
+int32_t csnarray_greater_than_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    return compare_k_init_helper(csound, p, GREATER_THAN);
+}
+
+int32_t csnarray_less_than_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    return compare_k_init_helper(csound, p, LESS_THAN);
+}
+
+int32_t csnarray_not_equal_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    return compare_k_init_helper(csound, p, NOT_EQUAL);
+}
+
+int32_t csnarray_greater_equal_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    return compare_k_init_helper(csound, p, GREATER_EQUAL);
+}
+
+int32_t csnarray_less_equal_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    return compare_k_init_helper(csound, p, LESS_EQUAL);
+}
+
+int32_t csnarray_equal_k_init(CSOUND *csound, CSN_COMPARE *p) {
+    return compare_k_init_helper(csound, p, EQUAL);
 }
 
 static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPARE_MODE mode) {
@@ -900,18 +941,17 @@ static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COM
     if (CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, cmp_value, 0.0)) goto done;
 
     const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, source_arr->ndim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    /* Both branches are written, never just the matches: the slot is only
-       reallocated when the request changes, so on a steady layout an unwritten
-       cell would still be holding the 1.0 some earlier pass put there. */
+    // both branches: an aliased output is not zeroed
     for (size_t i = 0; i < source_arr->size; ++i) {
         double value = source_arr->data[i];
         p->handle->data[i] = compare_match(value, cmp_value, mode) ? 1.0 : 0.0;
     }
+    if (out.aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
 
     SET_KDATA_END(p->k_data, new_shape, source_arr->ndim, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, cmp_value, 0.0);
@@ -1509,20 +1549,18 @@ int32_t csnarray_compress_k_init(CSOUND *csound, CSN_WHERE_HS *p) {
     res = compress_body(csound, NULL, source_arr, mask_arr, axis_in, &axis_out);
     if (res != OK) goto done;
 
-    uint32_t count_true = 0;
-    for (uint32_t i = 0; i < mask_arr->size; i++) {
-        if (mask_arr->data[i] != 0.0) count_true++;
-    }
-
+    /* The mask may itself be a k result its producer could not compute at
+       init, so its count is not read here: the output is laid out, reserved
+       but empty, for the most a compress can keep, every element of the run,
+       which is also all a marked output may grow to at perf time. */
     ITEM_TYPE itype = source_arr->itype;
     uint32_t new_dim = source_arr->ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
     if (axis_out == -1) {
         new_dim = 1U;
-        new_shape[0] = count_true;
+        new_shape[0] = (uint32_t) source_arr->size;
     } else {
         memcpy(new_shape, source_arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-        new_shape[axis_out] = count_true;
     }
 
     deinit_scratch(csound, &p->scratch);
@@ -2564,6 +2602,12 @@ int32_t csnarray_searchsorted_scalar_k_init(CSOUND *csound, CSN_SEARCHSORTED_SCA
         res = csound->InitError(csound, "[csnarray] Searchsorted requires a 1-D real array");
         goto done;
     }
+
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    p->k_data.registry = reg;
+    p->is_published = false;
+    // a k value is not known at init: the first pass searches
+    if (!csn_known_at_init(csound, p->value)) goto done;
 
     double wanted_in = (double) *p->value;
     size_t index = 0;

@@ -489,7 +489,11 @@ typedef struct {
 
 void get_window_function(double *win, uint32_t wsize, CSN_WINDOW_MODE mode, double beta);
 
-int32_t csnarray_window_function_k_init(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_hanning_k_init(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_hamming_k_init(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_bartlett_k_init(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_blackman_k_init(CSOUND *csound, CSN_WINDOW *p);
+int32_t csnarray_kaiser_k_init(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_hanning(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_hamming(CSOUND *csound, CSN_WINDOW *p);
 int32_t csnarray_bartlett(CSOUND *csound, CSN_WINDOW *p);

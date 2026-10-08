@@ -15,7 +15,7 @@ real array, `1` for a complex one. It is always read at init, so a handle keeps
 its element type for the whole note; only the shape may follow a k-rate value.
 
 The k-rate form re-allocates only when the requested shape actually changes, and
-rewrites the elements on every pass, so a slot that was overwritten downstream
+rewrites the elements on every pass, so an array that was overwritten downstream
 is restored to zero.
 
 ## Syntax

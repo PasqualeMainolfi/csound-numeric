@@ -48,10 +48,6 @@ CSN_REGISTRY *get_registry(CSOUND *csound) {
         return NULL;
     }
 
-#ifdef CSN_VERSION_CROSSCHECK
-    reg->csound = csound;
-#endif
-
     reg->mutex = csound->Create_Mutex(0);
     if (reg->mutex == NULL) {
         csound->DestroyGlobalVariable(csound, CSN_REGISTRY_NAME);
@@ -165,9 +161,8 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     return OK;
 }
 
-/* Copies the payload and the layout, but not ndim: both callers preserve the
-   rank and only reshape one axis. A caller that changes rank must set it. */
-/* dest must already hold src->size items: its storage and capacity are kept,
+/* Copies the payload and layout, retaining the destination's identity.
+   dest must already hold src->size items: its storage and capacity are kept,
    so a caller on a real-time path can size it without reallocating. */
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
     bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
@@ -176,14 +171,17 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
     memcpy(dest->data, src->data, sizeof(double) * src->size * src->itype);
     memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
     memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
+    dest->ndim = src->ndim;
     dest->size = src->size;
     dest->itype = src->itype;
+    dest->rate = src->rate;
 
     /* dest keeps its own identity and its own counters; it does not inherit
        src's. Its payload was just overwritten, so its data version moves
        whatever src's happens to be. */
     update_array_data_version(&dest->version);
     update_array_layout_version(&dest->version, shape_changed, false, itype_changed);
+    csn_copy_array_kind(dest, src);
 }
 
 /* A consumer caches the version it last computed from inside its own opcode
@@ -348,10 +346,9 @@ static void csnarr_copy_value(CSOUND *csound, const struct cstype *cstype, void 
     }
     size_t req_size = s->size == 0 ? 1 : s->size;
     if (ensure_mutation_capacity(csound, NULL, d, req_size, false) != OK) return;
-    d->ndim = s->ndim;
     travase_csnarray(d, s);
-    d->rate = s->rate;
     update_array_version(&d->version);
+    csn_copy_array_kind(d, s);
 }
 
 static void csnarr_free(void *cs, void *mem) {

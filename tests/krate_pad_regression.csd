@@ -16,6 +16,7 @@ ComplexFlat@global:CsnArr = csntocomplex(Flat)
 ComplexBlock@global:CsnArr = csntocomplex(Block)
 
 PadZeroOut@global:CsnArr = csnempty(array(0))
+PadConstOut@global:CsnArr = csnempty(array(0))
 PadFlatOut@global:CsnArr = csnempty(array(0))
 PadAxis0Out@global:CsnArr = csnempty(array(0, 0))
 PadAxis1Out@global:CsnArr = csnempty(array(0, 0))
@@ -38,8 +39,10 @@ instr 1
     kAxis1 = 1
     CValue:Complex = init(5, 6, 0)
 
-    ; A zero trigger keeps the source copy published by the .k init pass.
+    ; A zero trigger keeps what the .k init pass published: nothing for k
+    ; widths, which are not known at init, the padded array for constants.
     PadZeroOut = csnpad(Flat, kBefore, kAfter, kValue, kZero)
+    PadConstOut = csnpad(Flat, 1, 2, -7, kZero)
 
     ; 1-D pad: the single axis grows by before + after.
     PadFlatOut = csnpad(Flat, kBefore, kAfter, kValue, kPulse)
@@ -62,10 +65,11 @@ instr 1
 endin
 
 instr 2
-    ; --- untriggered output keeps the init-time copy of the source ---------
-    iZero[] = csntoarray(PadZeroOut)
-    assert(csnsize(PadZeroOut) == 3)
-    assert(iZero[0] == 1 && iZero[1] == 2 && iZero[2] == 3)
+    ; --- untriggered output keeps what the init pass could compute --------
+    assert(csnsize(PadZeroOut) == 0)
+    iConst[] = csntoarray(PadConstOut)
+    assert(csnsize(PadConstOut) == 6)
+    assert(iConst[0] == -7 && iConst[1] == 1 && iConst[3] == 3 && iConst[5] == -7)
 
     ; --- 1-D ---------------------------------------------------------------
     iFlat[] = csntoarray(PadFlatOut)

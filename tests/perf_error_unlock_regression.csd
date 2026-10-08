@@ -14,8 +14,9 @@ nchnls = 1
    csoundPerfError runs the note's deinit chain before it returns, and the
    deinit takes the same mutex, which is not recursive: an opcode that reports
    with the lock held wedges Csound for good. Each note below provokes one such
-   error on a k-rate pass, most by having a later note free an operand with
-   csnfree, the moving median with an axis that turns invalid. Every note must
+   error on a k-rate pass, most by having a later note reshape an operand in
+   place to a rank its consumer refuses, the moving median with an axis that
+   turns invalid. Every note must
    be stopped by its error, which leaves its marker at 0, and the performance
    must go on to the final marker. A regression shows up as a hung run, which
    the ctest timeout turns into a failure.
@@ -28,6 +29,8 @@ giH[]      = fillarray(1, 1, 1)
 giA[]      = fillarray(2, 1, 1, 3)
 giB[]      = fillarray(1, 2)
 giShape22[] = fillarray(2, 2)
+giShape13[] = fillarray(1, 3)
+giShape4[]  = fillarray(4)
 
 ConvX@global:CsnArr   = csnfromarray(giX)
 ConvH@global:CsnArr   = csnfromarray(giH)
@@ -123,15 +126,16 @@ instr 8
     endif
 endin
 
-/* Frees one operand of each running note between its passes. */
+/* Gives one operand of each running note a rank its consumer refuses,
+   between its passes. */
 instr 20
-    csnfree ConvX
-    csnfree NdH
-    csnfree FftX
-    csnfree FftNdH
-    csnfree SolveA
-    csnfree InvA
-    csnfree DetA
+    csnreshape ConvH, giShape13
+    csnreshape NdH, giShape13
+    csnreshape FftH, giShape13
+    csnreshape FftNdH, giShape13
+    csnreshape SolveA, giShape4
+    csnreshape InvA, giShape4
+    csnreshape DetA, giShape4
 endin
 
 instr 100

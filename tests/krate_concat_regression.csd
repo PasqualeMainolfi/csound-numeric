@@ -27,6 +27,7 @@ FlatPulseOut@global:CsnArr = csnempty(array(0))
 FlatEmptyLeftOut@global:CsnArr = csnempty(array(0))
 FlatEmptyRightOut@global:CsnArr = csnempty(array(0))
 BlockZeroOut@global:CsnArr = csnempty(array(0, 0))
+BlockConstAxisOut@global:CsnArr = csnempty(array(0, 0))
 BlockAxis0Out@global:CsnArr = csnempty(array(0, 0))
 BlockAxis1Out@global:CsnArr = csnempty(array(0, 0))
 BlockEmptyLeftOut@global:CsnArr = csnempty(array(0, 0))
@@ -53,8 +54,11 @@ instr 1
     FlatEmptyLeftOut = csnconcat(EmptyFlat, FlatB, kPulse)
     FlatEmptyRightOut = csnconcat(FlatA, EmptyFlat, kPulse)
 
-    ; A zero trigger retains the source-copy slot published by block.k init.
+    ; A zero trigger keeps what block.k init published: for a k axis, which is
+    ; not known at init, the source's layout reserved but empty; for a
+    ; constant one, the joined block.
     BlockZeroOut = csnconcat(BlockA, BlockB, kZero, kAxis1)
+    BlockConstAxisOut = csnconcat(BlockA, BlockB, kZero, 1)
     BlockAxis0Out = csnconcat(BlockA, BlockB, kPulse, kAxis0)
     BlockAxis1Out = csnconcat(BlockA, BlockB, kPulse, kAxis1)
     BlockEmptyLeftOut = csnconcat(EmptyBlockA, BlockB, kPulse, kAxis0)
@@ -92,8 +96,12 @@ instr 2
     iBothEmptyShape[] = csnshape(BlockBothEmptyOut)
     iEmptyZeroShape[] = csnshape(BlockEmptyZeroOut)
 
-    assert(csnsize(BlockZeroOut) == 4)
+    iConstAxisShape[] = csnshape(BlockConstAxisOut)
+    assert(csnsize(BlockZeroOut) == 0)
+    assert(csnisempty(BlockZeroOut) == 1)
     assert(iBlockZeroShape[0] == 2 && iBlockZeroShape[1] == 2)
+    assert(csnsize(BlockConstAxisOut) == 8)
+    assert(iConstAxisShape[0] == 2 && iConstAxisShape[1] == 4)
     assert(csnsize(BlockAxis0Out) == 8)
     assert(iBlockAxis0Shape[0] == 4 && iBlockAxis0Shape[1] == 2)
     assert(csnsize(BlockAxis1Out) == 8)
@@ -102,14 +110,14 @@ instr 2
     i00[] = array(0, 0)
     i02[] = array(0, 2)
     i20[] = array(2, 0)
-    iBlockZero00 = csnget(BlockZeroOut, i00)
+    iConstAxis02 = csnget(BlockConstAxisOut, i02)
     iBlockAxis000 = csnget(BlockAxis0Out, i00)
     iBlockAxis020 = csnget(BlockAxis0Out, i20)
     iBlockAxis100 = csnget(BlockAxis1Out, i00)
     iBlockAxis102 = csnget(BlockAxis1Out, i02)
     iBlockEmptyLeft00 = csnget(BlockEmptyLeftOut, i00)
     iBlockEmptyRight00 = csnget(BlockEmptyRightOut, i00)
-    assert(iBlockZero00 == 0)
+    assert(iConstAxis02 == 1)
     assert(iBlockAxis000 == 0 && iBlockAxis020 == 1)
     assert(iBlockAxis100 == 0 && iBlockAxis102 == 1)
 

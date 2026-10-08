@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- Make `CsnArr` a value that owns its array, held in the variable's own memory, instead of an id into a plugin registry. `B = A` now copies, a local is freed with its note and a global with the engine, so the registry no longer fills up and no longer holds arrays; it keeps the random generators, the real-time global lock and the mutex
+- Remove *csnfree*: nothing is left for it to release
+- Add operators on `CsnArr`: `+`, `-`, `*`, `/` and `^` between two arrays, an array and an i or k scalar either way round, and an array and a `:Complex;`, the compound `+=`, `-=`, `*=` and `/=`, and unary minus. An operator runs at init, and again on every pass while one of its operands is a k-rate result
+- Split the i-only and the k forms of *csntranspose* and *csnflatten*, in place and not: the k forms take a trigger, and a call without one now transforms once at init
+- Write a result over one of its own operands only where that is safe: elementwise opcodes compute in place, the rest refuse it at init with a message naming the operand. A k form whose output is its own operand computes from the first pass, never also at init
+- Compute a k form at init only when every argument its result depends on is known there: a constant, an i variable or an array. A k scalar still reads 0 at init, so with one the output is laid out, empty or reserved, and the first pass computes it, where it used to compute from the 0 or publish a copy of the source in its place. *csntoarray* at k-rate accepts such an empty result at init
+- Keep an output derived from a reserved-empty source empty as well, as before the migration; *csnconcat* and *csnpad* fill theirs regardless
+- Reserve at init what a marked output may need: *csncompress* reserves the whole source, *csnpad* with k widths the shape their init values give. The FFT convolution and correlation follow the output's mark alone, as the resampler does, so *csnrtunlock* on the output now lets their transform grow
+- Fix a heap overflow in *csnbuttap* (shapes swapped), *csnlfilter* at k-rate and on audio taking `b` and `a` swapped at init, the k-rate *csnstd*/*csnvar* crashing on a missing destination, the k-rate moving statistics crashing at init, a lock left held by *csnforeach* on an error, and leaks on reinit across several families
+- Run the regression suite isolated from an installed csnum, and under AddressSanitizer on macOS through a generated launcher
+
 - Replace `MYFLT` with `cs_float` and the `MYFLT2*` conversions with `CS_FLOAT2*` throughout the sources, following Csound 7, where `MYFLT` is kept only as a deprecated alias and warns on every use. Both name the same type, so the plugin's binary interface is unchanged; the sources now need Csound 7 headers that define `cs_float`
 
 ## [0.1.12] - 2026-09-30

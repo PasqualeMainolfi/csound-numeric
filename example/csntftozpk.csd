@@ -31,7 +31,7 @@ instr 1
     ; an all-pole filter has no zeros: the zeros come back empty
     ib2[] = fillarray(1)
     b2:CsnArr = csnfromarray(ib2)
-    z2:CsnArr, p2:CsnArr, igain2 csntftozpk b2, a
+    z2:CsnArr, pl2:CsnArr, igain2 csntftozpk b2, a
     csnprint(z2)
     turnoff
 endin

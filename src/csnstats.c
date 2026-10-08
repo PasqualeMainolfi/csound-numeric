@@ -526,7 +526,50 @@ done:
     return res;
 }
 
+/* A k form computes at init only when every argument its result depends on
+   is known there. When one is a k variable (an axis that also fixes the output
+   shape, a window, a quantile) the output is laid out empty, nothing is
+   published, and the first pass computes. scratch, when given, is still
+   reserved for the source's capacity, so a marked path never grows it. */
+static int32_t reduction_k_init_pending(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, CSN_ARRAY *out_arr, ITEM_TYPE itype, K_DATA *k_data, CSN_SCRATCH *scratch) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    stamp_globals(csound, h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr, out_arr }, 2);
+
+    memset(k_data, 0, sizeof(*k_data));
+    k_data->registry = reg;
+
+    if (scratch != NULL) {
+        deinit_scratch(csound, scratch);
+        res = csn_scratch_reserve(csound, NULL, false, scratch, source_arr->capacity > 0 ? source_arr->capacity : 1, sizeof(double));
+        if (res != OK) goto done;
+    }
+
+    if (out_arr != NULL) {
+        uint32_t shape[CSN_MAX_DIMS] = {0};
+        const CSN_ARRAY *ops[1] = { source_arr };
+        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, 1U, shape, itype, ops, 1, CSN_ALIAS_REFUSE);
+        res = out.err;
+        if (res != OK) goto done;
+        pres.locked |= out.locked;
+    }
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* The axis forms keep their axis in the field named trig (see CSN_REDUCTION). */
+static bool reduction_axis_known(CSOUND *csound, OPDS *h, const CSN_ARRAY *out_arr) {
+    return out_arr == NULL || csn_known_at_init(csound, ((CSN_REDUCTION *) h)->trig);
+}
+
 static int32_t csnarray_accumulate_reduction_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, double axis_value, CSN_ARRAY *out_arr, cs_float *out_value, COMPLEXDAT *out_complex_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
+    if (!reduction_axis_known(csound, h, out_arr)) return reduction_k_init_pending(csound, h, source_arr, out_arr, source_arr->itype, k_data, NULL);
     return csnarray_accumulate_reduction(csound, h, source_arr, axis_value, out_arr, out_value, out_complex_value, mode, k_data);
 }
 
@@ -543,7 +586,7 @@ static int32_t csnarray_accumulate_reduction_k(CSOUND *csound, OPDS *h, CSN_ARRA
     res = accumulate_reduction_body(csound, h, out_arr, source_arr, axis_value, &axis, mode, out_value, out_complex_value);
     if (res != OK) goto done;
 
-    /* The axis forms answer from their own slot, the scalar ones from the
+    /* The axis forms answer from their own output, the scalar ones from the
        cs_float they wrote last time; either way nothing has to be walked again
        while the source and the axis hold still. */
     if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, out_arr, axis_value, 0.0)) goto done;
@@ -1071,6 +1114,7 @@ done:
 }
 
 static int32_t csnarray_stdvar_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, double axis_value, CSN_ARRAY *out_arr, cs_float *out_value, CSN_REDUCTION_MODE mode, K_DATA *k_data) {
+    if (!reduction_axis_known(csound, h, out_arr)) return reduction_k_init_pending(csound, h, source_arr, out_arr, CSN_REAL, k_data, NULL);
     return csnarray_stdvar_helper(csound, h, source_arr, axis_value, out_arr, out_value, mode, k_data);
 }
 
@@ -1272,6 +1316,7 @@ done:
 }
 
 static int32_t argminmax_k_init_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_MODE mode) {
+    if (p->INOCOUNT > 2 && !csn_known_at_init(csound, p->trig)) return reduction_k_init_pending(csound, &p->h, p->source_handle, p->handle, p->source_handle->itype, &p->k_data, NULL);
     return argminmax_helper(csound, p, mode, p->INOCOUNT > 2 ? p->trig : NULL, &p->k_data);
 }
 
@@ -1308,7 +1353,7 @@ static int32_t argminmax_k_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTIO
 
     /* One row of coordinates per reduced position, exactly like the i-rate
        form: reduced_shape only decomposes the destination coordinates, it is
-       not the result's own layout. Sizing the slot from it would leave
+       not the result's own layout. Sizing the output from it would leave
        argminmax_assign_value writing count * source_ndim doubles into count. */
     /* Full width: SET_KDATA_END below copies CSN_MAX_DIMS entries out of it. */
     uint32_t new_shape[CSN_MAX_DIMS] = {0};
@@ -1471,10 +1516,11 @@ int32_t csnarray_median_scalar_k_deinit(CSOUND *csound, CSN_REDUCTION_SCALAR *p)
 }
 
 static int32_t csnarray_median_impl_k_init(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, double axis_value, CSN_ARRAY *out_arr, cs_float *out_value, CSN_SCRATCH *scratch_ref, K_DATA *k_data) {
+    if (!reduction_axis_known(csound, h, out_arr)) return reduction_k_init_pending(csound, h, source_arr, out_arr, source_arr->itype, k_data, scratch_ref);
     return csnarray_median_impl(csound, h, source_arr, axis_value, out_arr, out_value, k_data, scratch_ref);
 }
 
-int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, double axis_value, CSN_ARRAY *out_arr, cs_float *out_value, K_DATA *k_data, CSN_SCRATCH *scratch_ref, const cs_float *trig) {
+static int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, double axis_value, CSN_ARRAY *out_arr, cs_float *out_value, K_DATA *k_data, CSN_SCRATCH *scratch_ref, const cs_float *trig) {
     /* The scratch lives in the caller's opcode struct. */
     void **scratch = &scratch_ref->scratch;
     CSN_REGISTRY *reg = k_data->registry;
@@ -1496,7 +1542,7 @@ int32_t csnarray_median_impl_k(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, d
     if (axis == (int32_t) k_data->prev_axis_u && CAN_REUSE_LAST_RESULT(k_data, source_arr, out_arr)) goto done;
 
     /* Median needs a sorted copy, so it cannot stream like the folds do. The
-       copy serves the output slot, or the source when the result is a scalar;
+       copy serves the output, or the source when the result is a scalar;
        init reserved the source's capacity, which bounds every run. */
     size_t runs_size = (axis == -1) ? source_arr->size : source_shape[axis];
     bool rt_locked = out_arr != NULL ? out_arr->rt_locked : source_arr->rt_locked;
@@ -1954,6 +2000,12 @@ static int32_t csnarray_movstats_k_init_helper(CSOUND *csound, CSN_MOVSTATS *p, 
     CSN_ARRAY *source_arr = p->source_handle;
     int32_t axis = -1;
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
+    if (axis_in != NULL && !csn_known_at_init(csound, (void *) axis_in)) {
+        // the axis also fixes the layout (flattened or not): left to the first pass
+        if (pres.locked) csn_unlock(csound, reg);
+        CSN_SCRATCH *scratch = mode == CSN_MOVMEDIAN ? &p->scratch : NULL;
+        return reduction_k_init_pending(csound, &p->h, source_arr, p->handle, (mode == CSN_MOVSTD || mode == CSN_MOVVAR) ? CSN_REAL : source_arr->itype, &p->k_data, scratch);
+    }
     res = movstats_body(csound, NULL, source_arr, mode, axis_in, &axis);
     if (res != OK) goto done;
 
@@ -1975,8 +2027,9 @@ static int32_t csnarray_movstats_k_init_helper(CSOUND *csound, CSN_MOVSTATS *p, 
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    /* The window is a k-argument and may still read 0 here. */
-    double win_value = (double) *p->winsize;
+    /* A k window is not known yet: the output keeps its layout, zeroed, and
+       the first pass fills it. */
+    double win_value = csn_known_at_init(csound, p->winsize) ? (double) *p->winsize : 0.0;
     size_t winsize = win_value > 0.0 ? (size_t) win_value : 0;
 
     if (mode == CSN_MOVMEDIAN) {
@@ -2066,7 +2119,7 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    /* After the slot, so a shape the marked output cannot take is refused
+    /* After the output, so a shape the marked output cannot take is refused
        there before this buffer is consulted. */
     if (mode == CSN_MOVMEDIAN) {
         res = csn_scratch_reserve(csound, &p->h, p->handle->rt_locked, &p->scratch, sliding_median_scratch_size(winsize), sizeof(double));
@@ -2600,66 +2653,36 @@ int32_t csnarray_perquant_s_k_deinit(CSOUND *csound, CSN_PERCQUANT *p) {
     return OK;
 }
 
-int32_t csnarray_perquant_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p) {
-    CSN_REGISTRY *reg = get_registry(csound);
-    CHECK_REGISTRY(csound, NULL, reg);
+/* The k forms read q (and the axis) at k-rate: they compute at init only when
+   those are known there, and otherwise lay the output out empty. The sort
+   buffer is reserved for the source's capacity either way. */
+static int32_t perquant_k_init_helper(CSOUND *csound, CSN_PERCQUANT_AX *p, bool is_percentile) {
+    bool known = csn_known_at_init(csound, p->quantity) && csn_known_at_init(csound, p->trig);
+    int32_t res = reduction_k_init_pending(csound, &p->h, p->source_handle, p->handle, CSN_REAL, &p->k_data, &p->scratch);
+    if (res != OK || !known) return res;
 
-    int32_t res = OK;
-    double *buffer = NULL;
+    double axis_value = (double) *p->trig;
+    double q = (double) *p->quantity;
+    res = csnarray_perquant_reduction(csound, &p->h, p->source_handle, axis_value, p->handle, NULL, is_percentile, q);
+    if (res != OK) return res;
 
-    // a reinit reuses the struct
-    deinit_scratch(csound, &p->scratch);
-    memset(&p->k_data, 0, sizeof(p->k_data));
-
-    stamp_globals(csound, &p->h);
-    CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
-
-    CSN_ARRAY *source_arr = p->source_handle;
-    uint32_t source_ndim = source_arr->ndim;
-    uint32_t *source_shape = source_arr->shape;
-
-    if (source_arr->size == 0U) {
-        res = csound->InitError(csound, "[csnarray] Percentile and quantile are undefined for an empty array");
-        goto done;
-    }
-
-    if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Percentile and quantile reductions require real arrays");
-        goto done;
-    }
-
-    const CSN_ARRAY *ops[1] = { source_arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source_ndim, source_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
-    res = out.err;
-    if (res != OK) goto done;
-    pres.locked |= out.locked;
-
-    size_t source_size = source_arr->size;
-    if (source_arr->size > 0) {
-        memcpy(p->handle->data, source_arr->data, sizeof(double) * source_size);
-        p->handle->size = source_size;
-    }
-
-    /* Any run along any axis fits in the source's capacity. */
-    size_t cap = source_arr->capacity > 0 ? source_arr->capacity : 1;
-    buffer = csound->Calloc(csound, sizeof(double) * cap);
-    if (buffer == NULL) {
-        res = csound->InitError(csound, "Memory allocation failed");
-        goto done;
-    }
-
-    p->scratch.scratch = buffer;
-    p->scratch.scratch_capacity = cap;
-
-    SET_KDATA_BEGIN(p->k_data, reg, p->handle->shape, p->handle->ndim, p->handle->itype);
-
-done:
-    if (pres.locked) csn_unlock(csound, reg);
-    return res;
+    CSN_AXIS_SPEC axis_spec = csn_normalize_axis_value(axis_value, p->source_handle->ndim);
+    SET_KDATA_BEGIN(p->k_data, p->k_data.registry, p->handle->shape, p->handle->ndim, CSN_REAL);
+    p->k_data.prev_axis_u = axis_spec.index;
+    p->k_data.prev_scalar_param = q;
+    PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+    return OK;
 }
 
-int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p) {
+int32_t csnarray_percentile_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p) {
+    return perquant_k_init_helper(csound, p, true);
+}
+
+int32_t csnarray_quantile_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p) {
+    return perquant_k_init_helper(csound, p, false);
+}
+
+static int32_t perquant_scalar_k_init_helper(CSOUND *csound, CSN_PERCQUANT *p, bool is_percentile) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     p->registry = reg;
@@ -2686,11 +2709,21 @@ int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p) {
     p->scratch.scratch = buffer;
     p->scratch.scratch_capacity = init_capacity;
 
-    return OK;
+    // a known q gives the value now; a k one leaves it to the first pass
+    if (!csn_known_at_init(csound, p->quantity)) return OK;
+    return csnarray_perquant_reduction(csound, &p->h, p->source_handle, -1, NULL, p->value, is_percentile, (double) *p->quantity);
 }
 
-/* The scalar forms own no output slot, so they carry a bare registry instead of
-   a K_DATA: everything that depends on a slot is guarded on k_data. */
+int32_t csnarray_percentile_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p) {
+    return perquant_scalar_k_init_helper(csound, p, true);
+}
+
+int32_t csnarray_quantile_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p) {
+    return perquant_scalar_k_init_helper(csound, p, false);
+}
+
+/* The scalar forms own no output array, so they carry a bare registry instead
+   of a K_DATA: everything that depends on an output is guarded on k_data. */
 static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, double axis_value, CSN_ARRAY *out_arr, cs_float *out_value, bool is_percentile, double q, K_DATA *k_data, CSN_REGISTRY *registry, const cs_float *trig, CSN_SCRATCH *buffer_ref) {
     /* The scratch lives in the caller's opcode struct. */
     void **buffer = &buffer_ref->scratch;
@@ -2743,7 +2776,7 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY 
 
     /* Both forms sort a run per output element, so a pass that would produce
        the same numbers is worth skipping. Only the axis form carries a K_DATA
-       to remember anything in; the scalar form has no slot of its own and
+       to remember anything in; the scalar form has no output array and
        recomputes. */
     if (k_data != NULL && axis != -1 && out_arr != NULL
         && axis == (int32_t) k_data->prev_axis_u
@@ -2767,7 +2800,7 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY 
     }
 
     if (out_arr != NULL) {
-        /* The sort buffer serves the output slot here and the source in the
+        /* The sort buffer serves the output here and the source in the
            scalar form below; the k init reserved the source's capacity. */
         size_t r_size = (size_t) source_shape[axis];
         res = csn_scratch_reserve(csound, h, out_arr->rt_locked, buffer_ref, r_size, sizeof(double));

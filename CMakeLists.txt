@@ -174,6 +174,25 @@ if(BUILD_TESTING)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_itime_signatures.cmake)
 
     find_program(CSOUND_EXECUTABLE NAMES csound)
+    # An AddressSanitizer build on macOS: the plugin is dlopened, so the
+    # runtime has to be inserted when csound starts, or nothing is checked.
+    # The tests then run csound through a launcher that does so.
+    if(APPLE AND CSOUND_EXECUTABLE AND CMAKE_C_FLAGS MATCHES "-fsanitize=address")
+        execute_process(
+            COMMAND ${CMAKE_C_COMPILER} -print-file-name=libclang_rt.asan_osx_dynamic.dylib
+            OUTPUT_VARIABLE _csnum_asan_runtime
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(EXISTS "${_csnum_asan_runtime}")
+            set(_csnum_asan_launcher "${CMAKE_CURRENT_BINARY_DIR}/csound_asan.sh")
+            file(WRITE "${_csnum_asan_launcher}"
+                "#!/bin/sh\n"
+                "export DYLD_INSERT_LIBRARIES=\"${_csnum_asan_runtime}\"\n"
+                "export ASAN_OPTIONS=\"\${ASAN_OPTIONS:-detect_leaks=0}\"\n"
+                "exec \"${CSOUND_EXECUTABLE}\" \"$@\"\n")
+            file(CHMOD "${_csnum_asan_launcher}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+            set(CSOUND_EXECUTABLE "${_csnum_asan_launcher}")
+        endif()
+    endif()
     if(CSOUND_EXECUTABLE)
         add_test(
             NAME csnum_numpy_opcode_fixture
@@ -201,6 +220,13 @@ if(BUILD_TESTING)
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/itime_regressions.csd")
+        add_test(
+            NAME csnum_compound_operators_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/compound_operators_regression.csd")
         add_test(
             NAME csnum_rtbutter_audio_regression
             COMMAND "${CSOUND_EXECUTABLE}"
@@ -342,7 +368,7 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_self_alias_rejected.csd")
         set_tests_properties(csnum_krate_self_alias_rejected PROPERTIES
-            PASS_REGULAR_EXPRESSION "is also this opcode's own output")
+            PASS_REGULAR_EXPRESSION "cannot be written over one of its own operands")
         add_test(
             NAME csnum_krate_self_alias_gradient_rejected
             COMMAND "${CSOUND_EXECUTABLE}"
@@ -351,7 +377,7 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_self_alias_gradient_rejected.csd")
         set_tests_properties(csnum_krate_self_alias_gradient_rejected PROPERTIES
-            PASS_REGULAR_EXPRESSION "is also this opcode's own output")
+            PASS_REGULAR_EXPRESSION "cannot be written over one of its own operands")
         add_test(
             NAME csnum_krate_relayout_regression
             COMMAND "${CSOUND_EXECUTABLE}"
@@ -607,6 +633,27 @@ if(BUILD_TESTING)
         set_tests_properties(csnum_next_source_changed_rejected PROPERTIES
             PASS_REGULAR_EXPRESSION "array is changed while iterating")
     endif()
+
+    # Csound also loads the user plugin directory, and the default opcode
+    # path includes it: an installed libcsnum would then register the same
+    # opcodes as the build under test. Every test runs against the build
+    # alone, with the user directory pointed at an empty one and the opcode
+    # path at Csound's own plugins.
+    set(CSNUM_TEST_EMPTY_PLUGIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/test_empty_plugins")
+    file(MAKE_DIRECTORY "${CSNUM_TEST_EMPTY_PLUGIN_DIR}")
+    set(CSNUM_TEST_ENVIRONMENT "CS_USER_PLUGINDIR=${CSNUM_TEST_EMPTY_PLUGIN_DIR}")
+    if(NOT CSNUM_TEST_OPCODE_DIR)
+        get_filename_component(_csnum_csound_framework "${CSOUND_INCLUDE_DIR}/.." ABSOLUTE)
+        if(EXISTS "${_csnum_csound_framework}/Resources/Opcodes64")
+            set(CSNUM_TEST_OPCODE_DIR "${_csnum_csound_framework}/Resources/Opcodes64")
+        endif()
+    endif()
+    set(CSNUM_TEST_OPCODE_DIR "${CSNUM_TEST_OPCODE_DIR}" CACHE PATH "Csound's own opcode directory, used as OPCODE7DIR64 by the tests")
+    if(CSNUM_TEST_OPCODE_DIR)
+        list(APPEND CSNUM_TEST_ENVIRONMENT "OPCODE7DIR64=${CSNUM_TEST_OPCODE_DIR}")
+    endif()
+    get_property(_csnum_tests DIRECTORY PROPERTY TESTS)
+    set_tests_properties(${_csnum_tests} PROPERTIES ENVIRONMENT "${CSNUM_TEST_ENVIRONMENT}")
 endif()
 endif()
 

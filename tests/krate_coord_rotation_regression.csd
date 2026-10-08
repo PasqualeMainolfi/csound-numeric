@@ -74,7 +74,7 @@ instr 3
     kn    init 0
 
     R:CsnArr = csnrotmat(kang, 2, 0, ktrig)
-    Rf:CsnArr = csnflatten(R)
+    Rf:CsnArr = csnflatten(R, 1)
     kv[] = csntoarray(Rf)
 
     gkRotM01 += kv[1]
@@ -101,7 +101,7 @@ instr 4
     kn   init 0
 
     R:CsnArr = csnrotmat(axis, kang)
-    Rf:CsnArr = csnflatten(R)
+    Rf:CsnArr = csnflatten(R, 1)
     kv[] = csntoarray(Rf)
 
     gkAxM01 += kv[1]
@@ -122,7 +122,7 @@ instr 5
     kn     init 0
 
     R:CsnArr = csnrotmatypr(kyaw, kpitch, kroll, 1)
-    Rf:CsnArr = csnflatten(R)
+    Rf:CsnArr = csnflatten(R, 1)
     kv[] = csntoarray(Rf)
 
     gkYprM02 += kv[2]
@@ -141,16 +141,15 @@ instr 5
 endin
 
 instr 6
-    /* A consumer downstream has to see the matrix change. The angle is left at
-       0 through the init, so the matrix starts as the identity and csnsum
-       caches its sum, 3, on the pass where the trigger is still down. The
-       rotation lands on pass 1, and only a data version that moved makes
-       csnsum walk the array again: Rz(90) sums to 1, so the two passes add up
-       to 4, where a version held still would give 6.
+    /* A consumer downstream has to see the matrix change. The angle is a k
+       variable, not known at init, so the init leaves the 3 x 3 matrix zeroed
+       and csnsum caches its sum, 0, on the pass where the trigger is still
+       down. The rotation lands on pass 1, and only a data version that moved
+       makes csnsum walk the array again: Rz(90) sums to 1, so the two passes
+       add up to 1, where a version held still would give 0.
 
-       The angle is raised with a k-rate assignment rather than with init, on
-       purpose: an init would have been read by the init pass and the matrix
-       would have started rotated, leaving nothing for the version to prove. */
+       The angle is raised with a k-rate assignment, after the first pass has
+       read the matrix. */
     kang  init 0
     ktrig init 0
     kon   init 1
@@ -191,7 +190,7 @@ instr 10
     assert(abs(iYprM02 + 1) < 1e-9 && abs(iYprM12 + 1) < 1e-9)
 
     iSeenSum = i(gkSeenSum)
-    assert(abs(iSeenSum - 4) < 1e-9)
+    assert(abs(iSeenSum - 1) < 1e-9)
 endin
 </CsInstruments>
 

@@ -16,8 +16,8 @@ nchnls = 1
    left neighbour of the second — so it keeps the blanket rejection, and its
    layout being unchanged means nothing else would catch it.
 
-   Expected to raise "Input array N is also this opcode's own output"; the ctest
-   entry matches on that text, so this file is a failure case by design. */
+   Expected to raise "cannot be written over one of its own operands"; the
+   ctest entry matches on that text, so this file is a failure case by design. */
 
 giValues[] = array(1, 4, 9, 16)
 Grad@global:CsnArr = csnfromarray(giValues)

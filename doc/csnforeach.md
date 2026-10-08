@@ -21,16 +21,16 @@ shared by the whole engine.
 The array is read flat, so the rank does not matter and the shape is preserved.
 Only real arrays are accepted.
 
-There is no form that publishes a new handle: `csnforeach` rewrites its source
+There is no form that produces a new array: `csnforeach` rewrites its source
 and returns nothing, like the in-place siblings elsewhere in the suite. It also
 maps on every control period the trigger is non-zero, and since it rewrites its
 own source, an ungated pass applies the callback again to an already mapped
 array. Gate it with the trigger, or let it compound on purpose.
 
-The callback runs with the array registry unlocked, so it may call other csnum
+The callback runs without holding the shared-array lock, so it may call other csnum
 opcodes freely. It works on a copy of the elements taken before the first call,
 and that copy is written back afterwards: a callback that modifies the same
-array through another opcode will see its own writes overwritten. Freeing the
+array through another opcode will see its own writes overwritten. Replacing the
 array or changing its element type from inside the callback is an error; a
 change of size writes back the common prefix.
 

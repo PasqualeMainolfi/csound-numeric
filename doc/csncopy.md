@@ -7,13 +7,13 @@ Make an independent copy of an array.
 ## Description
 
 `csncopy` allocates a new array with the same shape, element type and contents as
-its source, and returns a handle to it. The two arrays share nothing afterwards:
+its source, and returns an independent `CsnArr`. The two arrays share nothing afterwards:
 writing into one through [csnset](csnset.md), [csnpush](csnpush.md) or any
 in-place opcode leaves the other alone.
 
-That is the difference from assigning a handle. `B = A` makes `B` name the same
-array as `A`; `B = csncopy(A)` makes `B` a separate array that happens to start
-out equal.
+Assignment also copies: `B = A` and `B = csncopy(A)` both make `B` independent
+of `A`. Use `csncopy` when an explicit copy or its triggered k-rate form makes
+the intent clearer.
 
 Use it before an in-place operation you want to keep the original for, and to
 snapshot an array that is still being written.
@@ -32,7 +32,7 @@ handle:CsnArr = csncopy(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new, independent array.
+* `handle:CsnArr`: the new, independent array.
 
 ## Execution Time
 
@@ -51,8 +51,8 @@ handle:CsnArr = csncopy(source:CsnArr, trig:k)
 ; -----------------------------------------------------------------------------
 ; csncopy.csd
 ;
-; Assigning a handle aliases the array; csncopy duplicates it. The difference
-; shows the moment an in-place opcode writes.
+; Assignment and csncopy both make independent arrays. An in-place write to
+; the source leaves both copies unchanged.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -60,19 +60,20 @@ ksmps = 32
 0dbfs = 1
 
 instr 1
-    src:CsnArr    = csnfromarray(array(3, 1, 2))
-    alias:CsnArr  = src
-    copy:CsnArr   = csncopy(src)
+    iValues[] = fillarray(3, 1, 2)
+    src:CsnArr      = csnfromarray(iValues)
+    assigned:CsnArr = src
+    copied:CsnArr   = csncopy(src)
 
-    ; sort src in place: the alias follows, the copy does not
+    ; sort src in place: neither copy follows the mutation
     csnsort(src)
 
-    src_out:i[]   = csntoarray(src)
-    alias_out:i[] = csntoarray(alias)
-    copy_out:i[]  = csntoarray(copy)
-    prints("src   = %g %g %g\n", src_out[0], src_out[1], src_out[2])
-    prints("alias = %g %g %g\n", alias_out[0], alias_out[1], alias_out[2])
-    prints("copy  = %g %g %g\n", copy_out[0], copy_out[1], copy_out[2])
+    src_out:i[]      = csntoarray(src)
+    assigned_out:i[] = csntoarray(assigned)
+    copied_out:i[]   = csntoarray(copied)
+    prints("src      = %g %g %g\n", src_out[0], src_out[1], src_out[2])
+    prints("assigned = %g %g %g\n", assigned_out[0], assigned_out[1], assigned_out[2])
+    prints("copied   = %g %g %g\n", copied_out[0], copied_out[1], copied_out[2])
     turnoff
 endin
 
@@ -87,7 +88,6 @@ i 1 0 0.1
 
 * [csnlike](csnlike.md)
 * [csnfromarray](csnfromarray.md)
-* [csnfree](csnfree.md)
 
 ## Credits
 

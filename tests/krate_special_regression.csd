@@ -70,17 +70,19 @@ instr 2
 endin
 
 instr 3
-    /* The trigger holds the set. The azimuth moves to 90 on pass 1 with the
-       trigger down, so ACN 3 (X) keeps reading its init value, cos 0 = 1, on
-       both passes and sums to 2; followed, it would sum to 1. */
+    /* The trigger holds the set. Pass 0 builds it at azimuth 0 (the k
+       azimuth is not known at init, so the init builds nothing); then the
+       azimuth moves to 90 with the trigger down, so ACN 3 (X) keeps reading
+       cos 0 = 1 on both passes and sums to 2; followed, it would sum to 1. */
     kaz   init 0
-    ktrig init 0
+    ktrig init 1
     kn    init 0
 
     Set:CsnArr = csnsphharmacn(1, kaz, 0, 1, ktrig)
     kv[] = csntoarray(Set)
     gkAcnHeld += kv[3]
     kaz = 90
+    ktrig = 0
     kn += 1
     if kn == 2 then
         turnoff

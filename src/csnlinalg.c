@@ -274,9 +274,9 @@ static int32_t solve_helper(CSOUND *csound, OPDS *perf_h, CSN_LU_INFO *info, dou
 /* Capacities count doubles, so a complex operand arriving later is measured
    in the units it needs, and the pivots follow a's buffer, which bounds the row
    count. The init calls pass each operand's capacity, the most it can hold
-   without reallocating; at perf time these buffers serve the output slot, or
-   the source for the scalar determinant, and growing them is refused when
-   that slot is marked. The caller holds the registry mutex. */
+   without reallocating; at perf time these buffers serve the output, or the
+   source for the scalar determinant, and growing them is refused when that
+   array is marked. A shared operand has the lock held by the caller. */
 static int32_t linalg_allocate(CSOUND *csound, OPDS *perf_h, bool rt_locked, CSN_SCRATCH *a, CSN_SCRATCH *b, CSN_LU_INFO *info, size_t size_a, size_t size_b, ITEM_TYPE itype) {
     size_t capacity_before = a->scratch_capacity;
     int32_t res = csn_scratch_reserve(csound, perf_h, rt_locked, a, (size_a > 0 ? size_a : 1) * (size_t) itype, sizeof(double));

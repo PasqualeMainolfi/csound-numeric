@@ -137,18 +137,27 @@ int32_t csnarray_kaiser(CSOUND *csound, CSN_WINDOW *p) {
     return window_function_helper(csound, p, W_KAISER);
 }
 
-int32_t csnarray_window_function_k_init(CSOUND *csound, CSN_WINDOW *p) {
+static int32_t window_function_k_init_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_MODE mode) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    uint32_t wsize = 1;
+    /* The window is built here when its arguments are known at init (the
+       length, and the beta of csnkaiser); a k one leaves it to the first
+       pass, and the output is laid out empty until then. */
+    uint32_t wsize = 0;
     p->is_i_time_length = false;
-    if (is_inarg_i_time(&p->h, 0)) {
+    if (csn_known_at_init(csound, p->length)) {
         if (!IS_VALID_LENGTH((double) *p->length)) {
             return csound->InitError(csound, "[csnarray] Invalid window length");
         }
         wsize = (uint32_t) *p->length;
         p->is_i_time_length = true;
+    }
+    bool is_kaiser = mode == W_KAISER;
+    bool beta_known = !is_kaiser || csn_known_at_init(csound, p->beta);
+    double beta = is_kaiser && beta_known ? (double) *p->beta : -1.0;
+    if (is_kaiser && beta_known && (!IS_VALID_VALUE(beta) || beta < 0.0)) {
+        return csound->InitError(csound, "[csnarray] Invalid beta param in kaiser window");
     }
 
     int32_t res = OK;
@@ -162,16 +171,43 @@ int32_t csnarray_window_function_k_init(CSOUND *csound, CSN_WINDOW *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    reset_empty_csnarray(p->handle, 1U, shape, CSN_REAL);
-
+    memset(&p->k_data, 0, sizeof(p->k_data));
     SET_KDATA_BEGIN(p->k_data, reg, shape, 1U, CSN_REAL);
-    p->prev_length = p->is_i_time_length ? (int32_t) wsize : -1;
+    p->prev_length = -1;
     p->prev_beta = -1.0;
     p->is_published = false;
+
+    if (p->is_i_time_length && beta_known) {
+        get_window_function(p->handle->data, wsize, mode, beta);
+        set_array_version(&p->k_data.prev_output_version, &p->handle->version);
+        p->prev_length = (int32_t) wsize;
+        p->prev_beta = beta;
+        p->is_published = true;
+    }
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
+}
+
+int32_t csnarray_hanning_k_init(CSOUND *csound, CSN_WINDOW *p) {
+    return window_function_k_init_helper(csound, p, W_HANNING);
+}
+
+int32_t csnarray_hamming_k_init(CSOUND *csound, CSN_WINDOW *p) {
+    return window_function_k_init_helper(csound, p, W_HAMMING);
+}
+
+int32_t csnarray_bartlett_k_init(CSOUND *csound, CSN_WINDOW *p) {
+    return window_function_k_init_helper(csound, p, W_BARTLETT);
+}
+
+int32_t csnarray_blackman_k_init(CSOUND *csound, CSN_WINDOW *p) {
+    return window_function_k_init_helper(csound, p, W_BLACKMAN);
+}
+
+int32_t csnarray_kaiser_k_init(CSOUND *csound, CSN_WINDOW *p) {
+    return window_function_k_init_helper(csound, p, W_KAISER);
 }
 
 static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_MODE mode) {
@@ -2862,8 +2898,11 @@ static int32_t zfilter_prepare_zf(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REG
     if (zp->zf == zp->coef_a || (zp->coef_b != NULL && zp->zf == zp->coef_b)) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] zf cannot be written over the filter coefficients; write it to another variable");
     }
+    /* zf takes its layout from zi, not from x: an empty x (a k result not
+       computed yet at init) must not empty it, which would wipe the state
+       when zf is zi fed back. */
     const CSN_ARRAY *ops[1] = { zp->x };
-    CSNARR_RES out = prepare_output(csound, h, perf_h, reg, zp->zf, z_ndim, z_shape, out_itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, h, perf_h, reg, zp->zf, z_ndim, z_shape, out_itype, ops, 1, CSN_ALIAS_REFUSE | CSN_OUTPUT_FULL);
     if (out.err != OK) return out.err;
     *locked |= out.locked;
     return OK;

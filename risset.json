@@ -96,7 +96,6 @@
         "csnlike",
         "csnfromarray",
         "csntoarray",
-        "csnfree",
         "csndims",
         "csnsize",
         "csnisempty",

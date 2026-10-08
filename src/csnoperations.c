@@ -39,7 +39,7 @@ static bool complex_scalar_moved(const COMPLEXDAT *z, CSN_COMPLEXDAT *last) {
 // out = a op b
 
 static int32_t op_hh_init(CSOUND *csound, CSN_OP_HH *p, CSN_BINOP_MODE mode) {
-    int32_t res = csn_binop_hh_init(csound, &p->h, p->out, p->a, p->b, &p->k_data, mode, true);
+    int32_t res = csn_binop_hh_init(csound, &p->h, p->out, p->a, p->b, &p->k_data, mode, is_krate(p->a) || is_krate(p->b));
     if (res == OK) p->out->rate = rate_of(is_krate(p->a) || is_krate(p->b));
     return res;
 }
@@ -54,7 +54,7 @@ static int32_t op_hh_perf(CSOUND *csound, CSN_OP_HH *p, CSN_BINOP_MODE mode) {
 
 static int32_t op_hs_init(CSOUND *csound, CSN_OP_HS *p, CSN_BINOP_MODE mode, bool scalar_k) {
     p->scalar_k = scalar_k;
-    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, p->s, NULL, &p->k_data, mode, true);
+    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, p->s, NULL, &p->k_data, mode, is_krate(p->a) || scalar_k);
     if (res == OK) p->out->rate = rate_of(is_krate(p->a) || scalar_k);
     return res;
 }
@@ -67,7 +67,7 @@ static int32_t op_hs_perf(CSOUND *csound, CSN_OP_HS *p, CSN_BINOP_MODE mode) {
 
 static int32_t op_sh_init(CSOUND *csound, CSN_OP_SH *p, CSN_BINOP_MODE mode, bool scalar_k) {
     p->scalar_k = scalar_k;
-    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, p->s, NULL, &p->k_data, mode, true);
+    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, p->s, NULL, &p->k_data, mode, is_krate(p->a) || scalar_k);
     if (res == OK) p->out->rate = rate_of(is_krate(p->a) || scalar_k);
     return res;
 }
@@ -82,7 +82,7 @@ static int32_t op_sh_perf(CSOUND *csound, CSN_OP_SH *p, CSN_BINOP_MODE mode) {
 
 static int32_t op_hc_init(CSOUND *csound, CSN_OP_HC *p, CSN_BINOP_MODE mode) {
     (void) complex_scalar_moved(p->z, &p->last_z);
-    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, NULL, p->z, &p->k_data, mode, true);
+    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, NULL, p->z, &p->k_data, mode, is_krate(p->a));
     if (res == OK) p->out->rate = rate_of(is_krate(p->a));
     return res;
 }
@@ -96,7 +96,7 @@ static int32_t op_hc_perf(CSOUND *csound, CSN_OP_HC *p, CSN_BINOP_MODE mode) {
 
 static int32_t op_ch_init(CSOUND *csound, CSN_OP_CH *p, CSN_BINOP_MODE mode) {
     (void) complex_scalar_moved(p->z, &p->last_z);
-    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, NULL, p->z, &p->k_data, mode, true);
+    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->out, p->a, NULL, p->z, &p->k_data, mode, is_krate(p->a));
     if (res == OK) p->out->rate = rate_of(is_krate(p->a));
     return res;
 }
@@ -116,7 +116,7 @@ static int32_t op_ch_perf(CSOUND *csound, CSN_OP_CH *p, CSN_BINOP_MODE mode) {
 
 static int32_t op_in_hh_init(CSOUND *csound, CSN_OP_IN_HH *p, CSN_BINOP_MODE mode) {
     uint8_t rate = p->x->rate;
-    int32_t res = csn_binop_hh_init(csound, &p->h, p->x, p->x, p->y, &p->k_data, mode, true);
+    int32_t res = csn_binop_hh_init(csound, &p->h, p->x, p->x, p->y, &p->k_data, mode, is_krate(p->x) || is_krate(p->y));
     p->x->rate = rate;
     if (res == OK && is_krate(p->y)) csn_mark_krate(p->x);
     return res;
@@ -131,7 +131,7 @@ static int32_t op_in_hh_perf(CSOUND *csound, CSN_OP_IN_HH *p, CSN_BINOP_MODE mod
 static int32_t op_in_hs_init(CSOUND *csound, CSN_OP_IN_HS *p, CSN_BINOP_MODE mode, bool scalar_k) {
     p->scalar_k = scalar_k;
     uint8_t rate = p->x->rate;
-    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->x, p->x, p->s, NULL, &p->k_data, mode, true);
+    int32_t res = csn_binop_hs_sh_init(csound, &p->h, p->x, p->x, p->s, NULL, &p->k_data, mode, is_krate(p->x) || scalar_k);
     p->x->rate = rate;
     if (res == OK && scalar_k) csn_mark_krate(p->x);
     return res;
@@ -208,7 +208,9 @@ static int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h) {
 
     out->size = in->size;
     memcpy(out->data, in->data, sizeof(double) * in->size * (size_t) in->itype);
+    update_array_data_version(&out->version);
     out->rate = in->rate;
+    csn_copy_array_kind(out, in);
 
     set_array_version(&p->prev_in_version, &in->version);
     set_array_version(&p->prev_out_version, &out->version);

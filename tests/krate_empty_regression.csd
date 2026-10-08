@@ -23,9 +23,9 @@ instr 1
     ArrayC = csnempty(kShape, 1)
 endin
 
-; Capture an alias to the original handle. Later probes use both names: if
-; csnempty replaced the slot or changed its generation, the alias would stop
-; observing the updated layout.
+; Assigning a CsnArr copies it: Alias is a snapshot of Array as it is here,
+; and later writes to Array, from csnpush or from the k-rate csnempty, leave it
+; alone.
 instr 2
     iShape[] = csnshape(Array)
     assert(csnisempty(Array) == 1 && csnsize(Array) == 0)
@@ -33,7 +33,7 @@ instr 2
     assert(csntype(Array) == 0)
     Alias = Array
     csnpush(Array, 17)
-    assert(csnsize(Alias) == 1)
+    assert(csnsize(Array) == 1 && csnsize(Alias) == 0)
 endin
 
 instr 3
@@ -57,7 +57,7 @@ instr 5
     iShape[] = csnshape(Array)
     iAliasShape[] = csnshape(Alias)
     assert(csnsize(Array) == 0 && csnsize(Alias) == 0)
-    assert(iShape[0] == 6 && iAliasShape[0] == 6)
+    assert(iShape[0] == 6 && iAliasShape[0] == 4)
     assert(csntype(Array) == 0 && csntype(Alias) == 0)
 endin
 

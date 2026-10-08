@@ -11,13 +11,13 @@ are marked `complex only`, since a real input has nothing for them to do.
 
 Conventions that apply throughout: explicit negative axes count from the end,
 so `-1` is always the last axis; omitting an axis selects the opcode's documented
-flat, all-axes, or last-axis default; opcodes that publish a new handle usually have
+flat, all-axes, or last-axis default; opcodes that produce a new array usually have
 an in-place sibling under the same name that writes back into its source and
 returns nothing; k-rate forms put the trigger before an explicit optional axis, and a zero
 trigger republishes the previous result instead of recomputing. A trigger that
 is the only k-rate argument is required to select the performance overload;
 side-effecting opcodes simply do nothing when it is zero. See the README for the
-handle model and the k-rate versioning.
+`CsnArr` value model and the k-rate versioning.
 
 ## Creation
 
@@ -37,12 +37,11 @@ handle model and the k-rate versioning.
 
 ## Conversion, lifetime and queries
 
-- **csnfromarray** - Csound array to handle (i, k — real, complex)
-- **csntoarray** - handle to Csound array (i, k — real, complex)
-- **csnfromftable** - function table to handle (i — real only)
-- **csntoftable** - handle to function table, optionally resizing it (i — real only)
+- **csnfromarray** - Csound array to `CsnArr` (i, k — real, complex)
+- **csntoarray** - `CsnArr` to Csound array (i, k — real, complex)
+- **csnfromftable** - function table to `CsnArr` (i — real only)
+- **csntoftable** - `CsnArr` to function table, optionally resizing it (i — real only)
 - **csncopy** - independent copy of an array (i, k — real, complex)
-- **csnfree** - releases the array behind a handle (i — real, complex)
 - **csntype** - item type: 0 real, 1 complex (i, k — real, complex)
 - **csndims** - number of dimensions (i, k — real, complex)
 - **csnsize** - number of elements (i, k — real, complex)
@@ -259,7 +258,7 @@ every odd-order row.
 ## Complex arrays
 `csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow` and `csnsqrt` also take
 scalar `:Complex;` operands, and `csnabs`, `csnangle` and `csnconj` a single
-one, with no handle and no trigger involved. Those forms are listed on the
+one, with no array operand and no trigger involved. Those forms are listed on the
 opcode's own page rather than as separate entries here.
 
 - **csnreal** - real parts, as a real array (i, k — complex only)
@@ -449,7 +448,7 @@ the Condon-Shortley phase, and the harmonics are the real ones of the AmbiX
 convention: ACN order, SN3D, no global `1/sqrt(4 pi)`, with the direction read
 as `csnhoatocar` reads it.
 
-- **csnlegendre** - associated Legendre function P_n^m(x), scalar or elementwise over a handle (i, k — real only)
+- **csnlegendre** - associated Legendre function P_n^m(x), scalar or elementwise over an array (i, k — real only)
 - **csnsphharm** - one real spherical harmonic at one direction (i, k — real only)
 - **csnsphharmacn** - every harmonic up to an order by ACN, at one direction or as a channels x directions matrix (i, k — real only)
 
@@ -485,13 +484,13 @@ every overload including the k-rate ones.
 
 Performance-time only, on the audio path. The frame size in `csnsnap` and
 `csnstream` is independent of `ksmps`; their hop must be at least `ksmps`, since
-one handle can publish one frame per control period. The optional trailing `irt`
+one `CsnArr` can publish one frame per control period. The optional trailing `irt`
 defaults to 1 and marks the array as a real-time path, forbidding reallocation
 during performance for it and everything derived from it; 0 lifts the
 restriction for the derived arrays. `csnrtlock` sets the same mark on any
-handle, for chains that run under a deadline without touching audio;
+array, for chains that run under a deadline without touching audio;
 `csnrtunlock` clears it on a selected branch. Both have init and triggered
-k-rate forms, and affect only arrays created from the handle after the change.
+k-rate forms, and affect only arrays created from the source after the change.
 
 - **csnfromaudio** - one control period of an audio signal into an array (a — real only)
 - **csntoaudio** - an array of ksmps elements back out as audio (a — real only)
@@ -499,8 +498,8 @@ k-rate forms, and affect only arrays created from the handle after the change.
 - **csnunpack** - that array back into one signal per channel (a — real only)
 - **csnsnap** - slices a stream into overlapping frames of a chosen size (a — real only)
 - **csnstream** - overlap-adds frames back into a continuous signal (a — real only)
-- **csnrtlock** - marks any handle as a real-time path (i, k — real, complex)
-- **csnrtunlock** - clears the real-time mark from one handle (i, k — real, complex)
+- **csnrtlock** - marks any array as a real-time path (i, k — real, complex)
+- **csnrtunlock** - clears the real-time mark from one array (i, k — real, complex)
 - **csnrtlockstart** - starts marking every array the current note creates (i, k)
 - **csnrtlockend** - stops that marking; the note ending stops it too (i, k)
 - **csnrtlockall** - marks every array for the whole performance; orchestra header only, and there is no way to switch it off (i)

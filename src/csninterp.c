@@ -1039,10 +1039,12 @@ int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    /* The grids serve the output slot. The new length is already part of its
-       shape, but the source length is not: a source that outgrew the capacity
-       reserved at init would otherwise grow these on a marked output. */
-    bool rt_locked = p->handle->rt_locked || source_arr->rt_locked || reg->rt_glock_global;
+    /* The grids serve the output, so its mark decides: it was inherited from
+       the source at init, and a csnrtunlock on the output clears it. The new
+       length is already part of its shape, but the source length is not: a
+       source that outgrew the capacity reserved at init would otherwise grow
+       these on a marked output. */
+    bool rt_locked = p->handle->rt_locked;
     res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->x_data_scratch, data_size, sizeof(double));
     if (res == OK) res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->x_source_scratch, (size_t) new_length, sizeof(double));
     if (res == OK && axis != -1) res = csn_scratch_reserve(csound, &p->h, rt_locked, &p->y_data_scratch, data_size, sizeof(double));

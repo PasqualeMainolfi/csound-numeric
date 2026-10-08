@@ -8,10 +8,6 @@
 
 #define CSN_MAX_DIMS 8
 #define CSN_REGISTRY_NAME "::csound_numeric::registry"
-#define CSN_GEN_BITS 18U
-#define CSN_SLT_BITS 14U
-#define CSN_GEN_MASK ((1u << CSN_GEN_BITS) - 1u)
-#define CSN_SLT_MASK ((1u << CSN_SLT_BITS) - 1u)
 
 /* Upper bound on element count, so shape products can be overflow-checked
    before they reach Calloc. 2^28 doubles is 2 GB at capacity 2x. */
@@ -29,18 +25,6 @@
         if ((x) != 0.0 && (x) != 1.0) {                                                    \
             return (csound)->InitError(                                                    \
                 (csound),                                                                  \
-                "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", \
-                (double) (x)                                                               \
-            );                                                                             \
-        }                                                                                  \
-    } while (0)
-
-#define CHECK_KTYPE(csound, h, x)                                                          \
-    do {                                                                                   \
-        if ((x) != 0.0 && (x) != 1.0) {                                                    \
-            return (csound)->PerfError(                                                    \
-                (csound),                                                                  \
-                (h),                                                                       \
                 "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", \
                 (double) (x)                                                               \
             );                                                                             \
@@ -89,6 +73,15 @@ typedef struct {
 #endif
 } CSN_ARRAY;
 
+/* Copy the classification and preserve whether the source's set invariant is
+   valid. The destination has its own data version, so stamp that version only
+   after the payload has been copied and all version bumps are complete. */
+static inline void csn_copy_array_kind(CSN_ARRAY *dest, const CSN_ARRAY *src) {
+    bool valid_set = src->kind == CSNSET && src->set_data_version == src->version.data_version;
+    dest->kind = src->kind;
+    dest->set_data_version = valid_set ? dest->version.data_version : CSN_ARRAY_NULL_VERSION;
+}
+
 typedef const CSN_ARRAY *CSN_CONARR[];
 
 /* The rate an array lives at: i-rate by default, which is what a zeroed
@@ -111,13 +104,6 @@ typedef struct {
     bool rt_glock_global;
     bool rt_glock_locked;
     INSDS *rt_glock_owner;
-#ifdef CSN_VERSION_CROSSCHECK
-    /* get_slot is the one place every opcode passes through to reach an array,
-       which makes it the natural place to audit the counters — but its
-       signature carries no CSOUND to report through, so the cross-check build
-       keeps one here. */
-    CSOUND *csound;
-#endif
 } CSN_REGISTRY;
 
 

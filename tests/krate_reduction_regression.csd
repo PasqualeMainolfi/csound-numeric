@@ -27,6 +27,7 @@ VarAxis0@global:CsnArr = csnempty(array(0))
 StdAxis0@global:CsnArr = csnempty(array(0))
 MedianAxis0@global:CsnArr = csnempty(array(0))
 GatedAxis0@global:CsnArr = csnempty(array(0))
+GatedConstAxis0@global:CsnArr = csnempty(array(0))
 ArgMinAxis0@global:CsnArr = csnempty(array(0, 0))
 ArgMaxAxis0@global:CsnArr = csnempty(array(0, 0))
 
@@ -86,8 +87,9 @@ instr 3
     VarAxis0 = csnvar(Mat, kTrig, kAxis0)
     StdAxis0 = csnstd(Mat, kTrig, kAxis0)
     MedianAxis0 = csnmedian(Mat, kTrig, kAxis0)
-    ; Never triggered: keeps the source copy the init pass published.
+    ; Never triggered: keeps the reduction the init pass computed.
     GatedAxis0 = csnsum(Mat, kZero, kAxis0)
+    GatedConstAxis0 = csnsum(Mat, kZero, 0)
 
     ; argmin/argmax yield one row of source coordinates per reduced position,
     ; so the result is 2-D whatever the source's rank.
@@ -176,10 +178,12 @@ instr 5
     assert(csndims(SumAxis1) == 1 && csnsize(SumAxis1) == 2)
     assert(iSum1[0] == 6 && iSum1[1] == 15)
 
-    ; --- untriggered axis form keeps the init-time source copy -------------
-    iGatedShape[] = csnshape(GatedAxis0)
-    assert(csndims(GatedAxis0) == 2 && csnsize(GatedAxis0) == 6)
-    assert(iGatedShape[0] == 2 && iGatedShape[1] == 3)
+    ; --- untriggered axis form keeps what its init could reduce ----------
+    ; a k axis is not known at init, a constant one is
+    assert(csnsize(GatedAxis0) == 0)
+    iGated[] = csntoarray(GatedConstAxis0)
+    assert(csndims(GatedConstAxis0) == 1 && csnsize(GatedConstAxis0) == 3)
+    assert(iGated[0] == 5 && iGated[1] == 7 && iGated[2] == 9)
 
     ; --- argmin / argmax: (count, source ndim) coordinate rows -------------
     ; Peaks is [[1,9,3],[4,5,2]], so along axis 0 the minima sit at

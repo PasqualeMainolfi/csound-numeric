@@ -125,6 +125,27 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
         goto done;
     }
 
+    p->buffer.scratch = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(kernel_size));
+    if (p->buffer.scratch == NULL) {
+        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        goto done;
+    }
+    p->buffer.scratch_capacity = sliding_median_scratch_size(kernel_size);
+
+    /* A k axis is not known at init, and it also fixes the layout (flattened
+       or not): the output is laid out empty and the first pass filters. */
+    if (is_k && axis_in != NULL && !csn_known_at_init(csound, (void *) axis_in)) {
+        memset(&p->k_data, 0, sizeof(p->k_data));
+        p->k_data.registry = reg;
+        p->k_data.prev_axis_i = INT32_MIN;
+        uint32_t empty_shape[CSN_MAX_DIMS] = {0};
+        const CSN_ARRAY *ops[1] = { source_arr };
+        CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, empty_shape, CSN_REAL, ops, 1, CSN_ALIAS_CUSTOM);
+        res = out.err;
+        pres.locked |= out.locked;
+        goto done;
+    }
+
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -132,13 +153,6 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
-
-    p->buffer.scratch = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(kernel_size));
-    if (p->buffer.scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
-        goto done;
-    }
-    p->buffer.scratch_capacity = sliding_median_scratch_size(kernel_size);
 
     uint32_t new_ndim = axis == -1 ? 1U : source_ndim;
     uint32_t new_shape[CSN_MAX_DIMS] = {0};

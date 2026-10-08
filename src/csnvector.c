@@ -634,7 +634,11 @@ static int32_t norm_helper(CSOUND *csound, CSN_NORM_REDUCTION *p, double axis_va
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    bool has_order = order >= 1.0;
+    /* k form: a k order or axis is not known yet. The axis also fixes the
+       output's shape, so without it the output is laid out empty. */
+    bool order_known = !is_k_init || csn_known_at_init(csound, p->axis);
+    bool axis_known = !is_k_init || csn_known_at_init(csound, p->trig);
+    bool has_order = order_known && order >= 1.0;
     if (!has_order && !is_k_init) {
         return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
@@ -653,20 +657,29 @@ static int32_t norm_helper(CSOUND *csound, CSN_NORM_REDUCTION *p, double axis_va
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
 
+    /* Every run along any axis fits in the source's capacity, so the perf
+       pass never grows this on a marked output. */
+    ITEM_TYPE itype = source_arr->itype;
+    size_t scratch_cap = (source_arr->capacity > 0 ? source_arr->capacity : 1) * itype;
+    res = csn_scratch_reserve(csound, NULL, false, &p->scratch, scratch_cap, sizeof(double));
+    if (res != OK) goto done;
+
+    if (!axis_known) {
+        uint32_t empty_shape[CSN_MAX_DIMS] = {0};
+        const CSN_ARRAY *ops[1] = { source_arr };
+        CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, empty_shape, CSN_REAL, ops, 1, CSN_ALIAS_REFUSE);
+        res = out.err;
+        pres.locked |= out.locked;
+        goto done;
+    }
+
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis_value(axis_value, source_ndim);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
         res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", axis_value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
         goto done;
     }
     uint32_t axis = axis_spec.index;
-
-    /* Every run along any axis fits in the source's capacity, so the perf
-       pass never grows this on a marked output. */
-    ITEM_TYPE itype = source_arr->itype;
     size_t run = source_shape[axis];
-    size_t scratch_cap = (source_arr->capacity > 0 ? source_arr->capacity : 1) * itype;
-    res = csn_scratch_reserve(csound, NULL, false, &p->scratch, scratch_cap, sizeof(double));
-    if (res != OK) goto done;
 
     /* Reducing along an axis drops it, as every other reduction does and as
        np.linalg.norm(a, axis=k) reports. The norm is real for complex input. */
@@ -773,7 +786,7 @@ static int32_t norm_scalar_helper(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p, 
 
     /* The k form's order may still read 0 at init: the first pass computes. */
     double order = (double) *p->order;
-    bool has_order = order >= 1.0;
+    bool has_order = (!is_k_init || csn_known_at_init(csound, p->order)) && order >= 1.0;
     if (!has_order && !is_k_init) {
         return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
@@ -1046,6 +1059,23 @@ static int32_t unaryop_allocate_scratch(CSOUND *csound, OPDS *perf_h, bool rt_lo
     return csn_scratch_reserve(csound, perf_h, rt_locked, scratch, size * (size_t) itype, elem_size);
 }
 
+/* sort and argsort stage each slice through the scratch, normalize reads the
+   whole slice for its norm and cumsum / cumprod carry the running value, so
+   each reads a cell before the same cell is written and may run in place.
+   diff changes the extent; gradient reads the previous cell after writing it. */
+static CSN_ALIAS_POLICY unary_ax_alias_policy(CSN_UNARYOP_AX_MODE mode) {
+    switch (mode) {
+        case CSN_SORT:
+        case CSN_ARGSORT:
+        case CSN_NORMALIZE:
+        case CSN_CUMSUM:
+        case CSN_CUMPROD:
+            return CSN_ALIAS_ELEMENTWISE;
+        default:
+            return CSN_ALIAS_REFUSE;
+    }
+}
+
 static CSN_AXIS_DEFAULT unary_ax_default(CSN_UNARYOP_AX_MODE mode) {
     switch (mode) {
         case CSN_DIFF:
@@ -1102,23 +1132,24 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sour
     if (res != OK) goto done;
 
     CSN_ARRAY *arr = source_arr;
+    bool aliased = out_arr == NULL;
     if (out_arr != NULL) {
         const CSN_ARRAY *ops[1] = { source_arr };
-        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, new_dim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, new_dim, new_shape, source_arr->itype, ops, 1, unary_ax_alias_policy(mode));
         res = out.err;
         if (res != OK) goto done;
         pres.locked |= out.locked;
         arr = out_arr;
+        aliased = out.aliased;
     }
 
     res = unaryop_allocate_scratch(csound, NULL, false, scratch, source_arr->size, itype, mode);
     if (res != OK) goto done;
 
     res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
-    /* arr is source_arr on the in-place forms, so this is the write that a
-       consumer of the source has to be told about. The out-of-place form fills
-       an array it just created, which no cache can be holding yet. */
-    if (res == OK && out_arr == NULL) update_array_data_version(&arr->version);
+    /* The in-place forms, and an output that is its own source, rewrite an
+       array a consumer may be holding: that write takes a new version. */
+    if (res == OK && aliased) update_array_data_version(&arr->version);
 
 done:
     // the in-place i-rate forms have no deinit to free it later
@@ -1132,14 +1163,18 @@ int32_t opunary_ax_in_k_deinit(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
     return OK;
 }
 
-static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, const cs_float *axis_in, double order, CSN_ARRAY *out_arr, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch, K_DATA *k_data) {
+/* Computes at init only what is known there: a k axis leaves even the output's
+   shape open (diff and the flattening modes change it), so the output is laid
+   out empty; a k order (csnnormalize) leaves only the values to the first
+   pass. order_arg is NULL for every mode but csnnormalize. */
+static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, const cs_float *axis_in, const cs_float *order_arg, CSN_ARRAY *out_arr, CSN_UNARYOP_AX_MODE mode, CSN_SCRATCH *scratch, K_DATA *k_data) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
-    /* Only csnnormalize takes an order, and it is a k-argument that normally
-       still reads 0 during the init pass: reject only a value the orchestra
-       really set. The perf pass checks it again before every use. */
-    if (mode == CSN_NORMALIZE && order != 0.0 && order < 1.0) {
+    bool axis_known = axis_in == NULL || csn_known_at_init(csound, (void *) axis_in);
+    bool order_known = order_arg == NULL || csn_known_at_init(csound, (void *) order_arg);
+    double order = order_arg != NULL && order_known ? (double) *order_arg : 0.0;
+    if (mode == CSN_NORMALIZE && order_known && order_arg != NULL && order < 1.0) {
         return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
@@ -1165,6 +1200,23 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRA
         goto done;
     }
 
+    /* Reserved for everything the source can hold without reallocating: the
+       in-place form has no output shape to hold the source still, so the perf
+       pass must never need more than this on a marked source. */
+    res = unaryop_allocate_scratch(csound, NULL, false, scratch, source_arr->capacity, itype, mode);
+    if (res != OK) goto done;
+
+    if (!axis_known) {
+        if (out_arr != NULL) {
+            uint32_t empty_shape[CSN_MAX_DIMS] = {0};
+            const CSN_ARRAY *ops[1] = { source_arr };
+            CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, 1U, empty_shape, itype, ops, 1, CSN_ALIAS_REFUSE);
+            res = out.err;
+            pres.locked |= out.locked;
+        }
+        goto done;
+    }
+
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, unary_ax_default(mode));
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
@@ -1179,28 +1231,25 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRA
     if (res != OK) goto done;
 
     CSN_ARRAY *arr = source_arr;
+    bool aliased = out_arr == NULL;
     if (out_arr != NULL) {
         const CSN_ARRAY *ops[1] = { source_arr };
-        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, new_dim, new_shape, source_arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, new_dim, new_shape, source_arr->itype, ops, 1, unary_ax_alias_policy(mode));
         res = out.err;
         if (res != OK) goto done;
         pres.locked |= out.locked;
         arr = out_arr;
+        aliased = out.aliased;
     }
 
-    /* Reserved for everything the source can hold without reallocating: the
-       in-place form has no output shape to hold the source still, so the perf
-       pass must never need more than this on a marked source. */
-    res = unaryop_allocate_scratch(csound, NULL, false, scratch, source_arr->capacity, itype, mode);
-    if (res != OK) goto done;
-
-    /* csnnormalize with the order still unset leaves the output as created; the
-       first triggered pass computes it. Every other mode ignores order. */
     SET_KDATA_BEGIN(*k_data, reg, new_shape, new_dim, itype);
-    if (mode != CSN_NORMALIZE || order >= 1.0) {
+    /* An output that is its own source is computed by every perf pass;
+       computing here as well would apply it twice in the first cycle. */
+    bool skip = out_arr != NULL && aliased;
+    if (!skip && order_known && (mode != CSN_NORMALIZE || order >= 1.0)) {
         res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
         if (res != OK) goto done;
-        if (out_arr == NULL) update_array_data_version(&arr->version);
+        if (aliased) update_array_data_version(&arr->version);
         PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out_arr, (double) axis, order);
     }
 
@@ -1265,13 +1314,15 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
     if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, out_arr, axis_value, order)) goto done;
 
     CSN_ARRAY *arr = source_arr;
+    bool aliased = out_arr == NULL;
     if (out_arr != NULL) {
         const CSN_ARRAY *ops[1] = { source_arr };
-        CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, new_dim, new_shape, itype, ops, 1, CSN_ALIAS_REFUSE);
+        CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, new_dim, new_shape, itype, ops, 1, unary_ax_alias_policy(mode));
         res = out.err;
         if (res != OK) goto done;
         pres.locked |= out.locked;
         arr = out_arr;
+        aliased = out.aliased;
     }
 
     /* The scratch serves the output, or the source the in-place form rewrites. */
@@ -1281,10 +1332,9 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
 
     res = unary_ax_assign_value(scratch, source_arr, arr, axis, itype, order, mode);
     if (res != OK) goto done;
-    /* The out-of-place form already carries a new generation from
-       NEED_TO_UPDATE_SLOT; only the in-place form writes an array nobody else
-       has stamped. */
-    if (out_arr == NULL) update_array_data_version(&arr->version);
+    /* prepare_output gave a fresh output its new version; an array rewritten
+       in place takes one here. */
+    if (aliased) update_array_data_version(&arr->version);
 
     SET_KDATA_END(*k_data, new_shape, new_dim, itype);
     PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out_arr, axis_value, order);
@@ -1302,7 +1352,7 @@ int32_t csnarray_normalize(CSOUND *csound, CSN_UNARYOP_AX *p) {
 
 int32_t csnarray_normalize_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, axis_in, (double) *p->axis, p->handle, CSN_NORMALIZE, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, axis_in, p->axis, p->handle, CSN_NORMALIZE, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_normalize_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
@@ -1318,7 +1368,7 @@ int32_t csnarray_normalize_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
 
 int32_t csnarray_normalize_in_k_init(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, axis_in, (double) *p->axis, NULL, CSN_NORMALIZE, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, axis_in, p->axis, NULL, CSN_NORMALIZE, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_normalize_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
@@ -1332,7 +1382,7 @@ int32_t csnarray_sort_in(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
 }
 
 int32_t csnarray_sort_in_k_init(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, NULL, CSN_SORT, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, NULL, CSN_SORT, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_sort_in_k(CSOUND *csound, CSN_UNARYOP_AX_IN *p) {
@@ -1354,7 +1404,7 @@ int32_t csnarray_distance_k_init(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     p->k_data.registry = reg;
 
     double dist_order = (double) *p->arg_a;
-    if (dist_order >= 1.0) return csnarray_distance(csound, p);
+    if (csn_known_at_init(csound, p->arg_a) && dist_order >= 1.0) return csnarray_distance(csound, p);
 
     stamp_globals(csound, &p->h);
     *p->value = FL(0.0);
@@ -1384,7 +1434,7 @@ int32_t csnarray_diff(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_diff_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, p->handle, CSN_DIFF, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, p->handle, CSN_DIFF, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_diff_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
@@ -1397,7 +1447,7 @@ int32_t csnarray_gradient(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_gradient_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, p->handle, CSN_GRADIENT, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, p->handle, CSN_GRADIENT, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_gradient_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
@@ -1410,7 +1460,7 @@ int32_t csnarray_cumsum(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_cumsum_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, p->handle, CSN_CUMSUM, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, p->handle, CSN_CUMSUM, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_cumsum_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
@@ -1423,7 +1473,7 @@ int32_t csnarray_cumprod(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_cumprod_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, p->handle, CSN_CUMPROD, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, p->handle, CSN_CUMPROD, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_cumprod_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
@@ -1436,7 +1486,7 @@ int32_t csnarray_sort(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_sort_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, p->handle, CSN_SORT, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, p->handle, CSN_SORT, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_sort_k(CSOUND *csound, CSN_UNARYOP_AX *p) {
@@ -1449,7 +1499,7 @@ int32_t csnarray_argsort(CSOUND *csound, CSN_UNARYOP_AX *p) {
 }
 
 int32_t csnarray_argsort_k_init(CSOUND *csound, CSN_UNARYOP_AX *p) {
-    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), 0.0, p->handle, CSN_ARGSORT, &p->scratch, &p->k_data);
+    return csnarray_unary_ax_k_init_helper(csound, &p->h, p->source_handle, unary_ax_k_axis(&p->h, p->order), NULL, p->handle, CSN_ARGSORT, &p->scratch, &p->k_data);
 }
 
 int32_t csnarray_argsort_k(CSOUND *csound, CSN_UNARYOP_AX *p) {

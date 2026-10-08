@@ -16,9 +16,8 @@ comes out without an intervening flatten.
 Samples outside the note's active window are emitted as zero, matching
 `csnfromaudio` at the other end.
 
-The source handle is resolved afresh on every control period, so an array that
-is freed or replaced under this opcode raises an error instead of reading
-memory that no longer belongs to it.
+The source value is checked on every control period. Replacing it with an array
+of the wrong size or element type raises a performance error.
 
 ## Syntax
 

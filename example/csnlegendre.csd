@@ -44,9 +44,9 @@ instr 1
 
     ; elementwise over a handle: P_3^0 on a grid over [-1, 1]
     grid:CsnArr = csnlinspace(-1, 1, 5)
-    p30:CsnArr = csnlegendre(3, 0, grid)
+    leg30:CsnArr = csnlegendre(3, 0, grid)
     ig[] = csntoarray(grid)
-    ip[] = csntoarray(p30)
+    ip[] = csntoarray(leg30)
     prints("P(3, 0) at %.1f %.1f %.1f %.1f %.1f\n", ig[0], ig[1], ig[2], ig[3], ig[4])
     prints("         = %.4f %.4f %.4f %.4f %.4f\n", ip[0], ip[1], ip[2], ip[3], ip[4])
     turnoff

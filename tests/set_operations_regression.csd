@@ -26,6 +26,7 @@ KMut@global:CsnArr = csnlikeset(RawA)
 
 gkContains init 0
 gkContainsHeld init 0
+gkContainsConst init 0
 gkSubset init 0
 gkSuperset init 0
 gkDisjoint init 0
@@ -51,6 +52,11 @@ instr 1
     assert(csnsetissuperset(A, I) == 1)
     assert(csnsetisdisjoint(D, B) == 1)
     assert(csnsetisequal(A, A) == 1)
+
+    Assigned:CsnArr = A
+    Copied:CsnArr = csncopy(A)
+    assert(csnsetcontains(Assigned, 2) == 1)
+    assert(csnsetcontains(Copied, 2) == 1)
 
     EmptyUnion:CsnArr = csnsetunion(EmptySet, A)
     EmptyIntersect:CsnArr = csnsetintersect(EmptySet, A)
@@ -97,7 +103,9 @@ instr 2
     KD = csnsetdiff(A, B, kTrig)
     KS = csnsetsymdiff(A, B, kTrig)
     gkContains = csnsetcontains(A, kTwo, kTrig)
+    ; never triggered: a k value is not known at init, a constant is
     gkContainsHeld = csnsetcontains(A, kTwo, kZero)
+    gkContainsConst = csnsetcontains(A, 2, kZero)
     gkSubset = csnsetissubset(A, B, kTrig)
     gkSuperset = csnsetissuperset(A, B, kTrig)
     gkDisjoint = csnsetisdisjoint(A, B, kTrig)
@@ -110,7 +118,8 @@ instr 3
     assert(csnsize(KD) == 2)
     assert(csnsize(KS) == 3)
     assert(i(gkContains) == 1)
-    assert(i(gkContainsHeld) == 1)
+    assert(i(gkContainsHeld) == 0)
+    assert(i(gkContainsConst) == 1)
     assert(i(gkSubset) == 0)
     assert(i(gkSuperset) == 0)
     assert(i(gkDisjoint) == 0)

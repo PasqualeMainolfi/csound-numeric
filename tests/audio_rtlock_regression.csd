@@ -75,13 +75,15 @@ endin
    first pass fits the preallocated layout, while the later change needs more
    than the storage the derived slot was created with (twice its initial
    element count, which a smaller change would reuse) and must therefore stop
-   the note. */
+   the note. csncompress is the exception: it reserves at init the most it can
+   keep, the whole source, so a mask that later keeps more still fits. */
 gkInterpReached   init 0
 gkResampleReached init 0
 gkCompressReached init 0
 gkSelectReached   init 0
 gkRtUnlockReached init 0
 gkRtHeldReached   init 0
+gkRtConvReached   init 0
 
 RtInterpQuery@global:CsnArr = csnfromarray(array(0.5, 1.5))
 RtInterpX@global:CsnArr     = csnfromarray(array(0, 1, 2))
@@ -190,6 +192,27 @@ instr 11
     endif
 endin
 
+/* The FFT convolution's transform buffers follow the output's mark, as the
+   resampler's work buffers do: the init passes the marked signal's mark on to
+   the output, and clearing it there lets the kernel grow and the transform
+   with it. */
+RtConvX@global:CsnArr   = csnfromarray(array(1, 2, 3, 4))
+RtConvH@global:CsnArr   = csnfromarray(array(1, 1))
+RtConvOut@global:CsnArr = csnempty(array(0))
+
+instr 12
+    csnrtlock RtConvX, 1
+    kOne init 1
+    kShape[] init 1
+    kShape[0] = timeinstk() < 2 ? 2 : 40
+    csnresize RtConvH, kShape
+    RtConvOut = csnfftconvolve1d(RtConvX, RtConvH, 0, kOne, -1)
+    csnrtunlock RtConvOut, 1
+    if timeinstk() == 12 then
+        gkRtConvReached = 1
+    endif
+endin
+
 instr 100
     iLocked   = i(gkLockedReached)
     iUnlocked = i(gkUnlockedReached)
@@ -200,19 +223,21 @@ instr 100
     iSelect   = i(gkSelectReached)
     iRtUnlock = i(gkRtUnlockReached)
     iRtHeld   = i(gkRtHeldReached)
+    iRtConv   = i(gkRtConvReached)
 
     assert(iLocked == 0)
     assert(iUnlocked == 1)
     assert(iReshape == 1)
     assert(iInterp == 0)
     assert(iResample == 0)
-    assert(iCompress == 0)
+    assert(iCompress == 1)
     assert(iSelect == 0)
     assert(iRtUnlock == 1)
     assert(iRtHeld == 1)
+    assert(iRtConv == 1)
     if iLocked == 0 && iUnlocked == 1 && iReshape == 1 \
-       && iInterp == 0 && iResample == 0 && iCompress == 0 && iSelect == 0 \
-       && iRtUnlock == 1 && iRtHeld == 1 then
+       && iInterp == 0 && iResample == 0 && iCompress == 1 && iSelect == 0 \
+       && iRtUnlock == 1 && iRtHeld == 1 && iRtConv == 1 then
         prints("csnum registry alive after the realtime-lock refusal\n")
     endif
 endin
@@ -230,6 +255,7 @@ i 8 0.6 0.02
 i 9 0.605 0
 i 10 0.7 0.02
 i 11 0.8 0.02
+i 12 0.85 0.02
 i 100 0.9 0.01
 e
 </CsScore>

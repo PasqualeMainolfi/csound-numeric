@@ -28,6 +28,7 @@ gkSwitchNeedle init 3
 gkScalarLeft init -1
 gkScalarRight init -1
 gkScalarHeld init -1
+gkScalarConstHeld init -1
 gkScalarSwitched init -1
 
 instr 1
@@ -44,6 +45,7 @@ instr 1
     gkScalarLeft = csnsearchsorted(SearchSource, gkNeedle, 0, kAlways)
     gkScalarRight = csnsearchsorted(SearchSource, gkNeedle, 1, kAlways)
     gkScalarHeld = csnsearchsorted(SearchSource, gkNeedle, 1, kNever)
+    gkScalarConstHeld = csnsearchsorted(SearchSource, 3, 1, kNever)
     gkScalarSwitched = csnsearchsorted(SwitchSource, gkSwitchNeedle, 0, kAlways)
 endin
 
@@ -69,9 +71,11 @@ instr 3
     assert(iLeft[0] == 0 && iLeft[1] == 0 && iLeft[2] == 3 && iLeft[3] == 4)
     assert(iRight[0] == 3 && iRight[1] == 3 && iRight[2] == 3 && iRight[3] == 4)
 
-    /* A zero trigger retains the init result, for arrays and scalar outputs. */
+    /* A zero trigger retains the init result, for arrays and scalar outputs;
+       a k needle is not known at init, so its output is never written. */
     assert(iHeld[0] == 0 && iHeld[1] == 1 && iHeld[2] == 3 && iHeld[3] == 4)
-    assert(i(gkScalarHeld) == 3)
+    assert(i(gkScalarHeld) == -1)
+    assert(i(gkScalarConstHeld) == 3)
 
     assert(i(gkScalarLeft) == 3 && i(gkScalarRight) == 4)
     assert(i(gkScalarSwitched) == 0)

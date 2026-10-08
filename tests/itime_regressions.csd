@@ -911,10 +911,6 @@ instr 3
     csnpad(iPadAxisComplexIn, 1, 0, iC, 0)
     assert(csnsize(iPadComplex) == 4 && csnsize(iPadComplexIn) == 4)
     assert(csnsize(iPadAxisComplex) == 3 && csnsize(iPadAxisComplexIn) == 3)
-
-    ; Explicit release has its own no-output signature.
-    iToFree:CsnArr = csnzeros(iShape2)
-    csnfree(iToFree)
 endin
 
 instr 4
@@ -3558,10 +3554,10 @@ instr 26
     iA2[] = fillarray(2, 1, 0)
     B2:CsnArr = csnfromarray(iB2)
     A2:CsnArr = csnfromarray(iA2)
-    Z2:CsnArr, P2:CsnArr, iK2 csntftozpk B2, A2
+    Z2:CsnArr, Pl2:CsnArr, iK2 csntftozpk B2, A2
     iZ2Shape[] = csnshape(Z2)
     assert(iZ2Shape[0] == 0)
-    iP2Re:CsnArr = csnreal(P2)
+    iP2Re:CsnArr = csnreal(Pl2)
     iP2Sorted:CsnArr = csnsort(iP2Re)
     iP2v[] = csntoarray(iP2Sorted)
     assert(abs(iP2v[0] + 0.5) < 1e-9)
@@ -3571,7 +3567,7 @@ instr 26
     ; an interior zero is a coefficient: s^2 + 1 has roots +-j, not -1
     iB3[] = fillarray(1, 0, 1)
     B3:CsnArr = csnfromarray(iB3)
-    Z3:CsnArr, P3:CsnArr, iK3 csntftozpk B3, A
+    Z3:CsnArr, Pl3:CsnArr, iK3 csntftozpk B3, A
     iZ3Im:CsnArr = csnimag(Z3)
     iZ3Sorted:CsnArr = csnsort(iZ3Im)
     iZ3v[] = csntoarray(iZ3Sorted)
@@ -3703,8 +3699,8 @@ instr 28
     iBw[] = fillarray(1, iSqrt2, 1)
     Bw:CsnArr = csnfromarray(iBw)
     Bt:CsnArr, At:CsnArr csnlptobp B, Bw, 3, 0.5
-    Z0:CsnArr, P0:CsnArr, iK0 csntftozpk B, Bw
-    Zz:CsnArr, Pz:CsnArr, iKz csnlptobpzpk Z0, P0, iK0, 3, 0.5
+    Z0:CsnArr, Pl0:CsnArr, iK0 csntftozpk B, Bw
+    Zz:CsnArr, Pz:CsnArr, iKz csnlptobpzpk Z0, Pl0, iK0, 3, 0.5
     Bz:CsnArr, Az:CsnArr csnzpktotf Zz, Pz, iKz
     iBt[] = csntoarray(Bt)
     iAt[] = csntoarray(At)
@@ -3750,8 +3746,8 @@ instr 29
     P1rC:CsnArr = csntocomplex(P1r)
     P1iC:CsnArr = csntocomplex(P1i)
     P1iJ:CsnArr = csnmul(P1iC, J)
-    P1:CsnArr = csnadd(P1rC, P1iJ)
-    S1:CsnArr = csnzpktosos(Z1, P1, 2)
+    Pl1:CsnArr = csnadd(P1rC, P1iJ)
+    S1:CsnArr = csnzpktosos(Z1, Pl1, 2)
     iS1[][] = csntoarray(S1)
     assert(abs(iS1[0][0] - 2) < 1e-12)
     assert(abs(iS1[0][1] - 4) < 1e-12)
@@ -3780,8 +3776,8 @@ instr 29
     P3rC:CsnArr = csntocomplex(P3r)
     P3iC:CsnArr = csntocomplex(P3i)
     P3iJ:CsnArr = csnmul(P3iC, J)
-    P3:CsnArr = csnadd(P3rC, P3iJ)
-    S3:CsnArr = csnzpktosos(Z3, P3, 1)
+    Pl3:CsnArr = csnadd(P3rC, P3iJ)
+    S3:CsnArr = csnzpktosos(Z3, Pl3, 1)
     iS3Shape[] = csnshape(S3)
     assert(iS3Shape[0] == 2)
     assert(iS3Shape[1] == 6)
@@ -3803,7 +3799,7 @@ instr 29
     A1:CsnArr = csngetslice(Row1, 0, 3, 6, 1)
     Bprod:CsnArr = csnconvolve1d(B0, B1)
     Aprod:CsnArr = csnconvolve1d(A0, A1)
-    Btf:CsnArr, Atf:CsnArr csnzpktotf Z3, P3, 1
+    Btf:CsnArr, Atf:CsnArr csnzpktotf Z3, Pl3, 1
     iBprod[] = csntoarray(Bprod)
     iAprod[] = csntoarray(Aprod)
     iBtf[] = csntoarray(Btf)
@@ -3821,8 +3817,8 @@ instr 29
     ; all-pole, four real poles: paired from the unit circle inwards, the
     ; section with 0.9 last -> [[1 0 0 1 -0.3 0.02] [1 0 0 1 -0.4 -0.45]]
     iP4[] = fillarray(0.9, 0.1, -0.5, 0.2)
-    P4:CsnArr = csnfromarray(iP4)
-    S4:CsnArr = csnzpktosos(E, P4, 1)
+    Pl4:CsnArr = csnfromarray(iP4)
+    S4:CsnArr = csnzpktosos(E, Pl4, 1)
     iS4[][] = csntoarray(S4)
     assert(abs(iS4[0][0] - 1) < 1e-12)
     assert(abs(iS4[0][1]) < 1e-12)
@@ -3838,12 +3834,12 @@ instr 30
     ; exact conjugates and an exact -1 for odd orders, no zeros, gain 1;
     ; order 0 gives no poles.
     ; ------------------------------------------------------------------
-    Z3:CsnArr, P3:CsnArr, iK3 csnbuttap 3
+    Z3:CsnArr, Pl3:CsnArr, iK3 csnbuttap 3
     iZ3Shape[] = csnshape(Z3)
     assert(iZ3Shape[0] == 0)
     assert(iK3 == 1)
-    iP3Re:CsnArr = csnreal(P3)
-    iP3Im:CsnArr = csnimag(P3)
+    iP3Re:CsnArr = csnreal(Pl3)
+    iP3Im:CsnArr = csnimag(Pl3)
     iP3r[] = csntoarray(iP3Re)
     iP3i[] = csntoarray(iP3Im)
     iP3n = lenarray(iP3r)
@@ -3856,10 +3852,10 @@ instr 30
     assert(iP3i[2] == -iP3i[0])
 
     ; order 4: every pole on the unit circle, in conjugate pairs
-    Z4:CsnArr, P4:CsnArr, iK4 csnbuttap 4
-    iP4Abs:CsnArr = csnabs(P4)
+    Z4:CsnArr, Pl4:CsnArr, iK4 csnbuttap 4
+    iP4Abs:CsnArr = csnabs(Pl4)
     iP4a[] = csntoarray(iP4Abs)
-    iP4Im:CsnArr = csnimag(P4)
+    iP4Im:CsnArr = csnimag(Pl4)
     iP4i[] = csntoarray(iP4Im)
     iK = 0
     while iK < 4 do
@@ -3869,8 +3865,8 @@ instr 30
     assert(iP4i[0] == -iP4i[3])
     assert(iP4i[1] == -iP4i[2])
 
-    Z0:CsnArr, P0:CsnArr, iK0 csnbuttap 0
-    iP0Shape[] = csnshape(P0)
+    Z0:CsnArr, Pl0:CsnArr, iK0 csnbuttap 0
+    iP0Shape[] = csnshape(Pl0)
     assert(iP0Shape[0] == 0)
     assert(iK0 == 1)
 endin
@@ -4670,7 +4666,7 @@ e
 ; csnmovmax csnmovmax.in csnsort csnsort.in csnargsort csnpercentile csnpercentile.ax csnquantile
 ; csnquantile.ax csnlogicand.hh csnlogicor.hh csnlogicand.hs csnlogicor.hs csnlogicand.sh csnlogicor.sh csnlogicnot
 ; csnempty csnzeros csnones csnfull csnfull.c csnlike csnfromarray csnfromarray.c
-; csntoarray csntoarray.c csnfree csndims csnsize csnisempty csnshape csnidentity
+; csntoarray csntoarray.c csndims csnsize csnisempty csnshape csnidentity
 ; csnreshape csnreshape.in csnflatten csnflatten.in csntranspose csntranspose.ax csntranspose.in csntranspose.ax.in
 ; csnflip csnflip.in csnroll csnroll.in csnroll.ax csnroll.ax.in csnget csnget.c csngetrow csngetcol
 ; csnset csnset.c csntake csntake.flat csntake.flat.c csngetslice csnsetslice csnpush

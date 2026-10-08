@@ -48,7 +48,7 @@ int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->ndim != 1U || buffer->itype != CSN_REAL) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid slot: array size and dimension mismatch");
+        return csound->PerfError(csound, &p->h, "[csnarray] Invalid array: size and dimension mismatch");
     }
 
     if (offset) memset(buffer->data, 0, sizeof(double) * offset);

@@ -18,7 +18,10 @@ static int32_t csnarray_identity_helper(CSOUND *csound, CSN_IDENTITY *p, bool is
 
     CHECK_ITYPE(csound, *p->itype);
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
-    int32_t num = (int32_t) *p->num;
+    /* a k size is not known at init: the matrix is laid out empty and the
+       first pass builds it */
+    bool num_known = !is_ktime || csn_known_at_init(csound, p->num);
+    int32_t num = num_known ? (int32_t) *p->num : 0;
     if (!is_ktime) {
         if (num <= 0) {
             return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
@@ -45,10 +48,11 @@ static int32_t csnarray_identity_helper(CSOUND *csound, CSN_IDENTITY *p, bool is
         p->handle->data[item * itype] = 1.0;
     }
 
+    memset(&p->k_data, 0, sizeof(p->k_data));
     set_array_version(&p->k_data.prev_output_version, &p->handle->version);
     SET_KDATA_BEGIN(p->k_data, reg, shape, 2U, itype);
     p->k_data.prev_size = (size_t) num;
-    p->is_published = false;
+    p->is_published = num_known;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -157,10 +161,27 @@ done:
     return res;
 }
 
-/* A computed k-shape normally still contains zeros during the init pass.
-   Publish a valid output by copying the source's current layout; the first
-   performance pass applies the requested reshape. prev_ndim stays 0, which no
-   parsed shape has, so that first pass always runs. */
+/* Reshapes at init when the k shape already reads as a valid shape for the
+   source (fillarray and array() write it in their own init pass). Otherwise,
+   for a shape that a k-rate assignment has yet to write, the output keeps
+   the source's layout reserved but empty: a reshape never changes the
+   element count, so that is also all the room the perf pass needs. An output
+   that is its own source is left alone, and prev_ndim stays 0, which no
+   parsed shape has, so the first pass always runs. */
+static bool reshape_k_init_shape(const ARRAYDAT *arr, size_t size, uint32_t *ndim, uint32_t *shape) {
+    if (arr == NULL || arr->data == NULL || arr->sizes == NULL || arr->dimensions != 1) return false;
+    int32_t n = arr->sizes[0];
+    if (n < 1 || n > CSN_MAX_DIMS) return false;
+    for (int32_t i = 0; i < n; i++) {
+        double v = (double) arr->data[i];
+        if (!IS_VALID_LENGTH(v) || v < 1.0) return false;
+        shape[i] = (uint32_t) v;
+    }
+    *ndim = (uint32_t) n;
+    size_t requested = 0;
+    return get_array_size_from_shape(&requested, *ndim, shape) == OK && requested == size;
+}
+
 int32_t csnarray_reshape_k_init(CSOUND *csound, CSN_RESHAPE *p) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -174,14 +195,30 @@ int32_t csnarray_reshape_k_init(CSOUND *csound, CSN_RESHAPE *p) {
     p->k_data.registry = reg;
 
     CSN_ARRAY *source = p->source_handle;
+    ITEM_TYPE itype = source->itype;
+    uint32_t ndim = 0;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    bool has_shape = reshape_k_init_shape(p->new_shape, source->size, &ndim, shape);
+    if (!has_shape) {
+        ndim = source->ndim;
+        memcpy(shape, source->shape, sizeof(shape));
+    }
 
     const CSN_ARRAY *ops[1] = { source };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, source->ndim, source->shape, source->itype, ops, 1, CSN_ALIAS_CUSTOM);
+    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, itype, ops, 1, CSN_ALIAS_CUSTOM);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
+    if (out.aliased) goto done;
 
-    if (!out.aliased) memcpy(p->handle->data, source->data, sizeof(double) * source->size * source->itype);
+    if (!has_shape) {
+        reset_empty_csnarray(p->handle, ndim, shape, itype);
+        goto done;
+    }
+
+    memcpy(p->handle->data, source->data, sizeof(double) * source->size * itype);
+    SET_KDATA_BEGIN(p->k_data, reg, shape, ndim, itype);
+    PUBLISH_DERIVED_RESULT(&p->k_data, source, p->handle);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -575,8 +612,11 @@ static int32_t transpose_init_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_def
     uint32_t ndim = source->ndim;
     ITEM_TYPE itype = source->itype;
 
-    uint32_t axes[CSN_MAX_DIMS];
-    uint32_t shape[CSN_MAX_DIMS];
+    /* k-array axes that do not read as a permutation yet are left to the
+       first pass: until then the output keeps the source's layout reserved
+       but empty (a transpose keeps the rank). */
+    uint32_t axes[CSN_MAX_DIMS] = {0};
+    uint32_t shape[CSN_MAX_DIMS] = {0};
     CSN_TRANSPOSE_AXES code = transpose_axes(is_default, p->new_shape, ndim, axes);
     bool has_axes = code == CSN_TRANSPOSE_AXES_OK;
     if (!has_axes && !axes_at_k) {
@@ -601,6 +641,7 @@ static int32_t transpose_init_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_def
         if (res != OK) goto done;
     }
 
+    if (!has_axes && !out.aliased) reset_empty_csnarray(p->handle, ndim, shape, itype);
     if (!has_axes || (csn_is_k_form(&p->h) && out.aliased)) goto done;
 
     if (transpose_into(source, p->handle, (double *) p->scratch.scratch, shape, axes) != OK) {
@@ -740,10 +781,11 @@ done:
     return res;
 }
 
-/* Only reserves the working buffer, for the source's whole capacity so a
-   marked source finds it big enough at perf time: the axes may be a k-array,
-   and the first pass transposes. */
-int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
+/* Reserves the working buffer, for the source's whole capacity so a marked
+   source finds it big enough at perf time, and transposes once at init when
+   the axes already read as a permutation (otherwise the first pass does). Shared by both k forms: the no-axes one holds
+   its trigger where the axes would be, which INOCOUNT tells apart. */
+static int32_t transpose_in_k_init_helper(CSOUND *csound, CSN_RESHAPE_IN *p, bool is_default) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -763,9 +805,31 @@ int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
     memset(&p->k_data, 0, sizeof(p->k_data));
     p->k_data.registry = reg;
 
+    uint32_t axes[CSN_MAX_DIMS];
+    uint32_t shape[CSN_MAX_DIMS];
+    if (transpose_axes(is_default, p->new_shape, arr->ndim, axes) != CSN_TRANSPOSE_AXES_OK || arr->size == 0) goto done;
+    transpose_shape(arr, axes, shape);
+    if (transpose_into(arr, arr, (double *) p->scratch.scratch, shape, axes) != OK) {
+        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        goto done;
+    }
+    update_array_data_version(&arr->version);
+    PUBLISH_ELEMENTWISE(&p->k_data, arr, NULL, NULL, 0.0, 0.0);
+    memcpy(p->k_data.prev_axes, axes, sizeof(axes));
+
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
+}
+
+/* csntranspose.in.k: no axes, a trigger */
+int32_t csnarray_transpose_noaxes_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
+    return transpose_in_k_init_helper(csound, p, true);
+}
+
+/* csntranspose.ax.in.k: k-array axes */
+int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p) {
+    return transpose_in_k_init_helper(csound, p, false);
 }
 
 int32_t csnarray_transpose_in_k_deinit(CSOUND *csound, CSN_RESHAPE_IN *p) {
@@ -960,6 +1024,9 @@ static int32_t flip_roll_init_helper(CSOUND *csound, CSN_FLIP_ROLL *p, CSN_FLIP_
     pres.locked |= out.locked;
 
     if (csn_is_k_form(&p->h) && out.aliased) goto done;
+    /* a k axis or shift is not known at init: the layout is (it is the
+       source's), the values are left to the first pass */
+    if (!csn_known_at_init(csound, (void *) shift_in) || !csn_known_at_init(csound, (void *) axis_in)) goto done;
 
     if (!out.aliased) memcpy(p->handle->data, source->data, sizeof(double) * source->size * source->itype);
     flip_roll_apply(p->handle, mode, axis, shift);
@@ -1032,20 +1099,37 @@ done:
     return res;
 }
 
-/* The in-place k forms read k arguments, so the init only marks the array
-   k-rate: the first pass applies. */
-static int32_t flip_roll_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
+/* The init applies once when its arguments are known there (not a k shift or
+   axis), and publishes like any later pass: i-time code that follows in the same note (a csnset, say)
+   then sees the array already flipped or rolled, and the first pass leaves it
+   alone unless something wrote it in between. */
+static int32_t flip_roll_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p, CSN_FLIP_ROLL_MODE mode, const cs_float *shift_in, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
+    int32_t res = OK;
     stamp_globals(csound, &p->h);
-    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
-    csn_mark_krate(p->source_handle);
-    if (locked) csn_unlock(csound, reg);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
+    CSN_ARRAY *arr = p->source_handle;
+    csn_mark_krate(arr);
     memset(&p->k_data, 0, sizeof(p->k_data));
     p->k_data.registry = reg;
-    return OK;
+
+    int32_t shift = 0;
+    int32_t axis = -1;
+    if (!csn_known_at_init(csound, (void *) shift_in) || !csn_known_at_init(csound, (void *) axis_in)) goto done;
+    res = flip_roll_params(csound, NULL, arr, mode, shift_in, axis_in, &shift, &axis);
+    if (res != OK || arr->size == 0) goto done;
+
+    flip_roll_apply(arr, mode, axis, shift);
+    update_array_data_version(&arr->version);
+    PUBLISH_ELEMENTWISE(&p->k_data, arr, NULL, NULL, (double) shift, (double) axis);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
 }
 
 static int32_t flip_roll_in_k_helper(CSOUND *csound, CSN_FLIP_ROLL_IN *p, CSN_FLIP_ROLL_MODE mode, const cs_float *shift_in, const cs_float *axis_in) {
@@ -1097,7 +1181,7 @@ int32_t csnarray_flip_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 }
 
 int32_t csnarray_flip_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
-    return flip_roll_in_k_init(csound, p);
+    return flip_roll_in_k_init(csound, p, CSN_FLIP, NULL, p->INOCOUNT > 2 ? p->param_b : NULL);
 }
 
 int32_t csnarray_flip_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
@@ -1118,7 +1202,7 @@ int32_t csnarray_roll_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 }
 
 int32_t csnarray_roll_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
-    return flip_roll_in_k_init(csound, p);
+    return flip_roll_in_k_init(csound, p, CSN_ROLL, p->param_a, NULL);
 }
 
 int32_t csnarray_roll_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
@@ -1138,7 +1222,7 @@ int32_t csnarray_rollaxis_in(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
 }
 
 int32_t csnarray_rollaxis_in_k_init(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {
-    return flip_roll_in_k_init(csound, p);
+    return flip_roll_in_k_init(csound, p, CSN_ROLLAXIS, p->param_a, p->param_b);
 }
 
 int32_t csnarray_rollaxis_in_k(CSOUND *csound, CSN_FLIP_ROLL_IN *p) {

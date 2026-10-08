@@ -19,6 +19,11 @@ typedef enum {
     CSN_ALIAS_CUSTOM        /* the opcode handles it; aliased_mask says which operand */
 } CSN_ALIAS_POLICY;
 
+/* OR'ed into the policy by the opcodes whose output is filled whatever the
+   first operand holds (concat, pad): prepare_output then keeps it full even
+   when that operand is logically empty. */
+#define CSN_OUTPUT_FULL 0x100
+
 typedef struct {
     bool locked;
     bool aliased;           /* aliased_mask != 0 */
@@ -43,14 +48,30 @@ bool SOURCE_HAS_MOVED(const K_DATA *k_data, const CSN_ARRAY *arr);
    non-NULL perf is how such an init knows it serves the k form. */
 static inline bool csn_is_k_form(const OPDS *h) { return h->perf != NULL; }
 
+/* Whether an argument's value is known during the init pass. A k variable
+   (or a k array) still reads 0, or whatever an earlier init left in it,
+   because nothing has computed it yet: a k form computes at init only when
+   every argument its result depends on is known there. A constant or an i
+   variable bound to a k slot is. The answer comes from the argument's type,
+   never from its value. */
+static inline bool csn_known_at_init(CSOUND *csound, void *arg) {
+    if (arg == NULL) return true;
+    const CS_TYPE *type = GetTypeForArg(arg);
+    if (type == NULL) return true;
+    /* A k-array counts as known: fillarray, array() and init write its
+       elements in their own init pass, ahead of this one, and the opcodes that
+       take one (shapes, axes) check its values anyway. */
+    return type != csound->GetType(csound, "k");
+}
+
 /* For the in-place k-rate opcodes: their target changes at perf from now on,
    so whatever reads it must follow it there. */
 static inline void csn_mark_krate(CSN_ARRAY *arr) { arr->rate = CSN_RATE_K; }
 
 /* The binary-operation cores behind the csnadd family and the operators. */
-int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute);
+int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool perf_redoes);
 int32_t csn_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode);
-int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute);
+int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode, bool perf_redoes);
 int32_t csn_binop_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode);
 
 CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy);
@@ -88,7 +109,6 @@ int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, cons
 int32_t BROADCAST_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], uint32_t n_inputs);
 int32_t ND_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t *strides);
 int32_t ND_ITER_SEEK(CSN_BROADCAST_ITER *it, size_t linear_index);
-int32_t CHECK_IF_REALLOC_IN(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *arr, CSN_SCRATCH *scratch_ref, uint32_t ndim, ITEM_TYPE itype, bool is_value_changed, bool rt_locked);
 int32_t BROADCAST_INIT(uint32_t *out_ndim, uint32_t *out_shape, size_t *out_size, size_t out_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], const CSN_ARRAY *const sources[], uint32_t n_inputs);
 int32_t complex_pow(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT base, CSN_COMPLEXDAT exponent);
 int32_t create_empty_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p);
@@ -118,7 +138,12 @@ int32_t csnarray_atan2_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p);
 int32_t csnarray_clip_in_k_init(CSOUND *csound, CSN_CLIP_IN *p);
 int32_t csnarray_clip_k_init(CSOUND *csound, CSN_CLIP *p);
 int32_t csnarray_compare_count_k_init(CSOUND *csound, CSN_COUNT *p);
-int32_t csnarray_compare_k_init(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_greater_than_k_init(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_less_than_k_init(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_not_equal_k_init(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_greater_equal_k_init(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_less_equal_k_init(CSOUND *csound, CSN_COMPARE *p);
+int32_t csnarray_equal_k_init(CSOUND *csound, CSN_COMPARE *p);
 int32_t csnarray_complex_to_real_k_init(CSOUND *csound, CSN_UNARYOP *p);
 int32_t csnarray_compress_k_init(CSOUND *csound, CSN_WHERE_HS *p);
 int32_t csnarray_concat_block_k_init(CSOUND *csound, CSN_CONCAT *p);
@@ -221,9 +246,11 @@ int32_t csnarray_padcomp_in_k_deinit(CSOUND *csound, CSN_PADCOMPLEX_IN *p);
 int32_t csnarray_padcomp_in_k_init(CSOUND *csound, CSN_PADCOMPLEX_IN *p);
 int32_t csnarray_padcomp_k_init(CSOUND *csound, CSN_PADCOMPLEX *p);
 int32_t csnarray_pair_distance_k_init(CSOUND *csound, CSN_BINOP_HH *p);
-int32_t csnarray_perquant_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p);
+int32_t csnarray_percentile_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p);
+int32_t csnarray_quantile_k_init(CSOUND *csound, CSN_PERCQUANT_AX *p);
 int32_t csnarray_perquant_s_k_deinit(CSOUND *csound, CSN_PERCQUANT *p);
-int32_t csnarray_perquant_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p);
+int32_t csnarray_percentile_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p);
+int32_t csnarray_quantile_scalar_k_init(CSOUND *csound, CSN_PERCQUANT *p);
 int32_t csnarray_pop_k_init(CSOUND *csound, CSN_POP_K *p);
 int32_t csnarray_popcomp_k_init(CSOUND *csound, CSN_POPCOMPLEX_K *p);
 int32_t csnarray_pow_hh_k_init(CSOUND *csound, CSN_BINOP_HH *p);
@@ -283,6 +310,7 @@ int32_t csnarray_transpose_k_init(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_transpose_noaxes_k_init(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_transpose_noaxes_k(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_transpose_noaxes_in_k(CSOUND *csound, CSN_RESHAPE_IN *p);
+int32_t csnarray_transpose_noaxes_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p);
 int32_t csnarray_transpose_deinit(CSOUND *csound, CSN_RESHAPE *p);
 int32_t csnarray_transpose_in_k_init(CSOUND *csound, CSN_RESHAPE_IN *p);
 int32_t csnarray_truncate_in_k_init(CSOUND *csound, CSN_TRUNCATE_IN *p);

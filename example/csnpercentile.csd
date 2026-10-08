@@ -18,12 +18,12 @@ ksmps = 32
 instr 1
     data:CsnArr  = csnfromarray(array(2, 4, 4, 4, 5, 5, 7, 9))
 
-    p0:i         = csnpercentile(data, 0)
-    p25:i        = csnpercentile(data, 25)
-    p50:i        = csnpercentile(data, 50)
-    p75:i        = csnpercentile(data, 75)
-    p100:i       = csnpercentile(data, 100)
-    prints("0=%g 25=%g 50=%g 75=%g 100=%g\n", p0, p25, p50, p75, p100)
+    pc0:i         = csnpercentile(data, 0)
+    pc25:i        = csnpercentile(data, 25)
+    pc50:i        = csnpercentile(data, 50)
+    pc75:i        = csnpercentile(data, 75)
+    pc100:i       = csnpercentile(data, 100)
+    prints("0=%g 25=%g 50=%g 75=%g 100=%g\n", pc0, pc25, pc50, pc75, pc100)
 
     ; the ends agree with csnmin and csnmax, the middle with csnmedian
     lo:i         = csnmin(data)
@@ -32,7 +32,7 @@ instr 1
     prints("min=%g max=%g median=%g\n", lo, hi, mid)
 
     ; the interquartile range, a robust measure of spread
-    iqr:i        = p75 - p25
+    iqr:i        = pc75 - pc25
     prints("interquartile range = %g\n", iqr)
     turnoff
 endin

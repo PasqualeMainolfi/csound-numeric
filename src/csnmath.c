@@ -184,7 +184,7 @@ static int32_t binop_hh_layout(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *a,
    it, and the other operand, which may be broadcast, is never the output:
    X = csnadd(X, Y) and X = csnmul(X, X) run in place with no working copy.
    compute false only lays the output out; the first perf pass computes. */
-int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute) {
+int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool perf_redoes) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -206,6 +206,10 @@ int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a,
     if (res != OK) goto done;
     pres.locked |= r.locked;
 
+    /* When the perf pass computes again, the init only does so if that cannot
+       repeat it: an output that is its own operand is left to the perf pass,
+       or X = X + Y would add twice in the first cycle. */
+    bool compute = !perf_redoes || !r.aliased;
     if (compute) {
         res = binop_hh_assign_value(csound, NULL, &it, a, b, out, itype, mode);
         if (res != OK) goto done;
@@ -220,8 +224,7 @@ done:
 }
 
 static int32_t csnarray_binop_hh_helper(CSOUND *csound, CSN_BINOP_HH *p, CSN_BINOP_MODE mode, bool is_k_init) {
-    /* the k form computes on its first pass, where its trigger decides */
-    return csn_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, mode, !is_k_init);
+    return csn_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, mode, is_k_init);
 }
 
 int32_t csn_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode) {
@@ -476,10 +479,9 @@ static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const cs_f
    (CSN_ALIAS_ELEMENTWISE). */
 /* The array-scalar core, shared by the csnadd.hs family and the operators.
    Each result element comes from the element in the same cell, so
-   X = csnmul(X, 0.5) runs in place (CSN_ALIAS_ELEMENTWISE). compute false only
-   lays the output out, for the k forms whose scalar is a k-argument still at
-   its init value: the first perf pass computes. */
-int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode, bool compute) {
+   X = csnmul(X, 0.5) runs in place (CSN_ALIAS_ELEMENTWISE). perf_redoes says
+   the perf pass computes again; see the decision below. */
+int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode, bool perf_redoes) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -497,6 +499,12 @@ int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
     if (res != OK) goto done;
     pres.locked |= r.locked;
 
+    /* When the perf pass computes again, the init only does so where it can:
+       the scalar must be known now (a k variable is not, and the rate of a
+       Complex cannot be told), and an output that is its own operand is left
+       to the perf pass, which would otherwise apply it twice. */
+    bool known = complex_arg == NULL && csn_known_at_init(csound, scalar_arg);
+    bool compute = !perf_redoes || (known && !r.aliased);
     if (compute) {
         res = binop_hs_sh_assign_value(csound, NULL, scalar_arg, complex_arg, source_arr, out, mode);
         if (res != OK) goto done;
@@ -514,13 +522,13 @@ done:
    struct: CSN_BINOP_SH lists them in the opposite order to CSN_BINOP_HS, so a
    single cast would silently swap them. */
 static int32_t csnarray_binop_hs_sh_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
-    return csn_binop_hs_sh_init(csound, &p->h, p->handle, source_arr, scalar_arg, complex_arg, &p->k_data, mode, true);
+    return csn_binop_hs_sh_init(csound, &p->h, p->handle, source_arr, scalar_arg, complex_arg, &p->k_data, mode, false);
 }
 
-/* The scalar is a k-argument, still at its init value here: the output only
-   takes its layout, and the first pass computes. */
-static int32_t csnarray_binop_hs_sh_k_init_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
-    return csn_binop_hs_sh_init(csound, &p->h, p->handle, source_arr, NULL, complex_arg, &p->k_data, mode, false);
+/* The k forms compute here only when the scalar is already known (a constant
+   or an i variable); a k scalar leaves the first pass to compute. */
+static int32_t csnarray_binop_hs_sh_k_init_helper(CSOUND *csound, CSN_BINOP_COMMON *p, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, CSN_BINOP_MODE mode) {
+    return csn_binop_hs_sh_init(csound, &p->h, p->handle, source_arr, scalar_arg, complex_arg, &p->k_data, mode, true);
 }
 
 int32_t csn_binop_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode) {
@@ -584,7 +592,7 @@ int32_t csnarray_add_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_add_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_ADD_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_ADD_HS);
 }
 
 int32_t csnarray_add_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -608,7 +616,7 @@ int32_t csnarray_subtract_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_subtract_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_SUB_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_SUB_HS);
 }
 
 int32_t csnarray_subtract_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -620,7 +628,7 @@ int32_t csnarray_subtract_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_subtract_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_SUB_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_SUB_SH);
 }
 
 int32_t csnarray_subtract_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -644,7 +652,7 @@ int32_t csnarray_mul_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_mul_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_MUL_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_MUL_HS);
 }
 
 int32_t csnarray_mul_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -680,7 +688,7 @@ int32_t csnarray_div_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_div_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_DIV_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_DIV_SH);
 }
 
 int32_t csnarray_div_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -704,7 +712,7 @@ int32_t csnarray_pow_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_pow_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_POW_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_POW_HS);
 }
 
 int32_t csnarray_pow_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -716,7 +724,7 @@ int32_t csnarray_pow_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_pow_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_POW_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_POW_SH);
 }
 
 int32_t csnarray_pow_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -740,7 +748,7 @@ int32_t csnarray_log_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_log_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_LOG_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_LOG_HS);
 }
 
 int32_t csnarray_log_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -752,7 +760,7 @@ int32_t csnarray_log_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_log_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_LOG_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_LOG_SH);
 }
 
 int32_t csnarray_log_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -764,7 +772,7 @@ int32_t csnarray_addcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
 }
 
 int32_t csnarray_addcomp_hs_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_ADD_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_ADD_HS);
 }
 
 int32_t csnarray_addcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
@@ -776,7 +784,7 @@ int32_t csnarray_subtractcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
 }
 
 int32_t csnarray_subtractcomp_hs_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_SUB_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_SUB_HS);
 }
 
 int32_t csnarray_subtractcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
@@ -788,7 +796,7 @@ int32_t csnarray_subtractcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
 }
 
 int32_t csnarray_subtractcomp_sh_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_SUB_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_SUB_SH);
 }
 
 int32_t csnarray_subtractcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
@@ -800,7 +808,7 @@ int32_t csnarray_mulcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
 }
 
 int32_t csnarray_mulcomp_hs_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_MUL_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_MUL_HS);
 }
 
 int32_t csnarray_mulcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
@@ -812,7 +820,7 @@ int32_t csnarray_divcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
 }
 
 int32_t csnarray_divcomp_hs_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_DIV_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_DIV_HS);
 }
 
 int32_t csnarray_divcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
@@ -824,7 +832,7 @@ int32_t csnarray_divcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
 }
 
 int32_t csnarray_divcomp_sh_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_DIV_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_DIV_SH);
 }
 
 int32_t csnarray_divcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
@@ -836,7 +844,7 @@ int32_t csnarray_powcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
 }
 
 int32_t csnarray_powcomp_hs_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_POW_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_POW_HS);
 }
 
 int32_t csnarray_powcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
@@ -848,7 +856,7 @@ int32_t csnarray_powcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
 }
 
 int32_t csnarray_powcomp_sh_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_POW_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_POW_SH);
 }
 
 int32_t csnarray_powcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
@@ -860,7 +868,7 @@ int32_t csnarray_logcomp_sh(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
 }
 
 int32_t csnarray_logcomp_sh_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_LOG_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_LOG_SH);
 }
 
 int32_t csnarray_logcomp_sh_k(CSOUND *csound, CSN_BINOPCOMPLEX_SH *p) {
@@ -872,7 +880,7 @@ int32_t csnarray_logcomp_hs(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
 }
 
 int32_t csnarray_logcomp_hs_k_init(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, CSN_LOG_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, p->scalar, CSN_LOG_HS);
 }
 
 int32_t csnarray_logcomp_hs_k(CSOUND *csound, CSN_BINOPCOMPLEX_HS *p) {
@@ -908,7 +916,7 @@ int32_t csnarray_logical_and_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_logical_and_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_LOGICAL_AND_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_LOGICAL_AND_HS);
 }
 
 int32_t csnarray_logical_and_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -920,7 +928,7 @@ int32_t csnarray_logical_or_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_logical_or_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_LOGICAL_OR_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_LOGICAL_OR_HS);
 }
 
 int32_t csnarray_logical_or_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -932,7 +940,7 @@ int32_t csnarray_logical_and_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_logical_and_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_LOGICAL_AND_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_LOGICAL_AND_HS);
 }
 
 int32_t csnarray_logical_and_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -944,7 +952,7 @@ int32_t csnarray_logical_or_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_logical_or_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_LOGICAL_OR_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_LOGICAL_OR_HS);
 }
 
 int32_t csnarray_logical_or_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -968,7 +976,7 @@ int32_t csnarray_hypot_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
 }
 
 int32_t csnarray_hypot_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_HYPOT_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_HYPOT_HS);
 }
 
 int32_t csnarray_hypot_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -992,7 +1000,7 @@ int32_t csnarray_minimum_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
 }
 
 int32_t csnarray_minimum_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_MINIMUM_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_MINIMUM_HS);
 }
 
 int32_t csnarray_minimum_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -1016,7 +1024,7 @@ int32_t csnarray_maximum_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
 }
 
 int32_t csnarray_maximum_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_MAXIMUM_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_MAXIMUM_HS);
 }
 
 int32_t csnarray_maximum_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -1040,7 +1048,7 @@ int32_t csnarray_atan2_hs(CSOUND *csound, CSN_BINOP_HS *p) {
 }
 
 int32_t csnarray_atan2_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_ATAN2_HS);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_ATAN2_HS);
 }
 
 int32_t csnarray_atan2_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
@@ -1052,7 +1060,7 @@ int32_t csnarray_atan2_sh(CSOUND *csound, CSN_BINOP_SH *p) {
 }
 
 int32_t csnarray_atan2_sh_k_init(CSOUND *csound, CSN_BINOP_SH *p) {
-    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, NULL, CSN_ATAN2_SH);
+    return csnarray_binop_hs_sh_k_init_helper(csound, (CSN_BINOP_COMMON *) p, p->source_handle, p->scalar, NULL, CSN_ATAN2_SH);
 }
 
 int32_t csnarray_atan2_sh_k(CSOUND *csound, CSN_BINOP_SH *p) {
@@ -2118,6 +2126,9 @@ int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
 static void copy_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool reverse, ITEM_TYPE itype) {
     if (!reverse) {
         memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+        update_array_data_version(&arr->version);
+        csn_copy_array_kind(arr, source_arr);
+        arr->rate = source_arr->rate;
         return;
     }
 
@@ -2296,7 +2307,7 @@ int32_t csnarray_radtodeg_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
     return csnarray_unaryop_in_helper(csound, p, CSN_RAD2DEG);
 }
 
-int32_t csnarray_unaryop_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_UNARY_MODE mode) {
+static int32_t csnarray_unaryop_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_UNARY_MODE mode) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 

@@ -699,6 +699,16 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { src }, 1);
     uint32_t ndim = src->ndim;
 
+    /* The k form converts on every pass, and a k result its producer could
+       not compute at init is still empty here: only the room the perf pass
+       needs is reserved now. */
+    if (src->size == 0 && csn_is_k_form(&p->h)) {
+        if (reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
+            res = csound->InitError(csound, "[csnarray] Could not reserve the output array");
+        }
+        goto done;
+    }
+
     if (src->size == 0) {
         res = csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
         goto done;
@@ -808,6 +818,16 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
     int32_t res = OK;
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { src }, 1);
     uint32_t ndim = src->ndim;
+
+    /* The k form converts on every pass, and a k result its producer could
+       not compute at init is still empty here: only the room the perf pass
+       needs is reserved now. */
+    if (src->size == 0 && csn_is_k_form(&p->h)) {
+        if (reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
+            res = csound->InitError(csound, "[csnarray] Could not reserve the output array");
+        }
+        goto done;
+    }
 
     if (src->size == 0) {
         res = csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");

@@ -440,12 +440,19 @@ static int32_t sphharm_acn_helper(CSOUND *csound, CSN_SPHHARM_ACN *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    /* Filled on both passes, as csnrotmat does: in the k-rate form the angles
-       hold whatever the init chain wrote into them, and the set at that
-       direction is still a proper set for a consumer's own init to read. */
-    csn_sh_sn3d_all(p->order_value, azimuth, elevation, p->handle->data, 1U);
     memset(&p->k_data, 0, sizeof(p->k_data));
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, new_ndim, CSN_REAL);
+
+    /* The k form fills the set here only when the direction is known at init;
+       k angles leave it zeroed, with a direction no pass can match, so the
+       first pass computes. */
+    bool known = !csn_is_k_form(&p->h) || (csn_known_at_init(csound, p->azimuth) && csn_known_at_init(csound, p->elevation));
+    if (!known) {
+        p->k_data.prev_scalar_param = NAN;
+        p->k_data.prev_scalar_param_b = NAN;
+        goto done;
+    }
+    csn_sh_sn3d_all(p->order_value, azimuth, elevation, p->handle->data, 1U);
     p->k_data.prev_scalar_param = azimuth;
     p->k_data.prev_scalar_param_b = elevation;
     set_array_version(&p->k_data.prev_output_version, &p->handle->version);

@@ -8,8 +8,8 @@ library and make it more stable and reliable.*
 `csnum` is a Csound 7 plugin that brings a numpy-shaped array vocabulary into the
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
-primitives, convolution, matrix solving, interpolation and resampling, 219
-opcodes across 644 rate and type overloads.
+primitives, convolution, matrix solving, interpolation and resampling. `CsnArr`
+values can also be combined with the orchestra's arithmetic operators.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
 signal generation and no GUI. Two doors lead out of that: `csnsave` / `csnload`
@@ -25,16 +25,15 @@ Operations with no meaning over the complex field, ordering comparisons,
 sorting, rounding, the window functions, interpolation, are real-only and say
 so when handed a complex array.
 
-There are **no external dependencies**. The plugin builds from six C11
-translation units against the Csound plugin headers and the C standard library,
-nothing else is linked in.
+There are **no external library dependencies** beyond Csound and the C standard
+library. The plugin builds from C11 sources against the Csound plugin headers.
 
 ---
 
 ## Requirements
 
 - **Csound 7** (API 7.0). The plugin is not built for Csound 6: the opcodes rely
-  on Csound 7 user-defined types for their handle and complex arguments.
+  on Csound 7 user-defined types for `CsnArr` and complex arguments.
 - A C11 compiler and CMake ≥ 3.16.
 
 ## Building
@@ -88,31 +87,33 @@ assertions. The `.npy` tests cover file-format decoding and the i-rate/k-rate
 
 ---
 
-## The model: handles, not Csound arrays
+## The model: `CsnArr` values, not Csound arrays
 
-A csnum array lives in a registry owned by the Csound instance. Opcodes exchange
-**handles** of type `:CsnArr;`, never Csound `k[]`/`i[]` arrays:
+A csnum array is a value of type `:CsnArr;`: the variable owns its data, and
+opcodes exchange these values, never Csound `k[]`/`i[]` arrays:
 
 ```csound
-data:CsnArr = csnfromarray(array(4, 1, 3, 2)) // Csound array  -> handle
-back:i[]    = csntoarray(data) // handle -> Csound array
+values:i[]  = fillarray(4, 1, 3, 2)
+data:CsnArr = csnfromarray(values) // Csound array -> CsnArr
+back:i[]    = csntoarray(data)     // CsnArr -> Csound array
 ```
 
 `csnfromarray` / `csnfromftable` are the way in, `csntoarray` / `csntoftable` the
 way out; on the audio path the pairs are `csnfromaudio` / `csntoaudio` and
-`csnpack` / `csnunpack`. Everything in between passes handles, so a chain of
-twenty operations copies data zero times more than the operations themselves
-require.
+`csnpack` / `csnunpack`. Everything in between stays in csnum arrays, so a chain
+of twenty operations copies data no more than the operations themselves require.
 
-A handle's array is released when the opcode instance that produced it is
-deallocated. Handles declared `@global` outlive their note, that is what makes
-them useful across instruments, and are released explicitly:
+Assignment copies: after `B = A`, writing `A` leaves `B` as it was. `csncopy(A)`
+also makes an independent copy. If `A` is a valid set array, both copies retain
+its set classification.
+
+The data is released with the variable that owns it: a local at the end of its
+note, an `@global` one, shared across instruments, when Csound releases its
+globals.
 
 ```csound
 shape@global:i[]     = fillarray(1024)
 buffer@global:CsnArr = csnzeros(shape)
-...
-csnfree buffer
 ```
 
 (In the orchestra header an inline `array(...)` argument is still empty when the
@@ -120,6 +121,50 @@ opcode reads it, so bind the shape to a named i-array first, as above.)
 
 Arrays carry up to 8 dimensions and at most 2^28 elements. Shape and strides are
 kept in the array, so a reshape or a transpose is a layout change, not a copy.
+
+### Arithmetic operators
+
+`CsnArr` supports `+`, `-`, `*`, `/` and `^` directly in Csound expressions.
+They act elementwise on two arrays; `^` raises each element to the corresponding
+power. Each operator also accepts a real scalar on either side, or a complex
+scalar. Array shapes broadcast from the right as in NumPy, and mixing real and
+complex operands produces a complex array. `*` is elementwise multiplication;
+use `csnmatmul` for matrix multiplication.
+
+```csound
+instr 1
+    iA[] = fillarray(2, 4, 6)
+    iB[] = fillarray(1, 2, 3)
+    A:CsnArr = csnfromarray(iA)
+    B:CsnArr = csnfromarray(iB)
+
+    sum:CsnArr        = A + B    // [3, 6, 9]
+    difference:CsnArr = A - B    // [1, 2, 3]
+    product:CsnArr    = A * B    // [2, 8, 18]
+    ratio:CsnArr      = A / B    // [2, 2, 2]
+    shift:CsnArr      = 10 - B   // [9, 8, 7]
+    squares:CsnArr    = B ^ 2    // [1, 4, 9]
+
+    A += B                       // [3, 6, 9]
+    A -= B                       // [2, 4, 6]
+    A *= 2                       // [4, 8, 12]
+    A /= 2                       // [2, 4, 6]
+endin
+```
+
+`+=`, `-=`, `*=` and `/=` update the left array. Assignment and the earlier
+results remain independent copies. The operators follow the rates of their
+operands and take no explicit trigger: the i-rate example above runs during
+initialization, while a compound operation with a k-rate operand runs on each
+control period. To inspect the result during performance, use
+`csnprint(A, kTrig)` with a non-zero k-rate trigger; `csnprint(A)` reads it only
+at initialization. Inside an instrument, passing `array(...)` directly to
+`csnfromarray` selects its k-rate overload; use a named `i[]` built with
+`fillarray` when the compound result is needed during initialization. An
+operation that would overwrite values it still needs,
+or change the target's layout, is refused. The corresponding named opcodes
+(`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`) remain available, including
+their trigger forms.
 
 ### Empty arrays
 
@@ -190,7 +235,7 @@ CsnArr(shape=(2, 2), dtype=float64)
 
 Arrays with more than 1000 elements are summarized with their first and last
 three entries along every long dimension. The k-rate form,
-`csnprint(handle, trig)`, prints on a non-zero trigger and emits nothing when the
+`csnprint(data, trig)`, prints on a non-zero trigger and emits nothing when the
 trigger is zero. See the full [csnprint reference](doc/csnprint.md).
 
 ---
@@ -214,7 +259,7 @@ csound --opcode-dir=build example/csnsort.csd
   shaped like an array you already have, `arange`, `linspace`, `logspace`,
   `geomspace`, seeded random arrays.
 - **Conversion, lifetime and inspection**: to and from Csound arrays and
-  function tables, copy, free, type and shape queries, and numpy-style printing.
+  function tables, copy, type and shape queries, and numpy-style printing.
 - **Shape and layout**: reshape, flatten, transpose, flip, roll, pad, truncate,
   head, resize, concat, insert, remove, push, pop.
 - **Indexing**: element get/set, slices, gathers, integer-bin counting
@@ -310,8 +355,8 @@ csound --opcode-dir=build example/csnsort.csd
   convolution; all axes for flip, pad and truncate; last axis for FFT-like
   transforms, difference and sorting. Structural operations such as take,
   slice and stack require an axis.
-- **In-place forms.** Where it makes sense, the opcode that publishes a new
-  handle also has a sibling under the same name that writes back into its source
+- **In-place forms.** Where it makes sense, the opcode that produces a new
+  array also has a sibling under the same name that writes back into its source
   and returns nothing: `csnnormalize(data)` normalizes in place, while
   `Norm:CsnArr = csnnormalize(data)` leaves the source alone.
 - **Rate overloads.** The i-rate and k-rate forms share a name; Csound picks the
@@ -319,15 +364,15 @@ csound --opcode-dir=build example/csnsort.csd
 - **Trigger.** Most k-rate forms take a trigger. When an axis may be omitted,
   the no-axis overload ends with the trigger and the explicit-axis overload is
   written `..., trigger, axis`; this keeps omission distinct from `axis = -1`.
-  A zero trigger skips the pass entirely and republishes the previous result. Where
+  A zero trigger skips the pass entirely and keeps the previous result. Where
   the trigger is the only k-rate argument, as in `csnprint`, it is required so
   Csound can distinguish the performance overload from the init-time one.
   `csnprint`, `csnsave` and `csnload` have no previous computed result to
-  republish, so a zero trigger simply performs no side effect.
+  keep, so a zero trigger simply performs no side effect.
 - **Real-time paths.** An array on a live signal chain can be marked so that
   nothing reallocates it, or any buffer serving it, during performance. The
   audio sources mark what they publish by default (`irt = 1`); `csnrtlock` marks
-  one handle, `csnrtlockstart` / `csnrtlockend` everything a note creates
+  one array, `csnrtlockstart` / `csnrtlockend` everything a note creates
   between the two, and `csnrtlockall` everything for the whole performance.
   [Real-time paths](#real-time-paths) explains how the mark works and why it
   matters.
@@ -339,7 +384,7 @@ csound --opcode-dir=build example/csnsort.csd
 The names follow NumPy wherever the operation is the same one. The table below
 maps every opcode to the NumPy call it stands for, family by family, so a
 function you already know can be found under its Csound name. The mapping is by
-*intent*, not by signature: csnum opcodes exchange handles, take their shape
+*intent*, not by signature: csnum opcodes exchange `CsnArr` values, take their shape
 arguments as Csound i-arrays, and have no keyword arguments, so the NumPy column
 is what the opcode computes, not a transliteration of its call.
 
@@ -390,7 +435,6 @@ entry means the operation lives outside NumPy proper.
 | `csnfromftable` | — | Csound function table in. |
 | `csntoftable` | — | Csound function table out. |
 | `csncopy` | `np.copy` | |
-| `csnfree` | `del` | Explicit release; only needed for `@global` handles. |
 | `csntype` | `ndarray.dtype` | `0` real, `1` complex. |
 | `csndims` | `ndarray.ndim` | |
 | `csnsize` | `ndarray.size` | |
@@ -458,7 +502,7 @@ entry means the operation lives outside NumPy proper.
 | `csndiv` | `np.divide` | |
 | `csnpow` | `np.power` | |
 | `csnlog` | `np.log(a) / np.log(base)` | Arbitrary base in one call. |
-| `csndivmod` | `np.divmod` | Two handles out. |
+| `csndivmod` | `np.divmod` | Two arrays out. |
 | `csnhypot` | `np.hypot` | |
 | `csnminimum` | `np.minimum` | |
 | `csnmaximum` | `np.maximum` | |
@@ -751,7 +795,7 @@ thing NumPy never has to deal with:
 | `csnfromaudio` / `csntoaudio` | One control period between an audio signal and an array. |
 | `csnpack` / `csnunpack` | A whole `a[]` as a `channels x ksmps` matrix, and back. |
 | `csnsnap` / `csnstream` | Frames of a size independent of `ksmps`, and their overlap-add. |
-| `csnrtlock` / `csnrtunlock` | Mark a handle as a real-time path, forbidding reallocation at perf time. |
+| `csnrtlock` / `csnrtunlock` | Mark an array as a real-time path, forbidding reallocation at perf time. |
 | `csnrtlockstart` / `csnrtlockend` | The same mark on every array a note creates between the two. |
 | `csnrtlockall` | The same for the whole performance, declared in the orchestra header. |
 | `csnforeach` | Maps a Csound opcode over every element, in place. Nearest idea is `np.vectorize`, but the callback is an orchestra opcode. |
@@ -774,7 +818,6 @@ thing NumPy never has to deal with:
 | `csnhoaordtochnls` / `csnchnlstohoaord` | Channels in a complete 3-D set of a given order, and back. A count that is not a perfect square is refused. |
 | `csnsn3dton3d` / `csnn3dtosn3d` | The per-channel gain vector between the SN3D and N3D normalisations, indexed by ACN. |
 | `csnfromftable` / `csntoftable` | Csound function table in and out. |
-| `csnfree` | Explicit release of a `@global` handle. |
 | `csnunlikeset` | Drops the set classification. |
 
 ---
@@ -790,14 +833,14 @@ by a writer that actually changed that aspect. A k-rate opcode records the
 version of its source, and of the slot it publishes, at the end of a pass that
 did real work. On the next pass it compares:
 
-- the **source** version, plus the source handle itself, so a recycled slot is
-  never mistaken for the same array;
-- the **output slot** version, so an opcode that finds its own result untouched
-  can republish the handle instead of recomputing it;
+- the **source** version, including its array identity, so a different array
+  with the same counters is not mistaken for the previous input;
+- the **output** version, so an opcode that finds its result untouched
+  can reuse it instead of recomputing it;
 - the **request**, shape, ndim, item type and any scalar parameter it depends
   on, such as an axis or a window size.
 
-If all of them match, the opcode publishes last pass's handle and returns. No
+If all of them match, the opcode keeps last pass's result and returns. No
 allocation, no copy, no arithmetic. A chain of csnum opcodes driven by a source
 that moves once every few hundred k-cycles therefore costs almost nothing on the
 passes in between, and the saving compounds along the chain: a consumer sees its
@@ -805,18 +848,18 @@ own input as unchanged precisely because the producer upstream skipped its work.
 
 Three details make this safe rather than merely fast:
 
-- **The output slot is reused, not reallocated.** A k-rate producer owns its
-  destination slot for the life of the note. The slot is created with room for
+- **The output array is reused.** A k-rate producer writes into its
+  destination variable for the life of the note. The array is created with room for
   twice its initial element count, and a later shape that fits that room
   reuses it; new storage is taken only when the requested shape no longer
   fits.
 - **In-place opcodes publish their write.** They bump the data version *and*
   record it as their own, so the next pass recognizes its own handiwork and
   leaves it alone, while every other consumer still sees a new generation.
-- **Self-aliasing is rejected.** An opcode whose output handle is fed back as its
-  own input is refused at init rather than silently reading a buffer it is in the
-  middle of rewriting; the in-place overloads exist for that case and use their
-  own scratch buffer.
+- **Self-aliasing is checked per operation.** Elementwise operations can read
+  and write the same cell in place when shape and type stay the same. Layout
+  changes and operations with their own safe in-place algorithm also allow it.
+  Operations that would overwrite input they still need refuse the alias.
 
 Scratch buffers are per-opcode-instance and reserved at init from the capacity
 of the array they serve, so a k-rate pass allocates nothing in steady state.
@@ -825,8 +868,8 @@ that capacity; on one they may not (see [Real-time paths](#real-time-paths)).
 
 One limit is worth stating plainly, because it is easy to read the counters as
 promising more than they do. A bumped data version means **a producer wrote this
-slot on that pass**, not that the contents differ from the pass before. A k-rate
-producer republishes its output every pass it runs, so anything downstream that
+array on that pass**, not that the contents differ from the pass before. A k-rate
+producer may rewrite its output on every pass it runs, so anything downstream that
 tries to answer "has a new value arrived?" from the version alone will hear yes
 on every pass as soon as a single k-rate opcode sits in between. That is fine
 for skipping work, which is what the counters are for — a false "changed" costs
@@ -890,7 +933,7 @@ Every way of marking sets the same flag on an array:
 | Source of the mark | When it applies | What it covers |
 | --- | --- | --- |
 | `csnfromaudio`, `csnpack`, `csnsnap` (`irt = 1`, the default) | when the array is published | the audio frame and everything derived from it |
-| `csnrtlock handle` | at init, or on a triggered k-rate pass | that one array |
+| `csnrtlock data` | at init, or on a triggered k-rate pass | that one array |
 | `csnrtlockstart` ... `csnrtlockend` | while the section is open | every array the current note creates in between; the note ending also ends the section |
 | `csnrtlockall` | from its line in the orchestra header onward | every array created for the rest of the performance, with no way to switch it off |
 
@@ -901,7 +944,7 @@ is set on:
 - locking a source later does not reach the arrays already derived from it;
 - `csnrtunlock` clears one array and nothing else, so a branch that only feeds
   analysis can be released while the rest of the chain stays marked;
-- `csnrtlock(handle, 0)` is an inactive k-rate trigger, not an unlock.
+- `csnrtlock(data, 0)` is an inactive k-rate trigger, not an unlock.
 
 ```csound
 instr 1
@@ -1024,7 +1067,7 @@ np.save("incoming.npy", values)
 values.
 
 At k-rate, reloading a file another process keeps rewriting. Until the first
-trigger fires the handle still holds the empty array the init pass published,
+trigger fires the output still holds the empty array the init pass published,
 so a consumer that cannot read an empty extent belongs behind the trigger too:
 
 ```csound
@@ -1081,7 +1124,7 @@ Here `nfft` is the 1024-sample frame size, independent of `ksmps`. `csnsnap`
 marks the frame as a real-time path by default, and the FFT outputs inherit the
 mark; an extra `csnrtlock` call is not required.
 
-The hop must be at least `ksmps`: one handle names one array, so at most one
+The hop must be at least `ksmps`: one `CsnArr` variable holds one frame, so at most one
 frame can be published per control period, and a smaller hop would overwrite a
 frame before any consumer could read it. It is refused at init rather than
 silently dropping frames. The default hop is the frame size, which gives
@@ -1162,7 +1205,7 @@ up:CsnArr = csnresample(Y, 7, 0, 1) // 0 5 10 15 20 25 30
 ```
 
 At k-rate, with a trigger: the work runs on the triggered passes, and the
-opcodes republish their previous result on all the others.
+opcodes keep their previous result on all the others.
 
 ```csound
 instr 1
@@ -1173,10 +1216,10 @@ instr 1
 endin
 ```
 
-In place, when a new handle would be waste:
+In place, when a new array would be waste:
 
 ```csound
-csnnormalize(data) // rewrites Data; downstream consumers see a new generation
+csnnormalize(data) // rewrites data; downstream consumers see a new generation
 ```
 
 ## Development note

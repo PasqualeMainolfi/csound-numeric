@@ -140,8 +140,9 @@ instr 2
     /* log base 2 of 16: the hh form of csnlog wires its own init helper, so it
        needs a case of its own. */
     assert(iLogged == 4)
-    /* Never triggered, so the k init's copy of A stands: 1, not 1 * 2. */
-    assert(iFrozen == 1)
+    /* Never triggered: the k init only lays the output out, since its scalar
+       is a k-argument still at its init value, and no pass fills it. */
+    assert(iFrozen == 0)
 
     /* Six control periods elapsed before this note: 1 + 6 * 1. */
     assert(iAcc == 7)

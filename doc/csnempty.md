@@ -15,7 +15,7 @@ That reservation is the capacity [csnpush](csnpush.md) fills, so an array built
 up element by element only reallocates when it outgrows what was reserved. On a
 [real-time path](csnrtlock.md) that is the room it has: growing past it during
 performance is refused. It is
-also the idiomatic way to declare a `@global` output slot before the note that
+also the idiomatic way to declare a `@global` output before the note that
 will fill it exists.
 
 An empty array is an ordinary value in csnum, not an error case: the shape

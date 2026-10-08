@@ -13,14 +13,14 @@ csound --opcode-dir=build example/csnsort.csd
 
 Conventions that apply throughout: explicit axes use NumPy indexing (`-1` is
 the last axis, `-2` the penultimate), while omitting the axis selects the
-operation's documented flat, all-axes, or last-axis default; opcodes that publish a new handle usually have an
+operation's documented flat, all-axes, or last-axis default; opcodes that produce a new array usually have an
 in-place sibling under the same name that writes back into its source and returns
 nothing; when an axis is optional, k-rate forms put the trigger before an
 explicit axis, and a zero trigger
 republishes the previous result instead of recomputing. A trigger that is the
 only k-rate argument is required to select the performance overload, and
 side-effecting opcodes such as `csnprint` simply do nothing when it is zero. See the
-[README](../README.md) for the handle model and the k-rate versioning, and
+[README](../README.md) for the `CsnArr` value model and the k-rate versioning, and
 [OPS_INDEX](../OPS_INDEX.md) for the same list with the rate and element-type
 support of each opcode.
 
@@ -42,12 +42,11 @@ support of each opcode.
 
 ## Conversion, lifetime and queries
 
-- [csnfromarray](csnfromarray.md) - Csound array to handle
-- [csntoarray](csntoarray.md) - handle to Csound array
-- [csnfromftable](csnfromftable.md) - function table to handle
-- [csntoftable](csntoftable.md) - handle to function table, optionally resizing it
+- [csnfromarray](csnfromarray.md) - Csound array to `CsnArr`
+- [csntoarray](csntoarray.md) - `CsnArr` to Csound array
+- [csnfromftable](csnfromftable.md) - function table to `CsnArr`
+- [csntoftable](csntoftable.md) - `CsnArr` to function table, optionally resizing it
 - [csncopy](csncopy.md) - independent copy of an array
-- [csnfree](csnfree.md) - releases the array behind a handle
 - [csntype](csntype.md) - item type: 0 real, 1 complex
 - [csndims](csndims.md) - number of dimensions
 - [csnsize](csnsize.md) - number of elements
@@ -247,7 +246,7 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 ## Complex arrays
 `csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow` and `csnsqrt` also take
 scalar `:Complex;` operands, and `csnabs`, `csnangle` and `csnconj` a single
-one, with no handle and no trigger involved. Those forms are listed on the
+one, with no array operand and no trigger involved. Those forms are listed on the
 opcode's own page rather than as separate entries here.
 
 - [csnreal](csnreal.md) - real parts, as a real array
@@ -387,7 +386,7 @@ the Condon-Shortley phase, and the harmonics are the real ones of the AmbiX
 convention: ACN order, SN3D, no global `1/sqrt(4 pi)`, with the direction read
 as [csnhoatocar](csnhoatocar.md) reads it.
 
-- [csnlegendre](csnlegendre.md) - associated Legendre function P_n^m(x), scalar or elementwise over a handle
+- [csnlegendre](csnlegendre.md) - associated Legendre function P_n^m(x), scalar or elementwise over an array
 - [csnsphharm](csnsphharm.md) - one real spherical harmonic at one direction
 - [csnsphharmacn](csnsphharmacn.md) - every harmonic up to an order by ACN, at one direction or as a channels x directions matrix
 
@@ -431,8 +430,8 @@ chain is being harvested for analysis rather than sent back out.
 - [csnunpack](csnunpack.md) - that array back into one signal per channel
 - [csnsnap](csnsnap.md) - slices a stream into overlapping frames of a chosen size
 - [csnstream](csnstream.md) - overlap-adds frames back into a continuous signal
-- [csnrtlock](csnrtlock.md) - marks any handle as a real-time path
-- [csnrtunlock](csnrtunlock.md) - clears the real-time mark from one handle
+- [csnrtlock](csnrtlock.md) - marks any array as a real-time path
+- [csnrtunlock](csnrtunlock.md) - clears the real-time mark from one array
 - [csnrtlockstart](csnrtlockstart.md) - starts marking every array this note creates
 - [csnrtlockend](csnrtlockend.md) - stops that marking; the note ending stops it too
 - [csnrtlockall](csnrtlockall.md) - marks every array for the whole performance, header only

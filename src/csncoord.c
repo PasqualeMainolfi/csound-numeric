@@ -234,7 +234,7 @@ static void ROTATE_MAT(double *mat, double angle, uint32_t axis) {
    one case that cannot be rescued: it names no axis, and normalising it would
    divide by zero. */
 /* Checked before the output array is touched, not inside the fill: a refusal
-   that came after the slot update would leave the version advanced on a
+   that came after the output was laid out would leave the version advanced on a
    matrix nobody rewrote, telling every consumer downstream that it changed. */
 static bool ROT_AXIS_IS_VALID(const double *dir) {
     return sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]) > 0.0;
@@ -339,17 +339,14 @@ static int32_t csncoord_rotmat_helper(CSOUND *csound, CSN_ROTMAT *p) {
     res = pres.err;
     if (res != OK) goto done;
 
-    /* Filled on both passes, as csnidentity does with its own k-rate size.
-
-       In the k-rate form the angle is read at whatever the init chain has
-       already written into it, which is 0 unless an earlier line set it with
-       init: a k-rate assignment does not write at i-time. So the matrix that
-       reaches the first control period is normally the identity, which is the
-       right answer for a rotation nobody has set yet, and is still a proper
-       rotation for a consumer to multiply by. Publishing an empty array
-       instead would make every consumer's own init pass fail on a handle that
-       carries no elements. */
-    ROTATE_MAT(p->handle->data, angle, p->axis_index);
+    /* The k form builds the matrix here only when the angle is known at init;
+       a k angle reads 0 there, so the 3 x 3 output stays zeroed and the first
+       pass builds it. */
+    if (csn_is_k_form(&p->h) && !csn_known_at_init(csound, p->angle)) {
+        memset(p->handle->data, 0, sizeof(double) * 9U);
+    } else {
+        ROTATE_MAT(p->handle->data, angle, p->axis_index);
+    }
     p->registry = reg;
 
 done:
@@ -457,8 +454,13 @@ static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p, b
         set_csnarray_layout(p->handle, new_ndim, new_shape, 9U, CSN_REAL);
     }
 
-    /* ROT_AXIS_IS_VALID has ruled out the null vector, the one case it fails */
-    (void) ROTATE_MAT_AXIS(p->handle->data, source_arr->data, angle);
+    /* ROT_AXIS_IS_VALID has ruled out the null vector, the one case it fails.
+       The k form leaves a k angle, unknown at init, to the first pass. */
+    if (is_k && !csn_known_at_init(csound, p->angle)) {
+        memset(p->handle->data, 0, sizeof(double) * 9U);
+    } else {
+        (void) ROTATE_MAT_AXIS(p->handle->data, source_arr->data, angle);
+    }
     if (pres.aliased) update_array_data_version(&p->handle->version);
     p->registry = reg;
 
@@ -595,11 +597,13 @@ static int32_t csncoord_rotmat_ypr_helper(CSOUND *csound, CSN_ROTMAT_YPR *p) {
     res = pres.err;
     if (res != OK) goto done;
 
-    /* Filled on both passes, as csnrotmat does. In the k-rate form the angles
-       are read at whatever the init chain has already written into them, which
-       is 0 unless an earlier line set them with init, so the matrix that
-       reaches the first control period is normally the identity. */
-    MAT_YPR_COMPOSED(p->handle->data, angle_y, angle_p, angle_r);
+    /* As csnrotmat: the k form builds it here only from angles known at init. */
+    bool known = !csn_is_k_form(&p->h) || (csn_known_at_init(csound, p->yaw) && csn_known_at_init(csound, p->pitch) && csn_known_at_init(csound, p->roll));
+    if (known) {
+        MAT_YPR_COMPOSED(p->handle->data, angle_y, angle_p, angle_r);
+    } else {
+        memset(p->handle->data, 0, sizeof(double) * 9U);
+    }
     p->registry = reg;
 
 done:

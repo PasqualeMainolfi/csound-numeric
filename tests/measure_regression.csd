@@ -143,7 +143,6 @@ instr 2
     kTrig = (timeinstk() == 2 ? 1 : 0)
     kVol init 100
     kTarget init 2
-    kAxis0 init 0
 
     gkSab = csnt60sab(kVol, Surf1D, Alpha1D, kTrig)
     gkEyr = csnt60eyr(kVol, Surf1D, Alpha1D, kTrig)
@@ -162,7 +161,7 @@ instr 2
     MillisK = csnsamptomillis(Samps, 48000, kTrig)
 
     gkDb = csndbsum(Levels, kTrig)
-    DbAxK = csndbsum(Levels, kTrig, kAxis0)
+    DbAxK = csndbsum(Levels, kTrig, 0)
 
     kDelay init 0.010
     kTarget60 init 1.5

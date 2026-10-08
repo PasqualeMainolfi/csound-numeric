@@ -7,7 +7,6 @@
 
 #define CSN_FILE_EXT ".csn"
 #define CSN_FILE_NPY_EXT ".npy"
-#define CSN_MAGIC_SIZE 4
 #define CSN_MAGIC_NUMPY_SIZE 6
 #define CSN_NUMPY_MAX_HEADER_SIZE 10000
 #define CSN_NUMPY_MAGIC "\x93NUMPY"
@@ -16,9 +15,6 @@
 #define CSN_FILE_VERSION_MINOR 0
 #define CSN_FILE_NUMPY_VERSION_MAJOR 3
 #define CSN_FILE_NUMPY_VERSION_MINOR 0
-#define CSN_ERROR_MESSAGE_SIZE 128
-#define CSN_NUMPY_DOUBLE "<f8"
-#define CSN_NUMPY_COMPLEX "<c16"
 
 
 typedef enum {

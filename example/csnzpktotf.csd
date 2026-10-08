@@ -28,8 +28,8 @@ instr 1
     csnprint(a)     ; [1 3 2]
 
     ; the round trip through csntftozpk gives the same filter back
-    z2:CsnArr, p2:CsnArr, igain csntftozpk b, a
-    b2:CsnArr, a2:CsnArr csnzpktotf z2, p2, igain
+    z2:CsnArr, pl2:CsnArr, igain csntftozpk b, a
+    b2:CsnArr, a2:CsnArr csnzpktotf z2, pl2, igain
     csnprint(b2)
     csnprint(a2)
     turnoff
