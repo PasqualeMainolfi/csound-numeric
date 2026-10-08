@@ -2370,6 +2370,23 @@ static CSN_COMPLEXDAT decorrconv_pivot(const CSN_ARRAY *h, CSN_CORRCONV_MODE mod
 
 static void decorrconv_loop(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, size_t src_base, size_t dst_base, size_t src_stride, size_t dst_stride, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
     (void) axis;
+    if (y->itype == CSN_REAL) {
+        double pivot = h->data[mode == CSN_DECONVOLUTION ? 0 : h->size - 1];
+        for (uint32_t i = 0; i < out_size; ++i) {
+            double sum = 0.0;
+            for (uint32_t j = 1; j < h->size; ++j) {
+                int64_t src_index = (int64_t) i + start_offset - (int64_t) j;
+                if (src_index >= 0 && src_index < (int64_t) out_size) {
+                    size_t kernel_index = mode == CSN_DECONVOLUTION ? (size_t) j : h->size - 1 - (size_t) j;
+                    sum += y->data[dst_base + (size_t) src_index * dst_stride] * h->data[kernel_index];
+                }
+            }
+            y->data[dst_base + (size_t) i * dst_stride] =
+                (x->data[src_base + (size_t) i * src_stride] - sum) / pivot;
+        }
+        return;
+    }
+
     CSN_COMPLEXDAT h0 = decorrconv_pivot(h, mode);
     for (uint32_t i = 0; i < out_size; i++) {
         // direct -> output-side
@@ -2661,6 +2678,21 @@ static int32_t corrconv_validate(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *x, CSN
 
 static void corrconv_loop(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, size_t src_base, size_t dst_base, size_t src_stride, size_t dst_stride, uint32_t out_size, int64_t start_offset, int32_t axis, CSN_CORRCONV_MODE mode) {
     int64_t x_length = axis == -1 ? x->size : x->shape[axis];
+    if (y->itype == CSN_REAL) {
+        for (uint32_t i = 0; i < out_size; ++i) {
+            double sum = 0.0;
+            for (uint32_t j = 0; j < h->size; ++j) {
+                int64_t src_index = (int64_t) i + start_offset - (int64_t) j;
+                if (src_index >= 0 && src_index < x_length) {
+                    size_t kernel_index = mode == CSN_CONVOLUTION ? (size_t) j : h->size - 1 - (size_t) j;
+                    sum += x->data[src_base + (size_t) src_index * src_stride] * h->data[kernel_index];
+                }
+            }
+            y->data[dst_base + (size_t) i * dst_stride] = sum;
+        }
+        return;
+    }
+
     for (uint32_t i = 0; i < out_size; i++) {
         // direct -> output-side
         CSN_COMPLEXDAT y_value = { .re = 0.0, .im = 0.0 };
@@ -2724,19 +2756,21 @@ static int32_t corrconv_assig_value(CSN_ARRAY *y, CSN_ARRAY *x, CSN_ARRAY *h, in
             size_t knl_offset = kernel_it.linear_index;
 
             size_t knl_compute = mode == CSN_CONVOLUTION ? (size_t) knl_offset : h->size - 1 - knl_offset;
-            CSN_COMPLEXDAT x_value = slice_get(x->data, src_offset, 1U, x->itype);
-            CSN_COMPLEXDAT h_value = slice_get(h->data, knl_compute, 1U, h->itype);
-            h_value.im = mode == CSN_CONVOLUTION ? h_value.im : -h_value.im;
             if (y->itype == CSN_COMPLEX) {
+                CSN_COMPLEXDAT x_value = slice_get(x->data, src_offset, 1U, x->itype);
+                CSN_COMPLEXDAT h_value = slice_get(h->data, knl_compute, 1U, h->itype);
+                h_value.im = mode == CSN_CONVOLUTION ? h_value.im : -h_value.im;
                 CSN_COMPLEXDAT temp = { .re = 0.0, .im = 0.0 };
                 complex_prod(&temp, x_value, h_value);
                 complex_add(&y_value, y_value, temp);
             } else {
-                y_value.re += x_value.re * h_value.re;
+                y_value.re += x->data[src_offset] * h->data[knl_compute];
             }
         }
-        slice_put(y->data, dst_it.linear_index, 1U, y->itype, y_value);
+        if (y->itype == CSN_REAL) y->data[dst_it.linear_index] = y_value.re;
+        else slice_put(y->data, dst_it.linear_index, 1U, y->itype, y_value);
     }
+
     return OK;
 }
 

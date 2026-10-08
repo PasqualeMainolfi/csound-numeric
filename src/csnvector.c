@@ -31,6 +31,15 @@ static inline void item_set(CSN_ARRAY *arr, size_t off, CSN_COMPLEXDAT z) {
 static void get_dot_inner_accum(CSN_COMPLEXDAT *acc, size_t base_a, size_t base_b, size_t stride_a, size_t stride_b, CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, uint32_t loop_dim) {
     acc->re = 0.0;
     acc->im = 0.0;
+    if (source_arr_a->itype == CSN_REAL) {
+        if (loop_dim == 0) return;
+        const double *a = source_arr_a->data + base_a;
+        const double *b = source_arr_b->data + base_b;
+        for (uint32_t k = 0; k < loop_dim; ++k) {
+            acc->re += a[(size_t) k * stride_a] * b[(size_t) k * stride_b];
+        }
+        return;
+    }
     for (uint32_t k = 0; k < loop_dim; ++k) {
         size_t off_a = base_a + (size_t) k * stride_a;
         size_t off_b = base_b + (size_t) k * stride_b;
@@ -165,6 +174,14 @@ static int32_t vec_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_
             }
             break;
         case CSN_OUTER:
+            if (source_arr_a->itype == CSN_REAL) {
+                for (size_t i = 0; i < size_a; ++i) {
+                    for (size_t j = 0; j < size_b; ++j) {
+                        arr->data[i * size_b + j] = source_arr_a->data[i] * source_arr_b->data[j];
+                    }
+                }
+                break;
+            }
             for (size_t i = 0; i < size_a; ++i) {
                 for (size_t j = 0; j < size_b; ++j) {
                     CSN_COMPLEXDAT prod = {0};
@@ -174,6 +191,12 @@ static int32_t vec_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_
             }
             break;
         case CSN_PAIR_DISTANCE:
+            if (source_arr_a->itype == CSN_REAL) {
+                for (size_t i = 0; i < size_a; ++i) {
+                    arr->data[i] = fabs(source_arr_a->data[i] - source_arr_b->data[i]);
+                }
+                break;
+            }
             for (size_t i = 0; i < size_a; ++i) {
                 CSN_COMPLEXDAT d = {0};
                 complex_sub(&d, item_at(source_arr_a, i), item_at(source_arr_b, i));
@@ -183,6 +206,27 @@ static int32_t vec_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_
         case CSN_PROJECT:
         case CSN_REJECT:
         case CSN_REFLECT: {
+            if (source_arr_a->itype == CSN_REAL) {
+                double ab = 0.0;
+                double bb = 0.0;
+                for (size_t i = 0; i < size_a; ++i) {
+                    double a = source_arr_a->data[i];
+                    double b = source_arr_b->data[i];
+                    ab += a * b;
+                    bb += b * b;
+                }
+                if (bb == 0.0) {
+                    return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] The second vector has zero length, so the projection onto it is undefined");
+                }
+                double scale = ab / bb;
+                for (size_t i = 0; i < size_a; ++i) {
+                    double projected = scale * source_arr_b->data[i];
+                    arr->data[i] = mode == CSN_PROJECT ? projected
+                        : mode == CSN_REJECT ? source_arr_a->data[i] - projected
+                        : source_arr_a->data[i] - 2.0 * projected;
+                }
+                break;
+            }
             for (size_t i = 0; i < size_a; ++i) {
                 CSN_COMPLEXDAT ai = item_at(source_arr_a, i);
                 CSN_COMPLEXDAT bi = item_at(source_arr_b, i);
@@ -410,6 +454,17 @@ static int32_t scalar_helper_impl_check(CSOUND *csound, OPDS *perf_h, CSN_ARRAY 
 
 static void scalar_helper_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_arr_b, double dist_order, cs_float *out_value, COMPLEXDAT *out_complex, CSN_VECOP_MODE mode) {
     bool wants_complex = (mode != CSN_DISTANCE) && source_arr_a->itype == CSN_COMPLEX;
+    if (!wants_complex && (mode == CSN_DOT_SCALAR || mode == CSN_INNER_SCALAR)) {
+        const double *a = source_arr_a->data;
+        const double *b = source_arr_b->data;
+        double sum = 0.0;
+        for (size_t i = 0; i < source_arr_a->size; ++i) {
+            sum += a[i] * b[i];
+        }
+        *out_value = (cs_float) sum;
+        return;
+    }
+
     double value = 0.0;
     CSN_COMPLEXDAT acc = { 0.0, 0.0 };
     for (size_t i = 0; i < source_arr_a->size; i++) {
@@ -874,6 +929,15 @@ static void normalize_slice(double *dst, const double *src, size_t n, size_t str
 }
 
 static void cumsumprod_slice(double *dst, const double *src, size_t n, size_t stride, bool is_cumsum, ITEM_TYPE itype) {
+    if (itype == CSN_REAL) {
+        double acc = is_cumsum ? 0.0 : 1.0;
+        for (size_t i = 0; i < n; ++i) {
+            double value = src[i * stride];
+            acc = is_cumsum ? acc + value : acc * value;
+            dst[i * stride] = acc;
+        }
+        return;
+    }
     CSN_COMPLEXDAT acc = { is_cumsum ? 0.0 : 1.0, 0.0 };
     for (size_t i = 0; i < n; ++i) {
         CSN_COMPLEXDAT z = slice_get(src, i, stride, itype);
@@ -1636,6 +1700,22 @@ static int32_t matmul_assign_value(CSN_ARRAY *source_arr_a, CSN_ARRAY *source_ar
         size_t batch = it.linear_index;
         size_t a_base = it.offsets[0];
         size_t b_base = it.offsets[1];
+
+        if (source_arr_a->itype == CSN_REAL) {
+            for (uint32_t r = 0; r < box->rows; ++r) {
+                for (uint32_t c = 0; c < box->cols; ++c) {
+                    double sum = 0.0;
+                    size_t row_a = a_base + (size_t) r * a_row_stride;
+                    size_t col_b = b_base + (size_t) c * b_col_stride;
+                    for (uint32_t k = 0; k < box->inner; ++k) {
+                        sum += source_arr_a->data[row_a + (size_t) k * a_col_stride]
+                            * source_arr_b->data[col_b + (size_t) k * b_row_stride];
+                    }
+                    arr->data[(batch * box->rows + r) * box->cols + c] = sum;
+                }
+            }
+            continue;
+        }
 
         for (uint32_t r = 0; r < box->rows; ++r) {
             for (uint32_t c = 0; c < box->cols; ++c) {
