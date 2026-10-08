@@ -17,17 +17,17 @@ kept. Given an axis, only that axis is shortened and the shape keeps its rank: a
 [csnresize](csnresize.md), which zero-fills what it adds, or
 [csnpad](csnpad.md).
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csntruncate(source:CsnArr, length:i)
-handle:CsnArr = csntruncate(source:CsnArr, length:i, axis:i)
-handle:CsnArr = csntruncate(source:CsnArr, length:k, trig:k)
-handle:CsnArr = csntruncate(source:CsnArr, length:k, trig:k, axis:k)
+out:CsnArr = csntruncate(source:CsnArr, length:i)
+out:CsnArr = csntruncate(source:CsnArr, length:i, axis:i)
+out:CsnArr = csntruncate(source:CsnArr, length:k, trig:k)
+out:CsnArr = csntruncate(source:CsnArr, length:k, trig:k, axis:k)
 csntruncate(source:CsnArr, length:i)
 csntruncate(source:CsnArr, length:i, axis:i)
 csntruncate(source:CsnArr, length:k, trig:k)
@@ -43,7 +43,7 @@ csntruncate(source:CsnArr, length:k, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the shortened array. Omit it for the in-place form.
+* `out:CsnArr`: the shortened array. Omit it for the in-place form.
 
 ## Execution Time
 

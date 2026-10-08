@@ -17,18 +17,18 @@ same norm.
 
 Both real and complex arrays are accepted.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnnormalize(source:CsnArr)
-handle:CsnArr = csnnormalize(source:CsnArr, order:i)
-handle:CsnArr = csnnormalize(source:CsnArr, order:i, axis:i)
-handle:CsnArr = csnnormalize(source:CsnArr, order:k, trig:k)
-handle:CsnArr = csnnormalize(source:CsnArr, order:k, trig:k, axis:k)
+out:CsnArr = csnnormalize(source:CsnArr)
+out:CsnArr = csnnormalize(source:CsnArr, order:i)
+out:CsnArr = csnnormalize(source:CsnArr, order:i, axis:i)
+out:CsnArr = csnnormalize(source:CsnArr, order:k, trig:k)
+out:CsnArr = csnnormalize(source:CsnArr, order:k, trig:k, axis:k)
 csnnormalize(source:CsnArr)
 csnnormalize(source:CsnArr, order:i)
 csnnormalize(source:CsnArr, order:i, axis:i)
@@ -45,7 +45,7 @@ csnnormalize(source:CsnArr, order:k, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the normalised array. Omit it for the in-place form.
+* `out:CsnArr`: the normalised array. Omit it for the in-place form.
 
 ## Execution Time
 

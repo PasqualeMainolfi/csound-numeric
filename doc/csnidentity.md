@@ -16,10 +16,10 @@ usual starting point for a transform matrix you then fill in with
 ## Syntax
 
 ```csound
-handle:CsnArr = csnidentity(n:i)
-handle:CsnArr = csnidentity(n:i, itype:i)
-handle:CsnArr = csnidentity(n:k)
-handle:CsnArr = csnidentity(n:k, itype:i)
+out:CsnArr = csnidentity(n:i)
+out:CsnArr = csnidentity(n:i, itype:i)
+out:CsnArr = csnidentity(n:k)
+out:CsnArr = csnidentity(n:k, itype:i)
 ```
 
 ## Arguments
@@ -29,7 +29,7 @@ handle:CsnArr = csnidentity(n:k, itype:i)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new `n × n` matrix.
+* `out:CsnArr`: the new `n × n` matrix.
 
 ## Execution Time
 

@@ -27,8 +27,8 @@ result:k = csnmean(source:CsnArr)
 result:k = csnmean(source:CsnArr, trig:k)
 result:Complex = csnmean(source:CsnArr)
 result:Complex = csnmean(source:CsnArr, trig:k)
-handle:CsnArr = csnmean(source:CsnArr, axis:i)
-handle:CsnArr = csnmean(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnmean(source:CsnArr, axis:i)
+out:CsnArr = csnmean(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -41,7 +41,7 @@ handle:CsnArr = csnmean(source:CsnArr, trig:k, axis:k)
 
 * `result:i / result:k`: the reduction over the whole array, for a real source.
 * `result:Complex`: the reduction over the whole array, for a complex source.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

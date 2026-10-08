@@ -23,8 +23,8 @@ Both real and complex arrays are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnmatmul(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnmatmul(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnmatmul(a:CsnArr, b:CsnArr)
+out:CsnArr = csnmatmul(a:CsnArr, b:CsnArr, trig:k)
 value:i = csnmatmul(a:CsnArr, b:CsnArr)
 value:k = csnmatmul(a:CsnArr, b:CsnArr, trig:k)
 ```
@@ -37,7 +37,7 @@ value:k = csnmatmul(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the product matrix.
+* `out:CsnArr`: the product matrix.
 * `value:i / value:k`: the single number, when both operands are vectors.
 
 ## Execution Time

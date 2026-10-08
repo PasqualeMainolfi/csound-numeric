@@ -16,8 +16,16 @@ an in-place sibling under the same name that writes back into its source and
 returns nothing; k-rate forms put the trigger before an explicit optional axis, and a zero
 trigger republishes the previous result instead of recomputing. A trigger that
 is the only k-rate argument is required to select the performance overload;
-side-effecting opcodes simply do nothing when it is zero. See the README for the
-`CsnArr` value model and the k-rate versioning.
+side-effecting opcodes simply do nothing when it is zero; where an i-time and a
+k-rate form take the same arguments (`csntranspose`, `csnflatten`, `csnlikeset`),
+omitting the trigger selects the i-time form.
+**The rate of a named opcode is chosen by its trigger, which must be written for
+the k-rate form; the operators take no trigger and follow the rate of their
+operands, which `csnk` and `csni` set.** A k-rate form computes during its
+init pass only from arguments known there, constants, i variables and arrays;
+with a k scalar among them the output is laid out empty or reserved and the
+first triggered pass computes it. See the README for the `CsnArr` value model,
+the k-rate versioning and what the init pass computes.
 
 ## Creation
 
@@ -42,6 +50,8 @@ side-effecting opcodes simply do nothing when it is zero. See the README for the
 - **csnfromftable** - function table to `CsnArr` (i — real only)
 - **csntoftable** - `CsnArr` to function table, optionally resizing it (i — real only)
 - **csncopy** - independent copy of an array (i, k — real, complex)
+- **csnk** - makes an array k-rate, in place or as a k-rate copy in an expression, so the operators on it run at performance time (i, k — real, complex)
+- **csni** - copy of an array frozen at its init value, the counterpart of `i()` (i — real, complex)
 - **csntype** - item type: 0 real, 1 complex (i, k — real, complex)
 - **csndims** - number of dimensions (i, k — real, complex)
 - **csnsize** - number of elements (i, k — real, complex)
@@ -101,6 +111,13 @@ including Fortran-order files. A zero trigger does not touch the disk.
 
 ## Elementwise arithmetic
 
+`CsnArr` also takes the operators `+`, `-`, `*`, `/` and `^`, between two arrays
+or an array and a real or `:Complex;` scalar on either side, the compound `+=`,
+`-=`, `*=` and `/=`, and unary minus. They are the named opcodes below without a
+trigger, and follow the rates of their operands: with i-rate operands they run
+once, at init; `csnk` makes an operand k-rate so that they run on every control
+period.
+
 - **csnadd** - addition, array with array or with a scalar (i, k — real, complex)
 - **csnsubtract** - subtraction, array with array or with a scalar (i, k — real, complex)
 - **csnmul** - multiplication, array with array or with a scalar (i, k — real, complex)
@@ -116,7 +133,7 @@ including Fortran-order files. A zero trigger does not touch the disk.
 - **csnsign** - -1, 0 or 1 by the sign of each element (i, k — real, complex)
 - **csnfloor** - rounds each element down (i, k — real only)
 - **csnceil** - rounds each element up (i, k — real only)
-- **csnround** - rounds each element to the nearest integer (i, k — real only)
+- **csnround** - rounds each element to the nearest integer, halves to even as in NumPy (i, k — real only)
 - **csnforeach** - maps a user-defined opcode over every element, in place (k — real only)
 
 ## Transcendental functions

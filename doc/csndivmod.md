@@ -39,8 +39,8 @@ quot:CsnArr, rem:CsnArr = csndivmod(value:k, b:CsnArr)
 
 ## Output
 
-* `quot:CsnArr`: handle of the floor quotients.
-* `rem:CsnArr`: handle of the remainders.
+* `quot:CsnArr`: the floor quotients.
+* `rem:CsnArr`: the remainders.
 
 ## Execution Time
 

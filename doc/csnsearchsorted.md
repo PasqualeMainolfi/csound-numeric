@@ -43,7 +43,7 @@ index:k = csnsearchsorted(source:CsnArr, value:k, side:i, trig:k)
 * `values:CsnArr`: a 1-D real array containing the values to locate.
 * `value:i / value:k`: one value to locate.
 * `side:i` (optional, default `0`): `0` returns the first suitable index (left); `1` returns the last suitable index (right).
-* `trig:k` (optional, default `1`): k-rate trigger. Zero retains the result computed by the init pass. The array form needs an explicit trigger to select its performance overload because its other inputs are init-rate handles and values.
+* `trig:k` (optional, default `1`): k-rate trigger. Zero retains the result computed by the init pass, which computes only from values known at init: a k query leaves the output unwritten until the first non-zero trigger. The array form needs an explicit trigger to select its performance overload because its other inputs are init-rate arrays and values.
 
 ## Output
 

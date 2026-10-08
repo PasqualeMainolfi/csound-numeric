@@ -24,7 +24,7 @@ promotes the result to complex.
 
 Besides the array forms, the same name covers scalar complex arithmetic: two
 `:Complex;` values, or one `:Complex;` and one real number on either side. These
-take no handles and no trigger — they are a few floating-point operations, not a
+take no arrays and no trigger — they are a few floating-point operations, not a
 traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
 operands do, since nothing in its signature could tell the two apart.
 A scalar complex division by zero is an error, as it is elementwise.
@@ -33,18 +33,18 @@ A scalar complex division by zero is an error, as it is elementwise.
 ## Syntax
 
 ```csound
-handle:CsnArr = csndiv(a:CsnArr, b:CsnArr)
-handle:CsnArr = csndiv(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csndiv(a:CsnArr, value:i)
-handle:CsnArr = csndiv(a:CsnArr, value:k)
-handle:CsnArr = csndiv(a:CsnArr, value:k, trig:k)
-handle:CsnArr = csndiv(a:CsnArr, value:Complex)
-handle:CsnArr = csndiv(a:CsnArr, value:Complex, trig:k)
-handle:CsnArr = csndiv(value:i, b:CsnArr)
-handle:CsnArr = csndiv(value:k, b:CsnArr)
-handle:CsnArr = csndiv(value:k, b:CsnArr, trig:k)
-handle:CsnArr = csndiv(value:Complex, b:CsnArr)
-handle:CsnArr = csndiv(value:Complex, b:CsnArr, trig:k)
+out:CsnArr = csndiv(a:CsnArr, b:CsnArr)
+out:CsnArr = csndiv(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csndiv(a:CsnArr, value:i)
+out:CsnArr = csndiv(a:CsnArr, value:k)
+out:CsnArr = csndiv(a:CsnArr, value:k, trig:k)
+out:CsnArr = csndiv(a:CsnArr, value:Complex)
+out:CsnArr = csndiv(a:CsnArr, value:Complex, trig:k)
+out:CsnArr = csndiv(value:i, b:CsnArr)
+out:CsnArr = csndiv(value:k, b:CsnArr)
+out:CsnArr = csndiv(value:k, b:CsnArr, trig:k)
+out:CsnArr = csndiv(value:Complex, b:CsnArr)
+out:CsnArr = csndiv(value:Complex, b:CsnArr, trig:k)
 quo:Complex = csndiv(a:Complex, b:Complex)
 quo:Complex = csndiv(a:Complex, b:i)
 quo:Complex = csndiv(a:Complex, b:k)
@@ -61,7 +61,7 @@ quo:Complex = csndiv(a:k, b:Complex)
 
 ## Output
 
-* `handle:CsnArr`: handle of the quotient.
+* `out:CsnArr`: the quotient.
 
 ## Execution Time
 

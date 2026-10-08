@@ -17,8 +17,8 @@ refused rather than rounded lane by lane.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfloor(source:CsnArr)
-handle:CsnArr = csnfloor(source:CsnArr, trig:k)
+out:CsnArr = csnfloor(source:CsnArr)
+out:CsnArr = csnfloor(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -28,7 +28,7 @@ handle:CsnArr = csnfloor(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the rounded array.
+* `out:CsnArr`: the rounded array.
 
 ## Execution Time
 

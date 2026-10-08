@@ -18,8 +18,8 @@ retaining its reserved shape. Real arrays only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnisinf(source:CsnArr)
-handle:CsnArr = csnisinf(source:CsnArr, trig:k)
+out:CsnArr = csnisinf(source:CsnArr)
+out:CsnArr = csnisinf(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -29,7 +29,7 @@ handle:CsnArr = csnisinf(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a shape-preserving 0/1 mask.
+* `out:CsnArr`: a shape-preserving 0/1 mask.
 
 ## Execution Time
 

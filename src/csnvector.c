@@ -695,7 +695,7 @@ static int32_t norm_helper(CSOUND *csound, CSN_NORM_REDUCTION *p, double axis_va
     bool axis_known = !is_k_init || csn_known_at_init(csound, p->trig);
     bool has_order = order_known && order >= 1.0;
     if (!has_order && !is_k_init) {
-        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_init_error(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     int32_t res = OK;
@@ -730,7 +730,7 @@ static int32_t norm_helper(CSOUND *csound, CSN_NORM_REDUCTION *p, double axis_va
 
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis_value(axis_value, source_ndim);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", axis_value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", axis_value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
         goto done;
     }
     uint32_t axis = axis_spec.index;
@@ -755,7 +755,7 @@ static int32_t norm_helper(CSOUND *csound, CSN_NORM_REDUCTION *p, double axis_va
 
     CSN_ARRAY *arr = p->handle;
     if (norm_assign_value(source_arr, arr, p->scratch.scratch, axis, run, itype, order) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid norm iteration shape");
+        res = csn_init_error(csound, "[csnarray] Invalid norm iteration shape");
         goto done;
     }
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, arr, (double) axis, order);
@@ -781,7 +781,7 @@ int32_t csnarray_norm_k(CSOUND *csound, CSN_NORM_REDUCTION *p) {
     double order = (double) *p->axis;
 
     if (order < 1.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_perf_error(csound, &p->h, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     CHECK_KTRIG(p->order);
@@ -843,7 +843,7 @@ static int32_t norm_scalar_helper(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p, 
     double order = (double) *p->order;
     bool has_order = (!is_k_init || csn_known_at_init(csound, p->order)) && order >= 1.0;
     if (!has_order && !is_k_init) {
-        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_init_error(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     memset(&p->k_data, 0, sizeof(p->k_data));
@@ -875,7 +875,7 @@ int32_t csnarray_norm_scalar_k(CSOUND *csound, CSN_NORM_REDUCTION_SCALAR *p) {
 
     double order = (double) *p->order;
     if (order < 1.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_perf_error(csound, &p->h, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     CHECK_KTRIG(p->trig);
@@ -1160,7 +1160,7 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sour
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (mode == CSN_NORMALIZE && order < 1.0) {
-        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_init_error(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     int32_t res = OK;
@@ -1173,19 +1173,19 @@ static int32_t csnarray_unary_ax_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sour
     ITEM_TYPE itype = source_arr->itype;
 
     if ((mode == CSN_SORT || mode == CSN_ARGSORT) && itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Sort operation is for real array only");
+        res = csn_init_error(csound, "[csnarray] Sort operation is for real array only");
         goto done;
     }
 
     if (mode == CSN_GRADIENT && itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, unary_ax_default(mode));
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -1239,7 +1239,7 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRA
     bool order_known = order_arg == NULL || csn_known_at_init(csound, (void *) order_arg);
     double order = order_arg != NULL && order_known ? (double) *order_arg : 0.0;
     if (mode == CSN_NORMALIZE && order_known && order_arg != NULL && order < 1.0) {
-        return csound->InitError(csound, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_init_error(csound, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     int32_t res = OK;
@@ -1255,12 +1255,12 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRA
     ITEM_TYPE itype = source_arr->itype;
 
     if ((mode == CSN_SORT || mode == CSN_ARGSORT) && itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Sort operation is for real array only");
+        res = csn_init_error(csound, "[csnarray] Sort operation is for real array only");
         goto done;
     }
 
     if (mode == CSN_GRADIENT && itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -1284,7 +1284,7 @@ static int32_t csnarray_unary_ax_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRA
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, unary_ax_default(mode));
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -1338,7 +1338,7 @@ static int32_t csnarray_unary_ax_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
     CHECK_REGISTRY(csound, h, reg);
 
     if (mode == CSN_NORMALIZE && order < 1.0) {
-        return csound->PerfError(csound, h, "[csnarray] Norm order must be >= 1, got %g", order);
+        return csn_perf_error(csound, h, "[csnarray] Norm order must be >= 1, got %g", order);
     }
 
     CHECK_KTRIG(trig);
@@ -1754,7 +1754,7 @@ int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p) {
     ITEM_TYPE itype = source_arr_a->itype;
 
     if (source_a_dim == 1 && source_b_dim == 1) {
-        res = csound->InitError(csound, "[csnarray] The matrix product of two 1-D arrays is a scalar; declare the output as i, not as a handle");
+        res = csn_init_error(csound, "[csnarray] The matrix product of two 1-D arrays is a scalar; declare the output as i, not as a handle");
         goto done;
     }
 
@@ -1770,7 +1770,7 @@ int32_t csnarray_matmul(CSOUND *csound, CSN_BINOP_HH *p) {
 
     CSN_ARRAY *arr = p->handle;
     if (matmul_assign_value(source_arr_a, source_arr_b, arr, &box) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid matmul batch iteration shape");
+        res = csn_init_error(csound, "[csnarray] Invalid matmul batch iteration shape");
         goto done;
     }
 
@@ -1856,12 +1856,12 @@ int32_t csnarray_angle_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
 
     if (source_dim_a != source_dim_b || memcmp(source_shape_a, source_shape_b, sizeof(uint32_t) * CSN_MAX_DIMS) != 0) {
         char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Both arrays must have the same shape, got %s and %s", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
+        res = csn_init_error(csound, "[csnarray] Both arrays must have the same shape, got %s and %s", shape_str(abuf, sizeof(abuf), source_shape_a, (uint32_t) source_dim_a), shape_str(bbuf, sizeof(bbuf), source_shape_b, (uint32_t) source_dim_b));
         goto done;
     }
 
     if (source_arr_a->itype != source_arr_b->itype) {
-        res = csound->InitError(csound, "[csnarray] Element type mismatch: one array is real and the other complex");
+        res = csn_init_error(csound, "[csnarray] Element type mismatch: one array is real and the other complex");
         goto done;
     }
 
@@ -1880,7 +1880,7 @@ int32_t csnarray_angle_distance(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     }
 
     if (norm_a == 0.0 || norm_b == 0.0) {
-        csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors");
+        csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors\n");
         *p->value = (cs_float) NAN;
         goto done;
     }
@@ -1949,7 +1949,7 @@ int32_t csnarray_angle_distance_k(CSOUND *csound, CSN_BINOP_HH_SCALAR *p) {
     }
 
     if (norm_a == 0.0 || norm_b == 0.0) {
-        csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors");
+        csound->Message(csound, "[csnarray] Angle undefined for zero-length vectors\n");
         *p->value = (cs_float) NAN;
         goto done;
     }
@@ -1985,7 +1985,7 @@ static int32_t csnarray_trace_impl(CSOUND *csound, OPDS *h, CSN_ARRAY *source_ar
     uint32_t *source_shape = source_arr->shape;
 
     if (dim != 2) {
-        res = csound->InitError(csound, "[csnarray] Trace needs a 2-D matrix, got %u-D", dim);
+        res = csn_init_error(csound, "[csnarray] Trace needs a 2-D matrix, got %u-D", dim);
         goto done;
     }
 
@@ -1998,7 +1998,7 @@ static int32_t csnarray_trace_impl(CSOUND *csound, OPDS *h, CSN_ARRAY *source_ar
 
     if (source_arr->itype == CSN_COMPLEX) {
         if (out_complex == NULL) {
-            res = csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
+            res = csn_init_error(csound, "[csnarray] Handle holds a complex array; declare the result as :Complex;");
             goto done;
         }
         out_complex->real = (cs_float) sum.re;
@@ -2006,7 +2006,7 @@ static int32_t csnarray_trace_impl(CSOUND *csound, OPDS *h, CSN_ARRAY *source_ar
         out_complex->isPolar = 0;
     } else {
         if (out_value == NULL) {
-            res = csound->InitError(csound, "[csnarray] Handle holds a real array; declare the result as i");
+            res = csn_init_error(csound, "[csnarray] Handle holds a real array; declare the result as i");
             goto done;
         }
         *out_value = (cs_float) sum.re;

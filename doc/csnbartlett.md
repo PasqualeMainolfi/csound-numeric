@@ -25,8 +25,8 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnbartlett(n:i)
-handle:CsnArr = csnbartlett(n:k)
+out:CsnArr = csnbartlett(n:i)
+out:CsnArr = csnbartlett(n:k)
 ```
 
 ## Arguments
@@ -35,7 +35,7 @@ handle:CsnArr = csnbartlett(n:k)
 
 ## Output
 
-* `handle:CsnArr`: a real 1-D array of `n` window coefficients.
+* `out:CsnArr`: a real 1-D array of `n` window coefficients.
 
 ## Execution Time
 

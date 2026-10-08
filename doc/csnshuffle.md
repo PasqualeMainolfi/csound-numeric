@@ -23,13 +23,13 @@ Real only.
 ## Syntax
 
 ```csound
-csnshuffle(handle:CsnArr)
-csnshuffle(handle:CsnArr, trig:k)
+csnshuffle(arr:CsnArr)
+csnshuffle(arr:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: real array to shuffle in place.
+* `arr:CsnArr`: real array to shuffle in place.
 * `trig:k`: required k-rate trigger. A non-zero value shuffles the array; zero does nothing.
 
 ## Output

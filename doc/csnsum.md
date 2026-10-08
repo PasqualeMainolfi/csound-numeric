@@ -27,8 +27,8 @@ result:k = csnsum(source:CsnArr)
 result:k = csnsum(source:CsnArr, trig:k)
 result:Complex = csnsum(source:CsnArr)
 result:Complex = csnsum(source:CsnArr, trig:k)
-handle:CsnArr = csnsum(source:CsnArr, axis:i)
-handle:CsnArr = csnsum(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnsum(source:CsnArr, axis:i)
+out:CsnArr = csnsum(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -41,7 +41,7 @@ handle:CsnArr = csnsum(source:CsnArr, trig:k, axis:k)
 
 * `result:i / result:k`: the reduction over the whole array, for a real source.
 * `result:Complex`: the reduction over the whole array, for a complex source.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

@@ -29,8 +29,8 @@ Both real and complex matrices are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csninv(a:CsnArr)
-handle:CsnArr = csninv(a:CsnArr, trig:k)
+out:CsnArr = csninv(a:CsnArr)
+out:CsnArr = csninv(a:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ handle:CsnArr = csninv(a:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the inverse, shaped like the source.
+* `out:CsnArr`: the inverse, shaped like the source.
 
 ## Execution Time
 

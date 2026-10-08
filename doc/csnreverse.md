@@ -10,15 +10,15 @@ Reverse the flat element order of an array.
 whatever the rank. It is the flat reversal counterpart of [csnflip](csnflip.md), said directly
 and with no axis argument to give.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnreverse(source:CsnArr)
-handle:CsnArr = csnreverse(source:CsnArr, trig:k)
+out:CsnArr = csnreverse(source:CsnArr)
+out:CsnArr = csnreverse(source:CsnArr, trig:k)
 csnreverse(source:CsnArr)
 csnreverse(source:CsnArr, trig:k)
 ```
@@ -30,7 +30,7 @@ csnreverse(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the reversed array. Omit it for the in-place form.
+* `out:CsnArr`: the reversed array. Omit it for the in-place form.
 
 ## Execution Time
 

@@ -19,8 +19,8 @@ exponents, use [csngeomspace](csngeomspace.md).
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlogspace(start:i, stop:i, num:i, base:i)
-handle:CsnArr = csnlogspace(start:k, stop:k, num:k, base:k, trig:k)
+out:CsnArr = csnlogspace(start:i, stop:i, num:i, base:i)
+out:CsnArr = csnlogspace(start:k, stop:k, num:k, base:k, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csnlogspace(start:k, stop:k, num:k, base:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new 1-D array of `num` elements.
+* `out:CsnArr`: the new 1-D array of `num` elements.
 
 ## Execution Time
 

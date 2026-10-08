@@ -4608,6 +4608,30 @@ instr 35
     assert(abs(iZf4v[1][1][2] - (-0.52714005030777322)) < 1e-12)
 endin
 
+instr 36
+    ; rate casts at init: the expression forms copy, the in-place forms only
+    ; mark, and csni in place accepts an array that is not k-rate
+    iCastValues[] = fillarray(4, 5, 6)
+    iCastSrc:CsnArr = csnfromarray(iCastValues)
+    iCastK:CsnArr = csnk(iCastSrc)
+    iCastI:CsnArr = csni(iCastSrc)
+    iCastKv[] = csntoarray(iCastK)
+    iCastIv[] = csntoarray(iCastI)
+    assert(iCastKv[0] == 4 && iCastKv[1] == 5 && iCastKv[2] == 6)
+    assert(iCastIv[0] == 4 && iCastIv[1] == 5 && iCastIv[2] == 6)
+
+    ; the copies are independent of their source
+    csnsort(iCastSrc)
+    iCastKv2[] = csntoarray(iCastK)
+    assert(iCastKv2[0] == 4)
+
+    iCastMark:CsnArr = csnfromarray(iCastValues)
+    csni iCastMark
+    csnk iCastMark
+    iCastMarkv[] = csntoarray(iCastMark)
+    assert(iCastMarkv[0] == 4 && iCastMarkv[2] == 6)
+endin
+
 </CsInstruments>
 
 <CsScore>
@@ -4651,6 +4675,7 @@ i 32 0.62 0.01
 i 33 0.64 0.01
 i 34 0.66 0.01
 i 35 0.68 0.01
+i 36 0.70 0.01
 e
 </CsScore>
 
@@ -4732,5 +4757,6 @@ e
 ; csnlfilter csnlfilter.ax csnsosfilter csnsosfilter.ax
 ; csnzlfilter csnzlfilter.ax csnzsosfilter csnzsosfilter.ax
 ; csndegtorad.s csnradtodeg.s
+; csni csni.in csnk csnk.in
 ; @covers-end
 </CsoundSynthesizer>

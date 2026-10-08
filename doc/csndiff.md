@@ -24,10 +24,10 @@ accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csndiff(source:CsnArr)
-handle:CsnArr = csndiff(source:CsnArr, axis:i)
-handle:CsnArr = csndiff(source:CsnArr, trig:k)
-handle:CsnArr = csndiff(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csndiff(source:CsnArr)
+out:CsnArr = csndiff(source:CsnArr, axis:i)
+out:CsnArr = csndiff(source:CsnArr, trig:k)
+out:CsnArr = csndiff(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csndiff(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the consecutive differences, one element shorter along the axis.
+* `out:CsnArr`: the consecutive differences, one element shorter along the axis.
 
 ## Execution Time
 

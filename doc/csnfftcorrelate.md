@@ -32,9 +32,9 @@ leaves the others alone.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr, edges:i, trig:k)
 ```
 
 ## Arguments
@@ -46,7 +46,7 @@ handle:CsnArr = csnfftcorrelate(x:CsnArr, h:CsnArr, edges:i, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the cross-correlation.
+* `out:CsnArr`: the cross-correlation.
 
 ## Execution Time
 

@@ -21,7 +21,7 @@ instr 1
 
     data_type:i  = csntype(data)
     cpx_type:i   = csntype(cpx)
-    prints("real handle = %d, complex handle = %d\n", data_type, cpx_type)
+    prints("real array = %d, complex array = %d\n", data_type, cpx_type)
 
     ; an operation that mixes the two promotes the result
     mixed:CsnArr = csnadd(data, cpx)

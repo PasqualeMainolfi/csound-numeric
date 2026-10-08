@@ -20,13 +20,13 @@ extents even though [csnsize](csnsize.md) reports `0`.
 ## Syntax
 
 ```csound
-shape:i[] = csnshape(handle:CsnArr)
-shape:k[] = csnshape(handle:CsnArr)
+shape:i[] = csnshape(arr:CsnArr)
+shape:k[] = csnshape(arr:CsnArr)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to query.
+* `arr:CsnArr`: the array to query.
 
 ## Output
 

@@ -25,13 +25,13 @@ array version was already written to the same path by this opcode instance.
 ## Syntax
 
 ```csound
-csnsave(handle:CsnArr, path:S)
-csnsave(handle:CsnArr, path:S, trig:k)
+csnsave(arr:CsnArr, path:S)
+csnsave(arr:CsnArr, path:S, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to write.
+* `arr:CsnArr`: the array to write.
 * `path:S`: destination path; must end in `.csn` or `.npy`.
 * `trig:k`: k-rate trigger. A zero trigger skips the write; an unchanged array and path may also skip a repeat write.
 

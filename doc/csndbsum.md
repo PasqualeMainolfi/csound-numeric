@@ -24,8 +24,8 @@ ratios expressed with `20 log10` — Csound's `dbamp` and `ampdb` work that way 
 they are not levels in this sense and summing them here is not the operation you
 want.
 
-Three ways to call it. Two scalars sum one pair. A handle alone sums every
-element of the array, whatever its shape, to one number. A handle with an axis
+Three ways to call it. Two scalars sum one pair. An array alone sums every
+element of the array, whatever its shape, to one number. An array with an axis
 reduces along that axis and drops it, exactly as [csnsum](csnsum.md) does, so a
 `sources x bands` matrix summed along axis 0 gives one level per band and along
 axis 1 one level per source.
@@ -46,10 +46,10 @@ reduction.
 ```csound
 value:i = csndbsum(a:i, b:i)
 value:i = csndbsum(source:CsnArr)
-handle:CsnArr = csndbsum(source:CsnArr, axis:i)
+out:CsnArr = csndbsum(source:CsnArr, axis:i)
 value:k = csndbsum(a:k, b:k)
 value:k = csndbsum(source:CsnArr, trig:k)
-handle:CsnArr = csndbsum(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csndbsum(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -62,7 +62,7 @@ handle:CsnArr = csndbsum(source:CsnArr, trig:k, axis:k)
 ## Output
 
 * `value:i / value:k`: the summed level in dB, for the pair form and for the whole-array form.
-* `handle:CsnArr`: the summed levels with the reduced axis dropped, for the axis form.
+* `out:CsnArr`: the summed levels with the reduced axis dropped, for the axis form.
 
 ## Execution Time
 

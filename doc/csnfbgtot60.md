@@ -35,7 +35,7 @@ paired with every gain — the row index follows the delay, the column index the
 gain.
 
 The k-rate overloads follow the same four shapes. The scalar/scalar one carries
-no trigger, being two operations; the three that publish a handle take a
+no trigger, being two operations; the three that return an array take a
 trailing trigger, and a zero trigger republishes the previous result.
 
 Real only.
@@ -44,25 +44,25 @@ Real only.
 
 ```csound
 value:i = csnfbgtot60(delay:i, gain:i)
-handle:CsnArr = csnfbgtot60(delay:i, gains:CsnArr)
-handle:CsnArr = csnfbgtot60(delays:CsnArr, gain:i)
-handle:CsnArr = csnfbgtot60(delays:CsnArr, gains:CsnArr)
+out:CsnArr = csnfbgtot60(delay:i, gains:CsnArr)
+out:CsnArr = csnfbgtot60(delays:CsnArr, gain:i)
+out:CsnArr = csnfbgtot60(delays:CsnArr, gains:CsnArr)
 value:k = csnfbgtot60(delay:k, gain:k)
-handle:CsnArr = csnfbgtot60(delay:k, gains:CsnArr, trig:k)
-handle:CsnArr = csnfbgtot60(delays:CsnArr, gain:k, trig:k)
-handle:CsnArr = csnfbgtot60(delays:CsnArr, gains:CsnArr, trig:k)
+out:CsnArr = csnfbgtot60(delay:k, gains:CsnArr, trig:k)
+out:CsnArr = csnfbgtot60(delays:CsnArr, gain:k, trig:k)
+out:CsnArr = csnfbgtot60(delays:CsnArr, gains:CsnArr, trig:k)
 ```
 
 ## Arguments
 
 * `delay:i / delay:k`, `delays:CsnArr`: the delay length in seconds, one value or a one-dimensional array of them.
 * `gain:i / gain:k`, `gains:CsnArr`: the feedback gain, one value or a one-dimensional array of them. Only values in `(0, 1)` decay.
-* `trig:k` (optional, default `1`): k-rate trigger on the overloads that publish a handle. A zero trigger republishes the previous result.
+* `trig:k` (optional, default `1`): k-rate trigger on the overloads that return an array. A zero trigger republishes the previous result.
 
 ## Output
 
 * `value:i / value:k`: the decay time in seconds, when both operands are scalars.
-* `handle:CsnArr`: one time per element when one operand is an array; a `delays x gains` matrix when both are.
+* `out:CsnArr`: one time per element when one operand is an array; a `delays x gains` matrix when both are.
 
 ## Execution Time
 

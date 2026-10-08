@@ -9,7 +9,7 @@
 ;
 ; Ends the section csnrtlockstart opened. It stops new arrays from being
 ; marked; it does not unmark what was created while the section was open,
-; which is what csnrtunlock does, one handle at a time.
+; which is what csnrtunlock does, one array at a time.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

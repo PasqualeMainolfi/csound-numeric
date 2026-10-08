@@ -21,8 +21,8 @@ collinearity.
 ## Syntax
 
 ```csound
-handle:CsnArr = csncross(a:CsnArr, b:CsnArr)
-handle:CsnArr = csncross(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csncross(a:CsnArr, b:CsnArr)
+out:CsnArr = csncross(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csncross(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 3-element vector perpendicular to both operands.
+* `out:CsnArr`: a 3-element vector perpendicular to both operands.
 
 ## Execution Time
 

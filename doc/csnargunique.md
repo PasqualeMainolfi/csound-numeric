@@ -20,8 +20,8 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnargunique(source:CsnArr)
-handle:CsnArr = csnargunique(source:CsnArr, trig:k)
+out:CsnArr = csnargunique(source:CsnArr)
+out:CsnArr = csnargunique(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csnargunique(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the coordinates of the first occurrence of each distinct value, in the order [csnunique](csnunique.md) reports them.
+* `out:CsnArr`: the coordinates of the first occurrence of each distinct value, in the order [csnunique](csnunique.md) reports them.
 
 ## Execution Time
 

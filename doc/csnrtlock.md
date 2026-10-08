@@ -6,7 +6,7 @@ Mark an array as belonging to a real-time path.
 
 ## Description
 
-`csnrtlock` marks a handle so that its array cannot be reallocated during
+`csnrtlock` marks an array so that it cannot be reallocated during
 performance. Arrays derived from a marked source inherit the mark when they are
 created. If a later k-rate shape or item-type change would require allocation,
 the operation raises a performance error naming the output instead of allocating
@@ -26,7 +26,7 @@ derived:CsnArr = csncopy(source) ; inherits the mark
 ```
 
 Locking `source` later does not retroactively change arrays already derived from
-it. Similarly, [csnrtunlock](csnrtunlock.md) clears only the specified handle;
+it. Similarly, [csnrtunlock](csnrtunlock.md) clears only the specified array;
 it does not clear existing descendants.
 
 Only reallocation during performance is forbidden. Ordinary value updates and
@@ -60,13 +60,13 @@ do not come from the audio bridge, as in the complete example below.
 ## Syntax
 
 ```csound
-csnrtlock(handle:CsnArr)
-csnrtlock(handle:CsnArr, trig:k)
+csnrtlock(arr:CsnArr)
+csnrtlock(arr:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: array to mark.
+* `arr:CsnArr`: array to mark.
 * `trig:k` (optional, default `1`): apply the mark when non-zero; do nothing when zero.
 
 ## Output

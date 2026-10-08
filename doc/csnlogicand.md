@@ -23,14 +23,14 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlogicand(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnlogicand(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnlogicand(a:CsnArr, value:i)
-handle:CsnArr = csnlogicand(a:CsnArr, value:k)
-handle:CsnArr = csnlogicand(a:CsnArr, value:k, trig:k)
-handle:CsnArr = csnlogicand(value:i, b:CsnArr)
-handle:CsnArr = csnlogicand(value:k, b:CsnArr)
-handle:CsnArr = csnlogicand(value:k, b:CsnArr, trig:k)
+out:CsnArr = csnlogicand(a:CsnArr, b:CsnArr)
+out:CsnArr = csnlogicand(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnlogicand(a:CsnArr, value:i)
+out:CsnArr = csnlogicand(a:CsnArr, value:k)
+out:CsnArr = csnlogicand(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnlogicand(value:i, b:CsnArr)
+out:CsnArr = csnlogicand(value:k, b:CsnArr)
+out:CsnArr = csnlogicand(value:k, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -42,7 +42,7 @@ handle:CsnArr = csnlogicand(value:k, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 0/1 array.
+* `out:CsnArr`: a 0/1 array.
 
 ## Execution Time
 

@@ -49,9 +49,9 @@ from having to reallocate.
 ## Syntax
 
 ```csound
-handle:CsnArr = csncorrelate(x:CsnArr, h:CsnArr)
-handle:CsnArr = csncorrelate(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csncorrelate(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csncorrelate(x:CsnArr, h:CsnArr)
+out:CsnArr = csncorrelate(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csncorrelate(x:CsnArr, h:CsnArr, edges:i, trig:k)
 ```
 
 ## Arguments
@@ -63,7 +63,7 @@ handle:CsnArr = csncorrelate(x:CsnArr, h:CsnArr, edges:i, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the cross-correlation.
+* `out:CsnArr`: the cross-correlation.
 
 ## Execution Time
 

@@ -36,7 +36,7 @@ performance pass run without allocating. For the same reason the rank of the
 source is fixed at init: a source that changes rank during performance is
 refused by name, since the box was shaped for the rank it had.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing. In place the opcode filters against a private copy of the
 source, which it must: the box reads neighbours on every axis, including cells
@@ -52,10 +52,10 @@ pass does nothing. A zero trigger leaves the array untouched.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnmedfilt(source:CsnArr, kernel:i)
-handle:CsnArr = csnmedfilt(source:CsnArr, kernel:i, trig:k)
-handle:CsnArr = csnmedfilt(source:CsnArr, kernel:i[])
-handle:CsnArr = csnmedfilt(source:CsnArr, kernel:i[], trig:k)
+out:CsnArr = csnmedfilt(source:CsnArr, kernel:i)
+out:CsnArr = csnmedfilt(source:CsnArr, kernel:i, trig:k)
+out:CsnArr = csnmedfilt(source:CsnArr, kernel:i[])
+out:CsnArr = csnmedfilt(source:CsnArr, kernel:i[], trig:k)
 csnmedfilt(source:CsnArr, kernel:i)
 csnmedfilt(source:CsnArr, kernel:i, trig:k)
 csnmedfilt(source:CsnArr, kernel:i[])
@@ -71,7 +71,7 @@ csnmedfilt(source:CsnArr, kernel:i[], trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the filtered array, with the shape of the source. Omit it for the in-place form.
+* `out:CsnArr`: the filtered array, with the shape of the source. Omit it for the in-place form.
 
 ## Execution Time
 
@@ -121,7 +121,7 @@ instr 1
     rows:CsnArr     = csnmedfilt(source, krow)
     csnprint rows
 
-    ; in place, no new handle: the source is rewritten
+    ; in place, no new array: the source is rewritten
     copy:CsnArr     = csncopy(source)
     csnmedfilt(copy, 3)
     csnprint copy

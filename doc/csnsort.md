@@ -17,17 +17,17 @@ does that. To know *where* the sorted elements came from, use
 
 Real only — ordering has no meaning over the complex field.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnsort(source:CsnArr)
-handle:CsnArr = csnsort(source:CsnArr, axis:i)
-handle:CsnArr = csnsort(source:CsnArr, trig:k)
-handle:CsnArr = csnsort(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnsort(source:CsnArr)
+out:CsnArr = csnsort(source:CsnArr, axis:i)
+out:CsnArr = csnsort(source:CsnArr, trig:k)
+out:CsnArr = csnsort(source:CsnArr, trig:k, axis:k)
 csnsort(source:CsnArr)
 csnsort(source:CsnArr, axis:i)
 csnsort(source:CsnArr, trig:k)
@@ -42,7 +42,7 @@ csnsort(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the sorted array. Omit it for the in-place form.
+* `out:CsnArr`: the sorted array. Omit it for the in-place form.
 
 ## Execution Time
 

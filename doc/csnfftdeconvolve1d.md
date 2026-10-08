@@ -43,10 +43,10 @@ the axis is omitted, real and complex operands.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, axis:i)
-handle:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, trig:k)
-handle:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, trig:k, axis:i)
+out:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, axis:i)
+out:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, trig:k)
+out:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -58,7 +58,7 @@ handle:CsnArr = csnfftdeconvolve1d(x:CsnArr, h:CsnArr, trig:k, axis:i)
 
 ## Output
 
-* `handle:CsnArr`: the deconvolved array, `len(x) - len(h) + 1` long along the axis.
+* `out:CsnArr`: the deconvolved array, `len(x) - len(h) + 1` long along the axis.
 
 ## Execution Time
 

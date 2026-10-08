@@ -16,9 +16,9 @@ a ring of samples and only the head matters.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnhead(source:CsnArr, n:i)
-handle:CsnArr = csnhead(source:CsnArr, n:k)
-handle:CsnArr = csnhead(source:CsnArr, n:k, trig:k)
+out:CsnArr = csnhead(source:CsnArr, n:i)
+out:CsnArr = csnhead(source:CsnArr, n:k)
+out:CsnArr = csnhead(source:CsnArr, n:k, trig:k)
 ```
 
 ## Arguments
@@ -29,7 +29,7 @@ handle:CsnArr = csnhead(source:CsnArr, n:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of a new array holding the first `n` elements.
+* `out:CsnArr`: a new array holding the first `n` elements.
 
 ## Execution Time
 

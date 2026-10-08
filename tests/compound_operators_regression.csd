@@ -68,6 +68,31 @@ endin
 instr 5
     assert(i(gkInlineFirst) == 3)
 endin
+
+gkCopyAcc init 0
+gkStillAcc init 0
+instr 6
+    ; A k-form producer makes its output k-rate even when its source is
+    ; i-rate: csncopy with a trigger used to copy the source's rate over it,
+    ; and the compound operation then never ran at perf.
+    kFirst init 1
+    Kacc:CsnArr = csncopy(B, kFirst)
+    kFirst = 0
+    Kacc += B
+    ; All operands i-rate: applied once at init, never again at perf.
+    Iacc:CsnArr = A
+    Iacc += B
+    kK[] = csntoarray(Kacc)
+    kI[] = csntoarray(Iacc)
+    gkCopyAcc = kK[0]
+    gkStillAcc = kI[0]
+endin
+
+instr 7
+    ; Four passes: copied once (1), then + 1 on each pass.
+    assert(i(gkCopyAcc) == 5)
+    assert(i(gkStillAcc) == 3)
+endin
 </CsInstruments>
 <CsScore>
 i 1 0 0.001
@@ -75,6 +100,8 @@ i 2 0.001 0.005
 i 3 0.005 0.001
 i 4 0.007 0.001
 i 5 0.008 0.001
+i 6 0.01 [4 * 32 / 48000]
+i 7 0.02 0.001
 e
 </CsScore>
 </CsoundSynthesizer>

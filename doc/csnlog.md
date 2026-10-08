@@ -23,18 +23,18 @@ promotes the result to complex.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlog(x:CsnArr, base:CsnArr)
-handle:CsnArr = csnlog(x:CsnArr, base:CsnArr, trig:k)
-handle:CsnArr = csnlog(x:CsnArr, base:i)
-handle:CsnArr = csnlog(x:CsnArr, base:k)
-handle:CsnArr = csnlog(x:CsnArr, base:k, trig:k)
-handle:CsnArr = csnlog(x:CsnArr, base:Complex)
-handle:CsnArr = csnlog(x:CsnArr, base:Complex, trig:k)
-handle:CsnArr = csnlog(value:i, base:CsnArr)
-handle:CsnArr = csnlog(value:k, base:CsnArr)
-handle:CsnArr = csnlog(value:k, base:CsnArr, trig:k)
-handle:CsnArr = csnlog(value:Complex, base:CsnArr)
-handle:CsnArr = csnlog(value:Complex, base:CsnArr, trig:k)
+out:CsnArr = csnlog(x:CsnArr, base:CsnArr)
+out:CsnArr = csnlog(x:CsnArr, base:CsnArr, trig:k)
+out:CsnArr = csnlog(x:CsnArr, base:i)
+out:CsnArr = csnlog(x:CsnArr, base:k)
+out:CsnArr = csnlog(x:CsnArr, base:k, trig:k)
+out:CsnArr = csnlog(x:CsnArr, base:Complex)
+out:CsnArr = csnlog(x:CsnArr, base:Complex, trig:k)
+out:CsnArr = csnlog(value:i, base:CsnArr)
+out:CsnArr = csnlog(value:k, base:CsnArr)
+out:CsnArr = csnlog(value:k, base:CsnArr, trig:k)
+out:CsnArr = csnlog(value:Complex, base:CsnArr)
+out:CsnArr = csnlog(value:Complex, base:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -46,7 +46,7 @@ handle:CsnArr = csnlog(value:Complex, base:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the result.
+* `out:CsnArr`: the result.
 
 ## Execution Time
 

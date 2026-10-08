@@ -24,8 +24,8 @@ lane is non-zero.
 result:i = csnall(source:CsnArr)
 result:k = csnall(source:CsnArr)
 result:k = csnall(source:CsnArr, trig:k)
-handle:CsnArr = csnall(source:CsnArr, axis:i)
-handle:CsnArr = csnall(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnall(source:CsnArr, axis:i)
+out:CsnArr = csnall(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -37,7 +37,7 @@ handle:CsnArr = csnall(source:CsnArr, trig:k, axis:k)
 ## Output
 
 * `result:i / result:k`: `1` when every element is non-zero, without an axis.
-* `handle:CsnArr`: one answer per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one answer per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

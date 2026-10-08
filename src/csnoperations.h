@@ -147,7 +147,13 @@ CSN_OP_IN_DECLARE(sub)
 CSN_OP_IN_DECLARE(mul)
 CSN_OP_IN_DECLARE(div)
 
+int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h);
 int32_t csnop_assign_init(CSOUND *csound, CSN_OP_ASSIGN *p);
 int32_t csnop_assign_perf(CSOUND *csound, CSN_OP_ASSIGN *p);
+
+// cast in an expression: csnk(A), csni(A)
+int32_t csnarray_cast_k_init(CSOUND *csound, CSN_OP_ASSIGN *p);
+int32_t csnarray_cast_k_perf(CSOUND *csound, CSN_OP_ASSIGN *p);
+int32_t csnarray_cast_i_init(CSOUND *csound, CSN_OP_ASSIGN *p);
 
 #endif

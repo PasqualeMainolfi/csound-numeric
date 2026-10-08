@@ -7,7 +7,7 @@
 ; -----------------------------------------------------------------------------
 ; csninsert.csd
 ;
-; csninsert writes into its source rather than publishing a new handle. Three
+; csninsert writes into its source rather than returning a new array. Three
 ; arguments insert one element at a flat index; four insert a block along an axis.
 ; -----------------------------------------------------------------------------
 

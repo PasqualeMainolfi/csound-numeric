@@ -16,8 +16,8 @@ one is refused rather than answered with a copy.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnreal(source:CsnArr)
-handle:CsnArr = csnreal(source:CsnArr, trig:k)
+out:CsnArr = csnreal(source:CsnArr)
+out:CsnArr = csnreal(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -27,7 +27,7 @@ handle:CsnArr = csnreal(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a real array holding the real parts.
+* `out:CsnArr`: a real array holding the real parts.
 
 ## Execution Time
 

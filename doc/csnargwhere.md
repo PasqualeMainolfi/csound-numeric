@@ -19,8 +19,8 @@ so a consumer can go on with [csnsize](csnsize.md) as its guard.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnargwhere(source:CsnArr, values:CsnArr)
-handle:CsnArr = csnargwhere(source:CsnArr, values:CsnArr, trig:k)
+out:CsnArr = csnargwhere(source:CsnArr, values:CsnArr)
+out:CsnArr = csnargwhere(source:CsnArr, values:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csnargwhere(source:CsnArr, values:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a `matches × ndims` array of coordinates.
+* `out:CsnArr`: a `matches × ndims` array of coordinates.
 
 ## Execution Time
 

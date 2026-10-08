@@ -43,10 +43,10 @@ elevation past it means the direction on the other side.
 ## Syntax
 
 ```csound
-handle:CsnArr csnsphharmacn order:i, azimuth:i, elevation:i [, degrees:i]
-handle:CsnArr csnsphharmacn order:i, azimuth:k, elevation:k [, degrees:i] [, trig:k]
-handle:CsnArr csnsphharmacn order:i, azimuths:CsnArr, elevations:CsnArr [, degrees:i]
-handle:CsnArr csnsphharmacn order:i, azimuths:CsnArr, elevations:CsnArr [, degrees:i] [, trig:k]
+out:CsnArr csnsphharmacn order:i, azimuth:i, elevation:i [, degrees:i]
+out:CsnArr csnsphharmacn order:i, azimuth:k, elevation:k [, degrees:i] [, trig:k]
+out:CsnArr csnsphharmacn order:i, azimuths:CsnArr, elevations:CsnArr [, degrees:i]
+out:CsnArr csnsphharmacn order:i, azimuths:CsnArr, elevations:CsnArr [, degrees:i] [, trig:k]
 ```
 
 ## Arguments
@@ -59,7 +59,7 @@ handle:CsnArr csnsphharmacn order:i, azimuths:CsnArr, elevations:CsnArr [, degre
 
 ## Output
 
-* `handle:CsnArr`: a real vector of `(order + 1)^2` values indexed by ACN, or a `((order + 1)^2, D)` matrix with one direction per column.
+* `out:CsnArr`: a real vector of `(order + 1)^2` values indexed by ACN, or a `((order + 1)^2, D)` matrix with one direction per column.
 
 ## Execution Time
 

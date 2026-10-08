@@ -39,7 +39,7 @@ Real only: ordering has no meaning over the complex field.
 fixes the size of the working buffer, and settling that at init is what lets a
 performance pass run without allocating. The axis may change at k-rate.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing. In place the source is not copied: the sliding window keeps
 every value until it leaves, so a value already rewritten never re-enters a
@@ -52,10 +52,10 @@ pass does nothing. A zero trigger leaves the array untouched.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i)
-handle:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i, axis:i)
-handle:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i, trig:k)
-handle:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i, trig:k, axis:k)
+out:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i)
+out:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i, axis:i)
+out:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i, trig:k)
+out:CsnArr = csnmedfilt1d(source:CsnArr, kernel:i, trig:k, axis:k)
 csnmedfilt1d(source:CsnArr, kernel:i)
 csnmedfilt1d(source:CsnArr, kernel:i, axis:i)
 csnmedfilt1d(source:CsnArr, kernel:i, trig:k)
@@ -71,7 +71,7 @@ csnmedfilt1d(source:CsnArr, kernel:i, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the filtered array — the shape of the source along an axis, one-dimensional when the array is read flat. Omit it for the in-place form.
+* `out:CsnArr`: the filtered array — the shape of the source along an axis, one-dimensional when the array is read flat. Omit it for the in-place form.
 
 ## Execution Time
 
@@ -124,7 +124,7 @@ instr 1
     rows:CsnArr      = csnmedfilt1d(matrix, 3, -1)
     csnprint rows
 
-    ; in place, no new handle: the source is rewritten
+    ; in place, no new array: the source is rewritten
     copy:CsnArr      = csncopy(data)
     csnmedfilt1d(copy, 3)
     copy_out:i[]     = csntoarray(copy)

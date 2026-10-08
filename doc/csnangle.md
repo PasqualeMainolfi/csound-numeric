@@ -21,8 +21,8 @@ The same name also takes a single `:Complex;` value and answers its argument in 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnangle(source:CsnArr)
-handle:CsnArr = csnangle(source:CsnArr, trig:k)
+out:CsnArr = csnangle(source:CsnArr)
+out:CsnArr = csnangle(source:CsnArr, trig:k)
 value:i = csnangle(source:Complex)
 value:k = csnangle(source:Complex)
 ```
@@ -34,7 +34,7 @@ value:k = csnangle(source:Complex)
 
 ## Output
 
-* `handle:CsnArr`: a real array of phases, in radians, in `[-pi, pi]`.
+* `out:CsnArr`: a real array of phases, in radians, in `[-pi, pi]`.
 
 ## Execution Time
 

@@ -354,7 +354,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
 
     double fftsize_temp = (double) *p->fft_size;
     if (!IS_VALID_FFT_SIZE(fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) fftsize_temp)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     int32_t fft_size = (int32_t) fftsize_temp;
 
@@ -381,7 +381,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
 
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -393,7 +393,7 @@ static int32_t csnarray_fft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *a
 
     CSN_ARRAY *fft_buffer = p->handle;
     if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis_spec.index, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        res = csn_init_error(csound, "[csnarray] Shape/rank error");
         goto done;
     }
 
@@ -514,7 +514,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
 
     double fftsize_temp = (double) *p->fft_size;
     if (!IS_VALID_FFT_SIZE(fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) fftsize_temp)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     int32_t fft_size = (int32_t) fftsize_temp;
 
@@ -540,7 +540,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
 
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -553,7 +553,7 @@ static int32_t csnarray_ifft_helper(CSOUND *csound, CSN_FFT *p, const cs_float *
 
     CSN_ARRAY *fft_buffer = p->handle;
     if (ifft_assign_value(csound, fft_setup, fft_buffer, source_arr, temp_buffer, (uint32_t) fft_size, work_size, out_size, axis, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
 
@@ -986,7 +986,7 @@ static int32_t csnarray_stft_helper(CSOUND *csound, CSN_STFT *p) {
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
     win_buffer = csound->Calloc(csound, sizeof(double) * (size_t) fft_size);
     if (temp_buffer == NULL || win_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1157,7 +1157,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     if (res != OK) goto done;
 
     if (work_size > CSN_MAX_ELEMS) {
-        res = csound->InitError(csound, "[csnarray] Array length exceed the maximum element count");
+        res = csn_init_error(csound, "[csnarray] Array length exceed the maximum element count");
         goto done;
     }
 
@@ -1165,7 +1165,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * scratch_work_size);
     win_buffer = csound->Calloc(csound, sizeof(double) * (size_t) fft_size);
     if (temp_buffer == NULL || win_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1186,7 +1186,7 @@ static int32_t csnarray_istft_helper(CSOUND *csound, CSN_ISTFT *p) {
     CSN_ARRAY *fft_buffer = p->handle_x;
     winsum_buffer = csound->Calloc(csound, sizeof(double) * fft_buffer->size);
     if (winsum_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1411,11 +1411,11 @@ static int32_t csnarray_fftfreq_helper(CSOUND *csound, CSN_FFTFREQ *p, CSN_FFT_M
 
     double size_temp = (double) *p->size;
     if (!IS_VALID_FFT_SIZE(size_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid size");
+        return csn_init_error(csound, "[csnarray] Invalid size");
     }
     uint32_t size = (uint32_t) size_temp;
     if (!IS_VALID_VALUE_GT_ZERO((double) *p->d)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample spacing value");
+        return csn_init_error(csound, "[csnarray] Invalid sample spacing value");
     }
     double sample_spacing = 1.0 / (double) *p->d;
 
@@ -1473,12 +1473,12 @@ static int32_t csnarray_fftfreq_k_helper(CSOUND *csound, CSN_FFTFREQ *p, CSN_FFT
 
     double size_temp = (double) *p->size;
     if (!IS_VALID_FFT_SIZE(size_temp)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid size");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid size");
     }
     uint32_t size = (uint32_t) size_temp;
 
     if (!IS_VALID_VALUE_GT_ZERO((double) *p->d)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid sample spacing value");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid sample spacing value");
     }
     double sample_spacing = 1.0 / (double) *p->d;
 
@@ -1578,7 +1578,7 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_LAST);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
         double value = axis_in == NULL ? -1.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
         goto done;
     }
     uint32_t axis = axis_spec.index;
@@ -1596,7 +1596,7 @@ static int32_t csnarray_fftshift_helper(CSOUND *csound, CSN_FFTSHIFT *p, CSN_FFT
     /* same shape and type either way: an aliased output is shifted in place */
     res = out.aliased ? fftshift_in_place(p->handle, axis, mode) : fftshift_assign_value(p->handle, source_arr, axis, mode);
     if (res != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible FFT-shift array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible FFT-shift array shapes/ranks");
         goto done;
     }
     if (out.aliased) update_array_data_version(&p->handle->version);
@@ -1749,13 +1749,13 @@ static void fft2_assign_size(size_t *out_size, size_t *work_size, size_t nfft, C
 static int32_t fft2_init_intermediate(CSOUND *csound, CSN_ARRAY *array, const uint32_t *shape) {
     size_t size = 0;
     if (get_array_size_from_shape(&size, 2U, shape) != OK) {
-        return csound->InitError(csound, "[csnarray] FFT2 intermediate array exceeds the maximum element count");
+        return csn_init_error(csound, "[csnarray] FFT2 intermediate array exceeds the maximum element count");
     }
 
     size_t capacity = size > 0U ? size : 1U;
     array->data = csound->Calloc(csound, sizeof(double) * capacity * CSN_COMPLEX);
     if (array->data == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     array->capacity = capacity;
@@ -1865,13 +1865,13 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
 
     double rows_fftsize_temp = (double) *p->rows_fft_size;
     if (!IS_VALID_FFT_SIZE(rows_fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) rows_fftsize_temp)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     int32_t rows_fft_size = (int32_t) rows_fftsize_temp;
 
     double cols_fftsize_temp = (double) *p->cols_fft_size;
     if (!IS_VALID_FFT_SIZE(cols_fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) cols_fftsize_temp)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     int32_t cols_fft_size = (int32_t) cols_fftsize_temp;
 
@@ -1901,7 +1901,7 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
     new_shape[1] = (uint32_t) cols_out_size;
     size_t output_size = 0;
     if (get_array_size_from_shape(&output_size, new_ndim, new_shape) != OK) {
-        res = csound->InitError(csound, "[csnarray] FFT2 output exceeds the maximum element count");
+        res = csn_init_error(csound, "[csnarray] FFT2 output exceeds the maximum element count");
         goto done;
     }
 
@@ -1916,12 +1916,12 @@ static int32_t csnarray_fft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE mo
 
     row_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * rows_work_size);
     if (row_temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     col_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * cols_work_size);
     if (col_temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -2084,13 +2084,13 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
 
     double rows_fftsize_temp = (double) *p->rows_fft_size;
     if (!IS_VALID_FFT_SIZE(rows_fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) rows_fftsize_temp)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     int32_t rows_fft_size = (int32_t) rows_fftsize_temp;
 
     double cols_fftsize_temp = (double) *p->cols_fft_size;
     if (!IS_VALID_FFT_SIZE(cols_fftsize_temp) || !IS_POWER_OF_TWO((uint32_t) cols_fftsize_temp)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     int32_t cols_fft_size = (int32_t) cols_fftsize_temp;
 
@@ -2120,7 +2120,7 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
     new_shape[1] = (uint32_t) cols_out_size;
     size_t output_size = 0;
     if (get_array_size_from_shape(&output_size, new_ndim, new_shape) != OK) {
-        res = csound->InitError(csound, "[csnarray] FFT2 output exceeds the maximum element count");
+        res = csn_init_error(csound, "[csnarray] FFT2 output exceeds the maximum element count");
         goto done;
     }
 
@@ -2132,12 +2132,12 @@ static int32_t csnarray_ifft2_helper(CSOUND *csound, CSN_FFT2 *p, CSN_FFT_MODE m
 
     row_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * rows_work_size);
     if (row_temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     col_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * cols_work_size);
     if (col_temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -2785,7 +2785,7 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     if (flag) {
         double edges_temp = (double) *p->arg_a;
         if (!IS_VALID_EDGES(edges_temp)) {
-            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+            return csn_init_error(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
         }
         edges_mode = (uint32_t) edges_temp;
     }
@@ -2803,7 +2803,7 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim_a, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim_a, -(int32_t) source_ndim_a, source_ndim_a - 1U);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim_a, -(int32_t) source_ndim_a, source_ndim_a - 1U);
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -2842,7 +2842,7 @@ static int32_t csnarray_corrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const
     }
 
     if (res != OK) {
-        csound->InitError(csound, "[csnarray] Incompatible convolution array shapes/ranks");
+        csn_init_error(csound, "[csnarray] Incompatible convolution array shapes/ranks");
         goto done;
     }
 
@@ -3012,7 +3012,7 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
     if (flag) {
         double edges_temp = (double) *p->arg_a;
         if (!IS_VALID_EDGES(edges_temp)) {
-            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+            return csn_init_error(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
         }
         edges_mode = (uint32_t) edges_temp;
     }
@@ -3051,7 +3051,7 @@ static int32_t csnarray_corrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_COR
         res = decorrconv_assig_value(p->handle, source_arr_a, source_arr_b, start_offset, mode);
     }
     if (res != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid convolution iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid convolution iterator layout");
         goto done;
     }
 
@@ -3648,7 +3648,7 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     if (flag) {
         double edges_temp = (double) *p->arg_a;
         if (!IS_VALID_EDGES(edges_temp)) {
-            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+            return csn_init_error(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
         }
         edges_mode = (uint32_t) edges_temp;
     }
@@ -3669,7 +3669,7 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim_x, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim_x, -(int32_t) source_ndim_x, source_ndim_x - 1U);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim_x, -(int32_t) source_ndim_x, source_ndim_x - 1U);
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -3723,27 +3723,27 @@ static int32_t fftcorrconv1d_helper(CSOUND *csound, CSN_CORRCONV *p, const cs_fl
     double *temp_buffer_ifft = (double *) p->buffer_ifft.scratch;
     uint32_t converted_axis = axis == -1 ? 0 : (uint32_t) axis;
     if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, fft_size, p->fc.x_work_size, p->fc.x_out_size, converted_axis, fft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        res = csn_init_error(csound, "[csnarray] Shape/rank error");
         goto done;
     }
     if (fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, fft_size, p->fc.h_work_size, p->fc.h_out_size, 0U, fft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        res = csn_init_error(csound, "[csnarray] Shape/rank error");
         goto done;
     }
     if (!flag && fftdeconv_kernel_has_zero(&p->fft_buffer_h)) {
-        res = csound->InitError(csound, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
+        res = csn_init_error(csound, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
         goto done;
     }
     if (fftcoorconv1d_prod(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, axis, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible convolution spectrum shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible convolution spectrum shapes/ranks");
         goto done;
     }
     if (ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, fft_size, p->fc.ifft_work_size, p->fc.ifft_out_size, converted_axis, ifft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
     if (fftcorrconv_crop(p->handle, &p->ifft_out, size_result, p->fc.crop_offset[0], fft_size, axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible convolution output shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible convolution output shapes/ranks");
         goto done;
     }
 
@@ -3826,7 +3826,7 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
     if (flag) {
         double edges_temp = (double) *p->arg_a;
         if (!IS_VALID_EDGES(edges_temp)) {
-            return csound->InitError(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
+            return csn_init_error(csound, "[csnarray] Invalid edges mode: should be 0, 1, or 2 (see documentation)");
         }
         edges_mode = (uint32_t) edges_temp;
     }
@@ -3892,23 +3892,23 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
        pass when the operands are real; the axes before it run in place on the
        spectrum, each at its own length. */
     if (fft_assign_value(csound, fft_setup, &p->fft_buffer_x, &p->x_padded, temp_buffer_x, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        res = csn_init_error(csound, "[csnarray] Shape/rank error");
         goto done;
     }
     if (fft_assign_value(csound, fft_setup, &p->fft_buffer_h, &p->h_padded, temp_buffer_h, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.axis_work_size[last_axis], p->fc.axis_out_size[last_axis], last_axis, fft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Shape/rank error");
+        res = csn_init_error(csound, "[csnarray] Shape/rank error");
         goto done;
     }
     for (int32_t axis = (int32_t) last_axis - 1; axis >= 0; axis--) {
         if (fft_assign_value(csound, NULL, &p->fft_buffer_x, &p->fft_buffer_x, temp_buffer_x, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT) != OK
             || fft_assign_value(csound, NULL, &p->fft_buffer_h, &p->fft_buffer_h, temp_buffer_h, (uint32_t) p->fc.fft_sizes[axis], p->fc.axis_work_size[axis], p->fc.axis_out_size[axis], (uint32_t) axis, CSNFFT) != OK) {
-            res = csound->InitError(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
+            res = csn_init_error(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
             goto done;
         }
     }
 
     if (!flag && fftdeconv_kernel_has_zero(&p->fft_buffer_h)) {
-        res = csound->InitError(csound, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
+        res = csn_init_error(csound, "[csnarray] fftdeconvolve and fftdecorrelate: the kernel spectrum has a zero on the transform grid, so that part of the answer cannot be recovered by division; use the direct form instead");
         goto done;
     }
     fftcorrconv_prod_ndims(&p->ifft_buffer, &p->fft_buffer_x, &p->fft_buffer_h, mode);
@@ -3918,17 +3918,17 @@ static int32_t fftcorrconv_helper(CSOUND *csound, CSN_CORRCONV *p, CSN_CORRCONV_
        the padded result. */
     for (uint32_t axis = 0; axis < last_axis; axis++) {
         if (ifft_assign_value(csound, NULL, &p->ifft_buffer, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[axis], p->fc.ifft_axis_work_size[axis], p->fc.ifft_axis_out_size[axis], axis, CSNIFFT) != OK) {
-            res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+            res = csn_init_error(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
             goto done;
         }
     }
     if (ifft_assign_value(csound, ifft_setup, &p->ifft_out, &p->ifft_buffer, temp_buffer_ifft, (uint32_t) p->fc.fft_sizes[last_axis], p->fc.ifft_axis_work_size[last_axis], p->fc.ifft_axis_out_size[last_axis], last_axis, ifft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible inverse FFT array shapes/ranks");
         goto done;
     }
 
     if (fftcorrconv_crop_ndims(p->handle, &p->ifft_out, p->fc.fft_sizes, p->fc.crop_offset) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid convolution crop iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid convolution crop iterator layout");
         goto done;
     }
 
@@ -4423,7 +4423,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (dcst_mode == CSN_DCT_III || dcst_mode == CSN_DCT_IV || dcst_mode == CSN_DST_III || dcst_mode == CSN_DST_IV) {
-        return csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
+        return csn_init_error(csound, "[csnarray] DCT/DST mode not yet implemented");
     }
 
     ITEM_TYPE itype = CSN_REAL;
@@ -4452,7 +4452,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
        allocates its own scratch per call, so a k-rate transform over a length
        that is not a power of two does touch the allocator. */
     if (!IS_VALID_FFT_SIZE((double) dcst_fft_size) || dcst_fft_size < 2 || (dcst_fft_size & 1)) {
-        res = csound->InitError(csound, "[csnarray] Length %zu is too short for this transform", source_size);
+        res = csn_init_error(csound, "[csnarray] Length %zu is too short for this transform", source_size);
         goto done;
     }
 
@@ -4463,12 +4463,12 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
        floor: allocate_array overwrites ->data without looking at it. */
     FREE_CSNARRDATA(csound, &p->dcst_extended);
     if (allocate_array(csound, &p->dcst_extended, source_arr->ndim, dcst_shape, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
     if (dcst1d_extend_source(&p->dcst_extended, source_arr, axis, dcst_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
+        res = csn_init_error(csound, "[csnarray] DCT/DST mode not yet implemented");
         goto done;
     }
 
@@ -4480,7 +4480,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
 
     temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -4490,13 +4490,13 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
 
     FREE_CSNARRDATA(csound, &p->fft_buffer);
     if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
     if (fft_assign_value(csound, fft_setup, fft_buffer, &p->dcst_extended, temp_buffer, (uint32_t) dcst_fft_size, work_size, out_size, axis, fft_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
         goto done;
     }
 
@@ -4511,7 +4511,7 @@ static int32_t dcst1d_helper(CSOUND *csound, CSN_DCST *p, const cs_float *axis_i
     pres.locked |= out.locked;
 
     if (dcst1d_from_fft_assign_value(p->handle, fft_buffer, dcst_mode, axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] DCT/DST mode not yet implemented");
+        res = csn_init_error(csound, "[csnarray] DCT/DST mode not yet implemented");
         goto done;
     }
 
@@ -4880,7 +4880,7 @@ static int32_t mel_apply_filter_bank(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *ou
    times a log-mel frame equals scipy.fft.dct of that frame. */
 static int32_t mfcc_dct_matrix(CSOUND *csound, double **matrix, uint32_t ncoef, uint32_t nmels, uint32_t dct_type) {
     if (dct_type == 1U && nmels < 2U) {
-        return csound->InitError(csound, "[csnarray] DCT-I over the mel axis needs at least two bands");
+        return csn_init_error(csound, "[csnarray] DCT-I over the mel axis needs at least two bands");
     }
 
     double *table = csound->Calloc(csound, sizeof(double) * (size_t) ncoef * (size_t) nmels);
@@ -4958,7 +4958,7 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
 
     double nmfcc_value = (double) *p->nmfcc;
     if (!IS_VALID_NMFCC(nmfcc_value)) {
-        return csound->InitError(csound, "[csnarray] Invalid number of mfcc coefficients");
+        return csn_init_error(csound, "[csnarray] Invalid number of mfcc coefficients");
     }
     p->mfcc_count = (uint32_t) nmfcc_value;
     p->mel_count = p->mfcc_count;
@@ -4966,17 +4966,17 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
     double lowf = (double) *p->lowf;
     double highf = (double) *p->highf;
     if (!IS_VALID_VALUE(lowf) || !IS_VALID_VALUE(highf) || lowf >= highf) {
-        return csound->InitError(csound, "[csnarray] flow and fhigh should be a valid values with flow less than fhigh");
+        return csn_init_error(csound, "[csnarray] flow and fhigh should be a valid values with flow less than fhigh");
     }
     double dct_type_value = (double) *p->dct_type;
     if (!IS_VALID_DCT_MODE(dct_type_value)) {
-        return csound->InitError(csound, "[csnarray] DCT mode should be 1 or 2");
+        return csn_init_error(csound, "[csnarray] DCT mode should be 1 or 2");
     }
     uint32_t dct_type = (uint32_t) dct_type_value;
 
     double sr = (double) *p->sr;
     if (!IS_VALID_SR(sr)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample rate");
+        return csn_init_error(csound, "[csnarray] Invalid sample rate");
     }
 
     /* the scalar parameters above need no lock; from here the arrays are read */
@@ -4986,7 +4986,7 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] MFCC requires 1-D array");
+        res = csn_init_error(csound, "[csnarray] MFCC requires 1-D array");
         goto done;
     }
 
@@ -5015,7 +5015,7 @@ int32_t csnarray_mfcc(CSOUND *csound, CSN_MFCC *p) {
     log_mel_shape[1] = p->stft_buffer.stft.shape[1];
     FREE_CSNARRDATA(csound, &p->log_mel);
     if (allocate_array(csound, &p->log_mel, 2U, log_mel_shape, CSN_REAL) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -5110,30 +5110,30 @@ static int32_t csnarray_mfbank_helper(CSOUND *csound, CSN_MFCC_FBANK *p, bool is
        for any other size cannot be applied to a spectrogram csnum produces. */
     double nfft_value = (double) *p->nfft;
     if (!IS_VALID_FFT_SIZE(nfft_value) || !IS_POWER_OF_TWO((uint32_t) nfft_value)) {
-        return csound->InitError(csound, "[csnarray] FFT size must be a valid power of two value");
+        return csn_init_error(csound, "[csnarray] FFT size must be a valid power of two value");
     }
     uint32_t nfft = (uint32_t) nfft_value;
 
     double nmfcc_value = (double) *p->nmfcc;
     if (!IS_VALID_NMFCC(nmfcc_value)) {
-        return csound->InitError(csound, "[csnarray] Invalid number of mfcc coefficients");
+        return csn_init_error(csound, "[csnarray] Invalid number of mfcc coefficients");
     }
     uint32_t nmfcc = (uint32_t) *p->nmfcc;
 
     double lowf = (double) *p->lowf;
     double highf = (double) *p->highf;
     if (!IS_VALID_VALUE(lowf) || !IS_VALID_VALUE(highf) || lowf >= highf) {
-        return csound->InitError(csound, "[csnarray] flow and fhigh should be a valid values with flow less than fhigh");
+        return csn_init_error(csound, "[csnarray] flow and fhigh should be a valid values with flow less than fhigh");
     }
 
     double sr = (double) *p->sr;
     if (!IS_VALID_SR(sr)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample rate");
+        return csn_init_error(csound, "[csnarray] Invalid sample rate");
     }
 
     double has_norm = (double) *p->slaney_norm;
     if (!IS_VALID_ZERO_ONE(has_norm)) {
-        return csound->InitError(csound, "[csnarray] Slaney normalisation flag must be 0 or 1");
+        return csn_init_error(csound, "[csnarray] Slaney normalisation flag must be 0 or 1");
     }
     bool slaney_norm = (bool) has_norm;
 
@@ -5272,7 +5272,7 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
     size_t source_size = source_arr->shape[axis];
     size_t hilb_fft_size = source_size;
     if (!IS_VALID_FFT_SIZE((double) hilb_fft_size) || hilb_fft_size < 2 || (hilb_fft_size & 1)) {
-        res = csound->InitError(csound, "[csnarray] Length %zu is too short or odd for this transform", source_size);
+        res = csn_init_error(csound, "[csnarray] Length %zu is too short or odd for this transform", source_size);
         goto done;
     }
 
@@ -5291,14 +5291,14 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
 
     fft_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     if (fft_temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
     size_t ifft_out_size = is_analytic ? out_size : hilb_fft_size;
     kernel_buffer = csound->Calloc(csound, sizeof(double) * ifft_out_size);
     if (kernel_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -5306,13 +5306,13 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
 
     FREE_CSNARRDATA(csound, &p->fft_buffer);
     if (allocate_array(csound, &p->fft_buffer, fft_ndim, fft_shape, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
     CSN_ARRAY *fft_buffer = &p->fft_buffer;
     if (fft_assign_value(csound, fft_setup, fft_buffer, source_arr, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, out_size, axis, fwd_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible forward FFT array shapes/ranks");
         goto done;
     }
 
@@ -5328,7 +5328,7 @@ static int32_t csnarray_hilbert_helper(CSOUND *csound, CSN_HILBERT *p, const cs_
 
     if (hilbert_assign_value(fft_buffer, kernel_buffer, axis, is_analytic) != OK
         || ifft_assign_value(csound, ifft_setup, p->handle, fft_buffer, fft_temp_buffer, (uint32_t) hilb_fft_size, work_size, ifft_out_size, axis, inv_mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
 
@@ -5515,14 +5515,14 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     if (res != OK) goto done;
 
     if (source_arr->ndim != 2U) {
-        res = csound->InitError(csound, "[csnarray] The two-dimensional Hilbert transform requires a two-dimensional array");
+        res = csn_init_error(csound, "[csnarray] The two-dimensional Hilbert transform requires a two-dimensional array");
         goto done;
     }
 
     size_t nrows = source_arr->shape[0];
     size_t ncols = source_arr->shape[1];
     if (nrows < 2U || (nrows & 1) || ncols < 2U || (ncols & 1)) {
-        res = csound->InitError(csound, "[csnarray] Extents %zu by %zu: both must be even and at least two for this transform", nrows, ncols);
+        res = csn_init_error(csound, "[csnarray] Extents %zu by %zu: both must be even and at least two for this transform", nrows, ncols);
         goto done;
     }
 
@@ -5533,7 +5533,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     fft_temp_buffer = csound->Calloc(csound, sizeof(cs_float) * work_size);
     kernel_buffer = csound->Calloc(csound, sizeof(double) * (nrows + ncols));
     if (fft_temp_buffer == NULL || kernel_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     hilbert_kernel(kernel_buffer, nrows, true);
@@ -5546,7 +5546,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
 
     FREE_CSNARRDATA(csound, &p->intermediate);
     if (allocate_array(csound, &p->intermediate, new_ndim, new_shape, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -5565,7 +5565,7 @@ static int32_t csnarray_hilbert2_helper(CSOUND *csound, CSN_HILBERT2 *p) {
     p->ncols = (uint32_t) ncols;
 
     if (hilbert2_transform(csound, p, source_arr) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible Hilbert array shapes/ranks");
         goto done;
     }
 

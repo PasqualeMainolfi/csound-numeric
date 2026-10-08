@@ -336,17 +336,17 @@ int32_t csnarray_solve(CSOUND *csound, CSN_LINALG_SOLVE *p) {
     ITEM_TYPE itype_b = source_arr_b->itype;
 
     if (source_ndim_a != 2 || source_shape_a[0] != source_shape_a[1]) {
-        res = csound->InitError(csound, "[csnarray] Matrix must be 2-D N x N");
+        res = csn_init_error(csound, "[csnarray] Matrix must be 2-D N x N");
         goto done;
     }
 
     if (source_ndim_b > 2) {
-        res = csound->InitError(csound, "[csnarray] B must be 1-D or 2-D, got %u-D", source_ndim_b);
+        res = csn_init_error(csound, "[csnarray] B must be 1-D or 2-D, got %u-D", source_ndim_b);
         goto done;
     }
 
     if (source_shape_b[0] != source_shape_a[0]) {
-        res = csound->InitError(csound, "[csnarray] Incompatible dimensions: shape[0] of B must be equal to nrows/ncols of A");
+        res = csn_init_error(csound, "[csnarray] Incompatible dimensions: shape[0] of B must be equal to nrows/ncols of A");
         goto done;
     }
 
@@ -523,7 +523,7 @@ int32_t csnarray_inverse(CSOUND *csound, CSN_LINALG_INVERSE *p) {
     ITEM_TYPE itype = source_arr->itype;
 
     if (source_ndim != 2 || source_shape[0] != source_shape[1]) {
-        res = csound->InitError(csound, "[csnarray] Matrix must be 2-D N x N");
+        res = csn_init_error(csound, "[csnarray] Matrix must be 2-D N x N");
         goto done;
     }
 
@@ -639,17 +639,17 @@ static int32_t csnarray_determinant_helper(CSOUND *csound, OPDS *h, cs_float *de
     ITEM_TYPE itype = source_arr->itype;
 
     if (source_ndim != 2 || n != source_shape[1]) {
-        res = csound->InitError(csound, "[csnarray] Matrix must be 2-D N x N");
+        res = csn_init_error(csound, "[csnarray] Matrix must be 2-D N x N");
         goto done;
     }
 
     if (det_real != NULL && itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Input array must be real");
+        res = csn_init_error(csound, "[csnarray] Input array must be real");
         goto done;
     }
 
     if (det_complex != NULL && itype != CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Input array must be complex");
+        res = csn_init_error(csound, "[csnarray] Input array must be complex");
         goto done;
     }
 
@@ -834,15 +834,15 @@ static int32_t savgol_validate_params(CSOUND *csound, cs_float winsize_arg, cs_f
     int32_t o = (int32_t) order_arg;
 
     if (UNLIKELY(w < 3 || (w & 1) == 0)) {
-        return csound->InitError(csound, "[csnarray] Savgol winsize must be odd and at least 3");
+        return csn_init_error(csound, "[csnarray] Savgol winsize must be odd and at least 3");
     }
 
     if (UNLIKELY(o < 0 || o >= w)) {
-        return csound->InitError(csound, "[csnarray] Savgol order must be >= 0 and less than winsize");
+        return csn_init_error(csound, "[csnarray] Savgol order must be >= 0 and less than winsize");
     }
 
     if (UNLIKELY(delta_arg <= FL(0.0))) {
-        return csound->InitError(csound, "[csnarray] Savgol delta must be greater than 0");
+        return csn_init_error(csound, "[csnarray] Savgol delta must be greater than 0");
     }
 
     *winsize = (uint32_t) w;
@@ -872,7 +872,7 @@ static int32_t savgol_allocate_temp_buffer(CSOUND *csound, CSN_SAVGOL_TEMP_BUFFE
         if (normal != NULL) csound->Free(csound, normal);
         if (inversed != NULL) csound->Free(csound, inversed);
         if (pinversed != NULL) csound->Free(csound, pinversed);
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     buffer->data = data;
@@ -898,7 +898,7 @@ static void savgol_matrix_mult(const double *a, const double *b, double *c, uint
 static int32_t savgol_matrix_inverse(CSOUND *csound, const double *matrix, double *inverse, size_t n) {
     double *work = (double *) csound->Calloc(csound, sizeof(double) * n * n);
     if (work == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     memcpy(work, matrix, sizeof(double) * n * n);
     linalg_diag(inverse, n, CSN_REAL);
@@ -907,20 +907,20 @@ static int32_t savgol_matrix_inverse(CSOUND *csound, const double *matrix, doubl
     size_t *pivs = csound->Calloc(csound, sizeof(size_t) * n);
     if (pivs == NULL) {
         csound->Free(csound, work);
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     info.pivots = pivs;
     if (lu_factor_real(work, n, &info) != OK) {
         csound->Free(csound, info.pivots);
         csound->Free(csound, work);
-        return csound->InitError(csound, "[csnarray] Could not calculate savgol inverse matrix");
+        return csn_init_error(csound, "[csnarray] Could not calculate savgol inverse matrix");
     }
 
     if (lu_solve_real(work, &info, inverse, n) != OK){
         csound->Free(csound, info.pivots);
         csound->Free(csound, work);
-        return csound->InitError(csound, "[csnarray] Could not calculate savgol inverse matrix");
+        return csn_init_error(csound, "[csnarray] Could not calculate savgol inverse matrix");
     }
 
     if (info.pivots != NULL) csound->Free(csound, info.pivots);
@@ -977,7 +977,7 @@ static int32_t calculate_savgol_coeffs(CSOUND *csound, CSN_SAVGOL_BUFFER *sg, ui
 
     if (savgol_matrix_inverse(csound, temp.normal, temp.inversed, ncoef) != OK) {
         savgol_deallocate_temp_buffer(csound, &temp);
-        return csound->InitError(csound, "[csnarray] Could not calculate savgol matrix");
+        return csn_init_error(csound, "[csnarray] Could not calculate savgol matrix");
     }
 
     // pinversed = (A^T A)^-1 * A^T
@@ -1007,13 +1007,13 @@ int32_t csnarray_savgol_mat(CSOUND *csound, CSN_SAVGOL_MATRIX *p) {
 
     double *c = csound->Calloc(csound, sizeof(double) * (size_t) ncoef * winsize);
     if (c == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     sg.coeffs = c;
 
     if (calculate_savgol_coeffs(csound, &sg, winsize, ncoef) != OK) {
         csound->Free(csound, sg.coeffs);
-        return csound->InitError(csound, "[csnarray] Could not compute savgol coefficients");
+        return csn_init_error(csound, "[csnarray] Could not compute savgol coefficients");
     }
 
     CSNARR_RES pres = {0};
@@ -1031,7 +1031,7 @@ int32_t csnarray_savgol_mat(CSOUND *csound, CSN_SAVGOL_MATRIX *p) {
 
     row = (double *) csound->Calloc(csound, sizeof(double) * (size_t) sg.ncols);
     if (row == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1056,7 +1056,7 @@ int32_t csnarray_hilbertmat(CSOUND *csound, CSN_HILBERT_MAT *p) {
 
     double n_value = (double) *p->n;
     if (!IS_VALID_LENGTH(n_value)) {
-        return csound->InitError(csound, "[csnarray] Matrix size must be a valid value");
+        return csn_init_error(csound, "[csnarray] Matrix size must be a valid value");
     }
     size_t n = (size_t) n_value;
 
@@ -1125,7 +1125,7 @@ int32_t csnarray_hilbertmat_k(CSOUND *csound, CSN_HILBERT_MAT *p) {
 
     double n_value = (double) *p->n;
     if (!IS_VALID_LENGTH(n_value)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Matrix size must be a valid value");
+        return csn_perf_error(csound, &p->h, "[csnarray] Matrix size must be a valid value");
     }
     size_t n = (size_t) n_value;
 

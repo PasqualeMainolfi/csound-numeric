@@ -32,8 +32,8 @@ any other data array.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfromaudio(asig:a)
-handle:CsnArr = csnfromaudio(asig:a, irt:i)
+out:CsnArr = csnfromaudio(asig:a)
+out:CsnArr = csnfromaudio(asig:a, irt:i)
 ```
 
 ## Arguments
@@ -43,7 +43,7 @@ handle:CsnArr = csnfromaudio(asig:a, irt:i)
 
 ## Output
 
-* `handle:CsnArr`: a one-dimensional real array of `ksmps` elements, republished every control period.
+* `out:CsnArr`: a one-dimensional real array of `ksmps` elements, republished every control period.
 
 ## Execution Time
 

@@ -20,7 +20,7 @@ promotes the result to complex.
 
 Besides the array forms, the same name covers scalar complex arithmetic: two
 `:Complex;` values, or one `:Complex;` and one real number on either side. These
-take no handles and no trigger — they are a few floating-point operations, not a
+take no arrays and no trigger — they are a few floating-point operations, not a
 traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
 operands do, since nothing in its signature could tell the two apart.
 A scalar complex zero base is an error, as it is elementwise: the power goes through the logarithm, which has no value there.
@@ -29,18 +29,18 @@ A scalar complex zero base is an error, as it is elementwise: the power goes thr
 ## Syntax
 
 ```csound
-handle:CsnArr = csnpow(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnpow(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnpow(a:CsnArr, value:i)
-handle:CsnArr = csnpow(a:CsnArr, value:k)
-handle:CsnArr = csnpow(a:CsnArr, value:k, trig:k)
-handle:CsnArr = csnpow(a:CsnArr, value:Complex)
-handle:CsnArr = csnpow(a:CsnArr, value:Complex, trig:k)
-handle:CsnArr = csnpow(value:i, b:CsnArr)
-handle:CsnArr = csnpow(value:k, b:CsnArr)
-handle:CsnArr = csnpow(value:k, b:CsnArr, trig:k)
-handle:CsnArr = csnpow(value:Complex, b:CsnArr)
-handle:CsnArr = csnpow(value:Complex, b:CsnArr, trig:k)
+out:CsnArr = csnpow(a:CsnArr, b:CsnArr)
+out:CsnArr = csnpow(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnpow(a:CsnArr, value:i)
+out:CsnArr = csnpow(a:CsnArr, value:k)
+out:CsnArr = csnpow(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnpow(a:CsnArr, value:Complex)
+out:CsnArr = csnpow(a:CsnArr, value:Complex, trig:k)
+out:CsnArr = csnpow(value:i, b:CsnArr)
+out:CsnArr = csnpow(value:k, b:CsnArr)
+out:CsnArr = csnpow(value:k, b:CsnArr, trig:k)
+out:CsnArr = csnpow(value:Complex, b:CsnArr)
+out:CsnArr = csnpow(value:Complex, b:CsnArr, trig:k)
 pow:Complex = csnpow(base:Complex, exponent:Complex)
 pow:Complex = csnpow(base:Complex, exponent:i)
 pow:Complex = csnpow(base:Complex, exponent:k)
@@ -57,7 +57,7 @@ pow:Complex = csnpow(base:k, exponent:Complex)
 
 ## Output
 
-* `handle:CsnArr`: handle of the result.
+* `out:CsnArr`: the result.
 
 ## Execution Time
 

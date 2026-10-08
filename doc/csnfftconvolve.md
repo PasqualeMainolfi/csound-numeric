@@ -37,9 +37,9 @@ leaves the others alone.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr, edges:i, trig:k)
 ```
 
 ## Arguments
@@ -51,7 +51,7 @@ handle:CsnArr = csnfftconvolve(x:CsnArr, h:CsnArr, edges:i, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the convolution.
+* `out:CsnArr`: the convolution.
 
 ## Execution Time
 

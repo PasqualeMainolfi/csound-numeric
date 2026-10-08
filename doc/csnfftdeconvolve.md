@@ -28,8 +28,8 @@ Everything else follows [csndeconvolve](csndeconvolve.md).
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftdeconvolve(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftdeconvolve(x:CsnArr, h:CsnArr, trig:k)
+out:CsnArr = csnfftdeconvolve(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftdeconvolve(x:CsnArr, h:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ handle:CsnArr = csnfftdeconvolve(x:CsnArr, h:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the deconvolved array, `x.shape - h.shape + 1`.
+* `out:CsnArr`: the deconvolved array, `x.shape - h.shape + 1`.
 
 ## Execution Time
 

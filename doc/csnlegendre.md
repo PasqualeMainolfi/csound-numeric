@@ -38,7 +38,7 @@ the double range near `m = 150`. A value that overflows is an error, not an
 infinity. The harmonics do not have that limit, because they carry their
 normalisation through the recurrence instead of dividing by it afterwards.
 
-The handle form maps a real array of any shape elementwise and keeps its shape.
+The array form maps a real array of any shape elementwise and keeps its shape.
 Every element is checked before anything is written. `n` and `m` are
 i-arguments there, in both the init and the performance form, because they pick
 the function rather than feed it. At k-rate the result is recomputed only when
@@ -50,8 +50,8 @@ own input is allowed.
 ```csound
 value:i csnlegendre n:i, m:i, x:i
 value:k csnlegendre n:k, m:k, x:k
-handle:CsnArr csnlegendre n:i, m:i, source:CsnArr
-handle:CsnArr csnlegendre n:i, m:i, source:CsnArr, trig:k
+out:CsnArr csnlegendre n:i, m:i, source:CsnArr
+out:CsnArr csnlegendre n:i, m:i, source:CsnArr, trig:k
 ```
 
 ## Arguments
@@ -65,7 +65,7 @@ handle:CsnArr csnlegendre n:i, m:i, source:CsnArr, trig:k
 ## Output
 
 * `value`: `P_n^m(x)`.
-* `handle:CsnArr`: a real array shaped like `source`, holding `P_n^m` of each element.
+* `out:CsnArr`: a real array shaped like `source`, holding `P_n^m` of each element.
 
 ## Execution Time
 
@@ -92,7 +92,7 @@ handle:CsnArr csnlegendre n:i, m:i, source:CsnArr, trig:k
 ; Note the argument order: degree n first, then order m, as the harmonics
 ; write it, not scipy's (m, n).
 ;
-; One form is scalar, at init or k-rate; the other maps a handle elementwise
+; One form is scalar, at init or k-rate; the other maps an array elementwise
 ; and keeps its shape.
 ; -----------------------------------------------------------------------------
 
@@ -119,7 +119,7 @@ instr 1
     iCs = -iP21
     prints("P(2, 1) = %.6f, with the Condon-Shortley phase %.6f\n", iP21, iCs)
 
-    ; elementwise over a handle: P_3^0 on a grid over [-1, 1]
+    ; elementwise over an array: P_3^0 on a grid over [-1, 1]
     grid:CsnArr = csnlinspace(-1, 1, 5)
     p30:CsnArr = csnlegendre(3, 0, grid)
     ig[] = csntoarray(grid)

@@ -6,6 +6,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Csound's InitError and PerfError print the message as given: since Csound 7
+   they add no line ending of their own. These two format the message and end
+   it, so every call site passes the bare text, and so does every future one. */
+CS_PRINTF2 int32_t csn_init_error(CSOUND *csound, const char *fmt, ...);
+CS_PRINTF3 int32_t csn_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...);
+
 #define CSN_MAX_DIMS 8
 #define CSN_REGISTRY_NAME "::csound_numeric::registry"
 
@@ -23,7 +29,7 @@
 #define CHECK_ITYPE(csound, x)                                                             \
     do {                                                                                   \
         if ((x) != 0.0 && (x) != 1.0) {                                                    \
-            return (csound)->InitError(                                                    \
+            return csn_init_error(                                                    \
                 (csound),                                                                  \
                 "[csnarray] Invalid array type %g: itype must be 0 (real) or 1 (complex)", \
                 (double) (x)                                                               \

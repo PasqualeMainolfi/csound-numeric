@@ -27,8 +27,8 @@ field.
 result:i = csnmax(source:CsnArr)
 result:k = csnmax(source:CsnArr)
 result:k = csnmax(source:CsnArr, trig:k)
-handle:CsnArr = csnmax(source:CsnArr, axis:i)
-handle:CsnArr = csnmax(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnmax(source:CsnArr, axis:i)
+out:CsnArr = csnmax(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ handle:CsnArr = csnmax(source:CsnArr, trig:k, axis:k)
 ## Output
 
 * `result:i / result:k`: the reduction over the whole array.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

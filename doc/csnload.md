@@ -6,7 +6,7 @@ Read an array from a `.csn` or NumPy `.npy` file.
 
 ## Description
 
-`csnload` selects the format from the path extension and publishes a handle
+`csnload` selects the format from the path extension and returns a `CsnArr`
 with the shape and real/complex type read from the file. A `.csn` path reads
 csnum's own format. A `.npy` path reads NumPy format versions 1.0, 2.0 and 3.0.
 Only these two extensions are accepted.
@@ -31,15 +31,15 @@ it, and a stat-based stamp would only narrow the window — on HFS+, SMB/NFS and
 FAT the mtime granularity is one to two seconds, wide enough for a same-size
 rewrite to hide in.
 
-Until the first trigger fires the handle still holds the empty array the init
+Until the first trigger fires the output still holds the empty array the init
 pass published, so a consumer that cannot read an empty extent belongs behind the
 trigger too.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnload(path:S)
-handle:CsnArr = csnload(path:S, trig:k)
+out:CsnArr = csnload(path:S)
+out:CsnArr = csnload(path:S, trig:k)
 ```
 
 ## Arguments
@@ -49,7 +49,7 @@ handle:CsnArr = csnload(path:S, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the array read from the file. Empty until the first k-rate trigger fires.
+* `out:CsnArr`: the array read from the file. Empty until the first k-rate trigger fires.
 
 ## Execution Time
 
@@ -69,7 +69,7 @@ handle:CsnArr = csnload(path:S, trig:k)
 ; csnload.csd
 ;
 ; csnload restores shape and element type from .csn or .npy. At k-rate the
-; trigger is the whole contract, and the handle is empty until it first fires.
+; trigger is the whole contract, and the output is empty until it first fires.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

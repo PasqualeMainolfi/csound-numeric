@@ -34,32 +34,32 @@ infinity: there is no such room to describe.
 
 The k-rate overloads follow the same four shapes. The scalar/scalar one carries
 no trigger — it is two divisions, recomputed every control period — while the
-three that publish a handle take a trailing trigger, and a zero trigger
+three that return an array take a trailing trigger, and a zero trigger
 republishes the previous result.
 
 ## Syntax
 
 ```csound
 value:i = csnrt60absp(volume:i, target:i)
-handle:CsnArr = csnrt60absp(volume:i, targets:CsnArr)
-handle:CsnArr = csnrt60absp(volumes:CsnArr, target:i)
-handle:CsnArr = csnrt60absp(volumes:CsnArr, targets:CsnArr)
+out:CsnArr = csnrt60absp(volume:i, targets:CsnArr)
+out:CsnArr = csnrt60absp(volumes:CsnArr, target:i)
+out:CsnArr = csnrt60absp(volumes:CsnArr, targets:CsnArr)
 value:k = csnrt60absp(volume:k, target:k)
-handle:CsnArr = csnrt60absp(volume:k, targets:CsnArr, trig:k)
-handle:CsnArr = csnrt60absp(volumes:CsnArr, target:k, trig:k)
-handle:CsnArr = csnrt60absp(volumes:CsnArr, targets:CsnArr, trig:k)
+out:CsnArr = csnrt60absp(volume:k, targets:CsnArr, trig:k)
+out:CsnArr = csnrt60absp(volumes:CsnArr, target:k, trig:k)
+out:CsnArr = csnrt60absp(volumes:CsnArr, targets:CsnArr, trig:k)
 ```
 
 ## Arguments
 
 * `volume:i / volume:k`, `volumes:CsnArr`: the room volume in cubic metres, one value or a one-dimensional array of them.
 * `target:i / target:k`, `targets:CsnArr`: the reverberation time wanted, in seconds, one value or a one-dimensional array of them.
-* `trig:k` (optional, default `1`): k-rate trigger on the overloads that publish a handle. A zero trigger republishes the previous result.
+* `trig:k` (optional, default `1`): k-rate trigger on the overloads that return an array. A zero trigger republishes the previous result.
 
 ## Output
 
 * `value:i / value:k`: the required absorption in sabins, when both operands are scalars.
-* `handle:CsnArr`: one value per element when one operand is an array; a `volumes x targets` matrix when both are.
+* `out:CsnArr`: one value per element when one operand is an array; a `volumes x targets` matrix when both are.
 
 ## Execution Time
 

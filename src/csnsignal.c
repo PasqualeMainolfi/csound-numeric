@@ -87,7 +87,7 @@ static int32_t window_function_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_LENGTH((double) *p->length)) {
-        return csound->InitError(csound, "[csnarray] Invalid window length");
+        return csn_init_error(csound, "[csnarray] Invalid window length");
     }
     uint32_t wsize = (uint32_t) *p->length;
 
@@ -95,7 +95,7 @@ static int32_t window_function_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDOW_
     if (mode == W_KAISER) {
         beta = (double) *p->beta;
         if (!IS_VALID_VALUE(beta) || beta < 0.0) {
-            return csound->InitError(csound, "[csnarray] Invalid beta param in kaiser window");
+            return csn_init_error(csound, "[csnarray] Invalid beta param in kaiser window");
         }
     }
 
@@ -148,7 +148,7 @@ static int32_t window_function_k_init_helper(CSOUND *csound, CSN_WINDOW *p, CSN_
     p->is_i_time_length = false;
     if (csn_known_at_init(csound, p->length)) {
         if (!IS_VALID_LENGTH((double) *p->length)) {
-            return csound->InitError(csound, "[csnarray] Invalid window length");
+            return csn_init_error(csound, "[csnarray] Invalid window length");
         }
         wsize = (uint32_t) *p->length;
         p->is_i_time_length = true;
@@ -157,7 +157,7 @@ static int32_t window_function_k_init_helper(CSOUND *csound, CSN_WINDOW *p, CSN_
     bool beta_known = !is_kaiser || csn_known_at_init(csound, p->beta);
     double beta = is_kaiser && beta_known ? (double) *p->beta : -1.0;
     if (is_kaiser && beta_known && (!IS_VALID_VALUE(beta) || beta < 0.0)) {
-        return csound->InitError(csound, "[csnarray] Invalid beta param in kaiser window");
+        return csn_init_error(csound, "[csnarray] Invalid beta param in kaiser window");
     }
 
     int32_t res = OK;
@@ -217,7 +217,7 @@ static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDO
     uint32_t wsize = p->is_i_time_length ? (uint32_t) *p->length : 0;
     if (!p->is_i_time_length) {
         if (!IS_VALID_LENGTH((double) *p->length)) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid window length");
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid window length");
         }
         wsize = (uint32_t) *p->length;
     }
@@ -226,7 +226,7 @@ static int32_t window_function_k_helper(CSOUND *csound, CSN_WINDOW *p, CSN_WINDO
     if (mode == W_KAISER) {
         beta = (double) *p->beta;
         if (!IS_VALID_VALUE(beta) || beta < 0.0) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid beta param in kaiser window");
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid beta param in kaiser window");
         }
     }
 
@@ -300,7 +300,7 @@ static CSN_POLYDEV polyeval_and_derivative(const double *coeffs, size_t stride, 
 static int32_t get_roots(CSOUND *csound, CSN_ARRAY *roots, CSN_ARRAY *source_arr, CSN_AXIS_SPEC axis, uint32_t degree, CSN_COMPLEXDAT *z_buffer, CSN_COMPLEXDAT *z_new_buffer) {
     CSN_AXIS_SLICE_ITER it;
     if (AXIS_ITER_SLICE_INIT(&it, source_arr, roots, axis.index) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: incompatible roots array shapes/ranks");
+        return csn_init_error(csound, "[csnarray] Internal error: incompatible roots array shapes/ranks");
     }
 
     size_t max_iter = CSN_ROOTS_MAX_ITER;
@@ -311,7 +311,7 @@ static int32_t get_roots(CSOUND *csound, CSN_ARRAY *roots, CSN_ARRAY *source_arr
         CSN_COMPLEXDAT a0 = slice_get(src_slice, 0, it.src_axis_stride, source_arr->itype);
         double a0_abs = hypot(a0.re, a0.im);
         if (a0_abs == 0.0) {
-            return csound->InitError(csound, "[csnarray] Leading polynomial coefficient is zero");
+            return csn_init_error(csound, "[csnarray] Leading polynomial coefficient is zero");
         }
 
         double r = 0.0;
@@ -376,7 +376,7 @@ static int32_t get_roots(CSOUND *csound, CSN_ARRAY *roots, CSN_ARRAY *source_arr
         }
 
         if (!converged) {
-            return csound->InitError(csound, "[csnarray] Roots did not converge");
+            return csn_init_error(csound, "[csnarray] Roots did not converge");
         }
 
         for (size_t n = 0; n < degree; n++) {
@@ -406,12 +406,12 @@ int32_t csnsig_roots(CSOUND *csound, CSN_ROOTS *p) {
     CSN_AXIS_SPEC axis = csn_normalize_axis(is_axis_omitted ? NULL : p->axis, source_ndim, CSN_AXIS_DEFAULT_LAST);
     if (axis.kind == CSN_AXIS_INVALID) {
         double value = is_axis_omitted ? 0.0 : (double) *p->axis;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
         goto done;
     }
 
     if (source_shape[axis.index] < 2U) {
-        res = csound->InitError(csound, "[csnarray] Constant polynomial, no roots");
+        res = csn_init_error(csound, "[csnarray] Constant polynomial, no roots");
         goto done;
     }
 
@@ -425,7 +425,7 @@ int32_t csnsig_roots(CSOUND *csound, CSN_ROOTS *p) {
     z_buffer = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * degree);
     z_new_buffer = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * degree);
     if (z_buffer == NULL || z_new_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -482,7 +482,7 @@ static int32_t map_zpk_roots(CSOUND *csound, CSN_ARRAY *out, const CSN_ARRAY *in
                     CSN_COMPLEXDAT num = { .re = fs2 + r.re, .im = r.im };
                     CSN_COMPLEXDAT den = { .re = fs2 - r.re, .im = -r.im };
                     if (complex_div(&mapped, num, den) != OK) {
-                        return csound->InitError(csound, "[csnarray] A %s at 2*fs (%g) has no bilinear image", what, fs2);
+                        return csn_init_error(csound, "[csnarray] A %s at 2*fs (%g) has no bilinear image", what, fs2);
                     }
                     zpk_put(out, &out_index, mapped);
                 }
@@ -494,7 +494,7 @@ static int32_t map_zpk_roots(CSOUND *csound, CSN_ARRAY *out, const CSN_ARRAY *in
             case LP2HP_ZPK: {
                     CSN_COMPLEXDAT num = { .re = w0fs, .im = 0.0 };
                     if (complex_div(&mapped, num, r) != OK) {
-                        return csound->InitError(csound, "[csnarray] A prototype %s at the origin has no highpass image", what);
+                        return csn_init_error(csound, "[csnarray] A prototype %s at the origin has no highpass image", what);
                     }
                     zpk_put(out, &out_index, mapped);
                 }
@@ -506,7 +506,7 @@ static int32_t map_zpk_roots(CSOUND *csound, CSN_ARRAY *out, const CSN_ARRAY *in
             case LP2BS_ZPK: {
                     CSN_COMPLEXDAT num = { .re = bw * 0.5, .im = 0.0 };
                     if (complex_div(&mapped, num, r) != OK) {
-                        return csound->InitError(csound, "[csnarray] A prototype %s at the origin has no bandstop image", what);
+                        return csn_init_error(csound, "[csnarray] A prototype %s at the origin has no bandstop image", what);
                     }
                     zpk_put_band_pair(out, &out_index, mapped, w0fs);
                 }
@@ -585,22 +585,22 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
 
     double gain = (double) *p->arg_a;
     if (!IS_VALID_VALUE(gain)) {
-        return csound->InitError(csound, "[csnarray] Invalid gain value");
+        return csn_init_error(csound, "[csnarray] Invalid gain value");
     }
 
     double arg_b = (double) *p->arg_b;
     if (!IS_VALID_VALUE(arg_b) || arg_b <= 0.0) {
         if (mode == BILINEAR_ZPK) {
-            return csound->InitError(csound, "[csnarray] Invalid sampling rate %g: it must be finite and greater than zero", arg_b);
+            return csn_init_error(csound, "[csnarray] Invalid sampling rate %g: it must be finite and greater than zero", arg_b);
         }
-        return csound->InitError(csound, "[csnarray] Invalid w0 %g: it must be finite and greater than zero", arg_b);
+        return csn_init_error(csound, "[csnarray] Invalid w0 %g: it must be finite and greater than zero", arg_b);
     }
 
     double bw = 0.0;
     if (mode == LP2BP_ZPK || mode == LP2BS_ZPK) {
         bw = (double) *p->arg_c;
         if (!IS_VALID_VALUE(bw) || bw <= 0.0) {
-            return csound->InitError(csound, "[csnarray] Invalid bandwidth %g: it must be finite and greater than zero", bw);
+            return csn_init_error(csound, "[csnarray] Invalid bandwidth %g: it must be finite and greater than zero", bw);
         }
     }
 
@@ -620,12 +620,12 @@ static int32_t fdesign3_helper(CSOUND *csound, CSN_FDESIGN3 *p, CSN_PF_DESIGN_MO
     uint32_t poles_size = poles_arr->size;
 
     if (zeros_ndim != 1U || poles_ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] zeros and poles must be 1-D arrays");
+        res = csn_init_error(csound, "[csnarray] zeros and poles must be 1-D arrays");
         goto done;
     }
 
     if (zeros_size > poles_size) {
-        res = csound->InitError(csound, "[csnarray] There must be at least as many poles as zeros (%u zeros, %u poles)", zeros_size, poles_size);
+        res = csn_init_error(csound, "[csnarray] There must be at least as many poles as zeros (%u zeros, %u poles)", zeros_size, poles_size);
         goto done;
     }
 
@@ -743,11 +743,11 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
     CSN_ARRAY *a_arr = p->source_handle_b;
 
     if (b_arr->ndim != 1U || a_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] b and a must be 1-D arrays");
+        res = csn_init_error(csound, "[csnarray] b and a must be 1-D arrays");
         goto done;
     }
     if (b_arr->itype != CSN_REAL || a_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] b and a must be real arrays: the gain of a complex transfer function is not real");
+        res = csn_init_error(csound, "[csnarray] b and a must be real arrays: the gain of a complex transfer function is not real");
         goto done;
     }
 
@@ -755,11 +755,11 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
     size_t b_lead = first_nonzero(b_arr);
     size_t a_lead = first_nonzero(a_arr);
     if (a_lead == a_arr->size) {
-        res = csound->InitError(csound, "[csnarray] The denominator a is empty or all zeros");
+        res = csn_init_error(csound, "[csnarray] The denominator a is empty or all zeros");
         goto done;
     }
     if (b_lead == b_arr->size) {
-        res = csound->InitError(csound, "[csnarray] The numerator b is empty or all zeros");
+        res = csn_init_error(csound, "[csnarray] The numerator b is empty or all zeros");
         goto done;
     }
 
@@ -768,7 +768,7 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
     double gain = b_arr->data[b_lead] / a_arr->data[a_lead];
 
     if (load_trimmed(csound, &b_trim, b_arr, b_lead) != OK || load_trimmed(csound, &a_trim, a_arr, a_lead) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -777,7 +777,7 @@ int32_t csnsig_tf2zpk(CSOUND *csound, CSN_FDESIGN3 *p) {
         z_buffer = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * max_degree);
         z_new_buffer = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * max_degree);
         if (z_buffer == NULL || z_new_buffer == NULL) {
-            res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+            res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
             goto done;
         }
     }
@@ -875,7 +875,7 @@ int32_t csnsig_zpk2tf(CSOUND *csound, CSN_FDESIGN2 *p) {
     CSN_COMPLEXDAT *temp_poly = NULL;
     double gain = (double) *p->arg_a;
     if (!IS_VALID_VALUE(gain)) {
-        return csound->InitError(csound, "[csnarray] Invalid gain %g: it must be finite", gain);
+        return csn_init_error(csound, "[csnarray] Invalid gain %g: it must be finite", gain);
     }
 
     int32_t res = OK;
@@ -889,7 +889,7 @@ int32_t csnsig_zpk2tf(CSOUND *csound, CSN_FDESIGN2 *p) {
     CSN_ARRAY *poles_arr = p->source_handle_b;
 
     if (zeros_arr->ndim != 1U || poles_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] zeros and poles must be 1-D arrays");
+        res = csn_init_error(csound, "[csnarray] zeros and poles must be 1-D arrays");
         goto done;
     }
 
@@ -901,7 +901,7 @@ int32_t csnsig_zpk2tf(CSOUND *csound, CSN_FDESIGN2 *p) {
     a_poly = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * a_len);
     temp_poly = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * max_len);
     if (b_poly == NULL || a_poly == NULL || temp_poly == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1033,13 +1033,13 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
 
     double w0 = (double) *p->arg_a;
     if (!IS_VALID_VALUE(w0) || w0 <= 0.0) {
-        return csound->InitError(csound, "[csnarray] Invalid w0 %g: it must be finite and greater than zero", w0);
+        return csn_init_error(csound, "[csnarray] Invalid w0 %g: it must be finite and greater than zero", w0);
     }
     double bw = 0.0;
     if (mode == LP2BP || mode == LP2BS) {
         bw = (double) *p->arg_b;
         if (!IS_VALID_VALUE(bw) || bw <= 0.0) {
-            return csound->InitError(csound, "[csnarray] Invalid bandwidth %g: it must be finite and greater than zero", bw);
+            return csn_init_error(csound, "[csnarray] Invalid bandwidth %g: it must be finite and greater than zero", bw);
         }
     }
 
@@ -1057,11 +1057,11 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
     CSN_ARRAY *b_arr = p->source_handle_a;
     CSN_ARRAY *a_arr = p->source_handle_b;
     if (b_arr->ndim != 1U || a_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] b and a must be 1-D arrays");
+        res = csn_init_error(csound, "[csnarray] b and a must be 1-D arrays");
         goto done;
     }
     if (b_arr->size == 0 || a_arr->size == 0) {
-        res = csound->InitError(csound, "[csnarray] b and a must hold at least one coefficient");
+        res = csn_init_error(csound, "[csnarray] b and a must hold at least one coefficient");
         goto done;
     }
 
@@ -1095,7 +1095,7 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
     ob = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * nb_out);
     oa = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * na_out);
     if (b == NULL || a == NULL || ob == NULL || oa == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1128,7 +1128,7 @@ static int32_t tf_transform_helper(CSOUND *csound, CSN_FDESIGN2 *p, CSN_PF_DESIG
     size_t b_off = 0;
     size_t a_off = 0;
     if (!normalize_tf(ob, &b_off, nb_out, oa, &a_off, na_out)) {
-        res = csound->InitError(csound, "[csnarray] The denominator a is all zeros");
+        res = csn_init_error(csound, "[csnarray] The denominator a is all zeros");
         goto done;
     }
 
@@ -1208,11 +1208,11 @@ static int32_t split_conjugates(CSOUND *csound, CSN_COMPLEXDAT *in, size_t n, CS
         if (in[i].im > 0.0) upper++; else lower++;
     }
     if (upper != lower) {
-        return csound->InitError(csound, "[csnarray] The %s contain a complex value with no matching conjugate", what);
+        return csn_init_error(csound, "[csnarray] The %s contain a complex value with no matching conjugate", what);
     }
 
     bool *taken = csound->Calloc(csound, sizeof(bool) * (n > 0 ? n : 1));
-    if (taken == NULL) return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+    if (taken == NULL) return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
 
     for (size_t i = 0; i < n; i++) {
         double mag = hypot(in[i].re, in[i].im);
@@ -1230,7 +1230,7 @@ static int32_t split_conjugates(CSOUND *csound, CSN_COMPLEXDAT *in, size_t n, CS
         }
         if (best < 0 || best_dist > tol * hypot(in[best].re, in[best].im)) {
             csound->Free(csound, taken);
-            return csound->InitError(csound, "[csnarray] The %s contain a complex value with no matching conjugate", what);
+            return csn_init_error(csound, "[csnarray] The %s contain a complex value with no matching conjugate", what);
         }
         taken[best] = true;
         out[count].v.re = (in[i].re + in[best].re) * 0.5;
@@ -1330,7 +1330,7 @@ static int32_t zpk2sos_helper(CSOUND *csound, CSN_ARRAY *zeros_arr, CSN_ARRAY *p
         n_sections = 1;
         sos = csound->Calloc(csound, sizeof(double) * 6);
         if (sos == NULL) {
-            res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+            res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
             goto done;
         }
         sos[0] = gain;
@@ -1347,7 +1347,7 @@ static int32_t zpk2sos_helper(CSOUND *csound, CSN_ARRAY *zeros_arr, CSN_ARRAY *p
         ps = csound->Calloc(csound, sizeof(CSN_ROOTSLOT) * n_even);
         sos = csound->Calloc(csound, sizeof(double) * 6 * n_sections);
         if (z_in == NULL || p_in == NULL || zs == NULL || ps == NULL || sos == NULL) {
-            res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+            res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
             goto done;
         }
         for (size_t i = 0; i < nz; i++) z_in[i] = slice_get(zeros_arr->data, i, 1, zeros_arr->itype);
@@ -1441,7 +1441,7 @@ int32_t csnsig_zpk2sos(CSOUND *csound, CSN_ZPK2SOS *p) {
 
     double gain = (double) *p->gain;
     if (!IS_VALID_VALUE(gain)) {
-        return csound->InitError(csound, "[csnarray] Invalid gain %g: it must be finite", gain);
+        return csn_init_error(csound, "[csnarray] Invalid gain %g: it must be finite", gain);
     }
 
     int32_t res = OK;
@@ -1454,7 +1454,7 @@ int32_t csnsig_zpk2sos(CSOUND *csound, CSN_ZPK2SOS *p) {
     CSN_ARRAY *zeros_arr = p->source_handle_a;
     CSN_ARRAY *poles_arr = p->source_handle_b;
     if (zeros_arr->ndim != 1U || poles_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] zeros and poles must be 1-D arrays");
+        res = csn_init_error(csound, "[csnarray] zeros and poles must be 1-D arrays");
         goto done;
     }
 
@@ -1498,7 +1498,7 @@ int32_t csnsig_buttap(CSOUND *csound, CSN_BUTTAP *p) {
 
     double ord_value = (double) *p->order;
     if (!IS_VALID_LENGTH(ord_value)) {
-        return csound->InitError(csound, "[csnarray] Invalid Butterworth order %g: it must be a non-negative integer", ord_value);
+        return csn_init_error(csound, "[csnarray] Invalid Butterworth order %g: it must be a non-negative integer", ord_value);
     }
     size_t order = (size_t) ord_value;
 
@@ -1564,10 +1564,10 @@ static int32_t iir_digital_zpk(CSOUND *csound, const CSN_ARRAY *ztap, const CSN_
             poles_shape[0] = 2U * (uint32_t) ptap->size;
             break;
         default:
-            return csound->InitError(csound, "[csnarray] Internal error: invalid filter transform");
+            return csn_init_error(csound, "[csnarray] Internal error: invalid filter transform");
     }
     if (allocate_array(csound, &zeros, 1U, zeros_shape, CSN_COMPLEX) != OK || allocate_array(csound, &poles, 1U, poles_shape, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1584,7 +1584,7 @@ static int32_t iir_digital_zpk(CSOUND *csound, const CSN_ARRAY *ztap, const CSN_
     uint32_t bil_shape[CSN_MAX_DIMS] = {0};
     bil_shape[0] = (uint32_t) poles.size;
     if (allocate_array(csound, bil_zeros, 1U, bil_shape, CSN_COMPLEX) != OK || allocate_array(csound, bil_poles, 1U, bil_shape, CSN_COMPLEX) != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1629,7 +1629,7 @@ static int32_t iir_zpk_to_ba(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_b, CSN_ARRA
     a_poly = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * a_len);
     temp_poly = csound->Calloc(csound, sizeof(CSN_COMPLEXDAT) * max_len);
     if (b_poly == NULL || a_poly == NULL || temp_poly == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1880,7 +1880,7 @@ static int32_t iir_prototype(CSOUND *csound, const CSN_IIR_SPEC *spec, size_t or
     zshape[0] = (uint32_t) nz;
     pshape[0] = (uint32_t) n;
     if (allocate_array(csound, ztap, 1U, zshape, CSN_COMPLEX) != OK || allocate_array(csound, ptap, 1U, pshape, CSN_COMPLEX) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     CSN_COMPLEXDAT *z = (CSN_COMPLEXDAT *) ztap->data;
     CSN_COMPLEXDAT *p = (CSN_COMPLEXDAT *) ptap->data;
@@ -1934,7 +1934,7 @@ static int32_t iir_prototype(CSOUND *csound, const CSN_IIR_SPEC *spec, size_t or
             double eps = sqrt(eps_sq);
             double ck1_sq = eps_sq / expm1(log(10.0) * 0.1 * spec->rs);
             if (ck1_sq == 0.0) {
-                return csound->InitError(csound, "[csnarray] Cannot design an elliptic filter with rp = %g dB and rs = %g dB", spec->rp, spec->rs);
+                return csn_init_error(csound, "[csnarray] Cannot design an elliptic filter with rp = %g dB and rs = %g dB", spec->rp, spec->rs);
             }
             double val0 = csn_ellipk(ck1_sq);
             double m = ellipdeg(n, ck1_sq);
@@ -1984,7 +1984,7 @@ static int32_t iir_prototype(CSOUND *csound, const CSN_IIR_SPEC *spec, size_t or
         }
 
         default:
-            return csound->InitError(csound, "[csnarray] Internal error: unknown filter family");
+            return csn_init_error(csound, "[csnarray] Internal error: unknown filter family");
     }
 }
 
@@ -1996,33 +1996,33 @@ static int32_t iir_prototype(CSOUND *csound, const CSN_IIR_SPEC *spec, size_t or
 // order, type and fs; the type must be one of the two a cutoff count allows
 static int32_t iir_check_common(CSOUND *csound, const CSN_IIR_SPEC *spec, double ord_value, double type_value, double fs, bool band, size_t *order) {
     if (!IS_VALID_LENGTH(ord_value) || ord_value < 1.0) {
-        return csound->InitError(csound, "[csnarray] Invalid %s order %g: it must be an integer greater or equal to one", iir_family_name(spec->family), ord_value);
+        return csn_init_error(csound, "[csnarray] Invalid %s order %g: it must be an integer greater or equal to one", iir_family_name(spec->family), ord_value);
     }
     if (spec->family == CSN_ELLIP && ord_value > (double) CSN_MAX_ELLIP_ORDER) {
-        return csound->InitError(csound, "[csnarray] Invalid elliptic order %g: it must not exceed %d", ord_value, CSN_MAX_ELLIP_ORDER);
+        return csn_init_error(csound, "[csnarray] Invalid elliptic order %g: it must not exceed %d", ord_value, CSN_MAX_ELLIP_ORDER);
     }
     if ((spec->family == CSN_CHEBY1 || spec->family == CSN_ELLIP) && (!isfinite(spec->rp) || spec->rp <= 0.0)) {
-        return csound->InitError(csound, "[csnarray] Invalid passband ripple %g dB: it must be finite and greater than zero", spec->rp);
+        return csn_init_error(csound, "[csnarray] Invalid passband ripple %g dB: it must be finite and greater than zero", spec->rp);
     }
     if ((spec->family == CSN_CHEBY2 || spec->family == CSN_ELLIP) && (!isfinite(spec->rs) || spec->rs <= 0.0)) {
-        return csound->InitError(csound, "[csnarray] Invalid stopband attenuation %g dB: it must be finite and greater than zero", spec->rs);
+        return csn_init_error(csound, "[csnarray] Invalid stopband attenuation %g dB: it must be finite and greater than zero", spec->rs);
     }
     if (spec->family == CSN_ELLIP && spec->rs <= spec->rp) {
-        return csound->InitError(csound, "[csnarray] Invalid elliptic specification: the stopband attenuation (%g dB) must exceed the passband ripple (%g dB)", spec->rs, spec->rp);
+        return csn_init_error(csound, "[csnarray] Invalid elliptic specification: the stopband attenuation (%g dB) must exceed the passband ripple (%g dB)", spec->rs, spec->rp);
     }
     bool is_band_type = type_value == 2.0 || type_value == 3.0;
     bool is_single_type = type_value == 0.0 || type_value == 1.0;
     if (!is_band_type && !is_single_type) {
-        return csound->InitError(csound, "[csnarray] Invalid filter type %g: it must be 0 = lowpass, 1 = highpass, 2 = bandpass, 3 = bandstop", type_value);
+        return csn_init_error(csound, "[csnarray] Invalid filter type %g: it must be 0 = lowpass, 1 = highpass, 2 = bandpass, 3 = bandstop", type_value);
     }
     if (band && !is_band_type) {
-        return csound->InitError(csound, "[csnarray] Two cutoff frequencies are only for a bandpass (2) or a bandstop (3)");
+        return csn_init_error(csound, "[csnarray] Two cutoff frequencies are only for a bandpass (2) or a bandstop (3)");
     }
     if (!band && !is_single_type) {
-        return csound->InitError(csound, "[csnarray] A single cutoff frequency is only for a lowpass (0) or a highpass (1)");
+        return csn_init_error(csound, "[csnarray] A single cutoff frequency is only for a lowpass (0) or a highpass (1)");
     }
     if (!IS_VALID_SR(fs)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample rate %g: it must be a positive integer", fs);
+        return csn_init_error(csound, "[csnarray] Invalid sample rate %g: it must be a positive integer", fs);
     }
     *order = (size_t) ord_value;
     return OK;
@@ -2052,12 +2052,12 @@ static int32_t iir_band_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_a, CSN_AR
     CSN_FILTER_TYPE ftype = (CSN_FILTER_TYPE) *arg_type;
 
     if (fcut == NULL || fcut->data == NULL || fcut->sizes == NULL || fcut->dimensions != 1 || fcut->sizes[0] != 2) {
-        return csound->InitError(csound, "[csnarray] The cutoff must be a 1-D array of two frequencies, low and high (an inline array at global scope arrives empty: bind it to a named i-array first)");
+        return csn_init_error(csound, "[csnarray] The cutoff must be a 1-D array of two frequencies, low and high (an inline array at global scope arrives empty: bind it to a named i-array first)");
     }
     double f1 = (double) fcut->data[0];
     double f2 = (double) fcut->data[1];
     if (!isfinite(f1) || !isfinite(f2) || f1 <= 0.0 || f2 <= f1 || f2 >= fs * 0.5) {
-        return csound->InitError(csound, "[csnarray] Invalid band [%g, %g]: it must satisfy 0 < low < high < fs/2 (%g)", f1, f2, fs * 0.5);
+        return csn_init_error(csound, "[csnarray] Invalid band [%g, %g]: it must satisfy 0 < low < high < fs/2 (%g)", f1, f2, fs * 0.5);
     }
 
     // pre-warp the band edges so the digital filter hits them exactly
@@ -2075,7 +2075,7 @@ static int32_t iir_noband_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *arr_a, CSN_
 
     double fc = (double) *fcut;
     if (!isfinite(fc) || fc <= 0.0 || fc >= fs * 0.5) {
-        return csound->InitError(csound, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, fs * 0.5);
+        return csn_init_error(csound, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, fs * 0.5);
     }
 
     // pre-warp the cutoff so the digital filter hits it exactly
@@ -2178,20 +2178,20 @@ int32_t csnsig_ellip_noband_sos(CSOUND *csound, CSN_FDESIGN1F1_SOS *p) {
    order = max(len b, len a) - 1. */
 static int32_t load_tf_coeffs(CSOUND *csound, const CSN_ARRAY *b_arr, const CSN_ARRAY *a_arr, CSN_ARRAY *b_buf, CSN_ARRAY *a_buf, size_t *order) {
     if (b_arr->ndim != 1U || a_arr->ndim != 1U) {
-        return csound->InitError(csound, "[csnarray] b and a must be 1-D arrays");
+        return csn_init_error(csound, "[csnarray] b and a must be 1-D arrays");
     }
     if (b_arr->size == 0 || a_arr->size == 0) {
-        return csound->InitError(csound, "[csnarray] b and a must hold at least one coefficient");
+        return csn_init_error(csound, "[csnarray] b and a must hold at least one coefficient");
     }
     CSN_COMPLEXDAT a0 = slice_get(a_arr->data, 0, 1, a_arr->itype);
     if (a0.re == 0.0 && a0.im == 0.0) {
-        return csound->InitError(csound, "[csnarray] The first denominator coefficient a[0] must be non-zero");
+        return csn_init_error(csound, "[csnarray] The first denominator coefficient a[0] must be non-zero");
     }
     size_t n = (b_arr->size > a_arr->size ? b_arr->size : a_arr->size);
     uint32_t shape[CSN_MAX_DIMS] = {0};
     shape[0] = (uint32_t) n;
     if (allocate_array(csound, b_buf, 1U, shape, CSN_COMPLEX) != OK || allocate_array(csound, a_buf, 1U, shape, CSN_COMPLEX) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     CSN_COMPLEXDAT *b = (CSN_COMPLEXDAT *) b_buf->data;
     CSN_COMPLEXDAT *a = (CSN_COMPLEXDAT *) a_buf->data;
@@ -2210,17 +2210,17 @@ static int32_t load_tf_coeffs(CSOUND *csound, const CSN_ARRAY *b_arr, const CSN_
    scipy.signal.sosfilt requires. */
 static int32_t load_sos(CSOUND *csound, const CSN_ARRAY *sos_arr, CSN_ARRAY *sos_buf, size_t *n_sections) {
     if (sos_arr->ndim != 2U || sos_arr->shape[1] != 6U || sos_arr->shape[0] == 0U) {
-        return csound->InitError(csound, "[csnarray] sos must be a 2-D array of at least one section of six coefficients [b0 b1 b2 a0 a1 a2]");
+        return csn_init_error(csound, "[csnarray] sos must be a 2-D array of at least one section of six coefficients [b0 b1 b2 a0 a1 a2]");
     }
     size_t n = sos_arr->shape[0];
     for (size_t s = 0; s < n; s++) {
         CSN_COMPLEXDAT a0 = slice_get(sos_arr->data, s * 6 + 3, 1, sos_arr->itype);
         if (a0.re != 1.0 || a0.im != 0.0) {
-            return csound->InitError(csound, "[csnarray] Section %zu has a0 = %g: every sos[:, 3] must be 1", s, a0.re);
+            return csn_init_error(csound, "[csnarray] Section %zu has a0 = %g: every sos[:, 3] must be 1", s, a0.re);
         }
     }
     if (allocate_array(csound, sos_buf, 2U, sos_arr->shape, CSN_COMPLEX) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     for (size_t i = 0; i < n * 6; i++) {
         slice_put(sos_buf->data, i, 1, CSN_COMPLEX, slice_get(sos_arr->data, i, 1, sos_arr->itype));
@@ -2354,7 +2354,7 @@ static int32_t filter_axis(CSOUND *csound, const cs_float *axis_in, uint32_t ndi
     *spec = csn_normalize_axis(axis_in, ndim, CSN_AXIS_DEFAULT_LAST);
     if (spec->kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        return csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, ndim, -(int32_t) ndim, ndim - 1U);
+        return csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, ndim, -(int32_t) ndim, ndim - 1U);
     }
     return OK;
 }
@@ -2386,7 +2386,7 @@ int32_t csnsig_lfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO *p) {
     CSN_ARRAY *b_arr = p->b;
     CSN_ARRAY *a_arr = p->a;
     if (b_arr->itype == CSN_COMPLEX || a_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] The audio lfilter needs real b and a");
+        res = csn_init_error(csound, "[csnarray] The audio lfilter needs real b and a");
         goto done;
     }
 
@@ -2459,7 +2459,7 @@ int32_t csnsig_sosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO *p) {
 
     CSN_ARRAY *sos_arr = p->sos;
     if (sos_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] The audio sosfilter needs real sections");
+        res = csn_init_error(csound, "[csnarray] The audio sosfilter needs real sections");
         goto done;
     }
 
@@ -3219,7 +3219,7 @@ int32_t csnsig_zlfilter_audio_init(CSOUND *csound, CSN_LFILTER_AUDIO_Z *p) {
     int32_t res = OK;
     CSN_ARRAY *zi = p->source_handle;
     if (p->b->itype == CSN_COMPLEX || p->a->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] The audio lfilter needs real b and a");
+        res = csn_init_error(csound, "[csnarray] The audio lfilter needs real b and a");
         goto done;
     }
     FREE_CSNARRDATA(csound, &p->b_buffer);
@@ -3259,7 +3259,7 @@ int32_t csnsig_zsosfilter_audio_init(CSOUND *csound, CSN_SOSFILTER_AUDIO_Z *p) {
     int32_t res = OK;
     CSN_ARRAY *zi = p->source_handle;
     if (p->sos->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] The audio sosfilter needs real sections");
+        res = csn_init_error(csound, "[csnarray] The audio sosfilter needs real sections");
         goto done;
     }
     FREE_CSNARRDATA(csound, &p->sos_buffer);
@@ -3389,7 +3389,7 @@ static int32_t allocate_sos_perf_init(CSOUND *csound, const CSN_ARRAY *ptap, CSN
             digital_order = 2 * ptap->size;
             break;
         default:
-            return csound->InitError(csound, "[csnarray] Internal error: invalid filter transform");
+            return csn_init_error(csound, "[csnarray] Internal error: invalid filter transform");
     }
 
     size_t n_sections = (digital_order + 1) / 2;
@@ -3397,11 +3397,11 @@ static int32_t allocate_sos_perf_init(CSOUND *csound, const CSN_ARRAY *ptap, CSN
     sos_shape[0] = (uint32_t) n_sections;
     sos_shape[1] = 6U;
     if (allocate_array(csound, sos, 2U, sos_shape, CSN_REAL) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     if (csn_scratch_reserve(csound, NULL, false, state, 2 * n_sections, sizeof(double)) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     memset(state->scratch, 0, sizeof(double) * 2 * n_sections);
     state->current_size = 2 * n_sections;
@@ -3452,7 +3452,7 @@ int32_t csnsig_rtbutter_noband_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
     uint32_t bil_shape[CSN_MAX_DIMS] = {0};
     bil_shape[0] = (uint32_t) p->ptap.size;
     if (allocate_array(csound, &p->bilinear_zeros, 1U, bil_shape, CSN_COMPLEX) != OK || allocate_array(csound, &p->bilinear_poles, 1U, bil_shape, CSN_COMPLEX) != OK) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     return OK;
 }
@@ -3514,12 +3514,12 @@ int32_t csnsig_rtbutter_noband_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
     double fc = fp.fcut;
 
     if (!isfinite(fc) || fc <= 0.0 || fc >= fp.fs * 0.5) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, fp.fs * 0.5);
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, fp.fs * 0.5);
     }
 
     double w0 = 2.0 * fp.fs * tan(CSN_PI * fc / fp.fs);
     if (!isfinite(w0)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
+        return csn_perf_error(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
     }
 
     /* Butterworth has no finite prototype zeros. The bilinear transform puts
@@ -3536,14 +3536,14 @@ int32_t csnsig_rtbutter_noband_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
             analog = cscale(prototype[k], w0);
         } else {
             if (complex_div(&analog, cmake(w0, 0.0), prototype[k]) != OK) {
-                return csound->PerfError(csound, &p->h, "[csnarray] Invalid highpass prototype pole");
+                return csn_perf_error(csound, &p->h, "[csnarray] Invalid highpass prototype pole");
             }
         }
         CSN_COMPLEXDAT numerator = cmake(fs2 + analog.re, analog.im);
         CSN_COMPLEXDAT denominator = cmake(fs2 - analog.re, -analog.im);
         if (complex_div(&digital_poles[k], numerator, denominator) != OK ||
             !isfinite(digital_poles[k].re) || !isfinite(digital_poles[k].im)) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital Butterworth pole");
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid digital Butterworth pole");
         }
         digital_zeros[k] = cmake(p->ftype == CSN_LP ? -1.0 : 1.0, 0.0);
     }
@@ -3577,7 +3577,7 @@ int32_t csnsig_rtbutter_noband_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p) {
         row[SOS_A2] = pole.re * pole.re + pole.im * pole.im;
     }
     if (section != n_sections) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: invalid Butterworth section count");
+        return csn_perf_error(csound, &p->h, "[csnarray] Internal error: invalid Butterworth section count");
     }
 
     uint32_t offset = 0;
@@ -3624,7 +3624,7 @@ static int32_t rt_iir_section_order(CSOUND *csound, CSN_ARRAY *ztap, CSN_ARRAY *
     size_t n_pairs = n / 2;
     size_t nz_pairs = nz / 2;
     if (nz % 2 != 0 || (nz_pairs != 0 && nz_pairs != n_pairs)) {
-        return csound->InitError(csound, "[csnarray] Internal error: unexpected prototype zero count");
+        return csn_init_error(csound, "[csnarray] Internal error: unexpected prototype zero count");
     }
 
     CSN_COMPLEXDAT *p = (CSN_COMPLEXDAT *) ptap->data;
@@ -3634,7 +3634,7 @@ static int32_t rt_iir_section_order(CSOUND *csound, CSN_ARRAY *ztap, CSN_ARRAY *
     bool *taken = csound->Calloc(csound, sizeof(bool) * (n_pairs + 1));
     int32_t res = OK;
     if (pu == NULL || zu == NULL || taken == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -3651,7 +3651,7 @@ static int32_t rt_iir_section_order(CSOUND *csound, CSN_ARRAY *ztap, CSN_ARRAY *
         }
     }
     if (up != n_pairs || n_real != n % 2) {
-        res = csound->InitError(csound, "[csnarray] Internal error: unexpected prototype pole layout");
+        res = csn_init_error(csound, "[csnarray] Internal error: unexpected prototype pole layout");
         goto done;
     }
     size_t zup = 0;
@@ -3661,7 +3661,7 @@ static int32_t rt_iir_section_order(CSOUND *csound, CSN_ARRAY *ztap, CSN_ARRAY *
         zu[zup++] = z[i];
     }
     if (zup != nz_pairs) {
-        res = csound->InitError(csound, "[csnarray] Internal error: unexpected prototype zero layout");
+        res = csn_init_error(csound, "[csnarray] Internal error: unexpected prototype zero layout");
         goto done;
     }
 
@@ -3718,7 +3718,7 @@ static int32_t rt_iir_init(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, const CSN_I
        bandpass. */
     p->ktap *= proto_gain((const CSN_COMPLEXDAT *) p->ptap.data, p->ptap.size, (const CSN_COMPLEXDAT *) p->ztap.data, p->ztap.size);
     if (!isfinite(p->ktap)) {
-        return csound->InitError(csound, "[csnarray] The %s prototype gain is not finite", iir_family_name(spec->family));
+        return csn_init_error(csound, "[csnarray] The %s prototype gain is not finite", iir_family_name(spec->family));
     }
     return OK;
 }
@@ -3800,7 +3800,7 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
         double f1 = fc - 0.5 * fp.bw;
         double f2 = fc + 0.5 * fp.bw;
         if (!isfinite(f1) || !isfinite(f2) || fp.bw <= 0.0 || f1 <= 0.0 || f2 >= nyquist) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid band: centre %g and width %g give [%g, %g], it must satisfy 0 < low < high < fs/2 (%g)", fc, fp.bw, f1, f2, nyquist);
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid band: centre %g and width %g give [%g, %g], it must satisfy 0 < low < high < fs/2 (%g)", fc, fp.bw, f1, f2, nyquist);
         }
         double w1 = 2.0 * fp.fs * tan(CSN_PI * f1 / fp.fs);
         double w2 = 2.0 * fp.fs * tan(CSN_PI * f2 / fp.fs);
@@ -3808,19 +3808,19 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
         bw = w2 - w1;
     } else {
         if (!isfinite(fc) || fc <= 0.0 || fc >= nyquist) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, nyquist);
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid cutoff %g: it must satisfy 0 < fc < fs/2 (%g)", fc, nyquist);
         }
         w0 = 2.0 * fp.fs * tan(CSN_PI * fc / fp.fs);
     }
     if (!isfinite(w0) || !isfinite(bw)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
+        return csn_perf_error(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
     }
 
     double fs2 = 2.0 * fp.fs;
     // the digital image of s = j w0: the bandstop notch, the bandpass centre
     CSN_COMPLEXDAT centre;
     if (rt_bilinear(&centre, cmake(0.0, w0), fs2) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
+        return csn_perf_error(csound, &p->h, "[csnarray] The prewarped cutoff is not finite");
     }
     /* The zeros a section lacks: the transform's image of the prototype's
        zeros at infinity, at -1 (LP), +1 (HP), -1 and +1 (BP) or the notch
@@ -3851,7 +3851,7 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
 
     if (order & 1U) {
         if (rt_digital_roots(dp, poles[n_pairs], ftype, w0, bw, fs2) != OK) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital %s pole", iir_family_name(mode));
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid digital %s pole", iir_family_name(mode));
         }
         double *row = sos + 6 * section++;
         if (band) {
@@ -3869,12 +3869,12 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
     size_t per_pair = band ? 2 : 1;
     for (size_t k = 0; k < n_pairs; k++) {
         if (rt_digital_roots(dp, poles[k], ftype, w0, bw, fs2) != OK) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital %s pole", iir_family_name(mode));
+            return csn_perf_error(csound, &p->h, "[csnarray] Invalid digital %s pole", iir_family_name(mode));
         }
         bool has_zero = k < nz_pairs;
         if (has_zero) {
             if (rt_digital_roots(dz, zeros[k], ftype, w0, bw, fs2) != OK) {
-                return csound->PerfError(csound, &p->h, "[csnarray] Invalid digital %s zero", iir_family_name(mode));
+                return csn_perf_error(csound, &p->h, "[csnarray] Invalid digital %s zero", iir_family_name(mode));
             }
             // each band pole pair takes the nearer of the two zero pairs
             if (band && rt_pair_dist(dp[0], dz[1]) + rt_pair_dist(dp[1], dz[0]) < rt_pair_dist(dp[0], dz[0]) + rt_pair_dist(dp[1], dz[1])) {
@@ -3894,7 +3894,7 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
         }
     }
     if (section != n_sections) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: invalid %s section count", iir_family_name(mode));
+        return csn_perf_error(csound, &p->h, "[csnarray] Internal error: invalid %s section count", iir_family_name(mode));
     }
 
     /* Unit magnitude at the reference, section by section. The phases there
@@ -3909,12 +3909,12 @@ static int32_t rt_iir_perf(CSOUND *csound, CSN_FILTER_AUDIO_PERF *p, CSN_IIR_TYP
         CSN_COMPLEXDAT den = cmake(1.0 + row[SOS_A1] * q.re + row[SOS_A2] * q2.re, row[SOS_A1] * q.im + row[SOS_A2] * q2.im);
         CSN_COMPLEXDAT response;
         if (complex_div(&response, num, den) != OK) {
-            return csound->PerfError(csound, &p->h, "[csnarray] The %s section gain is not finite", iir_family_name(mode));
+            return csn_perf_error(csound, &p->h, "[csnarray] The %s section gain is not finite", iir_family_name(mode));
         }
         double magnitude = hypot(response.re, response.im);
         double gain = 1.0 / magnitude;
         if (!isfinite(gain)) {
-            return csound->PerfError(csound, &p->h, "[csnarray] The %s section gain is not finite", iir_family_name(mode));
+            return csn_perf_error(csound, &p->h, "[csnarray] The %s section gain is not finite", iir_family_name(mode));
         }
         complex_prod(&phase, phase, cscale(response, gain));
         row[SOS_B0] *= gain;

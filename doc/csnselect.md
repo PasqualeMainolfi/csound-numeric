@@ -27,8 +27,8 @@ returns the coordinates of the matches rather than the values.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnselect(source:CsnArr, mask:CsnArr)
-handle:CsnArr = csnselect(source:CsnArr, mask:CsnArr, trig:k)
+out:CsnArr = csnselect(source:CsnArr, mask:CsnArr)
+out:CsnArr = csnselect(source:CsnArr, mask:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -39,7 +39,7 @@ handle:CsnArr = csnselect(source:CsnArr, mask:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: 1-D handle of the kept elements, in source order.
+* `out:CsnArr`: 1-D array of the kept elements, in source order.
 
 ## Execution Time
 

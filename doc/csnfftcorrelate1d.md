@@ -39,11 +39,11 @@ instead of one laid along an axis.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
-handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
+out:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
+out:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -56,7 +56,7 @@ handle:CsnArr = csnfftcorrelate1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 
 ## Output
 
-* `handle:CsnArr`: the cross-correlation.
+* `out:CsnArr`: the cross-correlation.
 
 ## Execution Time
 

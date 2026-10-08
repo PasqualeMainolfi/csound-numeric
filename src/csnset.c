@@ -81,14 +81,14 @@ int32_t csnarray_likeset(CSOUND *csound, CSNSET_UNARYOP *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Set operation requires real array");
+        res = csn_init_error(csound, "[csnarray] Set operation requires real array");
         goto done;
     }
 
     size_t buffer_capacity = source_arr->size == 0 ? 1 : source_arr->size;
     buffer = csound->Calloc(csound, sizeof(double) * buffer_capacity);
     if (buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -124,7 +124,7 @@ int32_t csnarray_likeset_k_init(CSOUND *csound, CSNSET_UNARYOP *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Set operation requires real array");
+        res = csn_init_error(csound, "[csnarray] Set operation requires real array");
         goto done;
     }
 
@@ -135,7 +135,7 @@ int32_t csnarray_likeset_k_init(CSOUND *csound, CSNSET_UNARYOP *p) {
     size_t bcap = source_arr->capacity == 0 ? 1 : source_arr->capacity;
     double *buffer = csound->Calloc(csound, sizeof(double) * bcap);
     if (buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -533,7 +533,7 @@ static int32_t set_binaryop_helper(CSOUND *csound, CSNSET_BINARYOP *p, CSNSET_OP
     deinit_scratch(csound, &p->buffer);
     double *temp_buffer = csound->Calloc(csound, sizeof(double) * bcap);
     if (temp_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 

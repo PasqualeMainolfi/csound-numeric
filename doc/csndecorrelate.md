@@ -26,8 +26,8 @@ the other is complex. SciPy has no N-D counterpart.
 ## Syntax
 
 ```csound
-handle:CsnArr = csndecorrelate(x:CsnArr, h:CsnArr)
-handle:CsnArr = csndecorrelate(x:CsnArr, h:CsnArr, trig:k)
+out:CsnArr = csndecorrelate(x:CsnArr, h:CsnArr)
+out:CsnArr = csndecorrelate(x:CsnArr, h:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csndecorrelate(x:CsnArr, h:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the decorrelated array, `x.shape - h.shape + 1`.
+* `out:CsnArr`: the decorrelated array, `x.shape - h.shape + 1`.
 
 ## Execution Time
 

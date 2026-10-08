@@ -2,28 +2,28 @@
 
 ## Abstract
 
-Convert a Csound array into a csnum array handle.
+Convert a Csound array into a `CsnArr`.
 
 ## Description
 
 `csnfromarray` copies a Csound `i[]`, `k[]` or `:Complex;[]` array into a fresh
-csnum array and returns its handle. Together with
+`CsnArr` and returns it. Together with
 [csnfromftable](csnfromftable.md) it is the way *into* the suite: every other
-opcode exchanges handles, never Csound arrays.
+opcode exchanges `CsnArr` values, never Csound arrays.
 
 The rank and the extents of the Csound array are preserved, so a `2×3` Csound
 array becomes a `2×3` csnum array. A `:Complex;[]` source produces a complex
 array; an `i[]` or `k[]` source produces a real one.
 
 The copy is taken at init for the i-rate form, and on every pass for the k-rate
-form, so a `k[]` that keeps moving keeps the handle in step with it.
+form, so a `k[]` that keeps moving keeps the `CsnArr` in step with it.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfromarray(source:i[])
-handle:CsnArr = csnfromarray(source:k[])
-handle:CsnArr = csnfromarray(source:Complex[])
+out:CsnArr = csnfromarray(source:i[])
+out:CsnArr = csnfromarray(source:k[])
+out:CsnArr = csnfromarray(source:Complex[])
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csnfromarray(source:Complex[])
 
 ## Output
 
-* `handle:CsnArr`: handle of the new csnum array.
+* `out:CsnArr`: the new csnum array.
 
 ## Execution Time
 
@@ -52,7 +52,7 @@ handle:CsnArr = csnfromarray(source:Complex[])
 ; csnfromarray.csd
 ;
 ; csnfromarray is the way into the suite. From there on everything travels as a
-; handle, and csntoarray is the way back out.
+; CsnArr, and csntoarray is the way back out.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

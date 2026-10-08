@@ -27,13 +27,13 @@ the performance-time overload from the init-time one.
 ## Syntax
 
 ```csound
-csnprint(handle:CsnArr)
-csnprint(handle:CsnArr, trig:k)
+csnprint(arr:CsnArr)
+csnprint(arr:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the real or complex array to print.
+* `arr:CsnArr`: the real or complex array to print.
 * `trig:k`: required k-rate trigger; non-zero prints the current array, zero does nothing.
 
 ## Output

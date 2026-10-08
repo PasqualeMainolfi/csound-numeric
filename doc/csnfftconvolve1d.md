@@ -42,11 +42,11 @@ instead of one laid along an axis.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
-handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
+out:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
+out:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -59,7 +59,7 @@ handle:CsnArr = csnfftconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 
 ## Output
 
-* `handle:CsnArr`: the convolution.
+* `out:CsnArr`: the convolution.
 
 ## Execution Time
 

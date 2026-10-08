@@ -25,8 +25,8 @@ Real only — ordering has no meaning over the complex field.
 value:i = csnquantile(source:CsnArr, q:i)
 value:k = csnquantile(source:CsnArr, q:k)
 value:k = csnquantile(source:CsnArr, q:k, trig:k)
-handle:CsnArr = csnquantile(source:CsnArr, q:i, axis:i)
-handle:CsnArr = csnquantile(source:CsnArr, q:k, trig:k, axis:k)
+out:CsnArr = csnquantile(source:CsnArr, q:i, axis:i)
+out:CsnArr = csnquantile(source:CsnArr, q:k, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -39,7 +39,7 @@ handle:CsnArr = csnquantile(source:CsnArr, q:k, trig:k, axis:k)
 ## Output
 
 * `value:i / value:k`: the quantile over the whole array.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

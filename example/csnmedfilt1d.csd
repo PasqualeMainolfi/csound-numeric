@@ -41,7 +41,7 @@ instr 1
     rows:CsnArr      = csnmedfilt1d(matrix, 3, -1)
     csnprint rows
 
-    ; in place, no new handle: the source is rewritten
+    ; in place, no new array: the source is rewritten
     copy:CsnArr      = csncopy(data)
     csnmedfilt1d(copy, 3)
     copy_out:i[]     = csntoarray(copy)

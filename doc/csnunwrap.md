@@ -18,17 +18,17 @@ frequency is recovered from a phase.
 The scan follows one axis. Omitting it reads the array flat; an explicit `-1`
 selects the last axis.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnunwrap(source:CsnArr, period:i, discont:i)
-handle:CsnArr = csnunwrap(source:CsnArr, period:i, discont:i, axis:i)
-handle:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, trig:k)
-handle:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, trig:k, axis:k)
+out:CsnArr = csnunwrap(source:CsnArr, period:i, discont:i)
+out:CsnArr = csnunwrap(source:CsnArr, period:i, discont:i, axis:i)
+out:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, trig:k)
+out:CsnArr = csnunwrap(source:CsnArr, period:k, discont:k, trig:k, axis:k)
 csnunwrap(source:CsnArr, period:i, discont:i)
 csnunwrap(source:CsnArr, period:i, discont:i, axis:i)
 csnunwrap(source:CsnArr, period:k, discont:k, trig:k)
@@ -45,7 +45,7 @@ csnunwrap(source:CsnArr, period:k, discont:k, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the continuous sequence. Omit it for the in-place form.
+* `out:CsnArr`: the continuous sequence. Omit it for the in-place form.
 
 ## Execution Time
 

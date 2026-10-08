@@ -20,25 +20,25 @@ promotes the result to complex. A complex scalar is passed as a `:Complex;`.
 
 Besides the array forms, the same name covers scalar complex arithmetic: two
 `:Complex;` values, or one `:Complex;` and one real number on either side. These
-take no handles and no trigger — they are a few floating-point operations, not a
+take no arrays and no trigger — they are a few floating-point operations, not a
 traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
 operands do, since nothing in its signature could tell the two apart.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnsubtract(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnsubtract(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnsubtract(a:CsnArr, value:i)
-handle:CsnArr = csnsubtract(a:CsnArr, value:k)
-handle:CsnArr = csnsubtract(a:CsnArr, value:k, trig:k)
-handle:CsnArr = csnsubtract(a:CsnArr, value:Complex)
-handle:CsnArr = csnsubtract(a:CsnArr, value:Complex, trig:k)
-handle:CsnArr = csnsubtract(value:i, b:CsnArr)
-handle:CsnArr = csnsubtract(value:k, b:CsnArr)
-handle:CsnArr = csnsubtract(value:k, b:CsnArr, trig:k)
-handle:CsnArr = csnsubtract(value:Complex, b:CsnArr)
-handle:CsnArr = csnsubtract(value:Complex, b:CsnArr, trig:k)
+out:CsnArr = csnsubtract(a:CsnArr, b:CsnArr)
+out:CsnArr = csnsubtract(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnsubtract(a:CsnArr, value:i)
+out:CsnArr = csnsubtract(a:CsnArr, value:k)
+out:CsnArr = csnsubtract(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnsubtract(a:CsnArr, value:Complex)
+out:CsnArr = csnsubtract(a:CsnArr, value:Complex, trig:k)
+out:CsnArr = csnsubtract(value:i, b:CsnArr)
+out:CsnArr = csnsubtract(value:k, b:CsnArr)
+out:CsnArr = csnsubtract(value:k, b:CsnArr, trig:k)
+out:CsnArr = csnsubtract(value:Complex, b:CsnArr)
+out:CsnArr = csnsubtract(value:Complex, b:CsnArr, trig:k)
 dif:Complex = csnsubtract(a:Complex, b:Complex)
 dif:Complex = csnsubtract(a:Complex, b:i)
 dif:Complex = csnsubtract(a:Complex, b:k)
@@ -55,7 +55,7 @@ dif:Complex = csnsubtract(a:k, b:Complex)
 
 ## Output
 
-* `handle:CsnArr`: handle of the difference.
+* `out:CsnArr`: the difference.
 
 ## Execution Time
 

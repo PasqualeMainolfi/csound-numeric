@@ -19,7 +19,16 @@ nothing; when an axis is optional, k-rate forms put the trigger before an
 explicit axis, and a zero trigger
 republishes the previous result instead of recomputing. A trigger that is the
 only k-rate argument is required to select the performance overload, and
-side-effecting opcodes such as `csnprint` simply do nothing when it is zero. See the
+side-effecting opcodes such as `csnprint` simply do nothing when it is zero.
+
+**Rate: named opcodes by the trigger, operators by a cast.** A named opcode runs
+at k-rate only in the form with a trigger, which must be written: the call
+without it is the init-time form, whatever the rate of its operands. The
+operators (`+`, `-`, `*`, `/`, `^`, `+=`, ...) take no trigger and follow the
+rate of their operands; [csnk](csnk.md) makes an array k-rate, in place or in one
+expression, and [csni](csni.md) freezes it at its init value.
+
+See the
 [README](../README.md) for the `CsnArr` value model and the k-rate versioning, and
 [OPS_INDEX](../OPS_INDEX.md) for the same list with the rate and element-type
 support of each opcode.
@@ -47,6 +56,8 @@ support of each opcode.
 - [csnfromftable](csnfromftable.md) - function table to `CsnArr`
 - [csntoftable](csntoftable.md) - `CsnArr` to function table, optionally resizing it
 - [csncopy](csncopy.md) - independent copy of an array
+- [csnk](csnk.md) - makes an array k-rate, in place or as a k-rate copy
+- [csni](csni.md) - copy of an array frozen at its init value
 - [csntype](csntype.md) - item type: 0 real, 1 complex
 - [csndims](csndims.md) - number of dimensions
 - [csnsize](csnsize.md) - number of elements

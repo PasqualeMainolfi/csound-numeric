@@ -29,7 +29,7 @@ belongs.
 A negative or fractional order is refused.
 
 There is no performance-time form. A normalisation does not change during a
-note: build the vector once at init and reuse the handle.
+note: build the vector once at init and reuse it.
 
 Ambisonics channel bookkeeping in csnum is ACN ordering only, and SN3D or N3D
 normalisation only. Other orderings and normalisations exist; none of them is
@@ -38,7 +38,7 @@ what these opcodes answer.
 ## Syntax
 
 ```csound
-handle:CsnArr csnn3dtosn3d order:i
+out:CsnArr csnn3dtosn3d order:i
 ```
 
 Note the opcode syntax: a one-argument functional call returning a `CsnArr`,
@@ -51,7 +51,7 @@ expression, but on its own it needs the form above.
 
 ## Output
 
-* `handle:CsnArr`: a real vector of `(order + 1)^2` gains, indexed by ACN.
+* `out:CsnArr`: a real vector of `(order + 1)^2` gains, indexed by ACN.
 
 ## Execution Time
 

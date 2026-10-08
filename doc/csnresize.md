@@ -14,7 +14,7 @@ for are dropped.
 That makes it the general "make this array that shape" operation: a 4-element
 vector resized to 6 comes back as `1 2 3 4 0 0`, and resized to 2 as `1 2`.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing. In place, a new shape that fits the source's capacity
 reuses its storage; a larger one reallocates, which a
@@ -23,9 +23,9 @@ reuses its storage; a larger one reallocates, which a
 ## Syntax
 
 ```csound
-handle:CsnArr = csnresize(source:CsnArr, shape:i[])
-handle:CsnArr = csnresize(source:CsnArr, shape:k[])
-handle:CsnArr = csnresize(source:CsnArr, shape:k[], trig:k)
+out:CsnArr = csnresize(source:CsnArr, shape:i[])
+out:CsnArr = csnresize(source:CsnArr, shape:k[])
+out:CsnArr = csnresize(source:CsnArr, shape:k[], trig:k)
 csnresize(source:CsnArr, shape:i[])
 csnresize(source:CsnArr, shape:k[])
 csnresize(source:CsnArr, shape:k[], trig:k)
@@ -39,7 +39,7 @@ csnresize(source:CsnArr, shape:k[], trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the resized array. Omit it for the in-place form.
+* `out:CsnArr`: the resized array. Omit it for the in-place form.
 
 ## Execution Time
 

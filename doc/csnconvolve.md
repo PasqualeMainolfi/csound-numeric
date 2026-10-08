@@ -45,9 +45,9 @@ from having to reallocate.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnconvolve(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnconvolve(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csnconvolve(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csnconvolve(x:CsnArr, h:CsnArr)
+out:CsnArr = csnconvolve(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csnconvolve(x:CsnArr, h:CsnArr, edges:i, trig:k)
 ```
 
 ## Arguments
@@ -59,7 +59,7 @@ handle:CsnArr = csnconvolve(x:CsnArr, h:CsnArr, edges:i, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the convolution.
+* `out:CsnArr`: the convolution.
 
 ## Execution Time
 

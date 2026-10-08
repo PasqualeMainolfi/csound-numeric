@@ -23,8 +23,8 @@ fraction, and turning it into an integer is left to [csnround](csnround.md),
 [csnfloor](csnfloor.md) or [csnceil](csnceil.md) — an interpolating reader may
 well want the fraction.
 
-The scalar form takes one value and answers one; the array form takes a handle
-of any shape and answers a handle of the same shape, so a whole list of onsets,
+The scalar form takes one value and answers one; the array form takes an array
+of any shape and answers an array of the same shape, so a whole list of onsets,
 frame boundaries or delay taps converts in one call. [csnsectosamp](csnsectosamp.md) is the inverse,
 and the round trip is exact up to floating-point rounding.
 
@@ -38,9 +38,9 @@ Real only.
 
 ```csound
 value:i = csnsamptosec(samples:i, sr:i)
-handle:CsnArr = csnsamptosec(samples:CsnArr, sr:i)
+out:CsnArr = csnsamptosec(samples:CsnArr, sr:i)
 value:k = csnsamptosec(samples:k, sr:i)
-handle:CsnArr = csnsamptosec(samples:CsnArr, sr:i, trig:k)
+out:CsnArr = csnsamptosec(samples:CsnArr, sr:i, trig:k)
 ```
 
 ## Arguments
@@ -53,7 +53,7 @@ handle:CsnArr = csnsamptosec(samples:CsnArr, sr:i, trig:k)
 ## Output
 
 * `value:i / value:k`: the value in seconds, for the scalar form.
-* `handle:CsnArr`: the converted array, shaped like the source.
+* `out:CsnArr`: the converted array, shaped like the source.
 
 ## Execution Time
 

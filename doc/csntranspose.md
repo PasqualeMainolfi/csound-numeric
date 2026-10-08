@@ -18,17 +18,19 @@ source.
 The permutation lives in the array's strides, so this is a layout change, not a
 copy of the data.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csntranspose(source:CsnArr)
-handle:CsnArr = csntranspose(source:CsnArr, axes:i[])
-handle:CsnArr = csntranspose(source:CsnArr, axes:k[])
+out:CsnArr = csntranspose(source:CsnArr)
+out:CsnArr = csntranspose(source:CsnArr, trig:k)
+out:CsnArr = csntranspose(source:CsnArr, axes:i[])
+out:CsnArr = csntranspose(source:CsnArr, axes:k[])
 csntranspose(source:CsnArr)
+csntranspose(source:CsnArr, trig:k)
 csntranspose(source:CsnArr, axes:i[])
 csntranspose(source:CsnArr, axes:k[])
 ```
@@ -36,16 +38,17 @@ csntranspose(source:CsnArr, axes:k[])
 ## Arguments
 
 * `source:CsnArr`: the array to transpose.
-* `axes:i[] / axes:k[]` (optional): a permutation of `0 … ndims - 1`. Omitted, the axes are reversed.
+* `trig:k`: k-rate trigger of the form without axes. Without it the call is the init-only form and transposes once; with it the axes are reversed again on every pass where it is non-zero.
+* `axes:i[] / axes:k[]` (optional): a permutation of `0 … ndims - 1`. Omitted, the axes are reversed. A `k[]` gives the k-rate form, which re-reads it on every pass; while it does not read as a permutation, as at init before it is written, the output keeps the source's layout, reserved but empty.
 
 ## Output
 
-* `handle:CsnArr`: handle of the transposed array. Omit it for the in-place form.
+* `out:CsnArr`: the transposed array. Omit it for the in-place form.
 
 ## Execution Time
 
 * Init
-* Performance (k-rate, with an explicit `axes` argument)
+* Performance (k-rate, with `trig:k` or `axes:k[]`)
 
 ## Examples
 

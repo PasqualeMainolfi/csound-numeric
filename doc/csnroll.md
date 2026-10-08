@@ -17,17 +17,17 @@ row.
 
 `shift` may be negative, which rolls the other way.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnroll(source:CsnArr, shift:i)
-handle:CsnArr = csnroll(source:CsnArr, shift:i, axis:i)
-handle:CsnArr = csnroll(source:CsnArr, shift:k)
-handle:CsnArr = csnroll(source:CsnArr, shift:k, axis:k)
+out:CsnArr = csnroll(source:CsnArr, shift:i)
+out:CsnArr = csnroll(source:CsnArr, shift:i, axis:i)
+out:CsnArr = csnroll(source:CsnArr, shift:k)
+out:CsnArr = csnroll(source:CsnArr, shift:k, axis:k)
 csnroll(source:CsnArr, shift:i)
 csnroll(source:CsnArr, shift:i, axis:i)
 csnroll(source:CsnArr, shift:k)
@@ -42,7 +42,7 @@ csnroll(source:CsnArr, shift:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the shifted array. Omit it for the in-place form.
+* `out:CsnArr`: the shifted array. Omit it for the in-place form.
 
 ## Execution Time
 

@@ -35,6 +35,29 @@ static inline bool compare_match(double value, double cmp_value, CSN_COMPARE_MOD
     return false;
 }
 
+/* compare_match over a whole array with the mode picked once, outside the
+   loop: out[i] is 1 or 0 (out may be src), or, with out NULL, the matches are
+   only counted. Same tests as compare_match, NaN included. */
+static size_t compare_fill(double *out, const double *src, size_t n, double cmp, CSN_COMPARE_MODE mode) {
+#define CSN_CMP_LOOP(test) \
+    if (out != NULL) { for (size_t i = 0; i < n; i++) { double v = src[i]; out[i] = (test) ? 1.0 : 0.0; } return 0; } \
+    else { size_t c = 0; for (size_t i = 0; i < n; i++) { double v = src[i]; c += (test) ? 1U : 0U; } return c; }
+    switch (mode) {
+        case GREATER_THAN:  CSN_CMP_LOOP(v > cmp)
+        case LESS_THAN:     CSN_CMP_LOOP(v < cmp)
+        case EQUAL:         CSN_CMP_LOOP(v == cmp)
+        case GREATER_EQUAL: CSN_CMP_LOOP(v >= cmp)
+        case LESS_EQUAL:    CSN_CMP_LOOP(v <= cmp)
+        case NOT_EQUAL:     CSN_CMP_LOOP(v != cmp)
+        case NONZERO:       CSN_CMP_LOOP(v != 0.0)
+        case IS_NAN:        CSN_CMP_LOOP(isnan(v) != 0)
+        case IS_FIN:        CSN_CMP_LOOP(isfinite(v) != 0)
+        case IS_INF:        CSN_CMP_LOOP(isinf(v) != 0)
+    }
+#undef CSN_CMP_LOOP
+    return 0;
+}
+
 static size_t count_elements_from_array(const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_COMPARE_MODE mode) {
     size_t count = 0;
     for (size_t linear = 0; linear < source_arr->size; ++linear) {
@@ -62,11 +85,7 @@ static int32_t get_linear_index_first_occurence(const CSN_ARRAY *source_arr, con
 }
 
 static size_t count_elements_from_value(const CSN_ARRAY *source_arr, double cmp_value, CSN_COMPARE_MODE mode) {
-    size_t count = 0;
-    for (size_t linear = 0; linear < source_arr->size; ++linear) {
-        if (compare_match(source_arr->data[linear], cmp_value, mode)) count++;
-    }
-    return count;
+    return compare_fill(NULL, source_arr->data, source_arr->size, cmp_value, mode);
 }
 
 static int32_t argwhere_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_ARRAY *data_arr) {
@@ -152,7 +171,7 @@ int32_t csnarray_argwhere(CSOUND *csound, CSN_ARGWHERE *p) {
 
     CSN_ARRAY *arr = p->handle;
     if (argwhere_assign_value(source_arr, data_arr, arr) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid selection iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid selection iterator layout");
         goto done;
     }
 
@@ -241,7 +260,7 @@ static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COM
     CSN_ARRAY *source_arr = p->source_handle;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -255,7 +274,7 @@ static int32_t csnarray_argselect_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COM
     pres.locked |= out.locked;
 
     if (argselect_assign_value(source_arr, p->handle, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid selection iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid selection iterator layout");
         goto done;
     }
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, 2U, source_arr->itype);
@@ -277,7 +296,7 @@ int32_t csnarray_argselect_k_init(CSOUND *csound, CSN_UNARYOP *p) {
     CSN_ARRAY *source_arr = p->source_handle;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
     /* Shared by csnargnonzero.k and csnargisnan.k, so it cannot know the
@@ -356,9 +375,7 @@ int32_t csnarray_argisnan_k(CSOUND *csound, CSN_UNARYOP *p) {
 }
 
 static void mask_select_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPARE_MODE mode) {
-    for (size_t i = 0; i < source_arr->size; i++) {
-        arr->data[i] = compare_match(source_arr->data[i], 0.0, mode) ? 1.0 : 0.0;
-    }
+    compare_fill(arr->data, source_arr->data, source_arr->size, 0.0, mode);
 }
 
 static int32_t mask_select_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPARE_MODE mode) {
@@ -373,7 +390,7 @@ static int32_t mask_select_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_COMPARE_MO
     CSN_ARRAY *source_arr = p->source_handle;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -505,7 +522,7 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_UNARYOP *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
     uint32_t source_ndim = source_arr->ndim;
@@ -513,7 +530,7 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_UNARYOP *p) {
 
     temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
         goto done;
     }
 
@@ -536,13 +553,13 @@ int32_t csnarray_argunique(CSOUND *csound, CSN_UNARYOP *p) {
     CSN_ARRAY *arr = p->handle;
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, source_arr->ndim, source_shape, source_arr->size, NULL) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid unique-index iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid unique-index iterator layout");
         goto done;
     }
     for (size_t i = 0; i < count; ++i) {
         ARRAY_ELEMENT *elem = &temp[i];
         if (ND_ITER_SEEK(&it, elem->linear_index) != OK) {
-            res = csound->InitError(csound, "[csnarray] Unique index is out of range");
+            res = csn_init_error(csound, "[csnarray] Unique index is out of range");
             goto done;
         }
 
@@ -569,7 +586,7 @@ int32_t csnarray_argunique_k_init(CSOUND *csound, CSN_UNARYOP *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -580,7 +597,7 @@ int32_t csnarray_argunique_k_init(CSOUND *csound, CSN_UNARYOP *p) {
     size_t capacity = source_arr->capacity > 0 ? source_arr->capacity : 1;
     temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * capacity);
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * capacity));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * capacity));
         goto done;
     }
 
@@ -682,13 +699,13 @@ int32_t csnarray_unique(CSOUND *csound, CSN_COMPARE *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
     temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * source_arr->size);
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * source_arr->size));
         goto done;
     }
 
@@ -729,7 +746,7 @@ int32_t csnarray_unique_k_init(CSOUND *csound, CSN_COMPARE *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -740,7 +757,7 @@ int32_t csnarray_unique_k_init(CSOUND *csound, CSN_COMPARE *p) {
     size_t capacity = source_arr->capacity > 0 ? source_arr->capacity : 1;
     temp = csound->Calloc(csound, sizeof(ARRAY_ELEMENT) * capacity);
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * capacity));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(ARRAY_ELEMENT) * capacity));
         goto done;
     }
 
@@ -827,7 +844,7 @@ static int32_t csnarray_compare_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPA
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
     double cmp_value = (double) *p->cmp_value;
@@ -844,10 +861,7 @@ static int32_t csnarray_compare_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPA
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    for (size_t i = 0; i < source_arr->size; ++i) {
-        double value = source_arr->data[i];
-        p->handle->data[i] = compare_match(value, cmp_value, mode) ? 1.0 : 0.0;
-    }
+    compare_fill(p->handle->data, source_arr->data, source_arr->size, cmp_value, mode);
     if (out.aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
 
 done:
@@ -866,7 +880,7 @@ static int32_t compare_k_init_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPARE
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -884,9 +898,7 @@ static int32_t compare_k_init_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COMPARE
        source's and the values are left to the first pass. */
     if (out.aliased || !csn_known_at_init(csound, p->cmp_value)) goto done;
     double cmp_value = (double) *p->cmp_value;
-    for (size_t i = 0; i < source_arr->size; ++i) {
-        p->handle->data[i] = compare_match(source_arr->data[i], cmp_value, mode) ? 1.0 : 0.0;
-    }
+    compare_fill(p->handle->data, source_arr->data, source_arr->size, cmp_value, mode);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, cmp_value, 0.0);
 
 done:
@@ -947,10 +959,7 @@ static int32_t csnarray_compare_k_helper(CSOUND *csound, CSN_COMPARE *p, CSN_COM
     pres.locked |= out.locked;
 
     // both branches: an aliased output is not zeroed
-    for (size_t i = 0; i < source_arr->size; ++i) {
-        double value = source_arr->data[i];
-        p->handle->data[i] = compare_match(value, cmp_value, mode) ? 1.0 : 0.0;
-    }
+    compare_fill(p->handle->data, source_arr->data, source_arr->size, cmp_value, mode);
     if (out.aliased && source_arr->size > 0) update_array_data_version(&p->handle->version);
 
     SET_KDATA_END(p->k_data, new_shape, source_arr->ndim, source_arr->itype);
@@ -1020,7 +1029,7 @@ static int32_t csnarray_compare_count_helper(CSOUND *csound, CSN_COUNT *p, CSN_C
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -1494,7 +1503,7 @@ int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
 
     indexes = csound->Calloc(csound, sizeof(uint32_t) * mask_arr->size);
     if (indexes == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     uint32_t count_true = 0;
@@ -1522,7 +1531,7 @@ int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
 
     size_t size = p->handle->size;
     if (compress_assign_value(p->handle, source_arr, count_true, size, indexes, axis_out, new_dim, itype) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid compress iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid compress iterator layout");
         goto done;
     }
 
@@ -1568,7 +1577,7 @@ int32_t csnarray_compress_k_init(CSOUND *csound, CSN_WHERE_HS *p) {
     if (scratch_capacity == 0) scratch_capacity = 1;
     indexes = csound->Calloc(csound, sizeof(uint32_t) * scratch_capacity);
     if (indexes == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -1827,7 +1836,7 @@ int32_t csnarray_shuffle(CSOUND *csound, CSN_UNARYOP_IN *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] shuffle operation supports real array only");
+        res = csn_init_error(csound, "[csnarray] shuffle operation supports real array only");
         goto done;
     }
 
@@ -1856,7 +1865,7 @@ int32_t csnarray_shuffle_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] shuffle operation supports real array only");
+        res = csn_init_error(csound, "[csnarray] shuffle operation supports real array only");
         goto done;
     }
 
@@ -1927,7 +1936,7 @@ static int32_t stack_check_types(CSOUND *csound, CSN_ARRAY *const *sources, uint
     for (uint32_t i = 0; i < nargs; i++) {
         const CS_TYPE *actual_type = CS_GET_ARG_TYPE(sources[i]);
         if (actual_type == NULL || actual_type != expected) {
-            return csound->InitError(csound, "[csnarray] Invalid type: array must be valid CsnArr");
+            return csn_init_error(csound, "[csnarray] Invalid type: array must be valid CsnArr");
         }
     }
     return OK;
@@ -1959,7 +1968,7 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
 
     int32_t nargs = p->INOCOUNT - 1;
     if (nargs < 2) {
-        return csound->InitError(csound, "[csnarray] Invalid number of handles: stack operation requires at least two array");
+        return csn_init_error(csound, "[csnarray] Invalid number of handles: stack operation requires at least two array");
     }
 
     CSN_ARRAY *const *sources = (CSN_ARRAY *const *) p->source_handles;
@@ -1977,7 +1986,7 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
     if (res != OK) goto done;
 
     if (ref_ndim == CSN_MAX_DIMS) {
-        res = csound->InitError(csound, "[csnarray] Source dimension must be less than 8");
+        res = csn_init_error(csound, "[csnarray] Source dimension must be less than 8");
         goto done;
     }
 
@@ -1986,7 +1995,7 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
 
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis_value((double) *p->axis, new_ndim);
     if (axis_spec.kind != CSN_AXIS_INDEX) {
-        res = csound->InitError(csound, "[csnarray] Axis out of bounds");
+        res = csn_init_error(csound, "[csnarray] Axis out of bounds");
         goto done;
     }
     uint32_t axis = axis_spec.index;
@@ -2001,7 +2010,7 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
     pres.locked |= out.locked;
 
     if (stack_assign_value(p->handle, axis, sources) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid stack iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid stack iterator layout");
         goto done;
     }
 
@@ -2016,7 +2025,7 @@ int32_t csnarray_stack_k_init(CSOUND *csound, CSN_STACK_K *p) {
 
     int32_t nargs = p->INOCOUNT - 2;
     if (nargs < 2) {
-        return csound->InitError(csound, "[csnarray] Invalid number of handles: stack operation requires at least two array");
+        return csn_init_error(csound, "[csnarray] Invalid number of handles: stack operation requires at least two array");
     }
 
     CSN_ARRAY *const *sources = (CSN_ARRAY *const *) p->source_handles;
@@ -2034,7 +2043,7 @@ int32_t csnarray_stack_k_init(CSOUND *csound, CSN_STACK_K *p) {
 
     versions = csound->Calloc(csound, sizeof(ARRAY_VERSION) * (size_t) nargs);
     if (versions == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error, memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error, memory allocation failed");
         goto done;
     }
 
@@ -2045,7 +2054,7 @@ int32_t csnarray_stack_k_init(CSOUND *csound, CSN_STACK_K *p) {
     if (res != OK) goto done;
 
     if (ref_ndim == CSN_MAX_DIMS) {
-        res = csound->InitError(csound, "[csnarray] Source dimension must be less than 8");
+        res = csn_init_error(csound, "[csnarray] Source dimension must be less than 8");
         goto done;
     }
 
@@ -2075,7 +2084,7 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
 
     int32_t nargs = p->INOCOUNT - 2;
     if (nargs < 2 || nargs != p->nargs) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid number of handles: stack operation requires at least two array and it is not allowed changing number of variadic args setted at init");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid number of handles: stack operation requires at least two array and it is not allowed changing number of variadic args setted at init");
     }
 
     CHECK_KTRIG(p->trig);
@@ -2152,7 +2161,7 @@ int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
 
     double wanted_value = (double) *p->value;
     if (!IS_VALID_VALUE(wanted_value)) {
-        return csound->InitError(csound, "[csnarray] Wanted value is not a number");
+        return csn_init_error(csound, "[csnarray] Wanted value is not a number");
     }
 
     int32_t res = OK;
@@ -2178,7 +2187,7 @@ int32_t csnarray_indexof(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
 
     if (found) {
         if (indexof_assign_value(source_arr, wanted_value, p->handle) != OK) {
-            res = csound->InitError(csound, "[csnarray] Invalid index iterator layout");
+            res = csn_init_error(csound, "[csnarray] Invalid index iterator layout");
             goto done;
         }
     } else {
@@ -2229,7 +2238,7 @@ int32_t csnarray_indexof_k(CSOUND *csound, CSN_ARGWHERE_INDEX *p) {
 
     double wanted_value = (double) *p->value;
     if (!IS_VALID_VALUE(wanted_value)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Wanted value is not a number");
+        return csn_perf_error(csound, &p->h, "[csnarray] Wanted value is not a number");
     }
 
     CHECK_KTRIG(p->trig);
@@ -2322,12 +2331,12 @@ int32_t csnarray_bincount_w(CSOUND *csound, CSN_ARGWHERE *p) {
     if (res != OK) goto done;
 
     if (weights_arr->ndim != 1U || weights_arr->size != source_arr->size) {
-        res = csound->InitError(csound, "[csnarray] Weights array must be 1-D and have the same length as the source");
+        res = csn_init_error(csound, "[csnarray] Weights array must be 1-D and have the same length as the source");
         goto done;
     }
 
     if (weights_arr->itype != CSN_REAL || source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Bincount source and weights must be real arrays");
+        res = csn_init_error(csound, "[csnarray] Bincount source and weights must be real arrays");
         goto done;
     }
 
@@ -2371,7 +2380,7 @@ int32_t csnarray_bincount(CSOUND *csound, CSN_BINCOUNT_NO_WEIGHTS *p) {
     if (res != OK) goto done;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Bincount source must be a real array");
+        res = csn_init_error(csound, "[csnarray] Bincount source must be a real array");
         goto done;
     }
 
@@ -2508,7 +2517,7 @@ int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_ZERO_ONE((double) *p->side)) {
-        return csound->InitError(csound, "[csnarray] Side should be 0 for left or 1 for right");
+        return csn_init_error(csound, "[csnarray] Side should be 0 for left or 1 for right");
     }
     p->is_right_search_side = (uint32_t) *p->side == 1U;
 
@@ -2521,7 +2530,7 @@ int32_t csnarray_searchsorted_arr(CSOUND *csound, CSN_SEARCHSORTED_ARR *p) {
     CSN_ARRAY *data_arr = p->data_handle;
 
     if (source_arr->itype != CSN_REAL || data_arr->itype != CSN_REAL || source_arr->ndim != 1U || data_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Searchsorted requires 1-D real arrays");
+        res = csn_init_error(csound, "[csnarray] Searchsorted requires 1-D real arrays");
         goto done;
     }
 
@@ -2558,7 +2567,7 @@ int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p)
 
     double wanted_in = (double) *p->value;
     if (!IS_VALID_ZERO_ONE((double) *p->side)) {
-        return csound->InitError(csound, "[csnarray] Side should be 0 for left or 1 for right");
+        return csn_init_error(csound, "[csnarray] Side should be 0 for left or 1 for right");
     }
     bool is_right_side = (uint32_t) *p->side == 1U;
 
@@ -2569,7 +2578,7 @@ int32_t csnarray_searchsorted_scalar(CSOUND *csound, CSN_SEARCHSORTED_SCALAR *p)
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL || source_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Searchsorted requires a 1-D real array");
+        res = csn_init_error(csound, "[csnarray] Searchsorted requires a 1-D real array");
         goto done;
     }
 
@@ -2588,7 +2597,7 @@ int32_t csnarray_searchsorted_scalar_k_init(CSOUND *csound, CSN_SEARCHSORTED_SCA
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_ZERO_ONE((double) *p->side)) {
-        return csound->InitError(csound, "[csnarray] Side should be 0 for left or 1 for right");
+        return csn_init_error(csound, "[csnarray] Side should be 0 for left or 1 for right");
     }
     p->is_right_search_side = (uint32_t) *p->side == 1U;
 
@@ -2599,7 +2608,7 @@ int32_t csnarray_searchsorted_scalar_k_init(CSOUND *csound, CSN_SEARCHSORTED_SCA
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL || source_arr->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Searchsorted requires a 1-D real array");
+        res = csn_init_error(csound, "[csnarray] Searchsorted requires a 1-D real array");
         goto done;
     }
 

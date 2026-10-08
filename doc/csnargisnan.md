@@ -21,8 +21,8 @@ Real only. Use [csncntnan](csncntnan.md) when only the count matters.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnargisnan(source:CsnArr)
-handle:CsnArr = csnargisnan(source:CsnArr, trig:k)
+out:CsnArr = csnargisnan(source:CsnArr)
+out:CsnArr = csnargisnan(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csnargisnan(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a `matches × ndims` array of coordinates.
+* `out:CsnArr`: a `matches × ndims` array of coordinates.
 
 ## Execution Time
 

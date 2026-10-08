@@ -19,8 +19,8 @@ the complex form of the function and the result stays complex.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnexp(source:CsnArr)
-handle:CsnArr = csnexp(source:CsnArr, trig:k)
+out:CsnArr = csnexp(source:CsnArr)
+out:CsnArr = csnexp(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -30,7 +30,7 @@ handle:CsnArr = csnexp(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the result, with the shape and element type of the source.
+* `out:CsnArr`: the result, with the shape and element type of the source.
 
 ## Execution Time
 

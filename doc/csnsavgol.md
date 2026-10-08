@@ -57,8 +57,8 @@ than `winsize`, `delta` greater than zero; each is refused by name.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnsavgol(winsize:i, order:i)
-handle:CsnArr = csnsavgol(winsize:i, order:i, delta:i)
+out:CsnArr = csnsavgol(winsize:i, order:i)
+out:CsnArr = csnsavgol(winsize:i, order:i, delta:i)
 ```
 
 ## Arguments
@@ -69,7 +69,7 @@ handle:CsnArr = csnsavgol(winsize:i, order:i, delta:i)
 
 ## Output
 
-* `handle:CsnArr`: an `(order + 1) x winsize` matrix, row `d` being the filter for the `d`-th derivative.
+* `out:CsnArr`: an `(order + 1) x winsize` matrix, row `d` being the filter for the `d`-th derivative.
 
 ## Execution Time
 

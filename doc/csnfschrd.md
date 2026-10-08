@@ -39,32 +39,32 @@ Real only. A volume or a reverberation time of zero, or a negative one, answers
 
 The k-rate overloads follow the same four shapes. The scalar/scalar one carries
 no trigger — it is a division and a square root, recomputed every control
-period — while the three that publish a handle take a trailing trigger, and a
+period — while the three that return an array take a trailing trigger, and a
 zero trigger republishes the previous result.
 
 ## Syntax
 
 ```csound
 value:i = csnfschrd(volume:i, t60:i)
-handle:CsnArr = csnfschrd(volume:i, t60s:CsnArr)
-handle:CsnArr = csnfschrd(volumes:CsnArr, t60:i)
-handle:CsnArr = csnfschrd(volumes:CsnArr, t60s:CsnArr)
+out:CsnArr = csnfschrd(volume:i, t60s:CsnArr)
+out:CsnArr = csnfschrd(volumes:CsnArr, t60:i)
+out:CsnArr = csnfschrd(volumes:CsnArr, t60s:CsnArr)
 value:k = csnfschrd(volume:k, t60:k)
-handle:CsnArr = csnfschrd(volume:k, t60s:CsnArr, trig:k)
-handle:CsnArr = csnfschrd(volumes:CsnArr, t60:k, trig:k)
-handle:CsnArr = csnfschrd(volumes:CsnArr, t60s:CsnArr, trig:k)
+out:CsnArr = csnfschrd(volume:k, t60s:CsnArr, trig:k)
+out:CsnArr = csnfschrd(volumes:CsnArr, t60:k, trig:k)
+out:CsnArr = csnfschrd(volumes:CsnArr, t60s:CsnArr, trig:k)
 ```
 
 ## Arguments
 
 * `volume:i / volume:k`, `volumes:CsnArr`: the room volume in cubic metres, one value or a one-dimensional array of them.
 * `t60:i / t60:k`, `t60s:CsnArr`: the reverberation time in seconds, one value or a one-dimensional array of them.
-* `trig:k` (optional, default `1`): k-rate trigger on the overloads that publish a handle. A zero trigger republishes the previous result.
+* `trig:k` (optional, default `1`): k-rate trigger on the overloads that return an array. A zero trigger republishes the previous result.
 
 ## Output
 
 * `value:i / value:k`: the Schroeder frequency in hertz, when both operands are scalars.
-* `handle:CsnArr`: one value per element when one operand is an array; a `volumes x t60s` matrix when both are.
+* `out:CsnArr`: one value per element when one operand is an array; a `volumes x t60s` matrix when both are.
 
 ## Execution Time
 

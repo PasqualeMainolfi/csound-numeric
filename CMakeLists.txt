@@ -370,6 +370,36 @@ if(BUILD_TESTING)
         set_tests_properties(csnum_krate_self_alias_rejected PROPERTIES
             PASS_REGULAR_EXPRESSION "cannot be written over one of its own operands")
         add_test(
+            NAME csnum_krate_cast_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_cast_regression.csd")
+        add_test(
+            NAME csnum_cast_i_in_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/cast_i_in_rejected.csd")
+        set_tests_properties(csnum_cast_i_in_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "INIT ERROR in instr 1 \\(opcode csni\\.in\\).*already k-rate")
+        add_test(
+            NAME csnum_numpy_edge_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/numpy_edge_regression.csd")
+        add_test(
+            NAME csnum_binop_div_zero_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/binop_div_zero_rejected.csd")
+        set_tests_properties(csnum_binop_div_zero_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "PERF ERROR in instr 1 \\(opcode ##divin\\).*Division by zero")
+        add_test(
             NAME csnum_krate_self_alias_gradient_rejected
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

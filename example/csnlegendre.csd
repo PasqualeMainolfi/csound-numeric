@@ -15,7 +15,7 @@
 ; Note the argument order: degree n first, then order m, as the harmonics
 ; write it, not scipy's (m, n).
 ;
-; One form is scalar, at init or k-rate; the other maps a handle elementwise
+; One form is scalar, at init or k-rate; the other maps an array elementwise
 ; and keeps its shape.
 ; -----------------------------------------------------------------------------
 
@@ -42,7 +42,7 @@ instr 1
     iCs = -iP21
     prints("P(2, 1) = %.6f, with the Condon-Shortley phase %.6f\n", iP21, iCs)
 
-    ; elementwise over a handle: P_3^0 on a grid over [-1, 1]
+    ; elementwise over an array: P_3^0 on a grid over [-1, 1]
     grid:CsnArr = csnlinspace(-1, 1, 5)
     leg30:CsnArr = csnlegendre(3, 0, grid)
     ig[] = csntoarray(grid)

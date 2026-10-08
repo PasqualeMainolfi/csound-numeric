@@ -21,8 +21,8 @@ snapshot an array that is still being written.
 ## Syntax
 
 ```csound
-handle:CsnArr = csncopy(source:CsnArr)
-handle:CsnArr = csncopy(source:CsnArr, trig:k)
+out:CsnArr = csncopy(source:CsnArr)
+out:CsnArr = csncopy(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csncopy(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the new, independent array.
+* `out:CsnArr`: the new, independent array.
 
 ## Execution Time
 
@@ -88,6 +88,7 @@ i 1 0 0.1
 
 * [csnlike](csnlike.md)
 * [csnfromarray](csnfromarray.md)
+* [csnk](csnk.md), [csni](csni.md): copies that also set the rate
 
 ## Credits
 

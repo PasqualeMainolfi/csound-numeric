@@ -7,7 +7,7 @@
 ; -----------------------------------------------------------------------------
 ; csnset.csd
 ;
-; csnset writes in place: no handle comes back, and every consumer downstream
+; csnset writes in place: no array comes back, and every consumer downstream
 ; sees a new generation of the array on its next pass.
 ; -----------------------------------------------------------------------------
 

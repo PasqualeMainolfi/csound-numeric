@@ -58,7 +58,7 @@ None. The first argument is modified in place.
 ; csnputmask.csd
 ;
 ; The mask array is spent in place: the 1.0 and 0.0 pattern is replaced by the
-; values it was selecting, with no second handle allocated.
+; values it was selecting, with no second array allocated.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

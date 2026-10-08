@@ -14,28 +14,32 @@ The commonest use is right before [csntoarray](csntoarray.md), whose output rank
 is taken from its declaration: flattening first lets a matrix of any shape be
 received by a plain `i[]`.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnflatten(source:CsnArr)
+out:CsnArr = csnflatten(source:CsnArr)
+out:CsnArr = csnflatten(source:CsnArr, trig:k)
 csnflatten(source:CsnArr)
+csnflatten(source:CsnArr, trig:k)
 ```
 
 ## Arguments
 
 * `source:CsnArr`: the array to flatten.
+* `trig:k` (optional): k-rate trigger. Without it the call is the init-only form and flattens once; with it the array is flattened again on every pass where it is non-zero.
 
 ## Output
 
-* `handle:CsnArr`: handle of the 1-D array. Omit it for the in-place form.
+* `out:CsnArr`: the 1-D array. Omit it for the in-place form.
 
 ## Execution Time
 
 * Init
+* Performance (k-rate, with `trig:k`)
 
 ## Examples
 

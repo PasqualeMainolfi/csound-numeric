@@ -10,7 +10,7 @@ Reverse the order of the elements along an axis.
 come back bottom to top, with `axis = 1` each row is read right to left. The
 omitted axis reverses every axis. An explicit `-1` selects only the last axis.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
@@ -20,10 +20,10 @@ argument to give.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnflip(source:CsnArr)
-handle:CsnArr = csnflip(source:CsnArr, axis:i)
-handle:CsnArr = csnflip(source:CsnArr, trig:k)
-handle:CsnArr = csnflip(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnflip(source:CsnArr)
+out:CsnArr = csnflip(source:CsnArr, axis:i)
+out:CsnArr = csnflip(source:CsnArr, trig:k)
+out:CsnArr = csnflip(source:CsnArr, trig:k, axis:k)
 csnflip(source:CsnArr)
 csnflip(source:CsnArr, axis:i)
 csnflip(source:CsnArr, trig:k)
@@ -38,7 +38,7 @@ csnflip(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the reversed array. Omit it for the in-place form.
+* `out:CsnArr`: the reversed array. Omit it for the in-place form.
 
 ## Execution Time
 

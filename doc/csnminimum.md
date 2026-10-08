@@ -19,10 +19,10 @@ following C's `fmin`.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnminimum(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnminimum(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnminimum(a:CsnArr, value:i)
-handle:CsnArr = csnminimum(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnminimum(a:CsnArr, b:CsnArr)
+out:CsnArr = csnminimum(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnminimum(a:CsnArr, value:i)
+out:CsnArr = csnminimum(a:CsnArr, value:k, trig:k)
 ```
 
 ## Arguments
@@ -34,7 +34,7 @@ handle:CsnArr = csnminimum(a:CsnArr, value:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the elementwise minimum.
+* `out:CsnArr`: the elementwise minimum.
 
 ## Execution Time
 

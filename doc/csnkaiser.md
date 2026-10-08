@@ -28,9 +28,9 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnkaiser(n:i, beta:i)
-handle:CsnArr = csnkaiser(n:i, beta:k)
-handle:CsnArr = csnkaiser(n:k, beta:k)
+out:CsnArr = csnkaiser(n:i, beta:i)
+out:CsnArr = csnkaiser(n:i, beta:k)
+out:CsnArr = csnkaiser(n:k, beta:k)
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ handle:CsnArr = csnkaiser(n:k, beta:k)
 
 ## Output
 
-* `handle:CsnArr`: a real 1-D array of `n` window coefficients.
+* `out:CsnArr`: a real 1-D array of `n` window coefficients.
 
 ## Execution Time
 

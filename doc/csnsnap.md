@@ -17,7 +17,7 @@ overlap. A smaller hop overlaps them.
 
 ### Why the hop cannot be smaller than ksmps
 
-Exactly one frame can be published per control period, because the handle names
+Exactly one frame can be published per control period, because the output is
 one array: if two frames completed within the same period, the second would
 overwrite the first before any consumer could read it. A hop below `ksmps` would
 require exactly that, so it is refused at init rather than silently dropping
@@ -48,9 +48,9 @@ fixed at initialization, the chain requires no performance-time reallocation.
 ## Syntax
 
 ```csound
-handle:CsnArr, kready:k = csnsnap(asig:a, ifsize:i)
-handle:CsnArr, kready:k = csnsnap(asig:a, ifsize:i, ihop:i)
-handle:CsnArr, kready:k = csnsnap(asig:a, ifsize:i, ihop:i, irt:i)
+out:CsnArr, kready:k = csnsnap(asig:a, ifsize:i)
+out:CsnArr, kready:k = csnsnap(asig:a, ifsize:i, ihop:i)
+out:CsnArr, kready:k = csnsnap(asig:a, ifsize:i, ihop:i, irt:i)
 ```
 
 ## Arguments
@@ -62,7 +62,7 @@ handle:CsnArr, kready:k = csnsnap(asig:a, ifsize:i, ihop:i, irt:i)
 
 ## Output
 
-* `handle:CsnArr`: a one-dimensional real array of `ifsize` elements, republished every time a frame completes.
+* `out:CsnArr`: a one-dimensional real array of `ifsize` elements, republished every time a frame completes.
 * `kready:k`: `1` on the control period where a new frame was published, `0` otherwise.
 
 ## Execution Time

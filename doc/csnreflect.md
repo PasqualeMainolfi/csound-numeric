@@ -21,8 +21,8 @@ Both real and complex arrays are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnreflect(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnreflect(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnreflect(a:CsnArr, b:CsnArr)
+out:CsnArr = csnreflect(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csnreflect(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the reflected vector.
+* `out:CsnArr`: the reflected vector.
 
 ## Execution Time
 

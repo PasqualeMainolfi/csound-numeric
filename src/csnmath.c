@@ -12,7 +12,40 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Dense real path: both operands real, neither broadcast, and arrays are
+   always C-contiguous, so element i of each operand is data[i]. The mode is
+   picked once instead of per element, which leaves loops the compiler can
+   vectorize. out may be a or b (in place): each element is read before it is
+   written. Returns false for a mode it does not cover. */
+static bool binop_hh_dense_real(CSOUND *csound, OPDS *perf_h, const double *a, const double *b, double *out, size_t n, CSN_BINOP_MODE mode, int32_t *res) {
+    *res = OK;
+    switch (mode) {
+        case CSN_ADD_HH: for (size_t i = 0; i < n; i++) out[i] = a[i] + b[i]; return true;
+        case CSN_SUB_HH: for (size_t i = 0; i < n; i++) out[i] = a[i] - b[i]; return true;
+        case CSN_MUL_HH: for (size_t i = 0; i < n; i++) out[i] = a[i] * b[i]; return true;
+        case CSN_DIV_HH:
+            for (size_t i = 0; i < n; i++) {
+                if (b[i] == 0.0) {
+                    *res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Division by zero");
+                    return true;
+                }
+            }
+            for (size_t i = 0; i < n; i++) out[i] = a[i] / b[i];
+            return true;
+        case CSN_POW_HH: for (size_t i = 0; i < n; i++) out[i] = pow(a[i], b[i]); return true;
+        case CSN_MINIMUM_HH: for (size_t i = 0; i < n; i++) out[i] = fmin(a[i], b[i]); return true;
+        case CSN_MAXIMUM_HH: for (size_t i = 0; i < n; i++) out[i] = fmax(a[i], b[i]); return true;
+        default: return false;
+    }
+}
+
 static int32_t binop_hh_assign_value(CSOUND *csound, OPDS *perf_h, CSN_BROADCAST_ITER *it, const CSN_ARRAY *source_arr_a, const CSN_ARRAY *source_arr_b, CSN_ARRAY *arr, ITEM_TYPE itype, CSN_BINOP_MODE mode) {
+    if (itype == CSN_REAL && source_arr_a->itype == CSN_REAL && source_arr_b->itype == CSN_REAL
+        && source_arr_a->size == it->size && source_arr_b->size == it->size) {
+        int32_t res = OK;
+        if (binop_hh_dense_real(csound, perf_h, source_arr_a->data, source_arr_b->data, arr->data, it->size, mode, &res)) return res;
+    }
+
     while (BROADCAST_ITER_NEXT(it)) {
         size_t i = it->linear_index;
         size_t off_a = it->offsets[0];
@@ -298,10 +331,34 @@ static int32_t binop_hs_sh_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *s
     return OK;
 }
 
+/* Dense real path of the array/scalar forms, as binop_hh_dense_real: the
+   mode is picked once. Real division by a scalar follows IEEE here as in the
+   general loop. Returns false for a mode it does not cover. */
+static bool binop_hs_dense_real(const double *a, double s, double *out, size_t n, CSN_BINOP_MODE mode) {
+    switch (mode) {
+        case CSN_ADD_HS: case CSN_ADD_SH: for (size_t i = 0; i < n; i++) out[i] = a[i] + s; return true;
+        case CSN_SUB_HS: for (size_t i = 0; i < n; i++) out[i] = a[i] - s; return true;
+        case CSN_SUB_SH: for (size_t i = 0; i < n; i++) out[i] = s - a[i]; return true;
+        case CSN_MUL_HS: case CSN_MUL_SH: for (size_t i = 0; i < n; i++) out[i] = a[i] * s; return true;
+        case CSN_DIV_HS: for (size_t i = 0; i < n; i++) out[i] = a[i] / s; return true;
+        case CSN_DIV_SH: for (size_t i = 0; i < n; i++) out[i] = s / a[i]; return true;
+        case CSN_POW_HS: for (size_t i = 0; i < n; i++) out[i] = pow(a[i], s); return true;
+        case CSN_POW_SH: for (size_t i = 0; i < n; i++) out[i] = pow(s, a[i]); return true;
+        case CSN_MINIMUM_HS: for (size_t i = 0; i < n; i++) out[i] = fmin(a[i], s); return true;
+        case CSN_MAXIMUM_HS: for (size_t i = 0; i < n; i++) out[i] = fmax(a[i], s); return true;
+        default: return false;
+    }
+}
+
 static int32_t binop_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const cs_float *scalar_arg, const COMPLEXDAT *complex_arg, CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_BINOP_MODE mode) {
     double real_scalar = 0.0;
     if (scalar_arg != NULL) {
         real_scalar = (double) *scalar_arg;
+    }
+
+    if (complex_arg == NULL && source_arr->itype == CSN_REAL
+        && binop_hs_dense_real(source_arr->data, real_scalar, arr->data, source_arr->size, mode)) {
+        return OK;
     }
 
     CSN_COMPLEXDAT complex_scalar = { 0.0, 0.0 };
@@ -1088,7 +1145,45 @@ static int32_t unaryop_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *sourc
    read out of source_arr. It is not always the destination's: csnabs over a
    complex array writes a real result, so passing the output type here would
    walk the interleaved source one double at a time. */
+/* Dense real path: the mode is picked once instead of per element, which
+   leaves loops the compiler can vectorize. Same expressions as the general
+   loop, so the results are identical. out may be src (in place). */
+static void unaryop_dense_real(const double *src, double *out, size_t n, CSN_UNARY_MODE mode) {
+#define CSN_UNARY_LOOP(expr) for (size_t i = 0; i < n; i++) { double a = src[i]; out[i] = (expr); } break
+    switch (mode) {
+        case CSN_SQRT: CSN_UNARY_LOOP(sqrt(a));
+        case CSN_CBRT: CSN_UNARY_LOOP(cbrt(a));
+        case CSN_ABS: CSN_UNARY_LOOP(fabs(a));
+        case CSN_SIGN: CSN_UNARY_LOOP((a > 0.0) ? 1.0 : ((a < 0.0) ? -1.0 : a));
+        case CSN_EXP: CSN_UNARY_LOOP(exp(a));
+        case CSN_SIN: CSN_UNARY_LOOP(sin(a));
+        case CSN_COS: CSN_UNARY_LOOP(cos(a));
+        case CSN_TAN: CSN_UNARY_LOOP(tan(a));
+        case CSN_ASIN: CSN_UNARY_LOOP(asin(a));
+        case CSN_ACOS: CSN_UNARY_LOOP(acos(a));
+        case CSN_ATAN: CSN_UNARY_LOOP(atan(a));
+        case CSN_SINH: CSN_UNARY_LOOP(sinh(a));
+        case CSN_COSH: CSN_UNARY_LOOP(cosh(a));
+        case CSN_TANH: CSN_UNARY_LOOP(tanh(a));
+        case CSN_ASINH: CSN_UNARY_LOOP(asinh(a));
+        case CSN_ACOSH: CSN_UNARY_LOOP(acosh(a));
+        case CSN_ATANH: CSN_UNARY_LOOP(atanh(a));
+        case CSN_FLOOR: CSN_UNARY_LOOP(floor(a));
+        case CSN_CEIL: CSN_UNARY_LOOP(ceil(a));
+        case CSN_ROUND: CSN_UNARY_LOOP(rint(a));
+        case CSN_LOGICAL_NOT: CSN_UNARY_LOOP((double) !(a != 0.0));
+        case CSN_DEG2RAD: CSN_UNARY_LOOP(a * CSN_PI / 180.0);
+        case CSN_RAD2DEG: CSN_UNARY_LOOP(a * 180.0 / CSN_PI);
+        default: break;
+    }
+#undef CSN_UNARY_LOOP
+}
+
 static void unaryop_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, ITEM_TYPE itype, CSN_UNARY_MODE mode) {
+    if (itype == CSN_REAL) {
+        unaryop_dense_real(source_arr->data, arr->data, source_arr->size, mode);
+        return;
+    }
     for (size_t i = 0; i < source_arr->size; i++) {
         double a = 0.0;
         CSN_COMPLEXDAT ca = { 0.0, 0.0 };
@@ -1534,26 +1629,32 @@ int32_t csnarray_radtodeg_k(CSOUND *csound, CSN_UNARYOP *p) {
     return csnarray_unaryop_k_helper(csound, p, CSN_RAD2DEG);
 }
 
+/* The mode is picked once, outside the loop. */
 static void complop_unary_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *arr, CSN_COMPLEXOP_MODE mode) {
-    for (size_t i = 0; i < source_arr->size; i ++) {
-        switch (mode) {
-            case CSN_REAL_PART:
-                arr->data[i] = source_arr->data[i * 2];
-                break;
-            case CSN_IMAG_PART:
-                arr->data[i] = source_arr->data[i * 2 + 1];
-                break;
-            case CSN_REAL_TO_COMPLEX:
-                arr->data[i * 2] = source_arr->data[i];
-                arr->data[i * 2 + 1] = 0.0;
-                break;
-            case CSN_CONJ_PART:
-                arr->data[i * 2] = source_arr->data[i * 2];
-                arr->data[i * 2 + 1] = -source_arr->data[i * 2 + 1];
-                break;
-            default:
-                break;
-        }
+    const double *src = source_arr->data;
+    double *out = arr->data;
+    size_t n = source_arr->size;
+    switch (mode) {
+        case CSN_REAL_PART:
+            for (size_t i = 0; i < n; i++) out[i] = src[i * 2];
+            break;
+        case CSN_IMAG_PART:
+            for (size_t i = 0; i < n; i++) out[i] = src[i * 2 + 1];
+            break;
+        case CSN_REAL_TO_COMPLEX:
+            for (size_t i = 0; i < n; i++) {
+                out[i * 2] = src[i];
+                out[i * 2 + 1] = 0.0;
+            }
+            break;
+        case CSN_CONJ_PART:
+            for (size_t i = 0; i < n; i++) {
+                out[i * 2] = src[i * 2];
+                out[i * 2 + 1] = -src[i * 2 + 1];
+            }
+            break;
+        default:
+            break;
     }
 }
 
@@ -2128,7 +2229,6 @@ static void copy_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool 
         memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
         update_array_data_version(&arr->version);
         csn_copy_array_kind(arr, source_arr);
-        arr->rate = source_arr->rate;
         return;
     }
 
@@ -2283,7 +2383,7 @@ static int32_t csnarray_unaryop_in_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX && (mode == CSN_DEG2RAD || mode == CSN_RAD2DEG)) {
-        res = csound->InitError(csound, "[csnarray] Angle conversion requires real arrays");
+        res = csn_init_error(csound, "[csnarray] Angle conversion requires real arrays");
         goto done;
     }
 
@@ -2399,7 +2499,7 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p, bool 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     CSN_ARRAY *source_arr_b = p->source_handle_b;
     if (source_arr_a->itype == CSN_COMPLEX || source_arr_b->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Divmod operation requires real array");
+        res = csn_init_error(csound, "[csnarray] Divmod operation requires real array");
         goto done;
     }
 
@@ -2414,12 +2514,12 @@ static int32_t csnarray_divmod_hh_helper(CSOUND *csound, CSN_DIVMOD_HH *p, bool 
 
     if (BROADCAST_INIT(&new_ndim, new_shape, &new_size, broad_strides, sources, 2) != OK) {
         char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
+        res = csn_init_error(csound, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), source_arr_a->shape, source_arr_a->ndim), shape_str(bbuf, sizeof(bbuf), source_arr_b->shape, source_arr_b->ndim));
         goto done;
     }
     CSN_BROADCAST_ITER it;
     if (BROADCAST_ITER_INIT(&it, new_ndim, new_shape, new_size, broad_strides, 2) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid broadcast iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid broadcast iterator layout");
         goto done;
     }
 
@@ -2467,10 +2567,10 @@ static int32_t csnarray_divmod_hs_sh_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *
     double scalar_value = (double) *scalar;
     if (!is_k_init) {
         if (!IS_VALID_VALUE(scalar_value)) {
-            return csound->InitError(csound, "[csnarray] Invalid scalar value");
+            return csn_init_error(csound, "[csnarray] Invalid scalar value");
         }
         if (!is_left && scalar_value == 0.0) {
-            return csound->InitError(csound, "[csnarray] Division by zero");
+            return csn_init_error(csound, "[csnarray] Division by zero");
         }
     }
 
@@ -2480,7 +2580,7 @@ static int32_t csnarray_divmod_hs_sh_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { q_arr, r_arr, source_arr }, 3);
 
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Divmod operation requires real array");
+        res = csn_init_error(csound, "[csnarray] Divmod operation requires real array");
         goto done;
     }
 
@@ -2596,10 +2696,10 @@ static int32_t csnarray_divmod_hs_sh_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY
 
     double scalar_value = (double) *scalar;
     if (!IS_VALID_VALUE(scalar_value)) {
-        return csound->PerfError(csound, h, "[csnarray] Invalid scalar value");
+        return csn_perf_error(csound, h, "[csnarray] Invalid scalar value");
     }
     if (!is_left && scalar_value == 0.0) {
-        return csound->PerfError(csound, h, "[csnarray] Division by zero");
+        return csn_perf_error(csound, h, "[csnarray] Division by zero");
     }
 
     int32_t res = OK;

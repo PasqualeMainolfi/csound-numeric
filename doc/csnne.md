@@ -22,9 +22,9 @@ mask; [csnargisnan](csnargisnan.md) is the way to single one out.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnne(source:CsnArr, value:i)
-handle:CsnArr = csnne(source:CsnArr, value:k)
-handle:CsnArr = csnne(source:CsnArr, value:k, trig:k)
+out:CsnArr = csnne(source:CsnArr, value:i)
+out:CsnArr = csnne(source:CsnArr, value:k)
+out:CsnArr = csnne(source:CsnArr, value:k, trig:k)
 ```
 
 ## Arguments
@@ -35,7 +35,7 @@ handle:CsnArr = csnne(source:CsnArr, value:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 0/1 array with the shape of the source.
+* `out:CsnArr`: a 0/1 array with the shape of the source.
 
 ## Execution Time
 

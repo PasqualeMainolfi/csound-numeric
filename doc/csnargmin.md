@@ -20,10 +20,10 @@ Real only — ordering has no meaning over the complex field.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnargmin(source:CsnArr)
-handle:CsnArr = csnargmin(source:CsnArr, axis:i)
-handle:CsnArr = csnargmin(source:CsnArr, trig:k)
-handle:CsnArr = csnargmin(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnargmin(source:CsnArr)
+out:CsnArr = csnargmin(source:CsnArr, axis:i)
+out:CsnArr = csnargmin(source:CsnArr, trig:k)
+out:CsnArr = csnargmin(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -34,7 +34,7 @@ handle:CsnArr = csnargmin(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: a `matches × ndims` array of coordinates.
+* `out:CsnArr`: a `matches × ndims` array of coordinates.
 
 ## Execution Time
 

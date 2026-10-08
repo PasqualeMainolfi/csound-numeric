@@ -20,8 +20,8 @@ meant, use [csnabs](csnabs.md) instead.
 ## Syntax
 
 ```csound
-handle:CsnArr = csntoreal(source:CsnArr)
-handle:CsnArr = csntoreal(source:CsnArr, trig:k)
+out:CsnArr = csntoreal(source:CsnArr)
+out:CsnArr = csntoreal(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csntoreal(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a real array with the shape of the source.
+* `out:CsnArr`: a real array with the shape of the source.
 
 ## Execution Time
 

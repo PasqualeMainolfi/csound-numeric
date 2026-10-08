@@ -7,7 +7,7 @@ Insert an element, or a block, at a position in an array.
 ## Description
 
 `csninsert` writes into its source array: it makes room at `index` and puts the
-new data there, shifting everything after it along. It publishes no handle — the
+new data there, shifting everything after it along. It returns no array — the
 source itself grows, within its spare capacity where it can and by reallocating
 where it cannot. On a [real-time path](csnrtlock.md) the reallocation is refused
 with a performance error instead.
@@ -65,7 +65,7 @@ None. The source array is modified.
 ; -----------------------------------------------------------------------------
 ; csninsert.csd
 ;
-; csninsert writes into its source rather than publishing a new handle. Three
+; csninsert writes into its source rather than returning a new array. Three
 ; arguments insert one element at a flat index; four insert a block along an axis.
 ; -----------------------------------------------------------------------------
 

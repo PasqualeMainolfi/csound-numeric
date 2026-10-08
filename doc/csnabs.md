@@ -23,8 +23,8 @@ The same name also takes a single `:Complex;` value and answers its magnitude, c
 ## Syntax
 
 ```csound
-handle:CsnArr = csnabs(source:CsnArr)
-handle:CsnArr = csnabs(source:CsnArr, trig:k)
+out:CsnArr = csnabs(source:CsnArr)
+out:CsnArr = csnabs(source:CsnArr, trig:k)
 value:i = csnabs(source:Complex)
 value:k = csnabs(source:Complex)
 ```
@@ -36,7 +36,7 @@ value:k = csnabs(source:Complex)
 
 ## Output
 
-* `handle:CsnArr`: absolute values for a real source, magnitudes — as a real array — for a complex one.
+* `out:CsnArr`: absolute values for a real source, magnitudes — as a real array — for a complex one.
 
 ## Execution Time
 

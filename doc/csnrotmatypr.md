@@ -32,16 +32,15 @@ own head is the inverse, which for a rotation is the transpose, so
 [csntranspose](csntranspose.md) is all it takes and no flag is needed to ask.
 
 In the performance form the matrix is rebuilt on every non-zero trigger. Its
-init pass reads the angles at whatever the init chain has already written into
-them, which is `0` unless an earlier line set them with `init` — a k-rate
-assignment does not write at i-time. So the matrix that reaches the first
-control period is normally the identity.
+init pass builds it only when all three angles are known at init, constants or
+i variables; with a k angle, which still reads 0 there, the init leaves a
+`3 x 3` of zeros and the first triggered pass builds the rotation.
 
 ## Syntax
 
 ```csound
-handle:CsnArr csnrotmatypr yaw:i, pitch:i, roll:i [, degrees:i]
-handle:CsnArr csnrotmatypr yaw:k, pitch:k, roll:k [, degrees:i] [, trig:k]
+out:CsnArr csnrotmatypr yaw:i, pitch:i, roll:i [, degrees:i]
+out:CsnArr csnrotmatypr yaw:k, pitch:k, roll:k [, degrees:i] [, trig:k]
 ```
 
 ## Arguments
@@ -54,7 +53,7 @@ handle:CsnArr csnrotmatypr yaw:k, pitch:k, roll:k [, degrees:i] [, trig:k]
 
 ## Output
 
-* `handle:CsnArr`: a `3 x 3` real array, ready for [csnmatmul](csnmatmul.md).
+* `out:CsnArr`: a `3 x 3` real array, ready for [csnmatmul](csnmatmul.md).
 
 ## Execution Time
 

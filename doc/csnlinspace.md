@@ -19,8 +19,8 @@ count.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlinspace(start:i, stop:i, num:i)
-handle:CsnArr = csnlinspace(start:k, stop:k, num:k, trig:k)
+out:CsnArr = csnlinspace(start:i, stop:i, num:i)
+out:CsnArr = csnlinspace(start:k, stop:k, num:k, trig:k)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csnlinspace(start:k, stop:k, num:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new 1-D array of `num` elements.
+* `out:CsnArr`: the new 1-D array of `num` elements.
 
 ## Execution Time
 

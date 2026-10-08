@@ -29,7 +29,7 @@ on its own.
 
 Real only — ordering has no meaning over the complex field.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
@@ -42,10 +42,10 @@ current values; a zero trigger leaves it untouched.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnmovmedian(source:CsnArr, winsize:i)
-handle:CsnArr = csnmovmedian(source:CsnArr, winsize:i, axis:i)
-handle:CsnArr = csnmovmedian(source:CsnArr, winsize:k, trig:k)
-handle:CsnArr = csnmovmedian(source:CsnArr, winsize:k, trig:k, axis:k)
+out:CsnArr = csnmovmedian(source:CsnArr, winsize:i)
+out:CsnArr = csnmovmedian(source:CsnArr, winsize:i, axis:i)
+out:CsnArr = csnmovmedian(source:CsnArr, winsize:k, trig:k)
+out:CsnArr = csnmovmedian(source:CsnArr, winsize:k, trig:k, axis:k)
 csnmovmedian(source:CsnArr, winsize:i)
 csnmovmedian(source:CsnArr, winsize:i, axis:i)
 csnmovmedian(source:CsnArr, winsize:k, trig:k)
@@ -61,7 +61,7 @@ csnmovmedian(source:CsnArr, winsize:k, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the filtered array, with the shape of the source. Omit it for the in-place form.
+* `out:CsnArr`: the filtered array, with the shape of the source. Omit it for the in-place form.
 
 ## Execution Time
 

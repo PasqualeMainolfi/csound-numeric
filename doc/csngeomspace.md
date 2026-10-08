@@ -20,8 +20,8 @@ exponents than the endpoints.
 ## Syntax
 
 ```csound
-handle:CsnArr = csngeomspace(start:i, stop:i, num:i)
-handle:CsnArr = csngeomspace(start:k, stop:k, num:k, trig:k)
+out:CsnArr = csngeomspace(start:i, stop:i, num:i)
+out:CsnArr = csngeomspace(start:k, stop:k, num:k, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csngeomspace(start:k, stop:k, num:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new 1-D array of `num` elements.
+* `out:CsnArr`: the new 1-D array of `num` elements.
 
 ## Execution Time
 

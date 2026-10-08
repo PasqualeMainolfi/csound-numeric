@@ -8,8 +8,11 @@ Round every element to the nearest integer.
 
 `csnround` replaces every element by the nearest integer. Halves go to the
 **even** neighbour, as in NumPy: `0.5` and `-0.5` both become `0`, `1.5` becomes
-`2` and `2.5` becomes `2`. C's own `round` would send them away from zero
-instead, so the two do not agree on exact halves.
+`2` and `2.5` becomes `2`. Csound's `round` does the same on a scalar, but over
+a `k[]` or `i[]` array it sends halves away from zero (`0.5` to `1`, `2.5` to
+`3`), so `csnround` and the array `round` agree everywhere except on exact
+halves. For that rule on non-negative values use
+`csnfloor(csnadd(data, 0.5))`.
 
 Real only: rounding has no meaning over the complex field, and a complex array is
 refused rather than rounded lane by lane.
@@ -20,8 +23,8 @@ To round to a resolution other than 1, scale first and scale back:
 ## Syntax
 
 ```csound
-handle:CsnArr = csnround(source:CsnArr)
-handle:CsnArr = csnround(source:CsnArr, trig:k)
+out:CsnArr = csnround(source:CsnArr)
+out:CsnArr = csnround(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -31,7 +34,7 @@ handle:CsnArr = csnround(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the rounded array.
+* `out:CsnArr`: the rounded array.
 
 ## Execution Time
 

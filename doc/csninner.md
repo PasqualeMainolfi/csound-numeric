@@ -16,7 +16,7 @@ the last axis of the first operand against the *second-to-last* of the second,
 while `csninner` uses the last of both.
 
 Declare the output as a number, or a `:Complex;`, for the vector case, and as a
-handle for the higher-rank case.
+array for the higher-rank case.
 
 Both real and complex arrays are accepted.
 
@@ -27,8 +27,8 @@ value:i = csninner(a:CsnArr, b:CsnArr)
 value:k = csninner(a:CsnArr, b:CsnArr, trig:k)
 value:Complex = csninner(a:CsnArr, b:CsnArr)
 value:Complex = csninner(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csninner(a:CsnArr, b:CsnArr)
-handle:CsnArr = csninner(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csninner(a:CsnArr, b:CsnArr)
+out:CsnArr = csninner(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ handle:CsnArr = csninner(a:CsnArr, b:CsnArr, trig:k)
 ## Output
 
 * `value:i / value:k / value:Complex`: the scalar product, for two vectors.
-* `handle:CsnArr`: the contracted array, for higher ranks.
+* `out:CsnArr`: the contracted array, for higher ranks.
 
 ## Execution Time
 

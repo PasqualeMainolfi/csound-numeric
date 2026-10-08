@@ -2,12 +2,12 @@
 
 ## Abstract
 
-Copy a function table into a csnum array handle.
+Copy a function table into a `CsnArr`.
 
 ## Description
 
 `csnfromftable` reads the `flen` points of a Csound function table into a fresh
-real csnum array and returns its handle. The guard point past the end of the
+real `CsnArr` and returns it. The guard point past the end of the
 table is not part of the copy.
 
 The result is always 1-D and always real. Reshape it afterwards with
@@ -20,7 +20,7 @@ read.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfromftable(ftable:i)
+out:CsnArr = csnfromftable(ftable:i)
 ```
 
 ## Arguments
@@ -29,7 +29,7 @@ handle:CsnArr = csnfromftable(ftable:i)
 
 ## Output
 
-* `handle:CsnArr`: handle of a new real 1-D array holding the table's `flen` points.
+* `out:CsnArr`: a new real 1-D array holding the table's `flen` points.
 
 ## Execution Time
 

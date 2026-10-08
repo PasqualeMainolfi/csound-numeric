@@ -28,10 +28,10 @@ For the in-place counterpart, which overwrites the mask array itself, see
 ## Syntax
 
 ```csound
-handle:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:CsnArr)
-handle:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:i)
-handle:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:CsnArr, trig:k)
-handle:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:k, trig:k)
+out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:CsnArr)
+out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:i)
+out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:CsnArr, trig:k)
+out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:k, trig:k)
 ```
 
 ## Arguments
@@ -43,7 +43,7 @@ handle:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the selected values.
+* `out:CsnArr`: the selected values.
 
 ## Execution Time
 

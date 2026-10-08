@@ -33,8 +33,8 @@ when the other is complex.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnsolve(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnsolve(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnsolve(a:CsnArr, b:CsnArr)
+out:CsnArr = csnsolve(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -45,7 +45,7 @@ handle:CsnArr = csnsolve(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the solution, shaped like `b`.
+* `out:CsnArr`: the solution, shaped like `b`.
 
 ## Execution Time
 

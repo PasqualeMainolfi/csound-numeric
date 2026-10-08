@@ -15,7 +15,7 @@ displaying an angle that was computed in radians — by
 Real only: an angle in degrees has no complex reading, and a complex array is
 refused rather than converted lane by lane.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
@@ -25,8 +25,8 @@ The same name also takes a single number and answers a single number, multiplied
 ## Syntax
 
 ```csound
-handle:CsnArr = csnradtodeg(source:CsnArr)
-handle:CsnArr = csnradtodeg(source:CsnArr, trig:k)
+out:CsnArr = csnradtodeg(source:CsnArr)
+out:CsnArr = csnradtodeg(source:CsnArr, trig:k)
 csnradtodeg(source:CsnArr)
 csnradtodeg(source:CsnArr, trig:k)
 value:i = csnradtodeg(angle:i)
@@ -40,7 +40,7 @@ value:k = csnradtodeg(angle:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the array in degrees. Omit it for the in-place form.
+* `out:CsnArr`: the array in degrees. Omit it for the in-place form.
 
 ## Execution Time
 

@@ -19,8 +19,8 @@ Both real and complex arrays are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnouter(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnouter(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnouter(a:CsnArr, b:CsnArr)
+out:CsnArr = csnouter(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csnouter(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: an `n × m` matrix.
+* `out:CsnArr`: an `n × m` matrix.
 
 ## Execution Time
 

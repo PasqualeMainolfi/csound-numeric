@@ -23,9 +23,9 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnrandint(shape:i[], min:i, max:i)
-handle:CsnArr = csnrandint(shape:k[], min:k, max:k)
-handle:CsnArr = csnrandint(shape:k[], min:k, max:k, trig:k)
+out:CsnArr = csnrandint(shape:i[], min:i, max:i)
+out:CsnArr = csnrandint(shape:k[], min:k, max:k)
+out:CsnArr = csnrandint(shape:k[], min:k, max:k, trig:k)
 ```
 
 ## Arguments
@@ -37,7 +37,7 @@ handle:CsnArr = csnrandint(shape:k[], min:k, max:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new real array. Its values are integers stored in Csound's numeric element type.
+* `out:CsnArr`: the new real array. Its values are integers stored in Csound's numeric element type.
 
 ## Execution Time
 

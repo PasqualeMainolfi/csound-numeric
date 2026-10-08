@@ -27,8 +27,8 @@ Real only — ordering has no meaning over the complex field.
 value:i = csnpercentile(source:CsnArr, percent:i)
 value:k = csnpercentile(source:CsnArr, percent:k)
 value:k = csnpercentile(source:CsnArr, percent:k, trig:k)
-handle:CsnArr = csnpercentile(source:CsnArr, percent:i, axis:i)
-handle:CsnArr = csnpercentile(source:CsnArr, percent:k, trig:k, axis:k)
+out:CsnArr = csnpercentile(source:CsnArr, percent:i, axis:i)
+out:CsnArr = csnpercentile(source:CsnArr, percent:k, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -41,7 +41,7 @@ handle:CsnArr = csnpercentile(source:CsnArr, percent:k, trig:k, axis:k)
 ## Output
 
 * `value:i / value:k`: the percentile over the whole array.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

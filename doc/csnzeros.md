@@ -11,7 +11,7 @@ element at `0`. The shape is an ordinary Csound array, one extent per dimension,
 so the same opcode builds a vector, a matrix, or any rank up to 8.
 
 The optional `itype` argument chooses the element type: `0` (the default) for a
-real array, `1` for a complex one. It is always read at init, so a handle keeps
+real array, `1` for a complex one. It is always read at init, so an array keeps
 its element type for the whole note; only the shape may follow a k-rate value.
 
 The k-rate form re-allocates only when the requested shape actually changes, and
@@ -21,10 +21,10 @@ is restored to zero.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnzeros(shape:i[])
-handle:CsnArr = csnzeros(shape:i[], itype:i)
-handle:CsnArr = csnzeros(shape:k[])
-handle:CsnArr = csnzeros(shape:k[], itype:i)
+out:CsnArr = csnzeros(shape:i[])
+out:CsnArr = csnzeros(shape:i[], itype:i)
+out:CsnArr = csnzeros(shape:k[])
+out:CsnArr = csnzeros(shape:k[], itype:i)
 ```
 
 ## Arguments
@@ -34,7 +34,7 @@ handle:CsnArr = csnzeros(shape:k[], itype:i)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new array.
+* `out:CsnArr`: the new array.
 
 ## Execution Time
 

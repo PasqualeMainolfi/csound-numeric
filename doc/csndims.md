@@ -19,13 +19,13 @@ selects the operation's documented flat, all-axes, or last-axis default.
 ## Syntax
 
 ```csound
-ndim:i = csndims(handle:CsnArr)
-ndim:k = csndims(handle:CsnArr)
+ndim:i = csndims(arr:CsnArr)
+ndim:k = csndims(arr:CsnArr)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to query.
+* `arr:CsnArr`: the array to query.
 
 ## Output
 

@@ -25,8 +25,8 @@ Real only — ordering has no meaning over the complex field.
 result:i = csnmedian(source:CsnArr)
 result:k = csnmedian(source:CsnArr)
 result:k = csnmedian(source:CsnArr, trig:k)
-handle:CsnArr = csnmedian(source:CsnArr, axis:i)
-handle:CsnArr = csnmedian(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnmedian(source:CsnArr, axis:i)
+out:CsnArr = csnmedian(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csnmedian(source:CsnArr, trig:k, axis:k)
 ## Output
 
 * `result:i / result:k`: the reduction over the whole array.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

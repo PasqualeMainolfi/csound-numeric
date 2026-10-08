@@ -24,7 +24,7 @@ UDOs included, [csnrtlockall](csnrtlockall.md) in the orchestra header is the
 tool for that.
 
 Ending the section stops new arrays from being marked; it does not unmark the
-ones already created. [csnrtunlock](csnrtunlock.md) releases those, one handle
+ones already created. [csnrtunlock](csnrtunlock.md) releases those, one array
 at a time.
 
 ## Syntax

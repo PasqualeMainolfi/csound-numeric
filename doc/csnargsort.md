@@ -23,10 +23,10 @@ Real only — ordering has no meaning over the complex field.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnargsort(source:CsnArr)
-handle:CsnArr = csnargsort(source:CsnArr, axis:i)
-handle:CsnArr = csnargsort(source:CsnArr, trig:k)
-handle:CsnArr = csnargsort(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnargsort(source:CsnArr)
+out:CsnArr = csnargsort(source:CsnArr, axis:i)
+out:CsnArr = csnargsort(source:CsnArr, trig:k)
+out:CsnArr = csnargsort(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -37,7 +37,7 @@ handle:CsnArr = csnargsort(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the indices that would sort the array.
+* `out:CsnArr`: the indices that would sort the array.
 
 ## Execution Time
 

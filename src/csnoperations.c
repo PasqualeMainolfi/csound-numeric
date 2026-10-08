@@ -181,7 +181,7 @@ CSN_OP_IN_DEFINE(div, CSN_DIV_HH, CSN_DIV_HS)
    is large enough, is refused growth at perf on a real-time path, and gets a
    new data version. X takes A's rate; the perf pass copies only while A is
    k-rate, and only when A or X moved since the last copy. */
-static int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h) {
+int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h) {
     CSN_REGISTRY *reg = p->registry;
     CSN_ARRAY *in = p->in;
     CSN_ARRAY *out = p->out;

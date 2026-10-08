@@ -22,12 +22,12 @@ downstream overwrote the array.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfull(shape:i[], value:i)
-handle:CsnArr = csnfull(shape:i[], value:i, itype:i)
-handle:CsnArr = csnfull(shape:i[], value:Complex)
-handle:CsnArr = csnfull(shape:k[], value:k)
-handle:CsnArr = csnfull(shape:k[], value:k, itype:i)
-handle:CsnArr = csnfull(shape:k[], value:Complex)
+out:CsnArr = csnfull(shape:i[], value:i)
+out:CsnArr = csnfull(shape:i[], value:i, itype:i)
+out:CsnArr = csnfull(shape:i[], value:Complex)
+out:CsnArr = csnfull(shape:k[], value:k)
+out:CsnArr = csnfull(shape:k[], value:k, itype:i)
+out:CsnArr = csnfull(shape:k[], value:Complex)
 ```
 
 ## Arguments
@@ -39,7 +39,7 @@ handle:CsnArr = csnfull(shape:k[], value:Complex)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new array.
+* `out:CsnArr`: the new array.
 
 ## Execution Time
 

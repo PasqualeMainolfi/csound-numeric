@@ -17,10 +17,10 @@ For a complex array every element is `1 + 0i`.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnones(shape:i[])
-handle:CsnArr = csnones(shape:i[], itype:i)
-handle:CsnArr = csnones(shape:k[])
-handle:CsnArr = csnones(shape:k[], itype:i)
+out:CsnArr = csnones(shape:i[])
+out:CsnArr = csnones(shape:i[], itype:i)
+out:CsnArr = csnones(shape:k[])
+out:CsnArr = csnones(shape:k[], itype:i)
 ```
 
 ## Arguments
@@ -30,7 +30,7 @@ handle:CsnArr = csnones(shape:k[], itype:i)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new array.
+* `out:CsnArr`: the new array.
 
 ## Execution Time
 

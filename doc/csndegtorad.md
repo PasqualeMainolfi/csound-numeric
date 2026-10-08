@@ -12,7 +12,7 @@ into the radians the trigonometric opcodes expect.
 Real only: an angle in degrees has no complex reading, and a complex array is
 refused rather than converted lane by lane.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
@@ -22,8 +22,8 @@ The same name also takes a single number and answers a single number, multiplied
 ## Syntax
 
 ```csound
-handle:CsnArr = csndegtorad(source:CsnArr)
-handle:CsnArr = csndegtorad(source:CsnArr, trig:k)
+out:CsnArr = csndegtorad(source:CsnArr)
+out:CsnArr = csndegtorad(source:CsnArr, trig:k)
 csndegtorad(source:CsnArr)
 csndegtorad(source:CsnArr, trig:k)
 value:i = csndegtorad(angle:i)
@@ -37,7 +37,7 @@ value:k = csndegtorad(angle:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the array in radians. Omit it for the in-place form.
+* `out:CsnArr`: the array in radians. Omit it for the in-place form.
 
 ## Execution Time
 

@@ -22,7 +22,7 @@ instr 1
     scalar:i      = csndot(a, b)
     prints("scalar product = %g\n", scalar)
 
-    ; matrices: the product is a handle
+    ; matrices: the product is a CsnArr
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
     matt:CsnArr   = csntranspose(mat)

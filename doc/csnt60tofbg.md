@@ -38,7 +38,7 @@ paired with every target time — the row index follows the delay, the column in
 time.
 
 The k-rate overloads follow the same four shapes. The scalar/scalar one carries
-no trigger, being two operations; the three that publish a handle take a
+no trigger, being two operations; the three that return an array take a
 trailing trigger, and a zero trigger republishes the previous result.
 
 Real only.
@@ -47,25 +47,25 @@ Real only.
 
 ```csound
 value:i = csnt60tofbg(delay:i, t60:i)
-handle:CsnArr = csnt60tofbg(delay:i, t60s:CsnArr)
-handle:CsnArr = csnt60tofbg(delays:CsnArr, t60:i)
-handle:CsnArr = csnt60tofbg(delays:CsnArr, t60s:CsnArr)
+out:CsnArr = csnt60tofbg(delay:i, t60s:CsnArr)
+out:CsnArr = csnt60tofbg(delays:CsnArr, t60:i)
+out:CsnArr = csnt60tofbg(delays:CsnArr, t60s:CsnArr)
 value:k = csnt60tofbg(delay:k, t60:k)
-handle:CsnArr = csnt60tofbg(delay:k, t60s:CsnArr, trig:k)
-handle:CsnArr = csnt60tofbg(delays:CsnArr, t60:k, trig:k)
-handle:CsnArr = csnt60tofbg(delays:CsnArr, t60s:CsnArr, trig:k)
+out:CsnArr = csnt60tofbg(delay:k, t60s:CsnArr, trig:k)
+out:CsnArr = csnt60tofbg(delays:CsnArr, t60:k, trig:k)
+out:CsnArr = csnt60tofbg(delays:CsnArr, t60s:CsnArr, trig:k)
 ```
 
 ## Arguments
 
 * `delay:i / delay:k`, `delays:CsnArr`: the delay length in seconds, one value or a one-dimensional array of them.
 * `t60:i / t60:k`, `t60s:CsnArr`: the decay time wanted in seconds, one value or a one-dimensional array of them.
-* `trig:k` (optional, default `1`): k-rate trigger on the overloads that publish a handle. A zero trigger republishes the previous result.
+* `trig:k` (optional, default `1`): k-rate trigger on the overloads that return an array. A zero trigger republishes the previous result.
 
 ## Output
 
 * `value:i / value:k`: the feedback gain, when both operands are scalars.
-* `handle:CsnArr`: one gain per element when one operand is an array; a `delays x t60s` matrix when both are.
+* `out:CsnArr`: one gain per element when one operand is an array; a `delays x t60s` matrix when both are.
 
 ## Execution Time
 

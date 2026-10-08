@@ -6,7 +6,7 @@ Create an array shaped and typed like another one, filled with a value.
 
 ## Description
 
-`csnlike` reads the shape and the element type of an existing handle and builds a
+`csnlike` reads the shape and the element type of an existing array and builds a
 new array with the same layout, every element set to `value`. Nothing of the
 source's data is copied — only its geometry.
 
@@ -20,8 +20,8 @@ and the real `value` fills the real lane with the imaginary lane at zero. Use
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlike(source:CsnArr, value:i)
-handle:CsnArr = csnlike(source:CsnArr, value:k)
+out:CsnArr = csnlike(source:CsnArr, value:i)
+out:CsnArr = csnlike(source:CsnArr, value:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csnlike(source:CsnArr, value:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new array.
+* `out:CsnArr`: the new array.
 
 ## Execution Time
 

@@ -20,8 +20,8 @@ to single those out.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnargnonzero(source:CsnArr)
-handle:CsnArr = csnargnonzero(source:CsnArr, trig:k)
+out:CsnArr = csnargnonzero(source:CsnArr)
+out:CsnArr = csnargnonzero(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csnargnonzero(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a `matches × ndims` array of coordinates.
+* `out:CsnArr`: a `matches × ndims` array of coordinates.
 
 ## Execution Time
 

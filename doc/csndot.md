@@ -12,7 +12,7 @@ operands.
 * **Two vectors** give their scalar product, a single number — the sum of the
   elementwise products. Declare the output as a number, or as a `:Complex;` when
   the operands are complex.
-* **Two matrices** give their matrix product, and the output is a handle. The
+* **Two matrices** give their matrix product, and the output is a `CsnArr`. The
   last axis of the first operand must match the second-to-last of the second.
 
 [csnmatmul](csnmatmul.md) is the matrix product said unambiguously, and
@@ -28,8 +28,8 @@ value:i = csndot(a:CsnArr, b:CsnArr)
 value:k = csndot(a:CsnArr, b:CsnArr, trig:k)
 value:Complex = csndot(a:CsnArr, b:CsnArr)
 value:Complex = csndot(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csndot(a:CsnArr, b:CsnArr)
-handle:CsnArr = csndot(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csndot(a:CsnArr, b:CsnArr)
+out:CsnArr = csndot(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -41,7 +41,7 @@ handle:CsnArr = csndot(a:CsnArr, b:CsnArr, trig:k)
 ## Output
 
 * `value:i / value:k / value:Complex`: the scalar product, for two vectors.
-* `handle:CsnArr`: the product array, for higher ranks.
+* `out:CsnArr`: the product array, for higher ranks.
 
 ## Execution Time
 
@@ -75,7 +75,7 @@ instr 1
     scalar:i      = csndot(a, b)
     prints("scalar product = %g\n", scalar)
 
-    ; matrices: the product is a handle
+    ; matrices: the product is a CsnArr
     shape:i[]     = fillarray(2, 3)
     mat:CsnArr    = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
     matt:CsnArr   = csntranspose(mat)

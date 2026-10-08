@@ -42,9 +42,9 @@ their result while the sources and the volume are unchanged.
 
 ```csound
 value:i = csnt60sab(volume:i, surfaces:CsnArr, alphas:CsnArr)
-handle:CsnArr = csnt60sab(volumes:CsnArr, surfaces:CsnArr, alphas:CsnArr)
+out:CsnArr = csnt60sab(volumes:CsnArr, surfaces:CsnArr, alphas:CsnArr)
 value:k = csnt60sab(volume:k, surfaces:CsnArr, alphas:CsnArr, trig:k)
-handle:CsnArr = csnt60sab(volumes:CsnArr, surfaces:CsnArr, alphas:CsnArr, trig:k)
+out:CsnArr = csnt60sab(volumes:CsnArr, surfaces:CsnArr, alphas:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -58,7 +58,7 @@ handle:CsnArr = csnt60sab(volumes:CsnArr, surfaces:CsnArr, alphas:CsnArr, trig:k
 ## Output
 
 * `value:i / value:k`: the reverberation time in seconds, for the scalar form.
-* `handle:CsnArr`: one reverberation time per volume, one-dimensional, for the array form.
+* `out:CsnArr`: one reverberation time per volume, one-dimensional, for the array form.
 
 ## Execution Time
 

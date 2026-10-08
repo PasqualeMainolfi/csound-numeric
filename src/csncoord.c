@@ -322,7 +322,7 @@ static int32_t csncoord_rotmat_helper(CSOUND *csound, CSN_ROTMAT *p) {
        not a data axis: a negative value does not count from the end. */
     double axis = (double) *p->axis;
     if (axis != 0.0 && axis != 1.0 && axis != 2.0) {
-        return csound->InitError(csound, "[csnarray] Invalid rotation axis %g: 0 selects x, 1 y, 2 z", axis);
+        return csn_init_error(csound, "[csnarray] Invalid rotation axis %g: 0 selects x, 1 y, 2 z", axis);
     }
     p->axis_index = (uint32_t) axis;
 
@@ -427,19 +427,19 @@ static int32_t csncoord_rotmat_axis_helper(CSOUND *csound, CSN_ROTMAT_AXIS *p, b
        there is no direction left to read: refuse it here, where it is clear,
        rather than on the first control period. */
     if (is_k && pres.aliased) {
-        res = csound->InitError(csound, "[csnarray] At k-rate the output cannot be its own direction: after the first pass it holds the 3 x 3 matrix, not the axis; write the matrix to another variable");
+        res = csn_init_error(csound, "[csnarray] At k-rate the output cannot be its own direction: after the first pass it holds the 3 x 3 matrix, not the axis; write the matrix to another variable");
         goto done;
     }
 
     /* read under the lock: the direction may be a global */
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->ndim != 1U || source_arr->shape[0] != 3U || source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Direction must be 1D real vector of size 3 (x, y, z)");
+        res = csn_init_error(csound, "[csnarray] Direction must be 1D real vector of size 3 (x, y, z)");
         goto done;
     }
 
     if (!ROT_AXIS_IS_VALID(source_arr->data)) {
-        res = csound->InitError(csound, "[csnarray] Direction must not be the null vector: it names no axis");
+        res = csn_init_error(csound, "[csnarray] Direction must not be the null vector: it names no axis");
         goto done;
     }
 
@@ -657,9 +657,9 @@ static int32_t csncoord_nmtoacn_helper(CSOUND *csound, CSN_NM2ACN *p, bool is_pe
 
     if (!IS_VALID_VALUE_INT32(n_val) || !IS_VALID_VALUE_INT32(m_val)) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] n, m should be valid integer values");
+            return csn_perf_error(csound, &p->h, "[csnarray] n, m should be valid integer values");
         } else {
-            return csound->InitError(csound, "[csnarray] n, m should be valid integer values");
+            return csn_init_error(csound, "[csnarray] n, m should be valid integer values");
         }
     }
 
@@ -668,17 +668,17 @@ static int32_t csncoord_nmtoacn_helper(CSOUND *csound, CSN_NM2ACN *p, bool is_pe
 
     if (n < 0) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] n should be greater or equal to zero");
+            return csn_perf_error(csound, &p->h, "[csnarray] n should be greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] n should be greater or equal to zero");
+            return csn_init_error(csound, "[csnarray] n should be greater or equal to zero");
         }
     }
 
     if (m < -n || m > n) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] m should be between -n and +n");
+            return csn_perf_error(csound, &p->h, "[csnarray] m should be between -n and +n");
         } else {
-            return csound->InitError(csound, "[csnarray] m should be between -n and +n");
+            return csn_init_error(csound, "[csnarray] m should be between -n and +n");
         }
     }
 
@@ -693,17 +693,17 @@ static int32_t csncoord_acntonm_helper(CSOUND *csound, CSN_ACN2NM *p, bool is_pe
 
     if (!IS_VALID_VALUE_INT32(acn)) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] ACN should be valid integer values greater or equal to zero");
+            return csn_perf_error(csound, &p->h, "[csnarray] ACN should be valid integer values greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] ACN should be valid integer values greater or equal to zero");
+            return csn_init_error(csound, "[csnarray] ACN should be valid integer values greater or equal to zero");
         }
     }
 
     if (acn < 0.0) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] ACN should be valid integer values greater or equal to zero");
+            return csn_perf_error(csound, &p->h, "[csnarray] ACN should be valid integer values greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] ACN should be valid integer values greater or equal to zero");
+            return csn_init_error(csound, "[csnarray] ACN should be valid integer values greater or equal to zero");
         }
     }
 
@@ -721,17 +721,17 @@ static int32_t csncoord_hoaordtochnls_helper(CSOUND *csound, CSN_COORD1 *p, bool
 
     if (!IS_VALID_VALUE_INT32(ord)) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] HOA order should be valid integer values greater or equal to zero");
+            return csn_perf_error(csound, &p->h, "[csnarray] HOA order should be valid integer values greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] HOA order should be valid integer values greater or equal to zero");
+            return csn_init_error(csound, "[csnarray] HOA order should be valid integer values greater or equal to zero");
         }
     }
 
     if (ord < 0.0) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] HOA order should be valid integer values greater or equal to zero");
+            return csn_perf_error(csound, &p->h, "[csnarray] HOA order should be valid integer values greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] HOA order should be valid integer values greater or equal to zero");
+            return csn_init_error(csound, "[csnarray] HOA order should be valid integer values greater or equal to zero");
         }
     }
 
@@ -747,9 +747,9 @@ static int32_t csncoord_chnlstohoaord_helper(CSOUND *csound, CSN_COORD1 *p, bool
 
     if (!IS_VALID_VALUE_INT32(chnls)) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Number of channels be valid integer values greater or equal to zero");
+            return csn_perf_error(csound, &p->h, "[csnarray] Number of channels be valid integer values greater or equal to zero");
         } else {
-            return csound->InitError(csound, "[csnarray] Number of channels should be valid integer values greater or equal to zero");
+            return csn_init_error(csound, "[csnarray] Number of channels should be valid integer values greater or equal to zero");
         }
     }
 
@@ -759,9 +759,9 @@ static int32_t csncoord_chnlstohoaord_helper(CSOUND *csound, CSN_COORD1 *p, bool
     double root = floor(sqrt(chnls) + 0.5);
     if (chnls < 1.0 || root * root != chnls) {
         if (is_perf) {
-            return csound->PerfError(csound, &p->h, "[csnarray] %g channels is not a complete 3-D HOA set: the count must be a perfect square (1, 4, 9, 16, 25...)", chnls);
+            return csn_perf_error(csound, &p->h, "[csnarray] %g channels is not a complete 3-D HOA set: the count must be a perfect square (1, 4, 9, 16, 25...)", chnls);
         } else {
-            return csound->InitError(csound, "[csnarray] %g channels is not a complete 3-D HOA set: the count must be a perfect square (1, 4, 9, 16, 25...)", chnls);
+            return csn_init_error(csound, "[csnarray] %g channels is not a complete 3-D HOA set: the count must be a perfect square (1, 4, 9, 16, 25...)", chnls);
         }
     }
 
@@ -812,7 +812,7 @@ static int32_t csncoord_sn3d_helper(CSOUND *csound, CSN_SN3D *p, bool is_n3dtosn
 
     double order_value = (double) *p->order;
     if (!IS_VALID_VALUE_INT32(order_value) || order_value < 0.0) {
-        return csound->InitError(csound, "[csnarray] Order should be valid integer values greater or equal to zero");
+        return csn_init_error(csound, "[csnarray] Order should be valid integer values greater or equal to zero");
     }
     size_t order = (size_t) order_value;
     size_t nchnls = (order + 1) * (order + 1);

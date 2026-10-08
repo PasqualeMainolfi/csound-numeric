@@ -8,6 +8,8 @@ Clamp every element between two bounds.
 
 `csnclip` limits every element to the range `[min, max]`: anything below `min`
 becomes `min`, anything above `max` becomes `max`, everything else is left alone.
+As in `np.clip` it is `min(max(x, min), max)`, so with `min` above `max` every
+element becomes `max`; a NaN stays NaN.
 
 It is the guard to put in front of an operation with a restricted domain — a
 divisor that must stay away from zero, an argument to
@@ -16,16 +18,16 @@ an index that must stay inside an extent.
 
 Real only.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnclip(source:CsnArr, min:i, max:i)
-handle:CsnArr = csnclip(source:CsnArr, min:k, max:k)
-handle:CsnArr = csnclip(source:CsnArr, min:k, max:k, trig:k)
+out:CsnArr = csnclip(source:CsnArr, min:i, max:i)
+out:CsnArr = csnclip(source:CsnArr, min:k, max:k)
+out:CsnArr = csnclip(source:CsnArr, min:k, max:k, trig:k)
 csnclip(source:CsnArr, min:i, max:i)
 csnclip(source:CsnArr, min:k, max:k)
 csnclip(source:CsnArr, min:k, max:k, trig:k)
@@ -40,7 +42,7 @@ csnclip(source:CsnArr, min:k, max:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the clamped array. Omit it for the in-place form.
+* `out:CsnArr`: the clamped array. Omit it for the in-place form.
 
 ## Execution Time
 

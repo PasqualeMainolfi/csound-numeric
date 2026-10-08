@@ -52,7 +52,7 @@ value:Complex, state:k csnnext source:CsnArr [, trig:k] [, reset:k]
 
 * Performance (k-rate)
 
-The init pass validates the handle and the element type and takes the copy the
+The init pass validates the array and the element type and takes the copy the
 walk reads; the iteration itself only runs at performance time.
 
 ## Examples

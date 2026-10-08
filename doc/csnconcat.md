@@ -22,10 +22,10 @@ promoted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, axis:i)
-handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k, axis:k)
+out:CsnArr = csnconcat(a:CsnArr, b:CsnArr)
+out:CsnArr = csnconcat(a:CsnArr, b:CsnArr, axis:i)
+out:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -37,7 +37,7 @@ handle:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the joined array.
+* `out:CsnArr`: the joined array.
 
 ## Execution Time
 

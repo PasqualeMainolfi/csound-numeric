@@ -21,8 +21,8 @@ element at index *i* of the Csound array is channel *i*, not sample *i*.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnpack(asigs:a[])
-handle:CsnArr = csnpack(asigs:a[], irt:i)
+out:CsnArr = csnpack(asigs:a[])
+out:CsnArr = csnpack(asigs:a[], irt:i)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csnpack(asigs:a[], irt:i)
 
 ## Output
 
-* `handle:CsnArr`: a two-dimensional real array of shape `channels x ksmps`, republished every control period.
+* `out:CsnArr`: a two-dimensional real array of shape `channels x ksmps`, republished every control period.
 
 ## Execution Time
 

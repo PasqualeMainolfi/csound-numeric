@@ -21,8 +21,8 @@ complex from the start, such as an accumulator declared `@global`.
 ## Syntax
 
 ```csound
-handle:CsnArr = csntocomplex(source:CsnArr)
-handle:CsnArr = csntocomplex(source:CsnArr, trig:k)
+out:CsnArr = csntocomplex(source:CsnArr)
+out:CsnArr = csntocomplex(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csntocomplex(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a complex array with the shape of the source.
+* `out:CsnArr`: a complex array with the shape of the source.
 
 ## Execution Time
 

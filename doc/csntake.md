@@ -20,8 +20,8 @@ Pick one index along an axis, dropping that axis; or one element by flat index.
 ## Syntax
 
 ```csound
-handle:CsnArr = csntake(source:CsnArr, axis:i, index:i)
-handle:CsnArr = csntake(source:CsnArr, axis:k, index:k)
+out:CsnArr = csntake(source:CsnArr, axis:i, index:i)
+out:CsnArr = csntake(source:CsnArr, axis:k, index:k)
 value:i = csntake(source:CsnArr, index:i)
 value:Complex = csntake(source:CsnArr, index:i)
 value:k = csntake(source:CsnArr, index:k)
@@ -36,7 +36,7 @@ value:Complex = csntake(source:CsnArr, index:k)
 
 ## Output
 
-* `handle:CsnArr`: the selection, with `axis` dropped, in the three-argument form.
+* `out:CsnArr`: the selection, with `axis` dropped, in the three-argument form.
 * `value:i / value:k / value:Complex`: the single element, in the two-argument form.
 
 ## Execution Time

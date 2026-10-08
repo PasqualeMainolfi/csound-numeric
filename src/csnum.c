@@ -332,9 +332,27 @@ bool is_inarg_i_time(OPDS *h, uint32_t arg_index) {
 
    Opcode bodies that hold the lock themselves do not need this: they release
    the lock and return the report directly. */
+int32_t csn_init_error(CSOUND *csound, const char *fmt, ...) {
+    char message[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(message, sizeof(message), fmt, args);
+    va_end(args);
+    return csound->InitError(csound, "%s\n", message);
+}
+
+int32_t csn_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...) {
+    char message[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(message, sizeof(message), fmt, args);
+    va_end(args);
+    return csound->PerfError(csound, h, "%s\n", message);
+}
+
 int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...) {
     CSN_REGISTRY *reg = (CSN_REGISTRY *) csound->QueryGlobalVariable(csound, CSN_REGISTRY_NAME);
-    char message[512];
+    char message[1024];
 
     va_list args;
     va_start(args, fmt);
@@ -343,7 +361,7 @@ int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...) {
 
     bool locked = reg != NULL && reg->mutex != NULL && csn_lock_is_held();
     if (locked) csn_unlock(csound, reg);
-    int32_t res = csound->PerfError(csound, h, "%s", message);
+    int32_t res = csound->PerfError(csound, h, "%s\n", message);
     if (locked) csn_lock(csound, reg);
 
     return res;
@@ -733,11 +751,11 @@ int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32_t *out
         || p_shape->data == NULL
         || p_shape->sizes == NULL
         || p_shape->sizes[0] <= 0) {
-        return csound->InitError(csound, "[csnarray] Shape argument must be a non-empty 1-D i-array");
+        return csn_init_error(csound, "[csnarray] Shape argument must be a non-empty 1-D i-array");
     }
 
     if (p_shape->sizes[0] > CSN_MAX_DIMS) {
-        return csound->InitError(csound, "[csnarray] Shape argument declares %d dimensions, the maximum is %d", (int32_t) p_shape->sizes[0], CSN_MAX_DIMS);
+        return csn_init_error(csound, "[csnarray] Shape argument declares %d dimensions, the maximum is %d", (int32_t) p_shape->sizes[0], CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p_shape->sizes[0];
@@ -746,7 +764,7 @@ int32_t parse_shape_array(CSOUND *csound, const ARRAYDAT *p_shape, uint32_t *out
         /* 0 is allowed: it produces a zero-length array, the empty stack. */
         double value = (double) extent;
         if (!isfinite(value) || value < 0.0 || value > (double) UINT32_MAX || trunc(value) != value) {
-            return csound->InitError(csound, "[csnarray] Shape extent %g at position %u must be a finite integer in 0..%u", value, i, UINT32_MAX);
+            return csn_init_error(csound, "[csnarray] Shape extent %g at position %u must be a finite integer in 0..%u", value, i, UINT32_MAX);
         }
         out_shape[i] = (uint32_t) extent;
     }
@@ -761,11 +779,11 @@ int32_t parse_shape_array_k(CSOUND *csound, OPDS *h, const ARRAYDAT *p_shape, ui
         || p_shape->data == NULL
         || p_shape->sizes == NULL
         || p_shape->sizes[0] <= 0) {
-        return csound->PerfError(csound, h, "[csnarray] Shape argument must be a non-empty 1-D k-array");
+        return csn_perf_error(csound, h, "[csnarray] Shape argument must be a non-empty 1-D k-array");
     }
 
     if (p_shape->sizes[0] > CSN_MAX_DIMS) {
-        return csound->PerfError(csound, h, "[csnarray] Shape argument declares %d dimensions, the maximum is %d", (int32_t) p_shape->sizes[0], CSN_MAX_DIMS);
+        return csn_perf_error(csound, h, "[csnarray] Shape argument declares %d dimensions, the maximum is %d", (int32_t) p_shape->sizes[0], CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p_shape->sizes[0];
@@ -774,7 +792,7 @@ int32_t parse_shape_array_k(CSOUND *csound, OPDS *h, const ARRAYDAT *p_shape, ui
         /* 0 is allowed: it produces a zero-length array, the empty stack. */
         double value = (double) extent;
         if (!isfinite(value) || value < 0.0 || value > (double) UINT32_MAX || trunc(value) != value) {
-            return csound->PerfError(csound, h, "[csnarray] Shape extent %g at position %u must be a finite integer in 0..%u", value, i, UINT32_MAX);
+            return csn_perf_error(csound, h, "[csnarray] Shape extent %g at position %u must be a finite integer in 0..%u", value, i, UINT32_MAX);
         }
         out_shape[i] = (uint32_t) extent;
     }
@@ -788,7 +806,7 @@ int32_t csnarray_set_seed(CSOUND *csound, CSN_SEED *p) {
     CHECK_REGISTRY(csound, NULL, reg);
     double seed_temp = (double) *p->seed;
     if (!IS_VALID_SEED(seed_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid seed %g: expected a non-negative integer up to 2^53 (0 seeds from the clock)", seed_temp);
+        return csn_init_error(csound, "[csnarray] Invalid seed %g: expected a non-negative integer up to 2^53 (0 seeds from the clock)", seed_temp);
     }
     uint64_t seed = (uint64_t) seed_temp;
     csn_lock(csound, reg);
@@ -818,7 +836,7 @@ static int32_t csnarray_grtlock_deinit(CSOUND *csound, CSN_GRTLOCK *p) {
 
 static int32_t csnarray_set_grtlock_helper(CSOUND *csound, OPDS *perf_h, CSN_GRTLOCK *p, bool lock, bool all) {
     if (all && p->h.insdshead->insno != 0) {
-        return csound->InitError(csound, "[csnarray] csnrtlockall belongs in the orchestra header, where it holds for the whole performance; inside an instrument use csnrtlockstart, which holds until csnrtlockend or the end of the note");
+        return csn_init_error(csound, "[csnarray] csnrtlockall belongs in the orchestra header, where it holds for the whole performance; inside an instrument use csnrtlockstart, which holds until csnrtlockend or the end of the note");
     }
 
     CSN_REGISTRY *reg = perf_h == NULL ? get_registry(csound) : p->registry;
@@ -911,11 +929,68 @@ int32_t csnarray_set_grtunlock_k(CSOUND *csound, CSN_GRTLOCK *p) {
     return csnarray_set_grtlock_helper(csound, &p->h, p, false, false);
 }
 
+// CAST
+
+int32_t csnarray_cast_i_in(CSOUND *csound, CSN_CAST_IN *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle}, 1);
+    if (p->source_handle->rate == CSN_RATE_K) {
+        res = csn_init_error(csound, "[csnarray] the array is already k-rate (a k opcode writes it); use csni(A) to take a copy frozen at init");
+        goto done;
+    }
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnarray_cast_k_in(CSOUND *csound, CSN_CAST_IN *p) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle}, 1);
+    p->source_handle->rate = CSN_RATE_K;
+    if (pres.locked) csn_unlock(csound, reg);
+    return OK;
+}
+
+/* csnop_assign_init sets the registry, the published flag and the globals
+   stamp before copying; op_assign_run then copies only when in or out moved. */
+int32_t csnarray_cast_k_init(CSOUND *csound, CSN_OP_ASSIGN *p) {
+    int32_t res = csnop_assign_init(csound, p);
+    p->out->rate = CSN_RATE_K;
+    return res;
+}
+
+/* not csnop_assign_perf, which stops on an i-rate source: the cast output is
+   k whatever its source, and the versions alone decide whether to recopy */
+int32_t csnarray_cast_k_perf(CSOUND *csound, CSN_OP_ASSIGN *p) {
+    CHECK_REGISTRY(csound, &p->h, p->registry);
+    int32_t res = op_assign_run(csound, p, &p->h);
+    p->out->rate = CSN_RATE_K;
+    return res;
+}
+
+int32_t csnarray_cast_i_init(CSOUND *csound, CSN_OP_ASSIGN *p) {
+    int32_t res = csnop_assign_init(csound, p);
+    p->out->rate = CSN_RATE_I;
+    return res;
+}
+
 // --- OENTRY ---
 
 #define S(x) sizeof(x)
 
 static OENTRY localops[] = {
+    { "csni",                    S(CSN_OP_ASSIGN),                0, ":CsnArr;",                 ":CsnArr;",                      (SUBR) csnarray_cast_i_init,                 NULL,                                   NULL,                                    NULL, 0 },
+    { "csnk",                    S(CSN_OP_ASSIGN),                0, ":CsnArr;",                 ":CsnArr;",                      (SUBR) csnarray_cast_k_init,                 (SUBR) csnarray_cast_k_perf,            NULL,                                    NULL, 0 },
+    { "csni.in",                 S(CSN_CAST_IN),                  0, "",                         ":CsnArr;",                      (SUBR) csnarray_cast_i_in,                   NULL,                                   NULL,                                    NULL, 0 },
+    { "csnk.in",                 S(CSN_CAST_IN),                  0, "",                         ":CsnArr;",                      (SUBR) csnarray_cast_k_in,                   NULL,                                   NULL,                                    NULL, 0 },
     { "csnseed",                 S(CSN_SEED),                     0, "",                         "i",                             (SUBR) csnarray_set_seed,                    NULL,                                   NULL,                                    NULL, 0 },
     { "csnsave",                 S(CSN_SAVE),                     0, "",                         ":CsnArr;S",                     (SUBR) csnarray_save,                        NULL,                                   NULL,                                    NULL, 0 },
     { "csnload",                 S(CSN_LOAD),                     0, ":CsnArr;",                 "S",                             (SUBR) csnarray_load,                        NULL,                                   (SUBR) csnarray_load_deinit,             NULL, 0 },
@@ -2009,7 +2084,7 @@ PUBLIC int32_t csoundModuleInit(CSOUND *csound) {
     }
 
     if (csn_register_type(csound) != OK) {
-        csound->ErrorMsg(csound, "[csn] Internal error: type CsnArr registration failed");
+        csound->ErrorMsg(csound, "[csn] Internal error: type CsnArr registration failed\n");
         return CSOUND_ERROR;
     }
 

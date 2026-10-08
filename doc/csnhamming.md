@@ -21,8 +21,8 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnhamming(n:i)
-handle:CsnArr = csnhamming(n:k)
+out:CsnArr = csnhamming(n:i)
+out:CsnArr = csnhamming(n:k)
 ```
 
 ## Arguments
@@ -31,7 +31,7 @@ handle:CsnArr = csnhamming(n:k)
 
 ## Output
 
-* `handle:CsnArr`: a real 1-D array of `n` window coefficients.
+* `out:CsnArr`: a real 1-D array of `n` window coefficients.
 
 ## Execution Time
 

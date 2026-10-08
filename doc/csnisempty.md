@@ -7,7 +7,7 @@ Return 1 when an array holds no element.
 ## Description
 
 `csnisempty` reports `1` when an array has no elements and `0` otherwise. It is
-the same test as `csnsize(handle) == 0`, said directly.
+the same test as `csnsize(arr) == 0`, said directly.
 
 An empty array is an ordinary value in csnum, not an error case: the shape
 transforms return an empty result of the right rank, concatenation with an empty
@@ -21,13 +21,13 @@ trigger fires.
 ## Syntax
 
 ```csound
-empty:i = csnisempty(handle:CsnArr)
-empty:k = csnisempty(handle:CsnArr)
+empty:i = csnisempty(arr:CsnArr)
+empty:k = csnisempty(arr:CsnArr)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to query.
+* `arr:CsnArr`: the array to query.
 
 ## Output
 

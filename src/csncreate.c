@@ -106,7 +106,7 @@ static int32_t create_shape_csnarray_k(CSOUND *csound, CSN_ARR_INIT *p, CSN_K_SH
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
     /* prepare_output lays the output out for the requested shape, zeroes it
@@ -204,7 +204,7 @@ int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
     uint32_t ndim = source_arr->ndim;
     ITEM_TYPE itype = source_arr->itype;
     if (itype != CSN_REAL && itype != CSN_COMPLEX) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Source array has invalid internal type %u", itype);
+        return csn_perf_error(csound, &p->h, "[csnarray] Source array has invalid internal type %u", itype);
     }
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -212,7 +212,7 @@ int32_t create_like_csnarray_k(CSOUND *csound, CSN_ARR_INIT_LIKE *p) {
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Source array has an invalid shape");
+        return csn_perf_error(csound, &p->h, "[csnarray] Source array has an invalid shape");
     }
 
     const CSN_ARRAY *operands[1] = { source_arr };
@@ -270,11 +270,11 @@ static int32_t create_random_csnarray_helper(CSOUND *csound, CSN_ARR_RND_INIT *p
     double min = (double) *p->min;
     double max = (double) *p->max;
     if (min == max || min > max || !IS_VALID_VALUE(min) || !IS_VALID_VALUE(max)) {
-        return csound->InitError(csound, "[csnarray] Invalid random range");
+        return csn_init_error(csound, "[csnarray] Invalid random range");
     }
 
     if (is_int && (!IS_VALID_VALUE_INT32(min) || !IS_VALID_VALUE_INT32(max))) {
-        return csound->InitError(csound, "[csnarray] Invalid random range");
+        return csn_init_error(csound, "[csnarray] Invalid random range");
     }
 
     CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
@@ -320,11 +320,11 @@ static int32_t create_random_csnarray_k_helper(CSOUND *csound, CSN_ARR_RND_INIT 
     double min = (double) *p->min;
     double max = (double) *p->max;
     if (min == max || min > max || !IS_VALID_VALUE(min) || !IS_VALID_VALUE(max)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid random range");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid random range");
     }
 
     if (is_int && (!IS_VALID_VALUE_INT32(min) || !IS_VALID_VALUE_INT32(max))) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid random range");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid random range");
     }
 
     CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, new_ndim, new_shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
@@ -418,7 +418,7 @@ int32_t create_full_csnarray_k(CSOUND *csound, CSN_FULL *p) {
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
     CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, itype, NULL, 0, CSN_ALIAS_REFUSE);
@@ -448,7 +448,7 @@ int32_t create_fullcomp_csnarray_k(CSOUND *csound, CSN_FULLCOMPLEX *p) {
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid shape or element count exceeds the configured limit");
     }
 
     CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, CSN_COMPLEX, NULL, 0, CSN_ALIAS_REFUSE);
@@ -489,7 +489,7 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->sizes == NULL
         || p->source->dimensions <= 0
         || p->source->dimensions > CSN_MAX_DIMS) {
-        return csound->InitError(csound, "[csnarray] Source must be an i-array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
+        return csn_init_error(csound, "[csnarray] Source must be an i-array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
@@ -498,14 +498,14 @@ int32_t from_array_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
     for (uint32_t i = 0; i < ndim; i++) {
         int32_t size = p->source->sizes[i];
         if (size <= 0) {
-            return csound->InitError(csound, "[csnarray] Source extent %u must be >= 1", i);
+            return csn_init_error(csound, "[csnarray] Source extent %u must be >= 1", i);
         }
         shape[i] = (uint32_t) size;
     }
 
     size_t total_size = 0;
     if (get_array_size_from_shape(&total_size, ndim, shape) != OK) {
-        return csound->InitError(csound, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
+        return csn_init_error(csound, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
     CSNARR_RES pres = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
@@ -535,7 +535,7 @@ int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->sizes == NULL
         || p->source->dimensions <= 0
         || p->source->dimensions > CSN_MAX_DIMS) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Source must be a k-array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
+        return csn_perf_error(csound, &p->h, "[csnarray] Source must be a k-array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
@@ -544,14 +544,14 @@ int32_t from_array_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
     for (uint32_t i = 0; i < ndim; i++) {
         int32_t size = p->source->sizes[i];
         if (size <= 0) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Source extent %u must be >= 1", i);
+            return csn_perf_error(csound, &p->h, "[csnarray] Source extent %u must be >= 1", i);
         }
         shape[i] = (uint32_t) size;
     }
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -579,7 +579,7 @@ int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->sizes == NULL
         || p->source->dimensions <= 0
         || p->source->dimensions > CSN_MAX_DIMS) {
-        return csound->InitError(csound, "[csnarray] Source must be a complex array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
+        return csn_init_error(csound, "[csnarray] Source must be a complex array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
@@ -588,14 +588,14 @@ int32_t from_complexarray_to_csnarray(CSOUND *csound, CSN_FROM_ARRAY *p) {
     for (uint32_t i = 0; i < ndim; i++) {
         int32_t size = p->source->sizes[i];
         if (size <= 0) {
-            return csound->InitError(csound, "[csnarray] Source extent %u must be >= 1", i);
+            return csn_init_error(csound, "[csnarray] Source extent %u must be >= 1", i);
         }
         shape[i] = (uint32_t) size;
     }
 
     size_t total_size = 0;
     if (get_array_size_from_shape(&total_size, ndim, shape) != OK) {
-        return csound->InitError(csound, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
+        return csn_init_error(csound, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -631,7 +631,7 @@ int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
         || p->source->sizes == NULL
         || p->source->dimensions <= 0
         || p->source->dimensions > CSN_MAX_DIMS) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Source must be a complex array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
+        return csn_perf_error(csound, &p->h, "[csnarray] Source must be a complex array with 1 to %d dimensions and allocated data", CSN_MAX_DIMS);
     }
 
     uint32_t ndim = (uint32_t) p->source->dimensions;
@@ -640,14 +640,14 @@ int32_t from_complexarray_to_csnarray_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
     for (uint32_t i = 0; i < ndim; i++) {
         int32_t size = p->source->sizes[i];
         if (size <= 0) {
-            return csound->PerfError(csound, &p->h, "[csnarray] Source extent %u must be >= 1", i);
+            return csn_perf_error(csound, &p->h, "[csnarray] Source extent %u must be >= 1", i);
         }
         shape[i] = (uint32_t) size;
     }
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -704,36 +704,36 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
        needs is reserved now. */
     if (src->size == 0 && csn_is_k_form(&p->h)) {
         if (reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
-            res = csound->InitError(csound, "[csnarray] Could not reserve the output array");
+            res = csn_init_error(csound, "[csnarray] Could not reserve the output array");
         }
         goto done;
     }
 
     if (src->size == 0) {
-        res = csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        res = csn_init_error(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
         goto done;
     }
 
     if (src->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Handle holds a complex array; declare the output as :Complex;[]");
+        res = csn_init_error(csound, "[csnarray] Handle holds a complex array; declare the output as :Complex;[]");
         goto done;
     }
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        res = csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_init_error(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
         goto done;
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
-        res = csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for an i-array output (limit %d)", total_size, INT32_MAX);
+        res = csn_init_error(csound, "[csnarray] Array holds %zu elements, too many for an i-array output (limit %d)", total_size, INT32_MAX);
         goto done;
     }
 
     res = tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
     if (res!= OK || p->array->data == NULL || p->array->sizes == NULL || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
-        res = csound->InitError(csound, "[csnarray] Could not allocate the %u-D output i-array of %zu elements", ndim, total_size);
+        res = csn_init_error(csound, "[csnarray] Could not allocate the %u-D output i-array of %zu elements", ndim, total_size);
         goto done;
     }
 
@@ -824,36 +824,36 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
        needs is reserved now. */
     if (src->size == 0 && csn_is_k_form(&p->h)) {
         if (reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
-            res = csound->InitError(csound, "[csnarray] Could not reserve the output array");
+            res = csn_init_error(csound, "[csnarray] Could not reserve the output array");
         }
         goto done;
     }
 
     if (src->size == 0) {
-        res = csound->InitError(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
+        res = csn_init_error(csound, "[csnarray] Cannot convert an empty CsnArr to ARRAYDAT");
         goto done;
     }
 
     if (src->itype != CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Handle holds a real array; use csntoarray for it");
+        res = csn_init_error(csound, "[csnarray] Handle holds a real array; use csntoarray for it");
         goto done;
     }
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        res = csound->InitError(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_init_error(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
         goto done;
     }
 
     size_t total_size = src->size;
     if (total_size > (size_t) INT32_MAX) {
-        res = csound->InitError(csound, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
+        res = csn_init_error(csound, "[csnarray] Array holds %zu elements, too many for a complex-array output (limit %d)", total_size, INT32_MAX);
         goto done;
     }
 
     res = tabinit(csound, p->array, (int32_t) total_size, p->h.insdshead);
     if (res != OK || p->array->data == NULL || p->array->sizes == NULL || reserve_krate_array_output(csound, &p->h, p->array, src->capacity) != OK) {
-        res = csound->InitError(csound, "[csnarray] Could not allocate the %u-D output complex array of %zu elements", ndim, total_size);
+        res = csn_init_error(csound, "[csnarray] Could not allocate the %u-D output complex array of %zu elements", ndim, total_size);
         goto done;
     }
 
@@ -985,7 +985,7 @@ int32_t csnarray_shape(CSOUND *csound, CSN_SHAPE *p) {
        changes rank at perf time never makes tabinit allocate. */
     int32_t res = tabinit(csound, p->shape, (int32_t) dims, p->h.insdshead);
     if (reserve_krate_array_output(csound, &p->h, p->shape, CSN_MAX_DIMS) != OK || res != OK) {
-        return csound->InitError(csound, "[csnarray] Could not allocate the shape output of %u elements", (uint32_t) CSN_MAX_DIMS);
+        return csn_init_error(csound, "[csnarray] Could not allocate the shape output of %u elements", (uint32_t) CSN_MAX_DIMS);
     }
 
     for (uint32_t i = 0; i < dims; i++) {
@@ -1082,9 +1082,9 @@ static int32_t spaced_space_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SPAC
 
     double num = (double) *p->step_num;
     if (mode == CSN_ARANGE) {
-        if (num == 0.0) return csound->InitError(csound, "[csnarray] The step argument must not be zero");
+        if (num == 0.0) return csn_init_error(csound, "[csnarray] The step argument must not be zero");
     } else {
-        if (num <= 0.0) return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", (int32_t) num);
+        if (num <= 0.0) return csn_init_error(csound, "[csnarray] The num argument must be > 0, got %d", (int32_t) num);
     }
 
     double arange_step = num;
@@ -1143,9 +1143,9 @@ static int32_t spaced_space_k_helper(CSOUND *csound, CSN_SPACED_SPACE *p, CSN_SP
 
     double num = (double) *p->step_num;
     if (mode == CSN_ARANGE) {
-        if (num == 0.0) return csound->PerfError(csound, &p->h, "[csnarray] The step argument must not be zero");
+        if (num == 0.0) return csn_perf_error(csound, &p->h, "[csnarray] The step argument must not be zero");
     } else {
-        if (num <= 0.0) return csound->PerfError(csound, &p->h, "[csnarray] The num argument must be > 0, got %d", (int32_t) num);
+        if (num <= 0.0) return csn_perf_error(csound, &p->h, "[csnarray] The num argument must be > 0, got %d", (int32_t) num);
     }
 
     int32_t res = OK;

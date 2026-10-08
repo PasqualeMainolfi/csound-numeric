@@ -23,20 +23,20 @@ multiplying a complex array by one is a rotation and a scaling at once.
 
 Besides the array forms, the same name covers scalar complex arithmetic: two
 `:Complex;` values, or one `:Complex;` and one real number on either side. These
-take no handles and no trigger — they are a few floating-point operations, not a
+take no arrays and no trigger — they are a few floating-point operations, not a
 traversal — and the `:Complex;` / `:Complex;` form runs at whichever rate its
 operands do, since nothing in its signature could tell the two apart.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnmul(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnmul(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnmul(a:CsnArr, value:i)
-handle:CsnArr = csnmul(a:CsnArr, value:k)
-handle:CsnArr = csnmul(a:CsnArr, value:k, trig:k)
-handle:CsnArr = csnmul(a:CsnArr, value:Complex)
-handle:CsnArr = csnmul(a:CsnArr, value:Complex, trig:k)
+out:CsnArr = csnmul(a:CsnArr, b:CsnArr)
+out:CsnArr = csnmul(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnmul(a:CsnArr, value:i)
+out:CsnArr = csnmul(a:CsnArr, value:k)
+out:CsnArr = csnmul(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnmul(a:CsnArr, value:Complex)
+out:CsnArr = csnmul(a:CsnArr, value:Complex, trig:k)
 pro:Complex = csnmul(a:Complex, b:Complex)
 pro:Complex = csnmul(a:Complex, b:i)
 pro:Complex = csnmul(a:Complex, b:k)
@@ -53,7 +53,7 @@ pro:Complex = csnmul(a:k, b:Complex)
 
 ## Output
 
-* `handle:CsnArr`: handle of the product.
+* `out:CsnArr`: the product.
 
 ## Execution Time
 

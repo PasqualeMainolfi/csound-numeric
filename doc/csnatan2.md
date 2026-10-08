@@ -23,12 +23,12 @@ Real only — for the phase of a complex array use [csnangle](csnangle.md).
 ## Syntax
 
 ```csound
-handle:CsnArr = csnatan2(y:CsnArr, x:CsnArr)
-handle:CsnArr = csnatan2(y:CsnArr, x:CsnArr, trig:k)
-handle:CsnArr = csnatan2(y:CsnArr, x:i)
-handle:CsnArr = csnatan2(y:CsnArr, x:k, trig:k)
-handle:CsnArr = csnatan2(y:i, x:CsnArr)
-handle:CsnArr = csnatan2(y:k, x:CsnArr, trig:k)
+out:CsnArr = csnatan2(y:CsnArr, x:CsnArr)
+out:CsnArr = csnatan2(y:CsnArr, x:CsnArr, trig:k)
+out:CsnArr = csnatan2(y:CsnArr, x:i)
+out:CsnArr = csnatan2(y:CsnArr, x:k, trig:k)
+out:CsnArr = csnatan2(y:i, x:CsnArr)
+out:CsnArr = csnatan2(y:k, x:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -39,7 +39,7 @@ handle:CsnArr = csnatan2(y:k, x:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the angles, in radians.
+* `out:CsnArr`: the angles, in radians.
 
 ## Execution Time
 

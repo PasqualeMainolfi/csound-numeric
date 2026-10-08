@@ -8,7 +8,7 @@
 ; csnload.csd
 ;
 ; csnload restores shape and element type from .csn or .npy. At k-rate the
-; trigger is the whole contract, and the handle is empty until it first fires.
+; trigger is the whole contract, and the output is empty until it first fires.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

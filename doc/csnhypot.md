@@ -19,11 +19,11 @@ array use [csnabs](csnabs.md).
 ## Syntax
 
 ```csound
-handle:CsnArr = csnhypot(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnhypot(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnhypot(a:CsnArr, value:i)
-handle:CsnArr = csnhypot(a:CsnArr, value:k)
-handle:CsnArr = csnhypot(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnhypot(a:CsnArr, b:CsnArr)
+out:CsnArr = csnhypot(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnhypot(a:CsnArr, value:i)
+out:CsnArr = csnhypot(a:CsnArr, value:k)
+out:CsnArr = csnhypot(a:CsnArr, value:k, trig:k)
 ```
 
 ## Arguments
@@ -35,7 +35,7 @@ handle:CsnArr = csnhypot(a:CsnArr, value:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the elementwise hypotenuse.
+* `out:CsnArr`: the elementwise hypotenuse.
 
 ## Execution Time
 

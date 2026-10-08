@@ -16,8 +16,8 @@ rather than answered with zeros.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnimag(source:CsnArr)
-handle:CsnArr = csnimag(source:CsnArr, trig:k)
+out:CsnArr = csnimag(source:CsnArr)
+out:CsnArr = csnimag(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -27,7 +27,7 @@ handle:CsnArr = csnimag(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a real array holding the imaginary parts.
+* `out:CsnArr`: a real array holding the imaginary parts.
 
 ## Execution Time
 

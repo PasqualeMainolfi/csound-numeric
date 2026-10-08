@@ -24,11 +24,11 @@ static int32_t csnarray_identity_helper(CSOUND *csound, CSN_IDENTITY *p, bool is
     int32_t num = num_known ? (int32_t) *p->num : 0;
     if (!is_ktime) {
         if (num <= 0) {
-            return csound->InitError(csound, "[csnarray] The num argument must be > 0, got %d", num);
+            return csn_init_error(csound, "[csnarray] The num argument must be > 0, got %d", num);
         }
     } else {
         if (num < 0) {
-            return csound->InitError(csound, "[csnarray] The num argument must be >= 0, got %d", num);
+            return csn_init_error(csound, "[csnarray] The num argument must be >= 0, got %d", num);
         }
     }
 
@@ -73,12 +73,12 @@ int32_t csnarray_identity_k(CSOUND *csound, CSN_IDENTITY *p) {
 
     ITEM_TYPE itype = CSN_ITYPE_FROM_ARG(*p->itype);
     if (!IS_VALID_VALUE((double) *p->num)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid matrix size");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid matrix size");
     }
 
     int32_t num = (int32_t) *p->num;
     if (num <= 0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] The num argument must be > 0, got %d", num);
+        return csn_perf_error(csound, &p->h, "[csnarray] The num argument must be > 0, got %d", num);
     }
 
     CHECK_KTRIG(p->trig);
@@ -127,7 +127,7 @@ int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p) {
 
     size_t new_size = 0;
     if (get_array_size_from_shape(&new_size, ndim, shape) != OK) {
-        return csound->InitError(csound, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
+        return csn_init_error(csound, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -140,7 +140,7 @@ int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p) {
     /* Validated before allocating, so a rejected reshape does not publish a
        handle to a destination nobody asked for. */
     if (new_size != arr->size) {
-        res = csound->InitError(csound, "[csnarray] Reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
+        res = csn_init_error(csound, "[csnarray] Reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
         goto done;
     }
 
@@ -239,7 +239,7 @@ int32_t csnarray_reshape_k(CSOUND *csound, CSN_RESHAPE *p) {
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -291,7 +291,7 @@ int32_t csnarray_reshape_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
 
     size_t new_size = 0;
     if (get_array_size_from_shape(&new_size, ndim, shape) != OK) {
-        return csound->InitError(csound, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
+        return csn_init_error(csound, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -302,7 +302,7 @@ int32_t csnarray_reshape_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     CSN_ARRAY *arr = p->source_handle;
 
     if (new_size != arr->size) {
-        res = csound->InitError(csound, "[csnarray] Reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
+        res = csn_init_error(csound, "[csnarray] Reshape size mismatch: source has %zu elements, new shape requires %zu", arr->size, new_size);
         goto done;
     }
 
@@ -346,7 +346,7 @@ int32_t csnarray_reshape_in_k(CSOUND *csound, CSN_RESHAPE_IN *p) {
 
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
+        return csn_perf_error(csound, &p->h, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
     }
 
     int32_t res = OK;
@@ -645,7 +645,7 @@ static int32_t transpose_init_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_def
     if (!has_axes || (csn_is_k_form(&p->h) && out.aliased)) goto done;
 
     if (transpose_into(source, p->handle, (double *) p->scratch.scratch, shape, axes) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     if (out.aliased) update_array_data_version(&p->handle->version);
@@ -765,12 +765,12 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     size_t count = arr->size * (size_t) arr->itype;
     buffer = csound->Calloc(csound, sizeof(double) * (count > 0 ? count : 1));
     if (buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(double) * count);
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(double) * count);
         goto done;
     }
 
     if (transpose_into(arr, arr, buffer, shape, axes) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     update_array_data_version(&arr->version);
@@ -810,7 +810,7 @@ static int32_t transpose_in_k_init_helper(CSOUND *csound, CSN_RESHAPE_IN *p, boo
     if (transpose_axes(is_default, p->new_shape, arr->ndim, axes) != CSN_TRANSPOSE_AXES_OK || arr->size == 0) goto done;
     transpose_shape(arr, axes, shape);
     if (transpose_into(arr, arr, (double *) p->scratch.scratch, shape, axes) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid transpose iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     update_array_data_version(&arr->version);

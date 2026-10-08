@@ -31,8 +31,8 @@ result:k = csnsub(source:CsnArr)
 result:k = csnsub(source:CsnArr, trig:k)
 result:Complex = csnsub(source:CsnArr)
 result:Complex = csnsub(source:CsnArr, trig:k)
-handle:CsnArr = csnsub(source:CsnArr, axis:i)
-handle:CsnArr = csnsub(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnsub(source:CsnArr, axis:i)
+out:CsnArr = csnsub(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -45,7 +45,7 @@ handle:CsnArr = csnsub(source:CsnArr, trig:k, axis:k)
 
 * `result:i / result:k`: the reduction over the whole array, for a real source.
 * `result:Complex`: the reduction over the whole array, for a complex source.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

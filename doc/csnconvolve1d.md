@@ -44,11 +44,11 @@ performance pass from having to reallocate.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i)
-handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
-handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
-handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
+out:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr)
+out:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i)
+out:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, axis:i)
+out:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k)
+out:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -61,7 +61,7 @@ handle:CsnArr = csnconvolve1d(x:CsnArr, h:CsnArr, edges:i, trig:k, axis:i)
 
 ## Output
 
-* `handle:CsnArr`: the convolution.
+* `out:CsnArr`: the convolution.
 
 ## Execution Time
 

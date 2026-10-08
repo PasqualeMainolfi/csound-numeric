@@ -6,7 +6,7 @@ Removes the set classification without changing an array's contents.
 
 ## Description
 
-`csnunlikeset` modifies the source handle in place, clearing its set
+`csnunlikeset` modifies the source array in place, clearing its set
 classification while preserving its values, shape, and order. It does not undo
 the sorting or duplicate removal performed by [csnlikeset](csnlikeset.md).
 

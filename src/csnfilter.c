@@ -106,11 +106,11 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
     stamp_globals(csound, &p->h);
 
     if (!IS_VALID_LENGTH((double) *p->kernel_size)) {
-        return csound->InitError(csound, "[csnarray] Invalid kernel size");
+        return csn_init_error(csound, "[csnarray] Invalid kernel size");
     }
     size_t kernel_size = (size_t) *p->kernel_size;
     if (kernel_size % 2 == 0) {
-        return csound->InitError(csound, "[csnarray] Kernel size must be odd");
+        return csn_init_error(csound, "[csnarray] Kernel size must be odd");
     }
 
     CSNARR_RES pres = {0};
@@ -121,13 +121,13 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
     uint32_t *source_shape = source_arr->shape;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] medfilt requires real-array");
+        res = csn_init_error(csound, "[csnarray] medfilt requires real-array");
         goto done;
     }
 
     p->buffer.scratch = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(kernel_size));
     if (p->buffer.scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     p->buffer.scratch_capacity = sliding_median_scratch_size(kernel_size);
@@ -149,7 +149,7 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -182,7 +182,7 @@ static int32_t csnarray_medfilt1d_init_helper(CSOUND *csound, CSN_MEDFILT *p, co
         /* safe in place: sliding_median_slice fills its window before the
            first write and then only reads ahead of the element it writes */
         if (medfilt1d_assign_value(p->handle, source_arr, &p->buffer, kernel_size, axis) != OK) {
-            res = csound->InitError(csound, "[csnarray] Incompatible array shapes/ranks");
+            res = csn_init_error(csound, "[csnarray] Incompatible array shapes/ranks");
             goto done;
         }
         if (out.aliased) update_array_data_version(&p->handle->version);
@@ -230,12 +230,12 @@ static int32_t csnarray_medfilt1d_in_init_helper(CSOUND *csound, CSN_MEDFILT_IN 
     stamp_globals(csound, &p->h);
 
     if (!IS_VALID_LENGTH((double) *p->kernel_size)) {
-        return csound->InitError(csound, "[csnarray] Invalid kernel size");
+        return csn_init_error(csound, "[csnarray] Invalid kernel size");
     }
 
     size_t kernel_size = (size_t) *p->kernel_size;
     if (kernel_size % 2 == 0) {
-        return csound->InitError(csound, "[csnarray] Kernel size must be odd");
+        return csn_init_error(csound, "[csnarray] Kernel size must be odd");
     }
 
     CSNARR_RES pres = {0};
@@ -245,27 +245,27 @@ static int32_t csnarray_medfilt1d_in_init_helper(CSOUND *csound, CSN_MEDFILT_IN 
     uint32_t source_ndim = source_arr->ndim;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] medfilt requires real-array");
+        res = csn_init_error(csound, "[csnarray] medfilt requires real-array");
         goto done;
     }
 
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
         double value = axis_in == NULL ? 0.0 : (double) *axis_in;
-        res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
+        res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", value, source_ndim, -(int32_t) source_ndim, source_ndim - 1U);
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
 
     p->buffer.scratch = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(kernel_size));
     if (p->buffer.scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     p->buffer.scratch_capacity = sliding_median_scratch_size(kernel_size);
 
     if (medfilt1d_in_assign_value(source_arr, p->buffer.scratch, axis, kernel_size) != OK) {
-        res = csound->InitError(csound, "[csnarray] Incompatible array shapes/ranks");
+        res = csn_init_error(csound, "[csnarray] Incompatible array shapes/ranks");
         goto done;
     }
     update_array_data_version(&source_arr->version);
@@ -363,11 +363,11 @@ int32_t csnarray_medfilt1d_in_k_init(CSOUND *csound, CSN_MEDFILT_IN *p) {
     stamp_globals(csound, &p->h);
 
     if (!IS_VALID_LENGTH((double) *p->kernel_size)) {
-        return csound->InitError(csound, "[csnarray] Invalid kernel size");
+        return csn_init_error(csound, "[csnarray] Invalid kernel size");
     }
     size_t kernel_size = (size_t) *p->kernel_size;
     if (kernel_size % 2 == 0) {
-        return csound->InitError(csound, "[csnarray] Kernel size must be odd");
+        return csn_init_error(csound, "[csnarray] Kernel size must be odd");
     }
 
     p->buffer.scratch = NULL;
@@ -376,7 +376,7 @@ int32_t csnarray_medfilt1d_in_k_init(CSOUND *csound, CSN_MEDFILT_IN *p) {
     CSN_SCRATCH *reserved = &p->buffer;
     reserved->scratch = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(kernel_size));
     if (reserved->scratch == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     reserved->scratch_capacity = sliding_median_scratch_size(kernel_size);
 
@@ -459,16 +459,16 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
     size_t kernel_size = 0;
     if (kernel_size_in != NULL) {
         if (!IS_VALID_LENGTH((double) *kernel_size_in)) {
-            return csound->InitError(csound, "[csnarray] Invalid kernel size");
+            return csn_init_error(csound, "[csnarray] Invalid kernel size");
         }
         kernel_size = (size_t) *kernel_size_in;
         if (kernel_size % 2 == 0) {
-            return csound->InitError(csound, "[csnarray] Kernel size must be odd");
+            return csn_init_error(csound, "[csnarray] Kernel size must be odd");
         }
     }
 
     if (is_kernel_shape && kernel_shape_in == NULL) {
-        return csound->InitError(csound, "[csnarray] Invalid kernel shape, NULL passed");
+        return csn_init_error(csound, "[csnarray] Invalid kernel shape, NULL passed");
     }
 
     CSNARR_RES pres = {0};
@@ -478,7 +478,7 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
     uint32_t *source_shape = source_arr->shape;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] medfilt requires real-array");
+        res = csn_init_error(csound, "[csnarray] medfilt requires real-array");
         goto done;
     }
 
@@ -494,11 +494,11 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
 
     if (is_kernel_shape) {
         if (kernel_shape_in == NULL || kernel_shape_in->data == NULL || kernel_shape_in->sizes == NULL) {
-            res = csound->InitError(csound, "[csnarray] Invalid kernel shape: NULL passed");
+            res = csn_init_error(csound, "[csnarray] Invalid kernel shape: NULL passed");
             goto done;
         }
         if ((uint32_t) kernel_shape_in->sizes[0] != source_ndim) {
-            res = csound->InitError(csound, "[csnarray] Kernel shape holds %d sizes but the source is %u-D: one size per axis", kernel_shape_in->sizes[0], source_ndim);
+            res = csn_init_error(csound, "[csnarray] Kernel shape holds %d sizes but the source is %u-D: one size per axis", kernel_shape_in->sizes[0], source_ndim);
             goto done;
         }
         for (uint32_t i = 0; i < source_ndim; i++) {
@@ -506,11 +506,11 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
                than quietly truncated. */
             double extent = (double) kernel_shape_in->data[i];
             if (!IS_VALID_LENGTH(extent)) {
-                res = csound->InitError(csound, "[csnarray] Invalid kernel size");
+                res = csn_init_error(csound, "[csnarray] Invalid kernel size");
                 goto done;
             }
             if (((size_t) extent) % 2 == 0) {
-                res = csound->InitError(csound, "[csnarray] Kernel size must be odd");
+                res = csn_init_error(csound, "[csnarray] Kernel size must be odd");
                 goto done;
             }
             kernel_shape[i] = (uint32_t) extent;
@@ -522,7 +522,7 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
     }
 
     if (get_array_size_from_shape(kernel_total_size, source_ndim, kernel_shape) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        res = csn_init_error(csound, "[csnarray] Invalid shape or element count exceeds the configured limit");
         goto done;
     }
 
@@ -535,7 +535,7 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
     size_t kernel_cap = out.aliased ? gather + source_arr->capacity : gather;
     buffer->scratch = csound->Calloc(csound, sizeof(double) * kernel_cap);
     if (buffer->scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     buffer->scratch_capacity = kernel_cap;
@@ -552,7 +552,7 @@ static int32_t csnarray_medfilt_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
         : medfilt_assign_value(out_arr, source_arr, kernel, *kernel_total_size, kernel_shape);
 
     if (res != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid median-filter iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid median-filter iterator layout");
         goto done;
     }
     if (out.aliased) update_array_data_version(&out_arr->version);
@@ -576,16 +576,16 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
     size_t kernel_size = 0;
     if (kernel_size_in != NULL) {
         if (!IS_VALID_LENGTH((double) *kernel_size_in)) {
-            return csound->InitError(csound, "[csnarray] Invalid kernel size");
+            return csn_init_error(csound, "[csnarray] Invalid kernel size");
         }
         kernel_size = (size_t) *kernel_size_in;
         if (kernel_size % 2 == 0) {
-            return csound->InitError(csound, "[csnarray] Kernel size must be odd");
+            return csn_init_error(csound, "[csnarray] Kernel size must be odd");
         }
     }
 
     if (is_kernel_shape && kernel_shape_in == NULL) {
-        return csound->InitError(csound, "[csnarray] Invalid kernel shape, NULL passed");
+        return csn_init_error(csound, "[csnarray] Invalid kernel shape, NULL passed");
     }
 
     CSNARR_RES pres = {0};
@@ -594,18 +594,18 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
     uint32_t source_ndim = source_arr->ndim;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] medfilt requires real-array");
+        res = csn_init_error(csound, "[csnarray] medfilt requires real-array");
         goto done;
     }
 
     uint32_t kernel_shape[CSN_MAX_DIMS] = {0};
     if (is_kernel_shape) {
         if (kernel_shape_in == NULL || kernel_shape_in->data == NULL || kernel_shape_in->sizes == NULL) {
-            res = csound->InitError(csound, "[csnarray] Invalid kernel shape: NULL passed");
+            res = csn_init_error(csound, "[csnarray] Invalid kernel shape: NULL passed");
             goto done;
         }
         if ((uint32_t) kernel_shape_in->sizes[0] != source_ndim) {
-            res = csound->InitError(csound, "[csnarray] Kernel shape holds %d sizes but the source is %u-D: one size per axis", kernel_shape_in->sizes[0], source_ndim);
+            res = csn_init_error(csound, "[csnarray] Kernel shape holds %d sizes but the source is %u-D: one size per axis", kernel_shape_in->sizes[0], source_ndim);
             goto done;
         }
         for (uint32_t i = 0; i < source_ndim; i++) {
@@ -613,11 +613,11 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
                than quietly truncated. */
             double extent = (double) kernel_shape_in->data[i];
             if (!IS_VALID_LENGTH(extent)) {
-                res = csound->InitError(csound, "[csnarray] Invalid kernel size");
+                res = csn_init_error(csound, "[csnarray] Invalid kernel size");
                 goto done;
             }
             if (((size_t) extent) % 2 == 0) {
-                res = csound->InitError(csound, "[csnarray] Kernel size must be odd");
+                res = csn_init_error(csound, "[csnarray] Kernel size must be odd");
                 goto done;
             }
             kernel_shape[i] = (uint32_t) extent;
@@ -630,7 +630,7 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
 
     size_t kernel_total_size = 0;
     if (get_array_size_from_shape(&kernel_total_size, source_ndim, kernel_shape) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        res = csn_init_error(csound, "[csnarray] Invalid shape or element count exceeds the configured limit");
         goto done;
     }
 
@@ -638,14 +638,14 @@ static int32_t csnarray_medfilt_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *so
     size_t kernel_cap = gather + source_arr->capacity;
     buffer->scratch = csound->Calloc(csound, sizeof(double) * kernel_cap);
     if (buffer->scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     buffer->scratch_capacity = kernel_cap;
 
     double *kernel = (double *) buffer->scratch;
     if (medfilt_in_assign_value(source_arr, kernel, kernel + gather, kernel_total_size, kernel_shape) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid median-filter iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid median-filter iterator layout");
         goto done;
     }
     update_array_data_version(&source_arr->version);
@@ -757,16 +757,16 @@ static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA
     size_t kernel_size = 0;
     if (kernel_size_in != NULL) {
         if (!IS_VALID_LENGTH((double) *kernel_size_in)) {
-            return csound->InitError(csound, "[csnarray] Invalid kernel size");
+            return csn_init_error(csound, "[csnarray] Invalid kernel size");
         }
         kernel_size = (size_t) *kernel_size_in;
         if (kernel_size % 2 == 0) {
-            return csound->InitError(csound, "[csnarray] Kernel size must be odd");
+            return csn_init_error(csound, "[csnarray] Kernel size must be odd");
         }
     }
 
     if (is_kernel_shape && kernel_shape_in == NULL) {
-        return csound->InitError(csound, "[csnarray] Invalid kernel shape, NULL passed");
+        return csn_init_error(csound, "[csnarray] Invalid kernel shape, NULL passed");
     }
 
     buffer->scratch = NULL;
@@ -777,17 +777,17 @@ static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA
     uint32_t source_ndim = source_arr->ndim;
 
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] medfilt requires real-array");
+        res = csn_init_error(csound, "[csnarray] medfilt requires real-array");
         goto done;
     }
 
     if (is_kernel_shape) {
         if (kernel_shape_in == NULL || kernel_shape_in->data == NULL || kernel_shape_in->sizes == NULL) {
-            res = csound->InitError(csound, "[csnarray] Invalid kernel shape: NULL passed");
+            res = csn_init_error(csound, "[csnarray] Invalid kernel shape: NULL passed");
             goto done;
         }
         if ((uint32_t) kernel_shape_in->sizes[0] != source_ndim) {
-            res = csound->InitError(csound, "[csnarray] Kernel shape holds %d sizes but the source is %u-D: one size per axis", kernel_shape_in->sizes[0], source_ndim);
+            res = csn_init_error(csound, "[csnarray] Kernel shape holds %d sizes but the source is %u-D: one size per axis", kernel_shape_in->sizes[0], source_ndim);
             goto done;
         }
         for (uint32_t i = 0; i < source_ndim; i++) {
@@ -795,11 +795,11 @@ static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA
                than quietly truncated. */
             double extent = (double) kernel_shape_in->data[i];
             if (!IS_VALID_LENGTH(extent)) {
-                res = csound->InitError(csound, "[csnarray] Invalid kernel size");
+                res = csn_init_error(csound, "[csnarray] Invalid kernel size");
                 goto done;
             }
             if (((size_t) extent) % 2 == 0) {
-                res = csound->InitError(csound, "[csnarray] Kernel size must be odd");
+                res = csn_init_error(csound, "[csnarray] Kernel size must be odd");
                 goto done;
             }
             kernel_shape[i] = (uint32_t) extent;
@@ -811,7 +811,7 @@ static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA
     }
 
     if (get_array_size_from_shape(kernel_total_size, source_ndim, kernel_shape) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid shape or element count exceeds the configured limit");
+        res = csn_init_error(csound, "[csnarray] Invalid shape or element count exceeds the configured limit");
         goto done;
     }
 
@@ -825,7 +825,7 @@ static int32_t csnarray_medfilt_in_k_init_helper(CSOUND *csound, OPDS *h, K_DATA
     CSN_SCRATCH *reserved = buffer;
     reserved->scratch = csound->Calloc(csound, sizeof(double) * kernel_cap);
     if (reserved->scratch == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     reserved->scratch_capacity = kernel_cap;

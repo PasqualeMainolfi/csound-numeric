@@ -24,10 +24,10 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csngrad(source:CsnArr)
-handle:CsnArr = csngrad(source:CsnArr, axis:i)
-handle:CsnArr = csngrad(source:CsnArr, trig:k)
-handle:CsnArr = csngrad(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csngrad(source:CsnArr)
+out:CsnArr = csngrad(source:CsnArr, axis:i)
+out:CsnArr = csngrad(source:CsnArr, trig:k)
+out:CsnArr = csngrad(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csngrad(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the gradient, with the shape of the source.
+* `out:CsnArr`: the gradient, with the shape of the source.
 
 ## Execution Time
 

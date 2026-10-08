@@ -23,10 +23,10 @@ source may be real or complex.
 ## Syntax
 
 ```csound
-handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr)
-handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, axis:i)
-handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k)
-handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k, axis:k)
+out:CsnArr = csncompress(source:CsnArr, mask:CsnArr)
+out:CsnArr = csncompress(source:CsnArr, mask:CsnArr, axis:i)
+out:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k)
+out:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the kept entries.
+* `out:CsnArr`: the kept entries.
 
 ## Execution Time
 

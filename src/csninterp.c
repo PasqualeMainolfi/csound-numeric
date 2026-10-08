@@ -52,7 +52,7 @@ int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_ZERO_ONE((double) *p->resize)) {
-        return csound->InitError(csound, "[csnarray] Resize param must be 0 = do not resize or 1 = resize");
+        return csn_init_error(csound, "[csnarray] Resize param must be 0 = do not resize or 1 = resize");
     }
 
     uint32_t resize = (uint32_t) *p->resize;
@@ -61,7 +61,7 @@ int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
        number here would silently overwrite the sine every oscillator reads. */
     int32_t fno = (int32_t) CS_FLOAT2LRND(*p->ftable);
     if (fno <= 0) {
-        return csound->InitError(csound, "[csnarray] Invalid ftable number %d: it must be greater than 0", fno);
+        return csn_init_error(csound, "[csnarray] Invalid ftable number %d: it must be greater than 0", fno);
     }
 
     FUNC *ftable = NULL;
@@ -72,17 +72,17 @@ int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] csntoftable requires real array");
+        res = csn_init_error(csound, "[csnarray] csntoftable requires real array");
         goto done;
     }
 
     size_t size = source_arr->size;
     if (size == 0) {
-        res = csound->InitError(csound, "[csnarray] The array is empty: there is nothing to write into ftable %d", fno);
+        res = csn_init_error(csound, "[csnarray] The array is empty: there is nothing to write into ftable %d", fno);
         goto done;
     }
     if (size > (size_t) INT32_MAX) {
-        res = csound->InitError(csound, "[csnarray] The array has %zu points: too many for an ftable", size);
+        res = csn_init_error(csound, "[csnarray] The array has %zu points: too many for an ftable", size);
         goto done;
     }
 
@@ -94,12 +94,12 @@ int32_t from_csnarray_to_ftable(CSOUND *csound, CSN_TO_FTABLE *p) {
         }
 
         if ((size_t) ftable->flen < size) {
-            res = csound->InitError(csound, "[csnarray] Ftable %d holds %u points but the array has %zu: the ftable length must be equal or greater", fno, (uint32_t) ftable->flen, size);
+            res = csn_init_error(csound, "[csnarray] Ftable %d holds %u points but the array has %zu: the ftable length must be equal or greater", fno, (uint32_t) ftable->flen, size);
             goto done;
         }
     } else {
         if (csound->FTAlloc(csound, fno, (int32_t) size) != 0) {
-            res = csound->InitError(csound, "[csnarray] Cannot size ftable %d to %zu points", fno, size);
+            res = csn_init_error(csound, "[csnarray] Cannot size ftable %d to %zu points", fno, size);
             goto done;
         }
 
@@ -387,12 +387,12 @@ int32_t csnarray_remap_scalar(CSOUND *csound, CSN_REMAP_SCALAR *p) {
 
     int32_t is_valid_mode = imode >= REMAP_LINEAR && imode <= REMAP_CUBIC;
     if (!is_valid_mode) {
-        return csound->InitError(csound, "[csnarray] Not valid mode value");
+        return csn_init_error(csound, "[csnarray] Not valid mode value");
     }
 
     int32_t is_valid_bounds = ibounds >= REMAP_ERROR && ibounds <= REMAP_EXTRAPOLATE;
     if (!is_valid_bounds) {
-        return csound->InitError(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
+        return csn_init_error(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
     }
 
     int32_t res = OK;
@@ -409,22 +409,22 @@ int32_t csnarray_remap_scalar(CSOUND *csound, CSN_REMAP_SCALAR *p) {
     uint32_t y_data_ndim = y_data->ndim;
 
     if (x_data->itype != CSN_REAL || y_data->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] x and y array must be real array");
+        res = csn_init_error(csound, "[csnarray] x and y array must be real array");
         goto done;
     }
 
     if (x_data_size < 2 || y_data_size < 2 || x_data_ndim != 1U || y_data_ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] x and y array should have length greater or equal to two and dimension equal to 1");
+        res = csn_init_error(csound, "[csnarray] x and y array should have length greater or equal to two and dimension equal to 1");
         goto done;
     }
 
     if (x_data_size != y_data_size) {
-        res = csound->InitError(csound, "[csnarray] x and y array should have same length");
+        res = csn_init_error(csound, "[csnarray] x and y array should have same length");
         goto done;
     }
 
     if (check_increasing(x_data) != OK) {
-        res = csound->InitError(csound, "[remap] x array must be strictly increasing");
+        res = csn_init_error(csound, "[remap] x array must be strictly increasing");
         goto done;
     }
 
@@ -453,12 +453,12 @@ int32_t csnarray_remap_scalar_k_init(CSOUND *csound, CSN_REMAP_SCALAR *p) {
 
     int32_t is_valid_mode = imode >= REMAP_LINEAR && imode <= REMAP_CUBIC;
     if (!is_valid_mode) {
-        return csound->InitError(csound, "[csnarray] Not valid mode value");
+        return csn_init_error(csound, "[csnarray] Not valid mode value");
     }
 
     int32_t is_valid_bounds = ibounds >= REMAP_ERROR && ibounds <= REMAP_EXTRAPOLATE;
     if (!is_valid_bounds) {
-        return csound->InitError(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
+        return csn_init_error(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
     }
 
     p->imode = (CSN_INTERP_MODE) imode;
@@ -544,12 +544,12 @@ int32_t csnarray_remap_k_init(CSOUND *csound, CSN_REMAP *p) {
 
     int32_t is_valid_mode = imode >= REMAP_LINEAR && imode <= REMAP_CUBIC;
     if (!is_valid_mode) {
-        return csound->InitError(csound, "[csnarray] Not valid mode value");
+        return csn_init_error(csound, "[csnarray] Not valid mode value");
     }
 
     int32_t is_valid_bounds = ibounds >= REMAP_ERROR && ibounds <= REMAP_EXTRAPOLATE;
     if (!is_valid_bounds) {
-        return csound->InitError(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
+        return csn_init_error(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
     }
 
     p->imode = (CSN_INTERP_MODE) imode;
@@ -812,18 +812,18 @@ int32_t csnarray_resample(CSOUND *csound, CSN_RESAMPLE *p) {
     double fill_value = (double) *p->fill;
 
     if (!IS_VALID_LENGTH((double) *p->new_length) || (double) *p->new_length < 1.0) {
-        return csound->InitError(csound, "[csnarray] Invalid new length");
+        return csn_init_error(csound, "[csnarray] Invalid new length");
     }
     uint32_t new_length = (uint32_t) *p->new_length;
 
     int32_t is_valid_mode = imode >= REMAP_LINEAR && imode <= REMAP_CUBIC;
     if (!is_valid_mode) {
-        return csound->InitError(csound, "[csnarray] Not valid mode value");
+        return csn_init_error(csound, "[csnarray] Not valid mode value");
     }
 
     int32_t is_valid_bounds = ibounds >= REMAP_ERROR && ibounds <= REMAP_EXTRAPOLATE;
     if (!is_valid_bounds) {
-        return csound->InitError(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
+        return csn_init_error(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
     }
 
     p->imode = (CSN_INTERP_MODE) imode;
@@ -841,14 +841,14 @@ int32_t csnarray_resample(CSOUND *csound, CSN_RESAMPLE *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Source array must be real array");
+        res = csn_init_error(csound, "[csnarray] Source array must be real array");
         goto done;
     }
 
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->axis : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_arr->ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
-        res = csound->InitError(csound, "[csnarray] Axis out of bounds");
+        res = csn_init_error(csound, "[csnarray] Axis out of bounds");
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -859,7 +859,7 @@ int32_t csnarray_resample(CSOUND *csound, CSN_RESAMPLE *p) {
     resample_layout(source_arr, axis, new_length, &new_ndim, new_shape, &data_size);
 
     if (data_size < 2) {
-        res = csound->InitError(csound, "[csnarray] The resampled axis should have length greater or equal to two");
+        res = csn_init_error(csound, "[csnarray] The resampled axis should have length greater or equal to two");
         goto done;
     }
 
@@ -876,7 +876,7 @@ int32_t csnarray_resample(CSOUND *csound, CSN_RESAMPLE *p) {
     }
 
     if (x_data == NULL || x_source == NULL || (axis != -1 && y_scratch == NULL)) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -901,12 +901,12 @@ int32_t csnarray_resample_k_init(CSOUND *csound, CSN_RESAMPLE *p) {
 
     int32_t is_valid_mode = imode >= REMAP_LINEAR && imode <= REMAP_CUBIC;
     if (!is_valid_mode) {
-        return csound->InitError(csound, "[csnarray] Not valid mode value");
+        return csn_init_error(csound, "[csnarray] Not valid mode value");
     }
 
     int32_t is_valid_bounds = ibounds >= REMAP_ERROR && ibounds <= REMAP_EXTRAPOLATE;
     if (!is_valid_bounds) {
-        return csound->InitError(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
+        return csn_init_error(csound, "[csnarray] Invalid bounds mode: %d", ibounds);
     }
 
     p->imode = (CSN_INTERP_MODE) imode;
@@ -914,7 +914,7 @@ int32_t csnarray_resample_k_init(CSOUND *csound, CSN_RESAMPLE *p) {
     p->fill_value = fill_value;
 
     if (!IS_VALID_LENGTH((double) *p->new_length) || (double) *p->new_length < 1.0) {
-        return csound->InitError(csound, "[csnarray] Invalid new length");
+        return csn_init_error(csound, "[csnarray] Invalid new length");
     }
     uint32_t new_length = (uint32_t) *p->new_length;
 
@@ -925,14 +925,14 @@ int32_t csnarray_resample_k_init(CSOUND *csound, CSN_RESAMPLE *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Source array must be real array");
+        res = csn_init_error(csound, "[csnarray] Source array must be real array");
         goto done;
     }
 
     const cs_float *axis_in = p->INOCOUNT > 6 ? p->trig : NULL;
     CSN_AXIS_SPEC axis_spec = csn_normalize_axis(axis_in, source_arr->ndim, CSN_AXIS_DEFAULT_FLATTEN);
     if (axis_spec.kind == CSN_AXIS_INVALID) {
-        res = csound->InitError(csound, "[csnarray] Axis out of bounds");
+        res = csn_init_error(csound, "[csnarray] Axis out of bounds");
         goto done;
     }
     int32_t axis = axis_spec.kind == CSN_AXIS_FLATTEN ? -1 : (int32_t) axis_spec.index;
@@ -942,7 +942,7 @@ int32_t csnarray_resample_k_init(CSOUND *csound, CSN_RESAMPLE *p) {
     size_t data_size = 0;
     resample_layout(source_arr, axis, new_length, &new_ndim, new_shape, &data_size);
     if (data_size < 2) {
-        res = csound->InitError(csound, "[csnarray] The resampled axis should have length greater or equal to two");
+        res = csn_init_error(csound, "[csnarray] The resampled axis should have length greater or equal to two");
         goto done;
     }
 
@@ -955,7 +955,7 @@ int32_t csnarray_resample_k_init(CSOUND *csound, CSN_RESAMPLE *p) {
     if (ensure_resample_buffer(csound, &p->x_data_scratch, source_arr->capacity) != OK
         || ensure_resample_buffer(csound, &p->x_source_scratch, (size_t) new_length) != OK
         || (axis != -1 && ensure_resample_buffer(csound, &p->y_data_scratch, source_arr->capacity) != OK)) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -986,7 +986,7 @@ int32_t csnarray_resample_k(CSOUND *csound, CSN_RESAMPLE *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     if (!IS_VALID_LENGTH((double) *p->new_length) || (double) *p->new_length < 1.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid new length");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid new length");
     }
     uint32_t new_length = (uint32_t) *p->new_length;
 
@@ -1195,7 +1195,7 @@ static int32_t truncate_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MODE 
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_LENGTH((double) *p->length)) {
-        return csound->InitError(csound, "[csnarray] Invalid new array length");
+        return csn_init_error(csound, "[csnarray] Invalid new array length");
     }
     uint32_t new_length = (uint32_t) *p->length;
 
@@ -1232,7 +1232,7 @@ static int32_t truncate_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MODE 
        data. */
     if (!out.aliased) {
         if (truncate_assign_value(p->handle, source_arr, new_shape, new_ndim, axis) != OK) {
-            res = csound->InitError(csound, "[csnarray] Invalid truncate iterator layout");
+            res = csn_init_error(csound, "[csnarray] Invalid truncate iterator layout");
             goto done;
         }
     } else {
@@ -1259,7 +1259,7 @@ int32_t csnarray_truncate_in(CSOUND *csound, CSN_TRUNCATE_IN *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_LENGTH((double) *p->length)) {
-        return csound->InitError(csound, "[csnarray] Invalid new array length");
+        return csn_init_error(csound, "[csnarray] Invalid new array length");
     }
     uint32_t new_length = (uint32_t) *p->length;
 
@@ -1470,7 +1470,7 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
     CHECK_REGISTRY(csound, &p->h, reg);
 
     if (!IS_VALID_LENGTH((double) *p->length)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid new array length");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid new array length");
     }
     uint32_t new_length = (uint32_t) *p->length;
 
@@ -1556,7 +1556,7 @@ int32_t csnarray_truncate_in_k(CSOUND *csound, CSN_TRUNCATE_IN *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     if (!IS_VALID_LENGTH((double) *p->length)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid new array length");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid new array length");
     }
     uint32_t new_length = (uint32_t) *p->length;
 
@@ -1755,17 +1755,17 @@ int32_t csnarray_lagrange(CSOUND *csound, CSN_LAGRANGE *p) {
     CSN_ARRAY *source_arr_y = p->source_handle_y;
 
     if (source_arr_x->size != source_arr_y->size || source_arr_x->ndim != 1U || source_arr_y->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] x and y should be 1D and should have same length");
+        res = csn_init_error(csound, "[csnarray] x and y should be 1D and should have same length");
         goto done;
     }
     if (source_arr_x->itype != CSN_REAL || source_arr_y->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] x and y should be real arrays");
+        res = csn_init_error(csound, "[csnarray] x and y should be real arrays");
         goto done;
     }
 
     size_t count = source_arr_x->size;
     if (count == 0) {
-        res = csound->InitError(csound, "[csnarray] Lagrange requires non-empty array");
+        res = csn_init_error(csound, "[csnarray] Lagrange requires non-empty array");
         goto done;
     }
 
@@ -1774,7 +1774,7 @@ int32_t csnarray_lagrange(CSOUND *csound, CSN_LAGRANGE *p) {
     for (size_t i = 1; i < count; i++) {
         for (size_t j = 0; j < i; j++) {
             if (source_arr_x->data[i] == source_arr_x->data[j]) {
-                res = csound->InitError(csound, "[csnarray] x should hold distinct values: x[%zu] and x[%zu] are both %g", j, i, source_arr_x->data[i]);
+                res = csn_init_error(csound, "[csnarray] x should hold distinct values: x[%zu] and x[%zu] are both %g", j, i, source_arr_x->data[i]);
                 goto done;
             }
         }
@@ -1782,12 +1782,12 @@ int32_t csnarray_lagrange(CSOUND *csound, CSN_LAGRANGE *p) {
 
     y_copy = csound->Calloc(csound, sizeof(double) * count);
     if (y_copy == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     work_buffer = csound->Calloc(csound, sizeof(double) * count);
     if (work_buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 

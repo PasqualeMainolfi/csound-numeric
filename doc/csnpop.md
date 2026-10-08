@@ -19,15 +19,15 @@ guard it with [csnisempty](csnisempty.md).
 ## Syntax
 
 ```csound
-value:i = csnpop(handle:CsnArr)
-value:Complex = csnpop(handle:CsnArr)
-value:k = csnpop(handle:CsnArr, trig:k)
-value:Complex = csnpop(handle:CsnArr, trig:k)
+value:i = csnpop(arr:CsnArr)
+value:Complex = csnpop(arr:CsnArr)
+value:k = csnpop(arr:CsnArr, trig:k)
+value:Complex = csnpop(arr:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to pop from.
+* `arr:CsnArr`: the array to pop from.
 * `trig:k`: k-rate trigger. Nothing is popped on a zero trigger.
 
 ## Output

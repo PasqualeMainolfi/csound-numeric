@@ -42,10 +42,10 @@ new note instead.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr)
-handle:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr, axis:i)
-handle:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr, trig:k)
-handle:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr, trig:k, axis:i)
+out:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr)
+out:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr, axis:i)
+out:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr, trig:k)
+out:CsnArr = csnlfilter(b:CsnArr, a:CsnArr, source:CsnArr, trig:k, axis:i)
 aout csnlfilter b:CsnArr, a:CsnArr, ain
 ```
 
@@ -60,7 +60,7 @@ aout csnlfilter b:CsnArr, a:CsnArr, ain
 
 ## Output
 
-* `handle:CsnArr`: the filtered array, the shape of the source.
+* `out:CsnArr`: the filtered array, the shape of the source.
 * `aout`: the filtered audio signal.
 
 ## Execution Time

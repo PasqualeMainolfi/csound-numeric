@@ -22,8 +22,8 @@ Both real and complex arrays are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csndiag(source:CsnArr)
-handle:CsnArr = csndiag(source:CsnArr, trig:k)
+out:CsnArr = csndiag(source:CsnArr)
+out:CsnArr = csndiag(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csndiag(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the diagonal as a vector, or the matrix built from it.
+* `out:CsnArr`: the diagonal as a vector, or the matrix built from it.
 
 ## Execution Time
 

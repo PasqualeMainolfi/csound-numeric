@@ -18,7 +18,7 @@ may range from `0` through the source dimension, inclusive, because it selects
 where the new dimension is inserted.
 
 In the k-rate form, the trigger and axis precede the variadic input list. The
-number and identity of the input handles are fixed at init, while their data and
+number and identity of the input arrays are fixed at init, while their data and
 shape may change at performance time as long as every input continues to agree.
 A zero trigger keeps the previous result; a non-zero trigger observes changed
 inputs or axis and recomputes when needed.

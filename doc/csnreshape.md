@@ -13,15 +13,15 @@ extents. The element count must match: a 6-element array can become `2×3`,
 Shape and strides are kept in the array itself, so this is a layout change, not a
 copy of the data.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 ## Syntax
 
 ```csound
-handle:CsnArr = csnreshape(source:CsnArr, shape:i[])
-handle:CsnArr = csnreshape(source:CsnArr, shape:k[])
+out:CsnArr = csnreshape(source:CsnArr, shape:i[])
+out:CsnArr = csnreshape(source:CsnArr, shape:k[])
 csnreshape(source:CsnArr, shape:i[])
 csnreshape(source:CsnArr, shape:k[])
 ```
@@ -33,7 +33,7 @@ csnreshape(source:CsnArr, shape:k[])
 
 ## Output
 
-* `handle:CsnArr`: handle of the reshaped array. Omit it for the in-place form.
+* `out:CsnArr`: the reshaped array. Omit it for the in-place form.
 
 ## Execution Time
 

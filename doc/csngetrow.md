@@ -17,14 +17,14 @@ reads the requested row again.
 ## Syntax
 
 ```csound
-row:CsnArr = csngetrow(handle:CsnArr, index:i)
-row:CsnArr = csngetrow(handle:CsnArr, index:k)
-row:CsnArr = csngetrow(handle:CsnArr, index:k, trig:k)
+row:CsnArr = csngetrow(arr:CsnArr, index:i)
+row:CsnArr = csngetrow(arr:CsnArr, index:k)
+row:CsnArr = csngetrow(arr:CsnArr, index:k, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: source array; it must have exactly two dimensions.
+* `arr:CsnArr`: source array; it must have exactly two dimensions.
 * `index:i / index:k`: zero-based row index in `[0, rows)`.
 * `trig:k` (optional, default `1`): k-rate trigger. A non-zero value reads the row; zero republishes the previous result.
 

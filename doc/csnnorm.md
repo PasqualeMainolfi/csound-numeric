@@ -27,9 +27,9 @@ value:i = csnnorm(source:CsnArr)
 value:i = csnnorm(source:CsnArr, order:i)
 value:k = csnnorm(source:CsnArr, order:k)
 value:k = csnnorm(source:CsnArr, order:k, trig:k)
-handle:CsnArr = csnnorm(source:CsnArr, axis:i)
-handle:CsnArr = csnnorm(source:CsnArr, axis:i, order:i)
-handle:CsnArr = csnnorm(source:CsnArr, order:k, trig:k, axis:k)
+out:CsnArr = csnnorm(source:CsnArr, axis:i)
+out:CsnArr = csnnorm(source:CsnArr, axis:i, order:i)
+out:CsnArr = csnnorm(source:CsnArr, order:k, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -42,7 +42,7 @@ handle:CsnArr = csnnorm(source:CsnArr, order:k, trig:k, axis:k)
 ## Output
 
 * `value:i / value:k`: the norm over the whole array.
-* `handle:CsnArr`: one norm per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one norm per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

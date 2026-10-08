@@ -17,7 +17,7 @@ int32_t csnarray_from_audio_init(CSOUND *csound, CSN_FROM_AUDIO *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
-        return csound->InitError(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
+        return csn_init_error(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
     }
 
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -48,7 +48,7 @@ int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->ndim != 1U || buffer->itype != CSN_REAL) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid array: size and dimension mismatch");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid array: size and dimension mismatch");
     }
 
     if (offset) memset(buffer->data, 0, sizeof(double) * offset);
@@ -87,7 +87,7 @@ int32_t csnarray_to_audio(CSOUND *csound, CSN_TO_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { buffer }, 1);
     if (buffer->size != CS_KSMPS || buffer->itype != CSN_REAL) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
     if (offset) memset(p->sig, 0, sizeof(cs_float) * offset);
@@ -109,11 +109,11 @@ int32_t csnarray_pack_audio_init(CSOUND *csound, CSN_PACK_AUDIO *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (p->source_sig == NULL || p->source_sig->sizes == NULL || p->source_sig->sizes[0] == 0) {
-        return csound->InitError(csound, "[csnarray] Empty audio array");
+        return csn_init_error(csound, "[csnarray] Empty audio array");
     }
 
     if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
-        return csound->InitError(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
+        return csn_init_error(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
     }
 
     uint32_t nchnls = (uint32_t) p->source_sig->sizes[0];
@@ -140,12 +140,12 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
     uint32_t end_offset = nsamples - early;
 
     if (p->source_sig == NULL || p->source_sig->sizes == NULL || p->source_sig->sizes[0] == 0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Empty audio array");
+        return csn_perf_error(csound, &p->h, "[csnarray] Empty audio array");
     }
 
     uint32_t nchnls = (uint32_t) p->source_sig->sizes[0];
     if (nchnls != p->prev_nchnls) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Shape change not allowed on audio path");
+        return csn_perf_error(csound, &p->h, "[csnarray] Shape change not allowed on audio path");
     }
 
     CSN_REGISTRY *reg = p->registry;
@@ -154,7 +154,7 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->shape[0] != nchnls || buffer->shape[1] != CS_KSMPS) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
     for (size_t i = 0; i < (size_t) nchnls; i++) {
         cs_float *channel = p->source_sig->data + i * CS_KSMPS;
@@ -180,7 +180,7 @@ int32_t csnarray_unpack_audio_init(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->itype != CSN_REAL || buffer->shape[1] != CS_KSMPS) {
         if (locked) csn_unlock(csound, reg);
-        return csound->InitError(csound, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
+        return csn_init_error(csound, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
     int32_t nchnls = (int32_t) buffer->shape[0];
@@ -190,7 +190,7 @@ int32_t csnarray_unpack_audio_init(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     if (p->sig->data == NULL || p->sig->sizes == NULL ||
         p->sig->arrayMemberSize <= 0 ||
         p->sig->allocated / (size_t) p->sig->arrayMemberSize < (size_t) nchnls) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     return OK;
@@ -208,13 +208,13 @@ int32_t csnarray_unpack_audio(CSOUND *csound, CSN_UNPACK_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ buffer }, 1);
     if (buffer->ndim != 2U || buffer->itype != CSN_REAL || buffer->shape[1] != CS_KSMPS) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid csn-audio buffer: size/dim/dtype mismatch");
     }
 
     uint32_t nchnls = buffer->shape[0];
     if (nchnls != p->prev_nchnls) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Shape change not allowed on audio path");
+        return csn_perf_error(csound, &p->h, "[csnarray] Shape change not allowed on audio path");
     }
 
     for (uint32_t i = 0; i < nchnls; i++) {
@@ -234,31 +234,31 @@ int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (!IS_VALID_ZERO_ONE((double) *p->rt_lock)) {
-        return csound->InitError(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
+        return csn_init_error(csound, "[csnarray] Resize param must be 0 = realloc at perf-time or 1 = do not realloc at perf-time");
     }
 
     int32_t res = OK;
 
     double frame_size_temp = (double) *p->frame_size;
     if (!IS_VALID_LENGTH(frame_size_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid frame size");
+        return csn_init_error(csound, "[csnarray] Invalid frame size");
     }
     if (frame_size_temp == 0.0) {
-        return csound->InitError(csound, "[csnarray] Zero-length frame size");
+        return csn_init_error(csound, "[csnarray] Zero-length frame size");
     }
 
     double hop_size_temp = (double) *p->hop_size;
     if (!IS_VALID_LENGTH(hop_size_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid hop size");
+        return csn_init_error(csound, "[csnarray] Invalid hop size");
     }
     hop_size_temp = hop_size_temp == 0.0 ? frame_size_temp : hop_size_temp;
 
     if (hop_size_temp < CS_KSMPS) {
-        return csound->InitError(csound, "[csnarray] Hop size must be greater or equal to ksmps");
+        return csn_init_error(csound, "[csnarray] Hop size must be greater or equal to ksmps");
     }
 
     if (hop_size_temp > frame_size_temp) {
-        return csound->InitError(csound, "[csnarray] Hop size must be less or equal to frame size");
+        return csn_init_error(csound, "[csnarray] Hop size must be less or equal to frame size");
     }
 
 
@@ -268,7 +268,7 @@ int32_t csnarray_frame_audio_init(CSOUND *csound, CSN_FRAME_AUDIO *p) {
     size_t buffer_cap = p->fsize * 2;
     double *buffer_temp = csound->Calloc(csound, sizeof(double) * buffer_cap);
     if (buffer_temp == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     p->buffer.scratch = buffer_temp;
@@ -323,7 +323,7 @@ int32_t csnarray_frame_audio(CSOUND *csound, CSN_FRAME_AUDIO *p) {
         bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ frame }, 1);
         if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size != fsize) {
             if (locked) csn_unlock(csound, reg);
-            return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
+            return csn_perf_error(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
         }
         // reader
         for (size_t i = 0; i < fsize; i++) {
@@ -354,11 +354,11 @@ int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
 
     double hop_size_temp = (double) *p->hop_size;
     if (!IS_VALID_LENGTH(hop_size_temp)) {
-        return csound->InitError(csound, "[csnarray] Invalid hop size");
+        return csn_init_error(csound, "[csnarray] Invalid hop size");
     }
 
     if (hop_size_temp < CS_KSMPS) {
-        return csound->InitError(csound, "[csnarray] Hop size %d must be greater or equal to ksmps %d", (int32_t) hop_size_temp, (int32_t) CS_KSMPS);
+        return csn_init_error(csound, "[csnarray] Hop size %d must be greater or equal to ksmps %d", (int32_t) hop_size_temp, (int32_t) CS_KSMPS);
     }
 
     stamp_globals(csound, &p->h);
@@ -368,7 +368,7 @@ int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ frame }, 1);
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size == 0) {
         if (locked) csn_unlock(csound, reg);
-        return csound->InitError(csound, "[csnarray] Invalid csn-audio frame: expected a non-empty 1-D real array");
+        return csn_init_error(csound, "[csnarray] Invalid csn-audio frame: expected a non-empty 1-D real array");
     }
 
     p->fsize = frame->size;
@@ -379,13 +379,13 @@ int32_t csnarray_ola_audio_init(CSOUND *csound, CSN_OLA_AUDIO *p) {
     if (locked) csn_unlock(csound, reg);
 
     if (p->hsize > p->fsize) {
-        return csound->InitError(csound, "[csnarray] Hop size %zu must be less or equal to the frame size %zu", p->hsize, p->fsize);
+        return csn_init_error(csound, "[csnarray] Hop size %zu must be less or equal to the frame size %zu", p->hsize, p->fsize);
     }
 
     size_t buffer_cap = p->fsize * 2;
     double *buffer_temp = csound->Calloc(csound, sizeof(double) * buffer_cap);
     if (buffer_temp == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     p->buffer.scratch = buffer_temp;
@@ -419,7 +419,7 @@ int32_t csnarray_ola_audio(CSOUND *csound, CSN_OLA_AUDIO *p) {
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR){ frame }, 1);
     if (frame->ndim != 1U || frame->itype != CSN_REAL || frame->size != fsize) {
         if (locked) csn_unlock(csound, reg);
-        return csound->PerfError(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
+        return csn_perf_error(csound, &p->h, "[csnarray] Frame layout changed since init: expected a 1-D real array of %zu elements", fsize);
     }
 
     bool is_same = is_same_array_data_version(&frame->version, &p->prev_version);

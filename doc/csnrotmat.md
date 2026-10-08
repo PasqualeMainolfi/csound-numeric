@@ -6,7 +6,7 @@ A 3 x 3 rotation matrix, about a basis axis or about an arbitrary direction.
 
 ## Description
 
-`csnrotmat` publishes a `3 x 3` handle ready for [csnmatmul](csnmatmul.md).
+`csnrotmat` returns a `3 x 3` array ready for [csnmatmul](csnmatmul.md).
 Two forms share the name. One turns about a basis axis picked by index:
 
 ```
@@ -40,19 +40,17 @@ direction that arrives straight from [csncross](csncross.md) works whatever its
 length. The null vector is the one refusal: it names no axis.
 
 In the performance form the matrix is rebuilt on every non-zero trigger. Its
-init pass reads the angle at whatever the init chain has already written into
-it, which is `0` unless an earlier line set it with `init` — a k-rate
-assignment does not write at i-time. So the matrix that reaches the first
-control period is normally the identity, which is the right answer for a
-rotation nobody has set yet and is still a proper rotation to multiply by.
+init pass builds it only from an angle known at init, a constant or an i
+variable; a k angle still reads 0 there, so the init leaves a `3 x 3` of zeros
+and the first triggered pass builds the rotation.
 
 ## Syntax
 
 ```csound
-handle:CsnArr csnrotmat angle:i, axis:i [, degrees:i]
-handle:CsnArr csnrotmat angle:k, axis:i [, degrees:i] [, trig:k]
-handle:CsnArr csnrotmat direction:CsnArr, angle:i [, degrees:i]
-handle:CsnArr csnrotmat direction:CsnArr, angle:k [, degrees:i] [, trig:k]
+out:CsnArr csnrotmat angle:i, axis:i [, degrees:i]
+out:CsnArr csnrotmat angle:k, axis:i [, degrees:i] [, trig:k]
+out:CsnArr csnrotmat direction:CsnArr, angle:i [, degrees:i]
+out:CsnArr csnrotmat direction:CsnArr, angle:k [, degrees:i] [, trig:k]
 ```
 
 ## Arguments
@@ -65,7 +63,7 @@ handle:CsnArr csnrotmat direction:CsnArr, angle:k [, degrees:i] [, trig:k]
 
 ## Output
 
-* `handle:CsnArr`: a `3 x 3` real array.
+* `out:CsnArr`: a `3 x 3` real array.
 
 ## Execution Time
 

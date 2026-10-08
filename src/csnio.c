@@ -17,12 +17,12 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
-        return csound->InitError(csound, "[csnarray] File path cannot be empty");
+        return csn_init_error(csound, "[csnarray] File path cannot be empty");
     }
 
     const char *dot = strrchr(p->path->data, '.');
     if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
-        return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
+        return csn_init_error(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     int32_t res = OK;
@@ -35,7 +35,7 @@ int32_t csnarray_save(CSOUND *csound, CSN_SAVE *p) {
     if (err_code != CSN_FILE_NO_ERROR) {
         const char *err_message = NULL;
         csnfile_dispatch_error(&err_message, err_code);
-        res = csound->InitError(csound, "[csnarray] %s", err_message);
+        res = csn_init_error(csound, "[csnarray] %s", err_message);
     }
 
     if (pres.locked) csn_unlock(csound, reg);
@@ -52,12 +52,12 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
     CHECK_REGISTRY(csound, NULL, reg);
 
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
-        return csound->InitError(csound, "[csnarray] File path cannot be empty");
+        return csn_init_error(csound, "[csnarray] File path cannot be empty");
     }
 
     const char *dot = strrchr(p->path->data, '.');
     if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
-        return csound->InitError(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
+        return csn_init_error(csound, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     int32_t res = OK;
@@ -70,7 +70,7 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
 
     buffer = csound->Calloc(csound, sizeof(double) * DEFAULT_TEMPORARY_BUFFER_SIZE);
     if (buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     size_t buffer_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
@@ -82,7 +82,7 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
         if (err_code != CSN_FILE_NO_ERROR) {
             const char *err_message = NULL;
             csnfile_dispatch_error(&err_message, err_code);
-            res = csound->InitError(csound, "[csnarray] %s", err_message);
+            res = csn_init_error(csound, "[csnarray] %s", err_message);
             goto done;
         };
     } else {
@@ -91,7 +91,7 @@ int32_t csnarray_load(CSOUND *csound, CSN_LOAD *p) {
         if (err_code != CSN_FILE_NO_ERROR) {
             const char *err_message = NULL;
             csnfile_dispatch_error(&err_message, err_code);
-            res = csound->InitError(csound, "[csnarray] %s", err_message);
+            res = csn_init_error(csound, "[csnarray] %s", err_message);
             goto done;
         };
     }
@@ -141,7 +141,7 @@ int32_t csnarray_save_k_init(CSOUND *csound, CSN_SAVE *p) {
 
     char *path_buffer = csound->Malloc(csound, DEFAULT_TEMPORARY_BUFFER_SIZE);
     if (path_buffer == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     p->scratch.scratch = path_buffer;
     p->scratch.scratch_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
@@ -155,12 +155,12 @@ int32_t csnarray_save_k(CSOUND *csound, CSN_SAVE *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
-        return csound->PerfError(csound, &p->h, "[csnarray] File path cannot be empty");
+        return csn_perf_error(csound, &p->h, "[csnarray] File path cannot be empty");
     }
 
     const char *dot = strrchr(p->path->data, '.');
     if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     int32_t res = OK;
@@ -207,7 +207,7 @@ int32_t csnarray_load_k_init(CSOUND *csound, CSN_LOAD *p) {
 
     double *buffer = csound->Calloc(csound, sizeof(double) * DEFAULT_TEMPORARY_BUFFER_SIZE);
     if (buffer == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     p->buffer_scratch.scratch = buffer;
     p->buffer_scratch.scratch_capacity = DEFAULT_TEMPORARY_BUFFER_SIZE;
@@ -237,12 +237,12 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     if (p->path == NULL || p->path->data == NULL || p->path->size <= 0 || p->path->data[0] == '\0') {
-        return csound->PerfError(csound, &p->h, "[csnarray] File path cannot be empty");
+        return csn_perf_error(csound, &p->h, "[csnarray] File path cannot be empty");
     }
 
     const char *dot = strrchr(p->path->data, '.');
     if (dot == NULL || (strcmp(dot, CSN_FILE_EXT) != 0 && strcmp(dot, CSN_FILE_NPY_EXT) != 0)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid file extension: should be [%s] or [%s]", CSN_FILE_EXT, CSN_FILE_NPY_EXT);
     }
 
     int32_t res = OK;
@@ -267,7 +267,7 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
         if (err_code != CSN_FILE_NO_ERROR) {
             const char *err_message = NULL;
             csnfile_dispatch_error(&err_message, err_code);
-            return csound->PerfError(csound, &p->h, "[csnarray] %s", err_message);
+            return csn_perf_error(csound, &p->h, "[csnarray] %s", err_message);
         }
     } else {
         is_numpy = true;
@@ -277,7 +277,7 @@ int32_t csnarray_load_k(CSOUND *csound, CSN_LOAD *p) {
         if (err_code != CSN_FILE_NO_ERROR) {
             const char *err_message = NULL;
             csnfile_dispatch_error(&err_message, err_code);
-            return csound->PerfError(csound, &p->h, "[csnarray] %s", err_message);
+            return csn_perf_error(csound, &p->h, "[csnarray] %s", err_message);
         }
     }
 
@@ -326,7 +326,7 @@ int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p) {
     CSN_PRINT_BUFFER pbuffer = {0};
     char *data = csound->Malloc(csound, CSN_PRINT_BUFFER_INITIAL_CAPACITY);
     if (data == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
     pbuffer.data = data;
     pbuffer.length = 0;
@@ -340,7 +340,7 @@ int32_t csnarray_show(CSOUND *csound, CSN_SHOW *p) {
     csound->Free(csound, pbuffer.data);
 
     if (res != OK) {
-        res = csound->InitError(csound, "[csnarray] Internal error: wrong print buffer allocation");
+        res = csn_init_error(csound, "[csnarray] Internal error: wrong print buffer allocation");
     }
 
     if (pres.locked) csn_unlock(csound, reg);
@@ -370,7 +370,7 @@ int32_t csnarray_show_k_init(CSOUND *csound, CSN_SHOW *p) {
 
     char *data = csound->Malloc(csound, CSN_PRINT_BUFFER_INITIAL_CAPACITY);
     if (data == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
     }
 
     p->pbuffer.data = data;

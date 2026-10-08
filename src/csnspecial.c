@@ -183,7 +183,7 @@ static int32_t read_degree_pair(CSOUND *csound, OPDS *perf_h, double n_val, doub
 
 static int32_t read_order(CSOUND *csound, double order_val, int32_t *order_out) {
     if (!IS_VALID_VALUE_INT32(order_val) || order_val < 0.0 || order_val > (double) CSN_SPECIAL_MAX_DEGREE) {
-        return csound->InitError(csound, "[csnarray] Order must be an integer in [0, %d], got %g", CSN_SPECIAL_MAX_DEGREE, order_val);
+        return csn_init_error(csound, "[csnarray] Order must be an integer in [0, %d], got %g", CSN_SPECIAL_MAX_DEGREE, order_val);
     }
     *order_out = (int32_t) order_val;
     return OK;
@@ -283,11 +283,11 @@ static int32_t legendre_arr_helper(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
     double bad = 0.0;
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
     if (!legendre_source_is_valid(source_arr, &bad)) {
-        res = csound->InitError(csound, "[csnarray] P_n^m(x) is defined for x in [-1, 1], got %g", bad);
+        res = csn_init_error(csound, "[csnarray] P_n^m(x) is defined for x in [-1, 1], got %g", bad);
         goto done;
     }
 
@@ -309,7 +309,7 @@ static int32_t legendre_arr_helper(CSOUND *csound, CSN_LEGENDRE_ARR *p) {
     // written in place even when a value overflowed: the version must follow
     if (out.aliased) update_array_data_version(&arr->version);
     if (!finite) {
-        res = csound->InitError(csound, "[csnarray] P_%d^%d overflows the double range", p->degree_n, p->degree_m);
+        res = csn_init_error(csound, "[csnarray] P_%d^%d overflows the double range", p->degree_n, p->degree_m);
         goto done;
     }
 

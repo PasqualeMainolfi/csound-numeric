@@ -18,14 +18,14 @@ how to check before calling one.
 ## Syntax
 
 ```csound
-itype:i = csntype(handle:CsnArr)
-itype:k = csntype(handle:CsnArr)
-itype:k = csntype(handle:CsnArr, trig:k)
+itype:i = csntype(arr:CsnArr)
+itype:k = csntype(arr:CsnArr)
+itype:k = csntype(arr:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to query.
+* `arr:CsnArr`: the array to query.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous answer.
 
 ## Output
@@ -63,7 +63,7 @@ instr 1
 
     data_type:i  = csntype(data)
     cpx_type:i   = csntype(cpx)
-    prints("real handle = %d, complex handle = %d\n", data_type, cpx_type)
+    prints("real array = %d, complex array = %d\n", data_type, cpx_type)
 
     ; an operation that mixes the two promotes the result
     mixed:CsnArr = csnadd(data, cpx)

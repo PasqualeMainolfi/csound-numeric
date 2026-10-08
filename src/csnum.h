@@ -26,12 +26,12 @@
     do {                                                                                     \
         if ((reg) == NULL) {                                                                 \
             if ((h) == NULL) {                                                               \
-                return (csound)->InitError(                                                  \
+                return csn_init_error(                                                  \
                     (csound),                                                                \
                     "[csnarray] Internal error: the csnum array registry is not available"   \
                 );                                                                           \
             } else {                                                                         \
-                return (csound)->PerfError(                                                  \
+                return csn_perf_error(                                                  \
                     (csound),                                                                \
                     (h),                                                                     \
                     "[csnarray] Internal error: the csnum array registry is not available"   \
@@ -46,15 +46,15 @@
     } while (0)
 
 #define CSN_ACCESSOR_ERROR(csound, perf_h, ...) \
-    ((perf_h) != NULL ? (csound)->PerfError((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
+    ((perf_h) != NULL ? csn_perf_error((csound), (perf_h), __VA_ARGS__) : csn_init_error((csound), __VA_ARGS__))
 
 /* Same report, for the helpers that run with the registry mutex held: see
    csn_locked_perf_error. Only the perf branch needs the detour, because
    InitError just prints and never tears the note down. */
-int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...);
+CS_PRINTF3 int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...);
 
 #define CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, ...) \
-    ((perf_h) != NULL ? csn_locked_perf_error((csound), (perf_h), __VA_ARGS__) : (csound)->InitError((csound), __VA_ARGS__))
+    ((perf_h) != NULL ? csn_locked_perf_error((csound), (perf_h), __VA_ARGS__) : csn_init_error((csound), __VA_ARGS__))
 
 #define SET_KDATA_BEGIN(k_data, reg, shape, ndim, itype)                 \
     do {                                                                 \
@@ -1943,6 +1943,12 @@ typedef struct {
     CSN_ARRAY *source_handle_y;
 } CSN_LAGRANGE;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+} CSN_CAST_IN;
+
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 bool IS_VALID_VALUE(double value);
 bool IS_VALID_ZERO_ONE(double value);
@@ -1962,6 +1968,10 @@ int32_t pad_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *destination, do
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
+
+// cast
+int32_t csnarray_cast_i_in(CSOUND *csound, CSN_CAST_IN *p);
+int32_t csnarray_cast_k_in(CSOUND *csound, CSN_CAST_IN *p);
 
 // foreach (k-rate)
 int32_t csnarray_foreach_deinit(CSOUND *csound, CSN_FOREACH *p);

@@ -8,7 +8,7 @@
 ; csntoarray.csd
 ;
 ; csntoarray is the way out. The rank of the output comes from its declaration,
-; so a 2-D handle needs two bracket pairs; csnflatten covers the other case.
+; so a 2-D array needs two bracket pairs; csnflatten covers the other case.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -19,7 +19,7 @@ instr 1
     shape:i[]   = fillarray(2, 3)
     mat:CsnArr  = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
 
-    ; Two bracket pairs for a 2-D handle. The name:type annotation carries only
+    ; Two bracket pairs for a 2-D array. The name:type annotation carries only
     ; one rank, so a multidimensional output is declared the older way, with the
     ; rate letter in the name.
     i_mat_out[][] = csntoarray(mat)
@@ -29,7 +29,7 @@ instr 1
     flat_out:i[] = csntoarray(csnflatten(mat))
     prints("flat      = %g %g %g %g %g %g\n", flat_out[0], flat_out[1], flat_out[2], flat_out[3], flat_out[4], flat_out[5])
 
-    ; a complex handle needs a :Complex;[] output
+    ; a complex array needs a :Complex;[] output
     cpx:CsnArr        = csntocomplex(csnflatten(mat))
     cpx_out:Complex[] = csntoarray(cpx)
     z_re:i            = real(cpx_out[3])

@@ -24,10 +24,10 @@ except that `minlength` is not supported.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnbincount(source:CsnArr)
-handle:CsnArr = csnbincount(source:CsnArr, weights:CsnArr)
-handle:CsnArr = csnbincount(source:CsnArr, trig:k)
-handle:CsnArr = csnbincount(source:CsnArr, weights:CsnArr, trig:k)
+out:CsnArr = csnbincount(source:CsnArr)
+out:CsnArr = csnbincount(source:CsnArr, weights:CsnArr)
+out:CsnArr = csnbincount(source:CsnArr, trig:k)
+out:CsnArr = csnbincount(source:CsnArr, weights:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csnbincount(source:CsnArr, weights:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 1-D real array of length `max(source) + 1`, or an empty array when `source` is empty.
+* `out:CsnArr`: a 1-D real array of length `max(source) + 1`, or an empty array when `source` is empty.
 
 ## Execution Time
 

@@ -23,13 +23,13 @@ reads. Complex arrays and empty arrays are refused too.
 ## Syntax
 
 ```csound
-csntoftable(handle:CsnArr, ftable:i)
-csntoftable(handle:CsnArr, ftable:i, resize:i)
+csntoftable(arr:CsnArr, ftable:i)
+csntoftable(arr:CsnArr, ftable:i, resize:i)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the real array to write out. It is read flat, whatever its rank.
+* `arr:CsnArr`: the real array to write out. It is read flat, whatever its rank.
 * `ftable:i`: the destination table number; must be greater than 0.
 * `resize:i` (optional, default `0`): `0` to write into the table as it is, `1` to re-allocate it to the array's element count first.
 

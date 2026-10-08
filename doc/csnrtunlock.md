@@ -11,7 +11,7 @@ inherited from an audio or marked source. Once cleared, the specified array may
 reallocate during performance if a k-rate operation changes its required
 capacity.
 
-The operation affects only `handle`. Arrays already derived from it keep the
+The operation affects only `arr`. Arrays already derived from it keep the
 mark they inherited; arrays created from it after the unlock inherit the cleared
 state. Apply it to the exact branch that is allowed to allocate:
 
@@ -25,19 +25,19 @@ csnrtunlock analysis                 ; only this branch may now resize
 optional k-rate trigger clears the mark on every non-zero pass and is inert when
 zero, including at initialization.
 
-`csnrtlock(handle, 0)` is not an unlock operation: with a zero k-rate trigger it
+`csnrtlock(arr, 0)` is not an unlock operation: with a zero k-rate trigger it
 does nothing. Use `csnrtunlock` explicitly.
 
 ## Syntax
 
 ```csound
-csnrtunlock(handle:CsnArr)
-csnrtunlock(handle:CsnArr, trig:k)
+csnrtunlock(arr:CsnArr)
+csnrtunlock(arr:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: array whose real-time mark is cleared.
+* `arr:CsnArr`: array whose real-time mark is cleared.
 * `trig:k` (optional, default `1`): clear the mark when non-zero; do nothing when zero.
 
 ## Output

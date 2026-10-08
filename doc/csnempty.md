@@ -28,10 +28,10 @@ start with `csnempty(shape, 1)`.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnempty(shape:i[])
-handle:CsnArr = csnempty(shape:i[], itype:i)
-handle:CsnArr = csnempty(shape:k[])
-handle:CsnArr = csnempty(shape:k[], itype:i)
+out:CsnArr = csnempty(shape:i[])
+out:CsnArr = csnempty(shape:i[], itype:i)
+out:CsnArr = csnempty(shape:k[])
+out:CsnArr = csnempty(shape:k[], itype:i)
 ```
 
 ## Arguments
@@ -41,7 +41,7 @@ handle:CsnArr = csnempty(shape:k[], itype:i)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new, empty array.
+* `out:CsnArr`: the new, empty array.
 
 ## Execution Time
 

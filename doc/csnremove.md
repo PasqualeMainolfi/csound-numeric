@@ -25,9 +25,9 @@ value:i = csnremove(source:CsnArr, index:i)
 value:Complex = csnremove(source:CsnArr, index:i)
 value:k = csnremove(source:CsnArr, index:k, trig:k)
 value:Complex = csnremove(source:CsnArr, index:k, trig:k)
-handle:CsnArr = csnremove(source:CsnArr, axis:i, index:i)
-handle:CsnArr = csnremove(source:CsnArr, axis:k, index:k)
-handle:CsnArr = csnremove(source:CsnArr, axis:k, index:k, trig:k)
+out:CsnArr = csnremove(source:CsnArr, axis:i, index:i)
+out:CsnArr = csnremove(source:CsnArr, axis:k, index:k)
+out:CsnArr = csnremove(source:CsnArr, axis:k, index:k, trig:k)
 ```
 
 ## Arguments
@@ -40,7 +40,7 @@ handle:CsnArr = csnremove(source:CsnArr, axis:k, index:k, trig:k)
 ## Output
 
 * `value:i / value:k / value:Complex`: the removed element, in the one-element form.
-* `handle:CsnArr`: a new array with the block missing, in the block form.
+* `out:CsnArr`: a new array with the block missing, in the block form.
 
 ## Execution Time
 

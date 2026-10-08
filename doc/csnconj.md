@@ -22,8 +22,8 @@ The same name also takes a single `:Complex;` value and answers its conjugate.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnconj(source:CsnArr)
-handle:CsnArr = csnconj(source:CsnArr, trig:k)
+out:CsnArr = csnconj(source:CsnArr)
+out:CsnArr = csnconj(source:CsnArr, trig:k)
 value:Complex = csnconj(source:Complex)
 ```
 
@@ -34,7 +34,7 @@ value:Complex = csnconj(source:Complex)
 
 ## Output
 
-* `handle:CsnArr`: a complex array of conjugates.
+* `out:CsnArr`: a complex array of conjugates.
 
 ## Execution Time
 

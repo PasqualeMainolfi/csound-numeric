@@ -21,8 +21,8 @@ The same name also takes a single `:Complex;` value and answers its principal sq
 ## Syntax
 
 ```csound
-handle:CsnArr = csnsqrt(source:CsnArr)
-handle:CsnArr = csnsqrt(source:CsnArr, trig:k)
+out:CsnArr = csnsqrt(source:CsnArr)
+out:CsnArr = csnsqrt(source:CsnArr, trig:k)
 root:Complex = csnsqrt(source:Complex)
 ```
 
@@ -33,7 +33,7 @@ root:Complex = csnsqrt(source:Complex)
 
 ## Output
 
-* `handle:CsnArr`: handle of the result, with the shape and element type of the source.
+* `out:CsnArr`: the result, with the shape and element type of the source.
 
 ## Execution Time
 

@@ -21,8 +21,8 @@ range.
 ## Syntax
 
 ```csound
-handle:CsnArr = csngetslice(source:CsnArr, axis:i, start:i, stop:i, step:i)
-handle:CsnArr = csngetslice(source:CsnArr, axis:k, start:k, stop:k, step:k)
+out:CsnArr = csngetslice(source:CsnArr, axis:i, start:i, stop:i, step:i)
+out:CsnArr = csngetslice(source:CsnArr, axis:k, start:k, stop:k, step:k)
 ```
 
 ## Arguments
@@ -35,7 +35,7 @@ handle:CsnArr = csngetslice(source:CsnArr, axis:k, start:k, stop:k, step:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the slice, with the same rank as the source.
+* `out:CsnArr`: the slice, with the same rank as the source.
 
 ## Execution Time
 

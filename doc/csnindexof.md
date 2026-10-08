@@ -20,9 +20,9 @@ Real only. `value` must be finite, and equality is exact.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnindexof(source:CsnArr, value:i)
-handle:CsnArr = csnindexof(source:CsnArr, value:k)
-handle:CsnArr = csnindexof(source:CsnArr, value:k, trig:k)
+out:CsnArr = csnindexof(source:CsnArr, value:i)
+out:CsnArr = csnindexof(source:CsnArr, value:k)
+out:CsnArr = csnindexof(source:CsnArr, value:k, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csnindexof(source:CsnArr, value:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 1-D coordinate array of length `csndims(source)`, or an empty array when `value` is absent.
+* `out:CsnArr`: a 1-D coordinate array of length `csndims(source)`, or an empty array when `value` is absent.
 
 ## Execution Time
 

@@ -22,8 +22,8 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnblackman(n:i)
-handle:CsnArr = csnblackman(n:k)
+out:CsnArr = csnblackman(n:i)
+out:CsnArr = csnblackman(n:k)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csnblackman(n:k)
 
 ## Output
 
-* `handle:CsnArr`: a real 1-D array of `n` window coefficients.
+* `out:CsnArr`: a real 1-D array of `n` window coefficients.
 
 ## Execution Time
 

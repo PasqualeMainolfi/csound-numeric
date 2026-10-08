@@ -43,9 +43,9 @@ overload: it changes with temperature, but not within a note.
 
 ```csound
 value:i = csnfpqr(room:CsnArr, mode:CsnArr, c:i)
-handle:CsnArr = csnfpqr(rooms:CsnArr, mode:CsnArr, c:i)
+out:CsnArr = csnfpqr(rooms:CsnArr, mode:CsnArr, c:i)
 value:k = csnfpqr(room:CsnArr, mode:CsnArr, c:i, trig:k)
-handle:CsnArr = csnfpqr(rooms:CsnArr, mode:CsnArr, c:i, trig:k)
+out:CsnArr = csnfpqr(rooms:CsnArr, mode:CsnArr, c:i, trig:k)
 ```
 
 ## Arguments
@@ -59,7 +59,7 @@ handle:CsnArr = csnfpqr(rooms:CsnArr, mode:CsnArr, c:i, trig:k)
 ## Output
 
 * `value:i / value:k`: the modal frequency in hertz, for a single room.
-* `handle:CsnArr`: one frequency per room, one-dimensional, for the `n x 3` form.
+* `out:CsnArr`: one frequency per room, one-dimensional, for the `n x 3` form.
 
 ## Execution Time
 

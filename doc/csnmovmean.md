@@ -19,7 +19,7 @@ on its own.
 
 Both real and complex arrays are accepted.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
@@ -32,10 +32,10 @@ current values; a zero trigger leaves it untouched.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnmovmean(source:CsnArr, winsize:i)
-handle:CsnArr = csnmovmean(source:CsnArr, winsize:i, axis:i)
-handle:CsnArr = csnmovmean(source:CsnArr, winsize:k, trig:k)
-handle:CsnArr = csnmovmean(source:CsnArr, winsize:k, trig:k, axis:k)
+out:CsnArr = csnmovmean(source:CsnArr, winsize:i)
+out:CsnArr = csnmovmean(source:CsnArr, winsize:i, axis:i)
+out:CsnArr = csnmovmean(source:CsnArr, winsize:k, trig:k)
+out:CsnArr = csnmovmean(source:CsnArr, winsize:k, trig:k, axis:k)
 csnmovmean(source:CsnArr, winsize:i)
 csnmovmean(source:CsnArr, winsize:i, axis:i)
 csnmovmean(source:CsnArr, winsize:k, trig:k)
@@ -51,7 +51,7 @@ csnmovmean(source:CsnArr, winsize:k, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the filtered array, with the shape of the source. Omit it for the in-place form.
+* `out:CsnArr`: the filtered array, with the shape of the source. Omit it for the in-place form.
 
 ## Execution Time
 

@@ -11,7 +11,7 @@ sample positions, and `y`, the values there — and returns the value at an
 arbitrary position between them.
 
 Two forms share the name. Given a **single position** it returns a single number;
-given an **array of positions** it publishes a handle holding one result per
+given an **array of positions** it returns an array holding one result per
 position. The array form runs at performance time, so its result is empty until
 the first k-pass.
 
@@ -42,10 +42,10 @@ Real only.
 value:i = csninterp(x:k, xs:CsnArr, ys:CsnArr, mode:i, bounds:i)
 value:i = csninterp(x:k, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i)
 value:k = csninterp(x:k, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i, trig:k)
-handle:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i)
-handle:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i)
-handle:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i, trig:k)
-handle:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i, trig:k, axis:k)
+out:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i)
+out:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i)
+out:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i, trig:k)
+out:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds:i, fill:i, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -63,7 +63,7 @@ handle:CsnArr = csninterp(positions:CsnArr, xs:CsnArr, ys:CsnArr, mode:i, bounds
 ## Output
 
 * `value:i / value:k`: the interpolated value, for a single position.
-* `handle:CsnArr`: one value per position, for the array form.
+* `out:CsnArr`: one value per position, for the array form.
 
 ## Execution Time
 

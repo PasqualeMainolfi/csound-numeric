@@ -22,10 +22,10 @@ Both real and complex arrays are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csncumprod(source:CsnArr)
-handle:CsnArr = csncumprod(source:CsnArr, axis:i)
-handle:CsnArr = csncumprod(source:CsnArr, trig:k)
-handle:CsnArr = csncumprod(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csncumprod(source:CsnArr)
+out:CsnArr = csncumprod(source:CsnArr, axis:i)
+out:CsnArr = csncumprod(source:CsnArr, trig:k)
+out:CsnArr = csncumprod(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -36,7 +36,7 @@ handle:CsnArr = csncumprod(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the running products, with the shape of the source.
+* `out:CsnArr`: the running products, with the shape of the source.
 
 ## Execution Time
 

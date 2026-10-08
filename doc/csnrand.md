@@ -20,9 +20,9 @@ when you ask for one.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnrand(shape:i[], min:i, max:i)
-handle:CsnArr = csnrand(shape:k[], min:k, max:k)
-handle:CsnArr = csnrand(shape:k[], min:k, max:k, trig:k)
+out:CsnArr = csnrand(shape:i[], min:i, max:i)
+out:CsnArr = csnrand(shape:k[], min:k, max:k)
+out:CsnArr = csnrand(shape:k[], min:k, max:k, trig:k)
 ```
 
 ## Arguments
@@ -34,7 +34,7 @@ handle:CsnArr = csnrand(shape:k[], min:k, max:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new array.
+* `out:CsnArr`: the new array.
 
 ## Execution Time
 

@@ -22,8 +22,8 @@ halves.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnproject(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnproject(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnproject(a:CsnArr, b:CsnArr)
+out:CsnArr = csnproject(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -34,7 +34,7 @@ handle:CsnArr = csnproject(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the component of `a` along `b`.
+* `out:CsnArr`: the component of `a` along `b`.
 
 ## Execution Time
 

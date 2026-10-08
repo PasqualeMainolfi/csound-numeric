@@ -28,11 +28,11 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i)
-handle:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i, fill:i)
-handle:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i, fill:i, axis:i)
-handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, trig:k)
-handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, trig:k, axis:k)
+out:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i)
+out:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i, fill:i)
+out:CsnArr = csnresample(source:CsnArr, length:i, mode:i, bounds:i, fill:i, axis:i)
+out:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, trig:k)
+out:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -47,7 +47,7 @@ handle:CsnArr = csnresample(source:CsnArr, length:k, mode:i, bounds:i, fill:i, t
 
 ## Output
 
-* `handle:CsnArr`: the resampled array.
+* `out:CsnArr`: the resampled array.
 
 ## Execution Time
 

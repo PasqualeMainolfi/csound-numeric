@@ -339,12 +339,66 @@ static void dispatch_value_for_reductioncomp(CSN_COMPLEXDAT *value, const CSN_CO
     };
 }
 
-static void accumulate_reduction_axis_helper(double *value, const CSN_ARRAY *source_arr, size_t src_base, size_t axis_stride, CSN_REDUCTION_MODE mode, uint32_t axis) {
-    init_value_for_reduction(value, mode);
-    for (uint32_t k = 0; k < source_arr->shape[axis]; ++k) {
-        size_t off = src_base + (size_t) k * axis_stride;
-        dispatch_value_for_reduction(value, source_arr->data[off], mode, k);
+/* The real fold with the mode picked once, outside the loop: the same order
+   and the same arithmetic as dispatch_value_for_reduction, so the result is
+   identical, in a loop with no per-element branch on the mode. min and max
+   stop at the first NaN, which they would carry to the end anyway; all and
+   any stop once the answer cannot change. */
+static double reduce_real_strided(const double *x, size_t n, size_t stride, CSN_REDUCTION_MODE mode) {
+    double v = 0.0;
+    init_value_for_reduction(&v, mode);
+    switch (mode) {
+        case RED_SUM:
+        case RED_MEAN:
+            for (size_t k = 0; k < n; k++) v += x[k * stride];
+            break;
+        case RED_PROD:
+            for (size_t k = 0; k < n; k++) v *= x[k * stride];
+            break;
+        case RED_SUB:
+            if (n > 0) v = x[0];
+            for (size_t k = 1; k < n; k++) v -= x[k * stride];
+            break;
+        case RED_RMS:
+            for (size_t k = 0; k < n; k++) v += x[k * stride] * x[k * stride];
+            break;
+        case RED_MIN:
+            /* seeded from the first element, so an infinite extreme is kept
+               (a DBL_MAX seed answered min([inf]) with DBL_MAX); the body
+               refuses an empty extent before this runs */
+            if (n > 0) v = x[0];
+            for (size_t k = 0; k < n; k++) {
+                double e = x[k * stride];
+                if (isnan(e)) return NAN;
+                if (e < v) v = e;
+            }
+            break;
+        case RED_MAX:
+            /* seeded from the first element, so an infinite extreme is kept
+               (a DBL_MAX seed answered min([inf]) with DBL_MAX); the body
+               refuses an empty extent before this runs */
+            if (n > 0) v = x[0];
+            for (size_t k = 0; k < n; k++) {
+                double e = x[k * stride];
+                if (isnan(e)) return NAN;
+                if (e > v) v = e;
+            }
+            break;
+        case RED_ALL:
+            for (size_t k = 0; k < n; k++) if (x[k * stride] == 0.0) return 0.0;
+            break;
+        case RED_ANY:
+            for (size_t k = 0; k < n; k++) if (x[k * stride] != 0.0) return 1.0;
+            break;
+        default:
+            for (size_t k = 0; k < n; k++) dispatch_value_for_reduction(&v, x[k * stride], mode, k);
+            break;
     }
+    return v;
+}
+
+static void accumulate_reduction_axis_helper(double *value, const CSN_ARRAY *source_arr, size_t src_base, size_t axis_stride, CSN_REDUCTION_MODE mode, uint32_t axis) {
+    *value = reduce_real_strided(source_arr->data + src_base, source_arr->shape[axis], axis_stride, mode);
 
     /* The divisor is how many elements were folded, which lives on the source:
        out_arr has one axis fewer, so out_arr->shape[axis] is a different
@@ -373,10 +427,7 @@ static void accumulate_reductioncomp_axis_helper(CSN_COMPLEXDAT *c, const CSN_AR
 }
 
 static void accumulate_reduction_scalar_helper(double *value, const CSN_ARRAY *source_arr, CSN_REDUCTION_MODE mode) {
-    init_value_for_reduction(value, mode);
-    for (size_t i = 0; i < source_arr->size; i++) {
-        dispatch_value_for_reduction(value, source_arr->data[i], mode, i);
-    }
+    *value = reduce_real_strided(source_arr->data, source_arr->size, 1, mode);
 
     if (mode == RED_MEAN || mode == RED_RMS) {
         double mean = *value / (double) source_arr->size;
@@ -507,7 +558,7 @@ static int32_t csnarray_accumulate_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY 
     }
 
     if (accumulation_reduction_assign_value(source_arr, out_arr, axis, out_value, out_complex_value, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid reduction iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid reduction iterator layout");
         goto done;
     }
 
@@ -902,7 +953,28 @@ int compare_double(const void *a, const void *b) {
 }
 
 // Welford algo
+/* Population variance of a real run, in two passes as numpy computes it:
+   the mean, then the mean squared deviation from it. No division per element,
+   unlike the running Welford update kept for complex runs. */
+static double stdvar_real_two_pass(const double *x, size_t n, size_t stride) {
+    double sum = 0.0;
+    for (size_t k = 0; k < n; k++) sum += x[k * stride];
+    double mean = sum / (double) n;
+    double m_two = 0.0;
+    for (size_t k = 0; k < n; k++) {
+        double d = x[k * stride] - mean;
+        m_two += d * d;
+    }
+    return m_two / (double) n;
+}
+
 static int32_t stdvar_calculation_helper(double *value, const CSN_ARRAY *source_arr, uint32_t size, size_t src_base, size_t axis_stride, CSN_REDUCTION_MODE mode) {
+    if (source_arr->itype == CSN_REAL) {
+        if (size == 0) return NOTOK;
+        double var = stdvar_real_two_pass(source_arr->data + src_base, size, axis_stride);
+        *value = mode == RED_STD ? sqrt(var) : var;
+        return OK;
+    }
     double mean = 0.0;
     CSN_COMPLEXDAT meancomp = { 0.0, 0.0 };
     double m_two = 0.0;
@@ -946,6 +1018,12 @@ static int32_t stdvar_calculation_helper(double *value, const CSN_ARRAY *source_
 }
 
 static int32_t stdvar_calculation_scalar_helper(double *value, const CSN_ARRAY *source_arr, uint32_t size, CSN_REDUCTION_MODE mode) {
+    if (source_arr->itype == CSN_REAL) {
+        if (size == 0) return NOTOK;
+        double var = stdvar_real_two_pass(source_arr->data, size, 1);
+        *value = mode == RED_STD ? sqrt(var) : var;
+        return OK;
+    }
     double mean = 0.0;
     CSN_COMPLEXDAT meancomp = { 0.0, 0.0 };
     double m_two = 0.0;
@@ -1300,7 +1378,7 @@ static int32_t argminmax_helper(CSOUND *csound, CSN_REDUCTION *p, CSN_REDUCTION_
 
     CSN_ARRAY *arr = p->handle;
     if (argminmax_assign_value(source_arr, arr, axis, count, reduced_ndim, reduced_shape, mode) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid argmin/argmax iteration shape");
+        res = csn_init_error(csound, "[csnarray] Invalid argmin/argmax iteration shape");
         goto done;
     }
 
@@ -1461,7 +1539,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, OPDS *h, CSN_ARRAY *source_a
     } else {
         scratch = csound->Calloc(csound, sizeof(double) * (run > 0 ? run : 1));
         if (scratch == NULL) {
-            res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * (run > 0 ? run : 1)));
+            res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * (run > 0 ? run : 1)));
             goto done;
         }
     }
@@ -1494,7 +1572,7 @@ static int32_t csnarray_median_impl(CSOUND *csound, OPDS *h, CSN_ARRAY *source_a
     pres.locked |= out.locked;
 
     if (median_assign_value(source_arr, out_arr, work, run, axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid median iteration shape");
+        res = csn_init_error(csound, "[csnarray] Invalid median iteration shape");
         goto done;
     }
 
@@ -1697,40 +1775,37 @@ static int32_t movstdvar_slice(double *dst, const double *src, size_t n, size_t 
     return OK;
 }
 
+/* A NaN in the window is skipped, as before; a window holding only NaNs
+   answers NaN. The seeds are infinities, not DBL_MAX, so an infinite extreme
+   is kept, and the mode is picked once, outside the loops. */
 static void movminmax_slice(double *dst, const double *src, size_t n, size_t stride, size_t win_size, CSN_REDUCTION_MODE mode) {
     size_t left = win_size / 2;
     size_t right = win_size - left - 1;
+    bool is_min = mode == RED_MIN;
+    if (!is_min && mode != RED_MAX) return;
 
     for (size_t i = 0; i < n; i++) {
-        double min = DBL_MAX;
-        double max = -DBL_MAX;
         size_t begin = i >= left ? i - left : 0;
         size_t end = i + right + 1;
         end = end > n ? n : end;
-        for (size_t j = begin; j < end; ++j) {
-            double x = src[j * stride];
-            switch (mode) {
-                case RED_MIN:
-                    min = x < min ? x : min;
-                    break;
-                case RED_MAX:
-                    max = x > max ? x : max;
-                    break;
-                default:
-                    break;
+        double best = is_min ? INFINITY : -INFINITY;
+        bool seen = false;
+        if (is_min) {
+            for (size_t j = begin; j < end; ++j) {
+                double x = src[j * stride];
+                if (isnan(x)) continue;
+                seen = true;
+                if (x < best) best = x;
+            }
+        } else {
+            for (size_t j = begin; j < end; ++j) {
+                double x = src[j * stride];
+                if (isnan(x)) continue;
+                seen = true;
+                if (x > best) best = x;
             }
         }
-
-        switch (mode) {
-            case RED_MIN:
-                dst[i * stride] = min;
-                break;
-            case RED_MAX:
-                dst[i * stride] = max;
-                break;
-            default:
-                break;
-        }
+        dst[i * stride] = seen ? best : NAN;
     }
 }
 
@@ -1924,7 +1999,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
     stamp_globals(csound, &p->h);
 
     if (*p->winsize <= 0.0) {
-        return csound->InitError(csound, "[csnarray] Invalid window size");
+        return csn_init_error(csound, "[csnarray] Invalid window size");
     }
 
     size_t winsize = (size_t) *p->winsize;
@@ -1933,7 +2008,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
     if (mode == CSN_MOVMEDIAN) {
         median_buffer = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(winsize));
         if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Memory allocation failed");
+            return csn_init_error(csound, "[csnarray] Memory allocation failed");
         }
     }
 
@@ -1953,7 +2028,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
 
     if (axis == -1) {
         if (winsize == 0 || winsize > source_arr->size) {
-            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            res = csn_init_error(csound, "[csnarray] Invalid window size");
             goto done;
         }
 
@@ -1962,7 +2037,7 @@ static int32_t csnarray_movstats_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_MOV
         new_dim = 1U;
     } else {
         if (winsize > source_shape[axis]) {
-            res = csound->InitError(csound, "[csnarray] Invalid window size");
+            res = csn_init_error(csound, "[csnarray] Invalid window size");
             goto done;
         }
     }
@@ -2066,7 +2141,7 @@ static int32_t csnarray_movstats_k_helper(CSOUND *csound, CSN_MOVSTATS *p, CSN_M
     CHECK_KTRIG(p->axis);
 
     if (*p->winsize <= 0.0) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid window size");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid window size");
     }
 
     int32_t res = OK;
@@ -2325,7 +2400,7 @@ static int32_t csnarray_movstats_in_helper(CSOUND *csound, CSN_MOVSTATS_IN *p, C
     if (mode == CSN_MOVMEDIAN) {
         median_buffer = csound->Calloc(csound, sizeof(double) * sliding_median_scratch_size(winsize));
         if (median_buffer == NULL) {
-            return csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+            return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         }
     }
 
@@ -2559,11 +2634,11 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY *s
 
     if (is_percentile) {
         if (q < 0.0 || q > 100) {
-            return csound->InitError(csound, "[csnarray] Percentile must be in the range [0, 100]");
+            return csn_init_error(csound, "[csnarray] Percentile must be in the range [0, 100]");
         }
     } else {
         if (q < 0.0 || q > 1.0) {
-            return csound->InitError(csound, "[csnarray] Quantile must be in the range [0, 1]");
+            return csn_init_error(csound, "[csnarray] Quantile must be in the range [0, 1]");
         }
     }
 
@@ -2578,7 +2653,7 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY *s
     uint32_t *source_shape = source_arr->shape;
 
     if (source_arr->size == 0U) {
-        res = csound->InitError(csound, "[csnarray] Percentile and quantile are undefined for an empty array");
+        res = csn_init_error(csound, "[csnarray] Percentile and quantile are undefined for an empty array");
         goto done;
     }
 
@@ -2586,19 +2661,19 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY *s
     if (out_arr != NULL) {
         CSN_AXIS_SPEC axis_spec = csn_normalize_axis_value(axis_value, source_ndim);
         if (axis_spec.kind != CSN_AXIS_INDEX) {
-            res = csound->InitError(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", axis_value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
+            res = csn_init_error(csound, "[csnarray] Axis %g is invalid for a %u-D array (valid axes: finite integers %d..%u)", axis_value, source_ndim, -(int32_t) source_ndim, source_ndim - 1);
             goto done;
         }
         axis = (int32_t) axis_spec.index;
     }
 
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Percentile and quantile reductions requires real arrays");
+        res = csn_init_error(csound, "[csnarray] Percentile and quantile reductions requires real arrays");
         goto done;
     }
 
     if (axis != -1 && source_ndim == 1U) {
-        res = csound->InitError(csound, "[csnarray] Reducing a 1-D array produces a scalar; omit the axis argument");
+        res = csn_init_error(csound, "[csnarray] Reducing a 1-D array produces a scalar; omit the axis argument");
         goto done;
     }
 
@@ -2618,12 +2693,12 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY *s
     if (out_arr != NULL) {
         buffer = csound->Calloc(csound, sizeof(double) * (size_t) source_shape[axis]);
         if (buffer == NULL) {
-            res = csound->InitError(csound, "Memory allocation failed");
+            res = csn_init_error(csound, "Memory allocation failed");
             goto done;
         }
         CSN_AXIS_SLICE_ITER it;
         if (AXIS_ITER_SLICE_INIT(&it, source_arr, out_arr, (uint32_t) axis) != OK) {
-            res = csound->InitError(csound, "[csnarray] Invalid percentile/quantile iteration shape");
+            res = csn_init_error(csound, "[csnarray] Invalid percentile/quantile iteration shape");
             goto done;
         }
         while (AXIS_SLICE_ITER_NEXT(&it)) {
@@ -2634,7 +2709,7 @@ static int32_t csnarray_perquant_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY *s
     } else {
         buffer = csound->Calloc(csound, sizeof(double) * source_arr->size);
         if (buffer == NULL) {
-            res = csound->InitError(csound, "Memory allocation failed");
+            res = csn_init_error(csound, "Memory allocation failed");
             goto done;
         }
         double value = 0;
@@ -2703,7 +2778,7 @@ static int32_t perquant_scalar_k_init_helper(CSOUND *csound, CSN_PERCQUANT *p, b
 
     double *buffer = csound->Calloc(csound, sizeof(double) * init_capacity);
     if (buffer == NULL) {
-        return csound->InitError(csound, "[csnarray] Internal memory allocation failed");
+        return csn_init_error(csound, "[csnarray] Internal memory allocation failed");
     }
 
     p->scratch.scratch = buffer;
@@ -2732,11 +2807,11 @@ static int32_t csnarray_perquant_k_reduction(CSOUND *csound, OPDS *h, CSN_ARRAY 
 
     if (is_percentile) {
         if (q < 0.0 || q > 100) {
-            return csound->PerfError(csound, h, "[csnarray] Percentile must be in the range [0, 100]");
+            return csn_perf_error(csound, h, "[csnarray] Percentile must be in the range [0, 100]");
         }
     } else {
         if (q < 0.0 || q > 1.0) {
-            return csound->PerfError(csound, h, "[csnarray] Quantile must be in the range [0, 1]");
+            return csn_perf_error(csound, h, "[csnarray] Quantile must be in the range [0, 1]");
         }
     }
 
@@ -2955,7 +3030,7 @@ int32_t csnarray_foreach_init(CSOUND *csound, CSN_FOREACH *p) {
 
     buffer = csound->Calloc(csound, sizeof(double) * bcap);
     if (buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
     p->buffer.scratch = buffer;
@@ -3057,12 +3132,12 @@ static int32_t csnarray_next_init_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     if (is_complex && source_arr->itype == CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] csnnext complex requires complex array");
+        res = csn_init_error(csound, "[csnarray] csnnext complex requires complex array");
         goto done;
     }
 
     if (!is_complex && source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] csnnext real requires real array");
+        res = csn_init_error(csound, "[csnarray] csnnext real requires real array");
         goto done;
     }
 
@@ -3071,7 +3146,7 @@ static int32_t csnarray_next_init_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *
 
     buffer = csound->Calloc(csound, sizeof(double) * bcap);
     if (buffer == NULL) {
-        res = csound->InitError(csound, "[csnarray] Internal error: memory allocation failed");
+        res = csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
         goto done;
     }
 
@@ -3098,7 +3173,7 @@ static int32_t csnarray_next_perf_helper(CSOUND *csound, OPDS *perf_h, CSN_REGIS
     CHECK_KTRIG(trig);
 
     if (!IS_VALID_ZERO_ONE((double) *reset)) {
-        return csound->PerfError(csound, perf_h, "[csnarray] Reset param should be 0 or 1");
+        return csn_perf_error(csound, perf_h, "[csnarray] Reset param should be 0 or 1");
     }
     bool is_reset = *reset == FL(1.0);
     if (is_reset && scratch->current_size != 0) {

@@ -220,7 +220,7 @@ static int32_t csnarray_sabeyr_scalar_helper(CSOUND *csound, CSN_SABEYR_SCALAR *
 
     double volume = (double) *p->volume;
     if (!IS_VALID_VALUE(volume)) {
-        return csound->InitError(csound, "[csnarray] Volume must be a valid float value");
+        return csn_init_error(csound, "[csnarray] Volume must be a valid float value");
     }
 
     int32_t res = OK;
@@ -280,7 +280,7 @@ static int32_t csnarray_sabeyr_scalar_k_helper(CSOUND *csound, CSN_SABEYR_SCALAR
 
     double volume = (double) *p->volume;
     if (!IS_VALID_VALUE(volume)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Volume must be a valid float value");
+        return csn_perf_error(csound, &p->h, "[csnarray] Volume must be a valid float value");
     }
 
     int32_t res = OK;
@@ -378,11 +378,11 @@ static int32_t csnarray_reqabsorption_helper(CSOUND *csound, OPDS *h, K_DATA *k_
 
     double v = value_a == NULL ? 0.0 : (double) *value_a;
     if (value_a != NULL && !IS_VALID_VALUE(v)) {
-        return csound->InitError(csound, "[csnarray] The %s operand must be a valid float value", name_a);
+        return csn_init_error(csound, "[csnarray] The %s operand must be a valid float value", name_a);
     }
     double t = value_b == NULL ? 0.0 : (double) *value_b;
     if (value_b != NULL && !IS_VALID_VALUE(t)) {
-        return csound->InitError(csound, "[csnarray] The %s operand must be a valid float value", name_b);
+        return csn_init_error(csound, "[csnarray] The %s operand must be a valid float value", name_b);
     }
 
     int32_t res = OK;
@@ -392,22 +392,22 @@ static int32_t csnarray_reqabsorption_helper(CSOUND *csound, OPDS *h, K_DATA *k_
 
     if (source_arr_a != NULL) {
         if (source_arr_a->ndim != 1U) {
-            res = csound->InitError(csound, "[csnarray] Arrays of %s must be 1D", name_a);
+            res = csn_init_error(csound, "[csnarray] Arrays of %s must be 1D", name_a);
             goto done;
         }
         if (source_arr_a->itype == CSN_COMPLEX) {
-            res = csound->InitError(csound, "[csnarray] The %s must be real arrays", name_a);
+            res = csn_init_error(csound, "[csnarray] The %s must be real arrays", name_a);
             goto done;
         }
     }
 
     if (source_arr_b != NULL) {
         if (source_arr_b->ndim != 1U) {
-            res = csound->InitError(csound, "[csnarray] Arrays of %s must be 1D", name_b);
+            res = csn_init_error(csound, "[csnarray] Arrays of %s must be 1D", name_b);
             goto done;
         }
         if (source_arr_b->itype == CSN_COMPLEX) {
-            res = csound->InitError(csound, "[csnarray] The %s must be real arrays", name_b);
+            res = csn_init_error(csound, "[csnarray] The %s must be real arrays", name_b);
             goto done;
         }
     }
@@ -463,11 +463,11 @@ static int32_t csnarray_reqabsorption_k_helper(CSOUND *csound, OPDS *h, K_DATA *
 
     double v = volume == NULL ? 0.0 : (double) *volume;
     if (volume != NULL && !IS_VALID_VALUE(v)) {
-        return csound->PerfError(csound, h, "[csnarray] The %s operand must be a valid float value", name_a);
+        return csn_perf_error(csound, h, "[csnarray] The %s operand must be a valid float value", name_a);
     }
     double t = t60target == NULL ? 0.0 : (double) *t60target;
     if (t60target != NULL && !IS_VALID_VALUE(t)) {
-        return csound->PerfError(csound, h, "[csnarray] The %s operand must be a valid float value", name_b);
+        return csn_perf_error(csound, h, "[csnarray] The %s operand must be a valid float value", name_b);
     }
 
     CHECK_KTRIG(trig);
@@ -669,7 +669,7 @@ int32_t csnarray_fpqr_nd(CSOUND *csound, CSN_FMODUS_ARR *p) {
 
     double c = (double) *p->sound_speed;
     if (!IS_VALID_VALUE(c)) {
-        return csound->InitError(csound, "[csnarray] Speed of sound should be a valid float value");
+        return csn_init_error(csound, "[csnarray] Speed of sound should be a valid float value");
     }
     double fac = c / 2.0;
 
@@ -680,43 +680,43 @@ int32_t csnarray_fpqr_nd(CSOUND *csound, CSN_FMODUS_ARR *p) {
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     if (source_arr_a->ndim != 2U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of room measures must be 2D");
+        res = csn_init_error(csound, "[csnarray] Arrays of room measures must be 2D");
         goto done;
     }
     if (source_arr_a->shape[1] != 3U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of measures must have three elements (L, W, H)");
+        res = csn_init_error(csound, "[csnarray] Arrays of measures must have three elements (L, W, H)");
         goto done;
     }
 
     if (source_arr_a->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Room measures must be real arrays");
+        res = csn_init_error(csound, "[csnarray] Room measures must be real arrays");
         goto done;
     }
 
     CSN_ARRAY *source_arr_b = p->source_handle_b;
     if (source_arr_b->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of mode indexes must be 1D");
+        res = csn_init_error(csound, "[csnarray] Arrays of mode indexes must be 1D");
         goto done;
     }
     if (source_arr_b->shape[0] != 3U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of mode indexes must have three elements (p, q, r)");
+        res = csn_init_error(csound, "[csnarray] Arrays of mode indexes must have three elements (p, q, r)");
         goto done;
     }
     if (source_arr_b->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Mode indexes must be real arrays");
+        res = csn_init_error(csound, "[csnarray] Mode indexes must be real arrays");
         goto done;
     }
 
     for (uint32_t i = 0; i < source_arr_b->shape[0]; i++) {
         if (!is_valid_mode_index(source_arr_b->data[i])) {
-            res = csound->InitError(csound, "[csnarray] Mode indexes (p, q, r) must be non-negative integers");
+            res = csn_init_error(csound, "[csnarray] Mode indexes (p, q, r) must be non-negative integers");
             goto done;
         }
     }
 
     for (size_t i = 0; i < source_arr_a->size; i++) {
         if (!(source_arr_a->data[i] > 0.0)) {
-            res = csound->InitError(csound, "[csnarray] Room measures (L, W, H) must be greater than zero");
+            res = csn_init_error(csound, "[csnarray] Room measures (L, W, H) must be greater than zero");
             goto done;
         }
     }
@@ -760,7 +760,7 @@ int32_t csnarray_fpqr_1d(CSOUND *csound, CSN_FMODUS_SCALAR *p) {
 
     double c = (double) *p->sound_speed;
     if (!IS_VALID_VALUE(c)) {
-        return csound->InitError(csound, "[csnarray] Speed of sound should be a valid float value");
+        return csn_init_error(csound, "[csnarray] Speed of sound should be a valid float value");
     }
     double fac = c / 2.0;
 
@@ -771,42 +771,42 @@ int32_t csnarray_fpqr_1d(CSOUND *csound, CSN_FMODUS_SCALAR *p) {
 
     CSN_ARRAY *source_arr_a = p->source_handle_a;
     if (source_arr_a->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of room measures must be 1D");
+        res = csn_init_error(csound, "[csnarray] Arrays of room measures must be 1D");
         goto done;
     }
     if (source_arr_a->shape[0] != 3U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of measures must have three elements (L, W, H)");
+        res = csn_init_error(csound, "[csnarray] Arrays of measures must have three elements (L, W, H)");
         goto done;
     }
     if (source_arr_a->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Room measures must be real arrays");
+        res = csn_init_error(csound, "[csnarray] Room measures must be real arrays");
         goto done;
     }
 
     CSN_ARRAY *source_arr_b = p->source_handle_b;
     if (source_arr_b->ndim != 1U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of mode indexes must be 1D");
+        res = csn_init_error(csound, "[csnarray] Arrays of mode indexes must be 1D");
         goto done;
     }
     if (source_arr_b->shape[0] != 3U) {
-        res = csound->InitError(csound, "[csnarray] Arrays of mode indexes must have three elements (p, q, r)");
+        res = csn_init_error(csound, "[csnarray] Arrays of mode indexes must have three elements (p, q, r)");
         goto done;
     }
     if (source_arr_b->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Mode indexes must be real arrays");
+        res = csn_init_error(csound, "[csnarray] Mode indexes must be real arrays");
         goto done;
     }
 
     for (uint32_t i = 0; i < source_arr_b->shape[0]; i++) {
         if (!is_valid_mode_index(source_arr_b->data[i])) {
-            res = csound->InitError(csound, "[csnarray] Mode indexes (p, q, r) must be non-negative integers");
+            res = csn_init_error(csound, "[csnarray] Mode indexes (p, q, r) must be non-negative integers");
             goto done;
         }
     }
 
     for (size_t i = 0; i < source_arr_a->size; i++) {
         if (!(source_arr_a->data[i] > 0.0)) {
-            res = csound->InitError(csound, "[csnarray] Room measures (L, W, H) must be greater than zero");
+            res = csn_init_error(csound, "[csnarray] Room measures (L, W, H) must be greater than zero");
             goto done;
         }
     }
@@ -1015,7 +1015,7 @@ static int32_t csnarray_timeconv_helper(CSOUND *csound, CSN_SRTIMES *p, CSN_TIME
 
     double sr = (double) *p->sr;
     if (!IS_VALID_SR(sr)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample rate");
+        return csn_init_error(csound, "[csnarray] Invalid sample rate");
     }
 
     CSNARR_RES pres = {0};
@@ -1023,7 +1023,7 @@ static int32_t csnarray_timeconv_helper(CSOUND *csound, CSN_SRTIMES *p, CSN_TIME
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype == CSN_COMPLEX) {
-        res = csound->InitError(csound, "[csnarray] Array of samples/times must be real array");
+        res = csn_init_error(csound, "[csnarray] Array of samples/times must be real array");
         goto done;
     }
 
@@ -1155,11 +1155,11 @@ int32_t csnarray_secondstosamples_k(CSOUND *csound, CSN_SRTIMES *p) {
 static int32_t csnarray_timeconv_s_helper(CSOUND *csound, CSN_NONARR_OP *p, CSN_TIMECONV_MODE mode) {
     double source = (double) *p->arg_a;
     if (!IS_VALID_VALUE(source)) {
-        return csound->InitError(csound, "[csnarray] Invalid time value");
+        return csn_init_error(csound, "[csnarray] Invalid time value");
     }
     double sr = (double) *p->arg_b;
     if (!IS_VALID_SR(sr)) {
-        return csound->InitError(csound, "[csnarray] Invalid sample rate");
+        return csn_init_error(csound, "[csnarray] Invalid sample rate");
     }
 
     double value = 0.0;
@@ -1186,11 +1186,11 @@ static int32_t csnarray_timeconv_s_helper(CSOUND *csound, CSN_NONARR_OP *p, CSN_
 static int32_t csnarray_timeconv_s_k_helper(CSOUND *csound, CSN_NONARR_OP *p, CSN_TIMECONV_MODE mode) {
     double source = (double) *p->arg_a;
     if (!IS_VALID_VALUE(source)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid time value");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid time value");
     }
     double sr = (double) *p->arg_b;
     if (!IS_VALID_SR(sr)) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Invalid sample rate");
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid sample rate");
     }
 
     double value = 0.0;
@@ -1294,7 +1294,7 @@ int32_t csnarray_sumdb(CSOUND *csound, CSN_REDUCTION *p) {
 
     CSN_AXIS_SLICE_ITER it;
     if (AXIS_ITER_SLICE_INIT(&it, source_arr, p->handle, (uint32_t) axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid reduction iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid reduction iterator layout");
         goto done;
     }
     while (AXIS_SLICE_ITER_NEXT(&it)) {
@@ -1323,7 +1323,7 @@ int32_t csnarray_sumdb_scalar(CSOUND *csound, CSN_REDUCTION_SCALAR *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] Level sum operation is defined for real array only");
+        res = csn_init_error(csound, "[csnarray] Level sum operation is defined for real array only");
         goto done;
     }
 
@@ -1371,7 +1371,7 @@ int32_t csnarray_sumdb_k_init(CSOUND *csound, CSN_REDUCTION *p) {
 
     CSN_AXIS_SLICE_ITER it;
     if (AXIS_ITER_SLICE_INIT(&it, source_arr, p->handle, (uint32_t) axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid reduction iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid reduction iterator layout");
         goto done;
     }
     while (AXIS_SLICE_ITER_NEXT(&it)) {

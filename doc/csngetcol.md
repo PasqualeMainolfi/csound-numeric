@@ -17,14 +17,14 @@ reads the requested column again.
 ## Syntax
 
 ```csound
-column:CsnArr = csngetcol(handle:CsnArr, index:i)
-column:CsnArr = csngetcol(handle:CsnArr, index:k)
-column:CsnArr = csngetcol(handle:CsnArr, index:k, trig:k)
+column:CsnArr = csngetcol(arr:CsnArr, index:i)
+column:CsnArr = csngetcol(arr:CsnArr, index:k)
+column:CsnArr = csngetcol(arr:CsnArr, index:k, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: source array; it must have exactly two dimensions.
+* `arr:CsnArr`: source array; it must have exactly two dimensions.
 * `index:i / index:k`: zero-based column index in `[0, columns)`.
 * `trig:k` (optional, default `1`): k-rate trigger. A non-zero value reads the column; zero republishes the previous result.
 

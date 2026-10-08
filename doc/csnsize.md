@@ -17,13 +17,13 @@ it.
 ## Syntax
 
 ```csound
-n:i = csnsize(handle:CsnArr)
-n:k = csnsize(handle:CsnArr)
+n:i = csnsize(arr:CsnArr)
+n:k = csnsize(arr:CsnArr)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to query.
+* `arr:CsnArr`: the array to query.
 
 ## Output
 

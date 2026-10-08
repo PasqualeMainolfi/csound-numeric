@@ -38,7 +38,7 @@ instr 1
     rows:CsnArr     = csnmedfilt(source, krow)
     csnprint rows
 
-    ; in place, no new handle: the source is rewritten
+    ; in place, no new array: the source is rewritten
     copy:CsnArr     = csncopy(source)
     csnmedfilt(copy, 3)
     csnprint copy

@@ -21,15 +21,15 @@ A complex array takes a `:Complex;` value. [csnpop](csnpop.md) is the inverse.
 ## Syntax
 
 ```csound
-csnpush(handle:CsnArr, value:i)
-csnpush(handle:CsnArr, value:Complex)
-csnpush(handle:CsnArr, value:k, trig:k)
-csnpush(handle:CsnArr, value:Complex, trig:k)
+csnpush(arr:CsnArr, value:i)
+csnpush(arr:CsnArr, value:Complex)
+csnpush(arr:CsnArr, value:k, trig:k)
+csnpush(arr:CsnArr, value:Complex, trig:k)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to append to.
+* `arr:CsnArr`: the array to append to.
 * `value:i / value:k / value:Complex`: the element to append.
 * `trig:k`: k-rate trigger. Nothing is appended on a zero trigger.
 

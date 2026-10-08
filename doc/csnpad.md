@@ -16,14 +16,17 @@ gives `4×3`.
 A complex array must be padded with a `:Complex;` value; a real fill value on a
 complex array is refused rather than silently taken as `value + 0i`.
 
-Two forms share the name. The one with an output publishes a new handle and
+Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
-At k-rate the widths are read at init too. When they are already known there
-(declared with `init` rather than `=`, which still reads 0 at init), the output
-starts at the padded shape, so passes that keep those widths need no new
-storage and the pad can run on a [real-time path](csnrtlock.md). Widths that
+At k-rate the output is padded at init only when the widths, the value and the
+axis are known there: constants or i variables. With a k width the init pads
+nothing, the output keeps the source's layout, reserved but empty, and the first
+triggered pass pads; the width's init value (set with `init`, since `=` still
+reads 0 at init) only sizes the room the output is created with, so passes that
+keep those widths need no new storage and the pad can run on a
+[real-time path](csnrtlock.md). Widths that
 change during performance reshape the output within the room it was created
 with, twice its initial element count; only a shape that needs more than that
 is refused on a marked output.
@@ -34,15 +37,15 @@ too.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnpad(source:CsnArr, before:i, after:i)
-handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:i)
-handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:i, axis:i)
-handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:Complex)
-handle:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:Complex, axis:i)
-handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, trig:k)
-handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, trig:k, axis:k)
-handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, trig:k)
-handle:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, trig:k, axis:k)
+out:CsnArr = csnpad(source:CsnArr, before:i, after:i)
+out:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:i)
+out:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:i, axis:i)
+out:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:Complex)
+out:CsnArr = csnpad(source:CsnArr, before:i, after:i, value:Complex, axis:i)
+out:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, trig:k)
+out:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:k, trig:k, axis:k)
+out:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, trig:k)
+out:CsnArr = csnpad(source:CsnArr, before:k, after:k, value:Complex, trig:k, axis:k)
 csnpad(source:CsnArr, before:i, after:i, value:i)
 csnpad(source:CsnArr, before:i, after:i, value:i, axis:i)
 csnpad(source:CsnArr, before:k, after:k, value:k, trig:k)
@@ -61,7 +64,7 @@ csnpad(source:CsnArr, before:k, after:k, value:k, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the padded array. Omit it for the in-place form.
+* `out:CsnArr`: the padded array. Omit it for the in-place form.
 
 ## Execution Time
 

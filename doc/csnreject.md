@@ -21,8 +21,8 @@ halves.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnreject(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnreject(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnreject(a:CsnArr, b:CsnArr)
+out:CsnArr = csnreject(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csnreject(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the component of `a` orthogonal to `b`.
+* `out:CsnArr`: the component of `a` orthogonal to `b`.
 
 ## Execution Time
 

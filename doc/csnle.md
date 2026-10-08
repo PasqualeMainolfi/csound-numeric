@@ -22,9 +22,9 @@ Real only. A NaN fails every ordered comparison, so it never appears in the mask
 ## Syntax
 
 ```csound
-handle:CsnArr = csnle(source:CsnArr, value:i)
-handle:CsnArr = csnle(source:CsnArr, value:k)
-handle:CsnArr = csnle(source:CsnArr, value:k, trig:k)
+out:CsnArr = csnle(source:CsnArr, value:i)
+out:CsnArr = csnle(source:CsnArr, value:k)
+out:CsnArr = csnle(source:CsnArr, value:k, trig:k)
 ```
 
 ## Arguments
@@ -35,7 +35,7 @@ handle:CsnArr = csnle(source:CsnArr, value:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 0/1 array with the shape of the source.
+* `out:CsnArr`: a 0/1 array with the shape of the source.
 
 ## Execution Time
 

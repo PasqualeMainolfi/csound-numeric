@@ -22,10 +22,10 @@ Both real and complex arrays are accepted.
 ## Syntax
 
 ```csound
-handle:CsnArr = csncumsum(source:CsnArr)
-handle:CsnArr = csncumsum(source:CsnArr, axis:i)
-handle:CsnArr = csncumsum(source:CsnArr, trig:k)
-handle:CsnArr = csncumsum(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csncumsum(source:CsnArr)
+out:CsnArr = csncumsum(source:CsnArr, axis:i)
+out:CsnArr = csncumsum(source:CsnArr, trig:k)
+out:CsnArr = csncumsum(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -36,7 +36,7 @@ handle:CsnArr = csncumsum(source:CsnArr, trig:k, axis:k)
 
 ## Output
 
-* `handle:CsnArr`: the running totals, with the shape of the source.
+* `out:CsnArr`: the running totals, with the shape of the source.
 
 ## Execution Time
 

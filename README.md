@@ -153,10 +153,11 @@ endin
 ```
 
 `+=`, `-=`, `*=` and `/=` update the left array. Assignment and the earlier
-results remain independent copies. The operators follow the rates of their
-operands and take no explicit trigger: the i-rate example above runs during
-initialization, while a compound operation with a k-rate operand runs on each
-control period. To inspect the result during performance, use
+results remain independent copies. The operators take no trigger: they follow
+the rates of their operands, so the i-rate example above runs during
+initialization, while an operation with a k-rate operand runs on each control
+period. To make an operator run at k on arrays built at init, cast one of them
+with `csnk` (see [Choosing the rate](#choosing-the-rate-named-opcodes-take-a-trigger-operators-a-cast)). To inspect the result during performance, use
 `csnprint(A, kTrig)` with a non-zero k-rate trigger; `csnprint(A)` reads it only
 at initialization. Inside an instrument, passing `array(...)` directly to
 `csnfromarray` selects its k-rate overload; use a named `i[]` built with
@@ -165,6 +166,57 @@ operation that would overwrite values it still needs,
 or change the target's layout, is refused. The corresponding named opcodes
 (`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`) remain available, including
 their trigger forms.
+
+### Choosing the rate: named opcodes take a trigger, operators a cast
+
+**The rule is one per kind of call, and it never mixes:**
+
+| | How the rate is chosen | i-rate | k-rate |
+| --- | --- | --- | --- |
+| **Named opcodes** (`csnadd`, `csnsum`, `csntranspose`, ...) | the trigger, written in the call | no trigger: `csnadd(A, B)` | a trigger: `csnadd(A, B, kTrig)` |
+| **Operators** (`+`, `-`, `*`, `/`, `^`, `+=`, ...) | the rate of the operands, set with a cast | i-rate operands: `A + B` | a k-rate operand: `csnk A`, then `A + B`, or `csnk(A) + B` |
+
+For a named opcode the trigger must be written to get the k-rate form: Csound
+picks the overload at compile time from the arguments of the call, and the form
+without the trigger is the init-time one, whatever the rate of the arrays you
+pass it. The cast has no effect there. An operator cannot take a trigger, so it
+reads the rate of its operands instead, and `csnk`/`csni` are the way to set it.
+
+An array carries its rate: i-rate when an i-rate opcode built it, k-rate once a
+k-rate opcode produces or writes it. An operator runs on every control period
+only while one of its operands is k-rate, so with i-rate operands it runs once,
+at init. Two casts choose the rate at the point where it matters, as `k()` and
+`i()` do for scalars:
+
+```csound
+instr 1
+    iShape[] = fillarray(3)
+    step:CsnArr = csnfull(iShape, 0.5)
+    acc:CsnArr  = csnzeros(iShape)  // i-rate: built from i arguments
+
+    csnk acc                        // in place: acc lives at k from here on
+    acc += step                     // 0.5, 1, 1.5, ... on every pass
+
+    base:CsnArr  = csnfull(iShape, 10)
+    moved:CsnArr = csnk(base) + step  // only this expression is k-rate
+    first:CsnArr = csni(acc)          // acc frozen at its init value
+endin
+```
+
+| You want | Write |
+| --- | --- |
+| an array that operators keep updating | `csnk A` before using it |
+| one expression at k, the operands untouched | `csnk(A) + B` |
+| the init value of a k-rate array | `csni(A)` |
+
+Running at k does not mean recomputing on every pass: a k-rate operation skips
+its work while its operands and its result are unchanged, and only an operation
+written over its own operand, as `A += B`, applies on every pass. Cast before
+use: an operator that met `A` still i-rate has already applied once at init.
+
+The casts reach the operators only: `csnadd(A, B)` still runs once, at init,
+even after `csnk A`, because the call without a trigger is the init-time form.
+Write `csnadd(A, B, kTrig)` for k.
 
 ### Empty arrays
 
@@ -359,8 +411,13 @@ csound --opcode-dir=build example/csnsort.csd
   array also has a sibling under the same name that writes back into its source
   and returns nothing: `csnnormalize(data)` normalizes in place, while
   `Norm:CsnArr = csnnormalize(data)` leaves the source alone.
-- **Rate overloads.** The i-rate and k-rate forms share a name; Csound picks the
-  overload from the rate of the arguments you pass.
+- **Choosing the rate.** Named opcodes are chosen by their trigger, which must
+  be written to get the k-rate form: without it the call is the init-time form,
+  whatever the rate of its operands. The operators take no trigger and follow
+  the rate of their operands, which `csnk` and `csni` set; see
+  [Choosing the rate](#choosing-the-rate-named-opcodes-take-a-trigger-operators-a-cast).
+  The i-rate and k-rate forms of a named opcode share its name; Csound picks the
+  overload from the arguments you pass.
 - **Trigger.** Most k-rate forms take a trigger. When an axis may be omitted,
   the no-axis overload ends with the trigger and the explicit-axis overload is
   written `..., trigger, axis`; this keeps omission distinct from `axis = -1`.
@@ -511,7 +568,7 @@ entry means the operation lives outside NumPy proper.
 | `csnsign` | `np.sign` | |
 | `csnfloor` | `np.floor` | |
 | `csnceil` | `np.ceil` | |
-| `csnround` | `np.round` | |
+| `csnround` | `np.round` | Halves go to the even neighbour, as in NumPy and Csound's scalar `round`; Csound's `round` over an array sends them away from zero. |
 
 ### Transcendental functions
 
@@ -793,6 +850,7 @@ thing NumPy never has to deal with:
 | csnum | What it does |
 | --- | --- |
 | `csnfromaudio` / `csntoaudio` | One control period between an audio signal and an array. |
+| `csnk` / `csni` | Rate casts: an array made k-rate in place or as a k-rate copy, or frozen at its init value. NumPy has no rates. |
 | `csnpack` / `csnunpack` | A whole `a[]` as a `channels x ksmps` matrix, and back. |
 | `csnsnap` / `csnstream` | Frames of a size independent of `ksmps`, and their overlap-add. |
 | `csnrtlock` / `csnrtunlock` | Mark an array as a real-time path, forbidding reallocation at perf time. |
@@ -830,7 +888,7 @@ changed since the last pass.
 
 Every array carries four counters, data, shape, ndim and item type, bumped only
 by a writer that actually changed that aspect. A k-rate opcode records the
-version of its source, and of the slot it publishes, at the end of a pass that
+version of its source, and of the output it writes, at the end of a pass that
 did real work. On the next pass it compares:
 
 - the **source** version, including its array identity, so a different array
@@ -877,6 +935,36 @@ a recomputation and nothing else. It is not enough for an opcode that must act
 exactly once per arrival: `csnstream` counts hops on a phase accumulator of its
 own and uses the version only to notice a producer that has stopped.
 
+### What the init pass computes
+
+A k-rate opcode also runs an init pass, and it computes its result there only
+when every argument the result depends on is known at init: a constant, an i
+variable or an array. A k scalar is not: an ordinary k variable still reads 0
+during the init pass, so a result computed from it would be wrong, and nothing
+downstream could tell. With such an argument the init only lays the output out
+and the first triggered pass computes it:
+
+- an opcode that keeps the rank (`csngetslice`, `csnpad`, `csnconcat`,
+  `csntranspose`, `csnreshape`) gives the source's layout, reserved but empty;
+- one whose shape the k argument decides (a reduction or `csndiff` along a k
+  axis, `csnmedfilt1d`) gives an empty 1-D array;
+- an elementwise one (`csnclip`, `csngt` and the comparisons) keeps the
+  source's shape with values not computed yet; `csnrotmat` gives a zero matrix.
+
+```csound
+instr 1
+    trig:k        = metro(10)
+    axis:k        = 0
+    fixed:CsnArr  = csnsum(mat, trig, 0)    // reduced at init and on each trigger
+    moving:CsnArr = csnsum(mat, trig, axis) // empty until the first trigger
+endin
+```
+
+An output written over its own operand (`X = csnclip(X, lo, hi, trig)`) is not
+computed at init either: every pass applies it, so the first one does. A
+consumer that cannot take an empty array belongs behind the same trigger; the
+k-rate `csntoarray` accepts one at init and converts from the first pass.
+
 ---
 
 ## Real-time paths
@@ -917,9 +1005,9 @@ not allocate. It raises a performance error that names the array, which stops
 the note:
 
 ```
-'B' (array 4098) is on a real-time path and cannot be reallocated at perf time;
-clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends
-from
+PERF ERROR in instr 1 (opcode csnpad) line 36: [csnarray] Array is on a
+real-time path and cannot grow from 64 to 96 elements at perf time; clear the
+mark with csnrtunlock, or pass irt=0 at the audio source it descends from
 ```
 
 That error is the point of the mark. A performance error stops the note the
@@ -981,8 +1069,10 @@ where an opcode publishes a result:
   mid-note, or a lock applied after the opcode, therefore never needs the
   allocator. Where a buffer would still have to grow, the opcode refuses in the
   same way.
-- **Transforms.** The FFT convolutions refuse a new transform size on a marked
-  path before the FFT setup is allocated.
+- **Transforms.** The FFT convolutions and correlations refuse a new transform
+  size on a marked path before the FFT setup is allocated. Their transform
+  buffers follow the output's mark, which the output took from its operands at
+  init, so `csnrtunlock` on the output releases them as well.
 - **Csound arrays.** The k-rate forms of `csntoarray` and `csnshape` reserve
   their output at init, so a marked source that moves within its capacity never
   makes Csound grow the output array.
@@ -996,7 +1086,11 @@ another variable is Csound's to perform.
 
 - **Settle shapes at init.** Every derived opcode sizes its output from its
   source at init, so a chain fed by an array of fixed shape allocates once per
-  note and never again.
+  note and never again. A shape that depends on a k scalar (a pad width, a
+  slice, a k axis) is not known at init (see
+  [What the init pass computes](#what-the-init-pass-computes)): give it as a
+  constant or an i variable when it does not move, or start its k variable at
+  the largest value with `init`, which `csnpad` takes as the room to reserve.
 - **Reserve what has to grow.** An array can grow up to its capacity without
   new storage. A derived output has room for twice the element count it had at
   init; one that has to vary further should start at init from the largest
@@ -1156,7 +1250,7 @@ Sort and reduce, entirely at i-time:
 data:CsnArr     = csnfromarray(array(4, 1, 3, 2))
 sorted:CsnArr   = csnsort(data)
 sorted_back:i[] = csntoarray(sorted) // 1 2 3 4
-peak:i          = csnmax(Data) // 4
+peak:i          = csnmax(data) // 4
 ```
 
 Count integer bins, with an optional weight per input element:

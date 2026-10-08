@@ -2,43 +2,43 @@
 
 ## Abstract
 
-Convert a csnum array handle back into a Csound array.
+Convert a `CsnArr` back into a Csound array.
 
 ## Description
 
-`csntoarray` copies the array behind a handle into an ordinary Csound array. It
-is the only exit point of the suite: every other opcode returns a handle or a
+`csntoarray` copies a `CsnArr` into an ordinary Csound array. It
+is the only exit point of the suite: every other opcode returns a `CsnArr` or a
 scalar, so this is where the data becomes something the rest of the orchestra can
 index.
 
-**The rank of the output is taken from its declaration, not from the handle.** A
+**The rank of the output is taken from its declaration, not from the `CsnArr`.** A
 2-D array must be received by an output declared with two bracket pairs; a
 mismatch is refused at init rather than silently flattened. Call
 [csnflatten](csnflatten.md) first when a flat copy is what you want.
 
 The `name:type` annotation carries a single bracket pair, so an output of rank 2
 or more is declared the older way, with the rate letter in the name and one
-bracket pair per dimension: `out[][] = csntoarray(handle)`.
+bracket pair per dimension: `out[][] = csntoarray(arr)`.
 
 A complex array must be received by a `:Complex;[]` output; asking for `i[]` from
-a complex handle is an error. Use [csnreal](csnreal.md) or
+a complex array is an error. Use [csnreal](csnreal.md) or
 [csntoreal](csntoreal.md) to drop the imaginary lane on purpose.
 
 ## Syntax
 
 ```csound
-out:i[] = csntoarray(handle:CsnArr)
-out:k[] = csntoarray(handle:CsnArr)
-out:Complex[] = csntoarray(handle:CsnArr)
+out:i[] = csntoarray(arr:CsnArr)
+out:k[] = csntoarray(arr:CsnArr)
+out:Complex[] = csntoarray(arr:CsnArr)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to read.
+* `arr:CsnArr`: the array to read.
 
 ## Output
 
-* `out:i[] / out:k[] / out:Complex[]`: a Csound array with the handle's shape. Declare it with one bracket pair per dimension.
+* `out:i[] / out:k[] / out:Complex[]`: a Csound array with the source's shape. Declare it with one bracket pair per dimension.
 
 ## Execution Time
 
@@ -58,7 +58,7 @@ out:Complex[] = csntoarray(handle:CsnArr)
 ; csntoarray.csd
 ;
 ; csntoarray is the way out. The rank of the output comes from its declaration,
-; so a 2-D handle needs two bracket pairs; csnflatten covers the other case.
+; so a 2-D array needs two bracket pairs; csnflatten covers the other case.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -69,7 +69,7 @@ instr 1
     shape:i[]   = fillarray(2, 3)
     mat:CsnArr  = csnreshape(csnfromarray(array(1, 2, 3, 4, 5, 6)), shape)
 
-    ; Two bracket pairs for a 2-D handle. The name:type annotation carries only
+    ; Two bracket pairs for a 2-D array. The name:type annotation carries only
     ; one rank, so a multidimensional output is declared the older way, with the
     ; rate letter in the name.
     i_mat_out[][] = csntoarray(mat)
@@ -79,7 +79,7 @@ instr 1
     flat_out:i[] = csntoarray(csnflatten(mat))
     prints("flat      = %g %g %g %g %g %g\n", flat_out[0], flat_out[1], flat_out[2], flat_out[3], flat_out[4], flat_out[5])
 
-    ; a complex handle needs a :Complex;[] output
+    ; a complex array needs a :Complex;[] output
     cpx:CsnArr        = csntocomplex(csnflatten(mat))
     cpx_out:Complex[] = csntoarray(cpx)
     z_re:i            = real(cpx_out[3])

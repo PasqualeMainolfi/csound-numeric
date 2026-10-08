@@ -25,17 +25,17 @@ predicate operations. See [Set arrays and their invariant](set-arrays.md).
 ## Syntax
 
 ```csound
-csnset(handle:CsnArr, cell:i[], value:i)
-csnset(handle:CsnArr, cell:i[], value:k)
-csnset(handle:CsnArr, cell:i[], value:Complex)
-csnset(handle:CsnArr, cell:k[], value:i)
-csnset(handle:CsnArr, cell:k[], value:k)
-csnset(handle:CsnArr, cell:k[], value:Complex)
+csnset(arr:CsnArr, cell:i[], value:i)
+csnset(arr:CsnArr, cell:i[], value:k)
+csnset(arr:CsnArr, cell:i[], value:Complex)
+csnset(arr:CsnArr, cell:k[], value:i)
+csnset(arr:CsnArr, cell:k[], value:k)
+csnset(arr:CsnArr, cell:k[], value:Complex)
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to write into.
+* `arr:CsnArr`: the array to write into.
 * `cell:i[] / cell:k[]`: the coordinates, one per dimension, each within its extent.
 * `value:i / value:k / value:Complex`: the value to store.
 
@@ -60,7 +60,7 @@ None. The array is modified.
 ; -----------------------------------------------------------------------------
 ; csnset.csd
 ;
-; csnset writes in place: no handle comes back, and every consumer downstream
+; csnset writes in place: no array comes back, and every consumer downstream
 ; sees a new generation of the array on its next pass.
 ; -----------------------------------------------------------------------------
 

@@ -26,8 +26,8 @@ Everything else follows [csndecorrelate](csndecorrelate.md).
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftdecorrelate(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftdecorrelate(x:CsnArr, h:CsnArr, trig:k)
+out:CsnArr = csnfftdecorrelate(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftdecorrelate(x:CsnArr, h:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csnfftdecorrelate(x:CsnArr, h:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the decorrelated array, `x.shape - h.shape + 1`.
+* `out:CsnArr`: the decorrelated array, `x.shape - h.shape + 1`.
 
 ## Execution Time
 

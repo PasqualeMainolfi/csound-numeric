@@ -30,8 +30,8 @@ result:k = csnprod(source:CsnArr)
 result:k = csnprod(source:CsnArr, trig:k)
 result:Complex = csnprod(source:CsnArr)
 result:Complex = csnprod(source:CsnArr, trig:k)
-handle:CsnArr = csnprod(source:CsnArr, axis:i)
-handle:CsnArr = csnprod(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnprod(source:CsnArr, axis:i)
+out:CsnArr = csnprod(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -44,7 +44,7 @@ handle:CsnArr = csnprod(source:CsnArr, trig:k, axis:k)
 
 * `result:i / result:k`: the reduction over the whole array, for a real source.
 * `result:Complex`: the reduction over the whole array, for a complex source.
-* `handle:CsnArr`: one value per line along `axis`, with that axis dropped.
+* `out:CsnArr`: one value per line along `axis`, with that axis dropped.
 
 ## Execution Time
 

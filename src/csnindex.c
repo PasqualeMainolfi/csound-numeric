@@ -239,19 +239,19 @@ static int32_t csnarray_get_rowcol_helper(CSOUND *csound, CSN_GET_ROWCOL *p, boo
     size_t *source_strides = source_arr->strides;
 
     if (source_dim != 2U) {
-        res = csound->InitError(csound, "[csnarray] csngetrow/col requires 2D array");
+        res = csn_init_error(csound, "[csnarray] csngetrow/col requires 2D array");
         goto done;
     }
 
     if (!IS_VALID_INDEX((double) *p->index)) {
-        res = csound->InitError(csound, "[csnarray] Not valid index");
+        res = csn_init_error(csound, "[csnarray] Not valid index");
         goto done;
     }
 
     uint32_t n_items = is_row ? source_shape[0] : source_shape[1];
     uint32_t index = (uint32_t) *p->index;
     if (index >= n_items) {
-        res = csound->InitError(csound, "[csnarray] Index out of bounds");
+        res = csn_init_error(csound, "[csnarray] Index out of bounds");
         goto done;
     }
 
@@ -305,7 +305,7 @@ static int32_t csnarray_get_rowcol_k_init_helper(CSOUND *csound, CSN_GET_ROWCOL 
     uint32_t source_dim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
     if (source_dim != 2U) {
-        res = csound->InitError(csound, "[csnarray] csngetrow/col requires 2D array");
+        res = csn_init_error(csound, "[csnarray] csngetrow/col requires 2D array");
         goto done;
     }
 
@@ -523,7 +523,7 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
     /* Walk the destination, which is smaller than the source by exactly the
        extent of the dropped axis. */
     if (take_assign_value(arr, p->handle, arr->ndim, out_ndim, axis, index) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid take iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid take iterator layout");
         goto done;
     }
 
@@ -791,7 +791,7 @@ static int32_t csnarray_get_slice_impl(CSOUND *csound, CSN_GET_SLICE *p, bool is
     pres.locked |= out.locked;
 
     if (slice_get_assign_value(arr, p->handle, ndim, axis, start, step) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid slice iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid slice iterator layout");
         goto done;
     }
 
@@ -1596,7 +1596,7 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
         goto done;
     }
 
@@ -1604,12 +1604,12 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     int32_t alloc_temp = allocate_array(csound, temp, source_ndim, temp_shape, source_arr->itype);
     if (alloc_temp != OK) {
         char tbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), temp_shape, source_ndim));
+        res = csn_init_error(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), temp_shape, source_ndim));
         goto done;
     }
 
     if (insert_block_assign_value(temp, source_arr, data_arr, source_ndim, axis, index) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid insert iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid insert iterator layout");
         goto done;
     }
 
@@ -1648,7 +1648,7 @@ int32_t csnarray_insert_block_k_init(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
         goto done;
     }
 
@@ -1656,7 +1656,7 @@ int32_t csnarray_insert_block_k_init(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     int32_t alloc_temp = allocate_array(csound, temp, source_ndim, temp_shape, source_arr->itype);
     if (alloc_temp != OK) {
         char tbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), temp_shape, source_ndim));
+        res = csn_init_error(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), temp_shape, source_ndim));
         goto done;
     }
 
@@ -1681,7 +1681,7 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     if (p->scratch == NULL) {
-        return csound->PerfError(csound, &p->h, "[csnarray] Internal error: temporary buffer not available");
+        return csn_perf_error(csound, &p->h, "[csnarray] Internal error: temporary buffer not available");
     }
 
     CHECK_KTRIG(p->trig);
@@ -1794,7 +1794,7 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
     pres.locked |= out.locked;
 
     if (remove_block_assign_value(source_arr, p->handle, axis, index) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid remove iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid remove iterator layout");
         goto done;
     }
 
@@ -2070,7 +2070,7 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     pres.locked |= out.locked;
 
     if (concat_block_assign_value(source_arr, data_arr, p->handle, axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid concatenate iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
 
@@ -2118,7 +2118,7 @@ int32_t csnarray_concat_block_k_init(CSOUND *csound, CSN_CONCAT *p) {
     pres.locked |= out.locked;
 
     if (concat_block_assign_value(source_arr, data_arr, p->handle, axis) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid concatenate iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, p->handle->ndim, p->handle->itype);
@@ -2293,7 +2293,7 @@ static int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, 
     pres.locked |= out.locked;
 
     if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid pad iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
@@ -2338,7 +2338,7 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out_arr, source_arr }, 2);
 
     if (source_arr->itype != expected_itype) {
-        res = csound->InitError(csound, expected_itype == CSN_COMPLEX
+        res = csn_init_error(csound, expected_itype == CSN_COMPLEX
             ? "[csnarray] Handle holds a real array; pad it with a real value"
             : "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
         goto done;
@@ -2379,7 +2379,7 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
     uint32_t after = 0;
     if (!pad_k_init_shape(csound, source_arr, axis_in, in_before, in_after, expected_itype, &axis, &before, &after, shape)) {
         res = pad_body(csound, NULL, source_arr, axis_in, in_before, in_after, &axis, &before, &after, shape, expected_itype);
-        if (res == OK) res = csound->InitError(csound, "[csnarray] Pad widths exceed the largest extent an array can have");
+        if (res == OK) res = csn_init_error(csound, "[csnarray] Pad widths exceed the largest extent an array can have");
         goto done;
     }
 
@@ -2389,7 +2389,7 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
     pres.locked |= out.locked;
 
     if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid pad iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
     SET_KDATA_BEGIN(*k_data, reg, shape, source_arr->ndim, source_arr->itype);
@@ -2501,18 +2501,18 @@ static int32_t csnarray_pad_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source
     /* every cell moves, so the image is built aside and copied back */
     temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
         goto done;
     }
 
     if (allocate_array(csound, temp, source_ndim, new_shape, source_arr->itype) != OK) {
         char tbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), new_shape, source_ndim));
+        res = csn_init_error(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_ndim, shape_str(tbuf, sizeof(tbuf), new_shape, source_ndim));
         goto done;
     }
 
     if (pad_assign_value(source_arr, temp, value, valuecomp, axis, before) != OK) {
-        res = csound->InitError(csound, "[csnarray] Invalid pad iterator layout");
+        res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
@@ -2551,7 +2551,7 @@ static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     if (source_arr->itype != expected_itype) {
-        res = csound->InitError(csound, expected_itype == CSN_COMPLEX
+        res = csn_init_error(csound, expected_itype == CSN_COMPLEX
             ? "[csnarray] Handle holds a real array; pad it with a real value"
             : "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
         goto done;
@@ -2559,7 +2559,7 @@ static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY
 
     temp = csound->Calloc(csound, sizeof(CSN_ARRAY));
     if (temp == NULL) {
-        res = csound->InitError(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
+        res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_ARRAY)));
         goto done;
     }
 
@@ -2570,7 +2570,7 @@ static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY
        and never earlier by this scratch. */
     if (allocate_array(csound, temp, source_arr->ndim, source_arr->shape, source_arr->itype) != OK) {
         char tbuf[CSN_SHAPE_STR_MAX];
-        res = csound->InitError(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_arr->ndim, shape_str(tbuf, sizeof(tbuf), source_arr->shape, source_arr->ndim));
+        res = csn_init_error(csound, "[csnarray] Out of memory: could not allocate the %u-D temporary array %s", source_arr->ndim, shape_str(tbuf, sizeof(tbuf), source_arr->shape, source_arr->ndim));
         goto done;
     }
     res = ensure_mutation_capacity(csound, NULL, temp, source_arr->capacity, false);
@@ -2625,7 +2625,7 @@ static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, CSN_ARR
 static int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, CSN_ARRAY *scratch, K_DATA *k_data, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig) {
     CHECK_REGISTRY(csound, h, reg);
     if (scratch == NULL) {
-        return csound->PerfError(csound, h, "[csnarray] Internal error: temporary buffer not available");
+        return csn_perf_error(csound, h, "[csnarray] Internal error: temporary buffer not available");
     }
     CHECK_KTRIG(trig);
 
@@ -2676,20 +2676,22 @@ int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
    the array's version alone on the passes that clip nothing — a k-rate
    csnclip.in on a settled array would otherwise announce a new generation to
    every consumer on every pass. */
+/* min(max(x, lo), hi), as np.clip: with min > max every value becomes max.
+   Branch-free, so the loop vectorizes; a NaN fails both tests and is left as
+   it is. */
 static bool clip_value(double min_value, double max_value, CSN_ARRAY *arr) {
-    bool changed = false;
+    size_t changed = 0;
+    double *d = arr->data;
     for (size_t i = 0; i < arr->size; ++i) {
-        double value = arr->data[i];
-        if (value < min_value) {
-            arr->data[i] = min_value;
-            changed = true;
-        }
-        if (value > max_value) {
-            arr->data[i] = max_value;
-            changed = true;
-        }
+        double value = d[i];
+        bool lo = value < min_value;
+        double v = lo ? min_value : value;
+        bool hi = v > max_value;
+        v = hi ? max_value : v;
+        changed |= (size_t) (lo | hi);
+        d[i] = v;
     }
-    return changed;
+    return changed != 0;
 }
 
 /* Clipping never moves a value out of its cell, so the output may be its own
@@ -2716,7 +2718,7 @@ int32_t csnarray_clip(CSOUND *csound, CSN_CLIP *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 
@@ -2816,7 +2818,7 @@ int32_t csnarray_clip_in(CSOUND *csound, CSN_CLIP_IN *p) {
 
     CSN_ARRAY *source_arr = p->source_handle;
     if (source_arr->itype != CSN_REAL) {
-        res = csound->InitError(csound, "[csnarray] This operation is not implemented for complex arrays");
+        res = csn_init_error(csound, "[csnarray] This operation is not implemented for complex arrays");
         goto done;
     }
 

@@ -41,10 +41,10 @@ the axis is omitted, real and complex operands.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr)
-handle:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, axis:i)
-handle:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, trig:k)
-handle:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, trig:k, axis:i)
+out:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr)
+out:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, axis:i)
+out:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, trig:k)
+out:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, trig:k, axis:i)
 ```
 
 ## Arguments
@@ -56,7 +56,7 @@ handle:CsnArr = csnfftdecorrelate1d(x:CsnArr, h:CsnArr, trig:k, axis:i)
 
 ## Output
 
-* `handle:CsnArr`: the decorrelated array, `len(x) - len(h) + 1` long along the axis.
+* `out:CsnArr`: the decorrelated array, `len(x) - len(h) + 1` long along the axis.
 
 ## Execution Time
 

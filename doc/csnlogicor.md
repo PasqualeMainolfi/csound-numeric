@@ -22,14 +22,14 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlogicor(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnlogicor(a:CsnArr, b:CsnArr, trig:k)
-handle:CsnArr = csnlogicor(a:CsnArr, value:i)
-handle:CsnArr = csnlogicor(a:CsnArr, value:k)
-handle:CsnArr = csnlogicor(a:CsnArr, value:k, trig:k)
-handle:CsnArr = csnlogicor(value:i, b:CsnArr)
-handle:CsnArr = csnlogicor(value:k, b:CsnArr)
-handle:CsnArr = csnlogicor(value:k, b:CsnArr, trig:k)
+out:CsnArr = csnlogicor(a:CsnArr, b:CsnArr)
+out:CsnArr = csnlogicor(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnlogicor(a:CsnArr, value:i)
+out:CsnArr = csnlogicor(a:CsnArr, value:k)
+out:CsnArr = csnlogicor(a:CsnArr, value:k, trig:k)
+out:CsnArr = csnlogicor(value:i, b:CsnArr)
+out:CsnArr = csnlogicor(value:k, b:CsnArr)
+out:CsnArr = csnlogicor(value:k, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -41,7 +41,7 @@ handle:CsnArr = csnlogicor(value:k, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 0/1 array.
+* `out:CsnArr`: a 0/1 array.
 
 ## Execution Time
 

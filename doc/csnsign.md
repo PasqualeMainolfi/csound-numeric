@@ -19,8 +19,8 @@ the usual way to process a magnitude and put the sign back afterwards.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnsign(source:CsnArr)
-handle:CsnArr = csnsign(source:CsnArr, trig:k)
+out:CsnArr = csnsign(source:CsnArr)
+out:CsnArr = csnsign(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -30,7 +30,7 @@ handle:CsnArr = csnsign(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the signs.
+* `out:CsnArr`: the signs.
 
 ## Execution Time
 

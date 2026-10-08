@@ -19,8 +19,8 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnlogicnot(source:CsnArr)
-handle:CsnArr = csnlogicnot(source:CsnArr, trig:k)
+out:CsnArr = csnlogicnot(source:CsnArr)
+out:CsnArr = csnlogicnot(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -30,7 +30,7 @@ handle:CsnArr = csnlogicnot(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a 0/1 array.
+* `out:CsnArr`: a 0/1 array.
 
 ## Execution Time
 

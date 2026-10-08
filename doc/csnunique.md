@@ -22,8 +22,8 @@ Real only.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnunique(source:CsnArr)
-handle:CsnArr = csnunique(source:CsnArr, trig:k)
+out:CsnArr = csnunique(source:CsnArr)
+out:CsnArr = csnunique(source:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -33,7 +33,7 @@ handle:CsnArr = csnunique(source:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: the distinct values, in ascending order.
+* `out:CsnArr`: the distinct values, in ascending order.
 
 ## Execution Time
 

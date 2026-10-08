@@ -8,7 +8,7 @@
 ; csnfromarray.csd
 ;
 ; csnfromarray is the way into the suite. From there on everything travels as a
-; handle, and csntoarray is the way back out.
+; CsnArr, and csntoarray is the way back out.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

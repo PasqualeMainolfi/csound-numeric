@@ -15,7 +15,7 @@ its own when the note ends, so a section left open never outlives its note.
 It stops arrays from being marked; it does not unmark the arrays created while
 the section was open. Those keep the mark for as long as they live, which is
 usually the point of having marked them. To release one, use
-[csnrtunlock](csnrtunlock.md) on its handle.
+[csnrtunlock](csnrtunlock.md) on it.
 
 ## Syntax
 
@@ -51,7 +51,7 @@ csnrtlockend(trig:k)
 ;
 ; Ends the section csnrtlockstart opened. It stops new arrays from being
 ; marked; it does not unmark what was created while the section was open,
-; which is what csnrtunlock does, one handle at a time.
+; which is what csnrtunlock does, one array at a time.
 ; -----------------------------------------------------------------------------
 
 sr = 44100

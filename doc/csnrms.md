@@ -25,8 +25,8 @@ empty array gives `nan`, as [csnmean](csnmean.md) does.
 ```csound
 value:i = csnrms(source:CsnArr)
 value:k = csnrms(source:CsnArr, trig:k)
-handle:CsnArr = csnrms(source:CsnArr, axis:i)
-handle:CsnArr = csnrms(source:CsnArr, trig:k, axis:k)
+out:CsnArr = csnrms(source:CsnArr, axis:i)
+out:CsnArr = csnrms(source:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
@@ -38,7 +38,7 @@ handle:CsnArr = csnrms(source:CsnArr, trig:k, axis:k)
 ## Output
 
 * `value:i / value:k`: the root mean square of every element, for the scalar form.
-* `handle:CsnArr`: handle of one value per position of the surviving axes, for the axis form.
+* `out:CsnArr`: one value per position of the surviving axes, for the axis form.
 
 ## Execution Time
 

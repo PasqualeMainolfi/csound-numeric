@@ -20,8 +20,8 @@ that is the one case in this family where the element type changes.
 ## Syntax
 
 ```csound
-handle:CsnArr = csnpairdist(a:CsnArr, b:CsnArr)
-handle:CsnArr = csnpairdist(a:CsnArr, b:CsnArr, trig:k)
+out:CsnArr = csnpairdist(a:CsnArr, b:CsnArr)
+out:CsnArr = csnpairdist(a:CsnArr, b:CsnArr, trig:k)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ handle:CsnArr = csnpairdist(a:CsnArr, b:CsnArr, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: a real array of per-element distances, with the shape of the operands.
+* `out:CsnArr`: a real array of per-element distances, with the shape of the operands.
 
 ## Execution Time
 

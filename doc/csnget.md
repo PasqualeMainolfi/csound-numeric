@@ -19,15 +19,15 @@ whole strided run, [csngetslice](csngetslice.md).
 ## Syntax
 
 ```csound
-value:i = csnget(handle:CsnArr, cell:i[])
-value:Complex = csnget(handle:CsnArr, cell:i[])
-value:k = csnget(handle:CsnArr, cell:k[])
-value:Complex = csnget(handle:CsnArr, cell:k[])
+value:i = csnget(arr:CsnArr, cell:i[])
+value:Complex = csnget(arr:CsnArr, cell:i[])
+value:k = csnget(arr:CsnArr, cell:k[])
+value:Complex = csnget(arr:CsnArr, cell:k[])
 ```
 
 ## Arguments
 
-* `handle:CsnArr`: the array to read.
+* `arr:CsnArr`: the array to read.
 * `cell:i[] / cell:k[]`: the coordinates, one per dimension, each within its extent.
 
 ## Output

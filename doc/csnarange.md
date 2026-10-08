@@ -24,8 +24,8 @@ Real only. For a fixed element count with the endpoint included, use
 ## Syntax
 
 ```csound
-handle:CsnArr = csnarange(start:i, stop:i, step:i)
-handle:CsnArr = csnarange(start:k, stop:k, step:k, trig:k)
+out:CsnArr = csnarange(start:i, stop:i, step:i)
+out:CsnArr = csnarange(start:k, stop:k, step:k, trig:k)
 ```
 
 ## Arguments
@@ -37,7 +37,7 @@ handle:CsnArr = csnarange(start:k, stop:k, step:k, trig:k)
 
 ## Output
 
-* `handle:CsnArr`: handle of the new 1-D array.
+* `out:CsnArr`: the new 1-D array.
 
 ## Execution Time
 
