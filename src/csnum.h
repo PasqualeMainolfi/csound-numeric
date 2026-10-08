@@ -1159,7 +1159,6 @@ typedef struct {
                   // dist order (order Minkowski)
     cs_float *arg_b; // trig for dist
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
 } CSN_BINOP_HH_SCALAR;
 
@@ -1172,7 +1171,6 @@ typedef struct {
     CSN_ARRAY *source_handle_b;
     cs_float *trig;
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
 } CSN_BINOPCOMPLEX_HH_SCALAR;
 
@@ -1294,7 +1292,6 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
 } CSN_UNARYOP_SCALAR;
 
@@ -1306,7 +1303,6 @@ typedef struct {
     CSN_ARRAY *source_handle;
     cs_float *trig;
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
 } CSN_UNARYOPCOMPLEX_SCALAR;
 
@@ -1342,8 +1338,8 @@ typedef struct {
     cs_float *order;
     cs_float *trig;
     // private
-    CSN_REGISTRY *registry;
     K_DATA k_data;
+    double prev_result;
 } CSN_NORM_REDUCTION_SCALAR;
 
 typedef struct {

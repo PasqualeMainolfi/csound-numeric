@@ -2096,7 +2096,7 @@ static int32_t csnarray_type_helper(CSOUND *csound, OPDS *perf_h, CSN_UNARYOP_SC
     } else {
         stamp_globals(csound, &p->h);
     }
-    p->registry = reg;
+    p->k_data.registry = reg;
 
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
