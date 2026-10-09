@@ -278,6 +278,17 @@ typedef enum {
     CSNCOMP_SQRT
 } CSNCOMPLEX_OPS_MODE;
 
+// OPEN AUDIO FILE
+#define CSN_WAV_EXT ".wav"
+#define CSN_MP3_EXT ".mp3"
+#define CSN_FLAC_EXT ".flac"
+
+typedef enum {
+    CSN_WAV = 0,
+    CSN_MP3,
+    CSN_FLAC
+} CSN_AUDIO_FILE_TYPE;
+
 typedef enum {
      CSN_MEDIAN_EDGE_SHRINK,
      CSN_MEDIAN_EDGE_ZERO
@@ -1949,6 +1960,35 @@ typedef struct {
     CSN_ARRAY *source_handle;
 } CSN_CAST_IN;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    cs_float *fs;       // the file's sample rate
+    // inputs
+    STRINGDAT *file_path;
+    cs_float *mono;     // 1 = average the channels into one
+    cs_float *trig;     // k form only
+    // private
+    CSN_REGISTRY *registry;
+    bool is_mono;
+} CSN_LOAD_AUDIO_FILE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    STRINGDAT *file_path;
+    CSN_ARRAY *source_handle;
+    cs_float *fs;
+    cs_float *mono;     // 1 = average the channels into one
+    cs_float *trig;     // k form only
+    // private
+    CSN_REGISTRY *registry;
+    CSN_SCRATCH buffer; // interleaved float frames
+    bool is_mono;
+    uint32_t sample_rate;
+} CSN_SAVE_AUDIO_FILE;
+
 void PUBLISH_INPLACE_WRITE(K_DATA *k_data, CSN_ARRAY *arr, bool shape_changed, bool ndim_changed, bool itype_changed);
 bool IS_VALID_VALUE(double value);
 bool IS_VALID_ZERO_ONE(double value);
@@ -1968,6 +2008,15 @@ int32_t pad_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *destination, do
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 
+
+// audio file
+int32_t csnfile_load_audiofile(CSOUND *csound, CSN_LOAD_AUDIO_FILE *p);
+int32_t csnfile_load_audiofile_k_init(CSOUND *csound, CSN_LOAD_AUDIO_FILE *p);
+int32_t csnfile_load_audiofile_k(CSOUND *csound, CSN_LOAD_AUDIO_FILE *p);
+int32_t csnfile_save_audiofile(CSOUND *csound, CSN_SAVE_AUDIO_FILE *p);
+int32_t csnfile_save_audiofile_k_init(CSOUND *csound, CSN_SAVE_AUDIO_FILE *p);
+int32_t csnfile_save_audiofile_k(CSOUND *csound, CSN_SAVE_AUDIO_FILE *p);
+int32_t csnfile_save_audiofile_deinit(CSOUND *csound, CSN_SAVE_AUDIO_FILE *p);
 
 // cast
 int32_t csnarray_cast_i_in(CSOUND *csound, CSN_CAST_IN *p);

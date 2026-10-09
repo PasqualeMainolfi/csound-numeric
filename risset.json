@@ -4,6 +4,8 @@
         "csnseed",
         "csnsave",
         "csnload",
+        "csnloadaudiofile",
+        "csnsaveaudiofile",
         "csnrtlock",
         "csnrtunlock",
         "csnrtlockstart",

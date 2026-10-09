@@ -494,8 +494,7 @@ static inline void write_u32_le(uint8_t *data, uint32_t value) {
 }
 
 CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char *path) {
-    if (arr == NULL || arr->ndim == 0 || arr->ndim > CSN_MAX_DIMS ||
-        (arr->itype != CSN_REAL && arr->itype != CSN_COMPLEX)) return CSN_FILE_INVALID_HEADER_DTYPE;
+    if (arr == NULL || arr->ndim == 0 || arr->ndim > CSN_MAX_DIMS || (arr->itype != CSN_REAL && arr->itype != CSN_COMPLEX)) return CSN_FILE_INVALID_HEADER_DTYPE;
     if (arr->size != 0 && arr->data == NULL) return CSN_FILE_INVALID_HEADER_DATA_RAW;
     const uint16_t endian_probe = 1;
     const bool little_endian = *(const uint8_t *) &endian_probe == 1;

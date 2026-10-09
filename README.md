@@ -505,6 +505,8 @@ entry means the operation lives outside NumPy proper.
 | --- | --- | --- |
 | `csnsave` | `np.save` | A `.npy` path writes a NumPy file (`float64` or `complex128`); `.csn` writes csnum's own format. |
 | `csnload` | `np.load` | A `.npy` path reads supported numeric dtypes and C/Fortran order; `.csn` reads csnum's own format. |
+| `csnloadaudiofile` | `librosa.load(path, sr=None, mono=False)` | Reads `.wav`, `.mp3` or `.flac`, one row per channel, and returns the file's sample rate; never resamples. |
+| `csnsaveaudiofile` | `soundfile.write` | Writes `.wav` as 32-bit float, one channel per row. |
 
 ### Shape and layout
 

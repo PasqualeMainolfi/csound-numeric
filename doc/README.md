@@ -69,6 +69,8 @@ support of each opcode.
 
 - [csnsave](csnsave.md) - writes an array to a `.csn` or NumPy `.npy` file
 - [csnload](csnload.md) - reads a `.csn` or supported numeric `.npy` file
+- [csnsaveaudiofile](csnsaveaudiofile.md) - writes an array to a 32-bit float `.wav` file
+- [csnloadaudiofile](csnloadaudiofile.md) - reads a `.wav`, `.mp3` or `.flac` file into an array
 
 ## Shape and layout
 

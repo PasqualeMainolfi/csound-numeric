@@ -26,9 +26,24 @@ if(BUILD_CSNUM_OPCODES)
         src/csnlinalg.c
         src/csnmeasure.c
         src/csncoord.c
-        src/csnspecial.c)
+        src/csnspecial.c
+        src/dr_libs.c)
 
     make_plugin(csnum "${CSNUM_SOURCES}")
+
+    # dr_libs (dr_wav, dr_mp3, dr_flac), vendored single-header audio file
+    # readers: src/dr_libs.c compiles their implementations, the other files
+    # include the headers. Both are third-party code, so the directory is a
+    # system include and that file is built without warnings, which keeps a
+    # -Wall -Wextra -Wconversion build about csnum's own sources. Its symbols
+    # are hidden: csnum uses them, but does not export them to clash with
+    # another plugin that bundles its own copy.
+    target_include_directories(csnum SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/dr_libs)
+    if(MSVC)
+        set_source_files_properties(src/dr_libs.c PROPERTIES COMPILE_OPTIONS "/w")
+    else()
+        set_source_files_properties(src/dr_libs.c PROPERTIES COMPILE_OPTIONS "-w;-fvisibility=hidden")
+    endif()
 
     if(WIN32)
         target_link_libraries(csnum PRIVATE ws2_32)

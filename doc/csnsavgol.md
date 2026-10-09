@@ -19,9 +19,12 @@ first derivative, and so on. Each row is already scaled by `d! / delta^d`, so
 `delta` — the spacing between samples — comes out in the units you asked for
 rather than per-sample.
 
-The matrix is the pseudo-inverse of the Vandermonde design matrix,
-`(A^T A)^-1 A^T` with `A[i][j] = (i - centre)^j`, which is how
-`scipy.signal.savgol_coeffs` computes the same numbers.
+The matrix is the pseudo-inverse of the Vandermonde design matrix
+`A[i][j] = (i - centre)^j`, the same numbers `scipy.signal.savgol_coeffs`
+gives. It is not computed from the normal equations `(A^T A)^-1 A^T`, which
+lose digits quickly as the order grows: a basis of polynomials orthonormal
+over the window ("Vandermonde with Arnoldi") gives every order up to
+`winsize - 1` within a few units in the last place.
 
 ### Applying it
 

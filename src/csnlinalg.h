@@ -95,17 +95,9 @@ typedef struct {
     bool is_published;
 } CSN_LINALG_DET_COMPLEX;
 
-typedef struct {
-    double *data;
-    double *transposed;
-    double *normal;
-    double *inversed;
-    double *pinversed;
-} CSN_SAVGOL_TEMP_BUFFER;
-
-/* Savitzky-Golay coefficient matrix C = (A^T A)^-1 A^T, row-major.
-   Row d holds the least-squares coefficients of the d-th derivative,
-   before the d! / delta^d scaling applied by get_coeffs(). */
+/* Savitzky-Golay coefficient matrix, row-major. Row d holds the weights of
+   the d-th derivative of the fit for a sample spacing of 1, before the
+   1 / delta^d scaling applied by get_coeffs(). */
 typedef struct {
     double *coeffs;
     uint32_t nrows; // order + 1

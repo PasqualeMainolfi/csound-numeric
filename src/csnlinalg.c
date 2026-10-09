@@ -850,144 +850,115 @@ static int32_t savgol_validate_params(CSOUND *csound, cs_float winsize_arg, cs_f
     return OK;
 }
 
-static int32_t savgol_allocate_temp_buffer(CSOUND *csound, CSN_SAVGOL_TEMP_BUFFER *buffer, uint32_t winsize, uint32_t ncoef) {
-    size_t design = sizeof(double) * (size_t) winsize * ncoef;
-    size_t square = sizeof(double) * (size_t) ncoef * ncoef;
-
-    double *data = NULL;
-    double *transposed = NULL;
-    double *normal = NULL;
-    double *inversed = NULL;
-    double *pinversed = NULL;
-
-    data = (double *) csound->Calloc(csound, design);
-    transposed = (double *) csound->Calloc(csound, design);
-    normal = (double *) csound->Calloc(csound, square);
-    inversed = (double *) csound->Calloc(csound, square);
-    pinversed = (double *) csound->Calloc(csound, design);
-
-    if (data == NULL || transposed == NULL || normal == NULL || inversed == NULL || pinversed == NULL) {
-        if (data != NULL) csound->Free(csound, data);
-        if (transposed != NULL) csound->Free(csound, transposed);
-        if (normal != NULL) csound->Free(csound, normal);
-        if (inversed != NULL) csound->Free(csound, inversed);
-        if (pinversed != NULL) csound->Free(csound, pinversed);
-        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
-    }
-
-    buffer->data = data;
-    buffer->transposed = transposed;
-    buffer->normal = normal;
-    buffer->inversed = inversed;
-    buffer->pinversed = pinversed;
-    return OK;
+static double savgol_dot(const double *a, const double *b, uint32_t n) {
+    double sum = 0.0;
+    for (uint32_t i = 0; i < n; i++) sum += a[i] * b[i];
+    return sum;
 }
 
-static void savgol_matrix_mult(const double *a, const double *b, double *c, uint32_t row_a, uint32_t col_a, uint32_t col_b) {
-    for (uint32_t i = 0; i < row_a; i++) {
-        for (uint32_t j = 0; j < col_b; j++) {
-            double sum = 0.0;
-            for (uint32_t k = 0; k < col_a; k++) {
-                sum += a[i * col_a + k] * b[k * col_b + j];
-            }
-            c[i * col_b + j] = sum;
-        }
-    }
-}
-
-static int32_t savgol_matrix_inverse(CSOUND *csound, const double *matrix, double *inverse, size_t n) {
-    double *work = (double *) csound->Calloc(csound, sizeof(double) * n * n);
-    if (work == NULL) {
-        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
-    }
-    memcpy(work, matrix, sizeof(double) * n * n);
-    linalg_diag(inverse, n, CSN_REAL);
-
-    CSN_LU_INFO info;
-    size_t *pivs = csound->Calloc(csound, sizeof(size_t) * n);
-    if (pivs == NULL) {
-        csound->Free(csound, work);
-        return csn_init_error(csound, "[csnarray] Internal error: memory allocation failed");
-    }
-
-    info.pivots = pivs;
-    if (lu_factor_real(work, n, &info) != OK) {
-        csound->Free(csound, info.pivots);
-        csound->Free(csound, work);
-        return csn_init_error(csound, "[csnarray] Could not calculate savgol inverse matrix");
-    }
-
-    if (lu_solve_real(work, &info, inverse, n) != OK){
-        csound->Free(csound, info.pivots);
-        csound->Free(csound, work);
-        return csn_init_error(csound, "[csnarray] Could not calculate savgol inverse matrix");
-    }
-
-    if (info.pivots != NULL) csound->Free(csound, info.pivots);
-    if (work != NULL) csound->Free(csound, work);
-    return OK;
-}
-
-static void savgol_deallocate_temp_buffer(CSOUND *csound, CSN_SAVGOL_TEMP_BUFFER *buffer) {
-    if (buffer->data != NULL) csound->Free(csound, buffer->data);
-    if (buffer->transposed != NULL) csound->Free(csound, buffer->transposed);
-    if (buffer->normal != NULL) csound->Free(csound, buffer->normal);
-    if (buffer->inversed != NULL) csound->Free(csound, buffer->inversed);
-    if (buffer->pinversed != NULL) csound->Free(csound, buffer->pinversed);
-    memset(buffer, 0, sizeof(*buffer));
-}
-
-static double factorial(uint32_t n) {
-    double fac = 1.0;
-    for (uint32_t i = 2; i <= n; i++) fac *= (double) i;
-    return fac;
-}
-
-/* Row deriv of the coefficient matrix, scaled by deriv! / delta^deriv so that
-   the convolution yields the deriv-th derivative of the fitted polynomial. */
+/* Row deriv of the coefficient matrix, scaled by 1 / delta^deriv so that the
+   convolution yields the deriv-th derivative per unit of delta. */
 static void get_coeffs(const CSN_SAVGOL_BUFFER *sg, double *coeffs_buffer, uint32_t deriv, double delta) {
-    double scale = factorial(deriv) / pow(delta, (double) deriv);
+    double scale = 1.0 / pow(delta, (double) deriv);
     const double *row = sg->coeffs + (size_t) deriv * sg->ncols;
     for (uint32_t i = 0; i < sg->ncols; i++) {
         coeffs_buffer[i] = row[i] * scale;
     }
 }
 
-/* Fills sg->coeffs (ncoef * winsize doubles, allocated by the caller) with
-   the pseudo-inverse of the Vandermonde design matrix. */
-static int32_t calculate_savgol_coeffs(CSOUND *csound, CSN_SAVGOL_BUFFER *sg, uint32_t winsize, uint32_t ncoef) {
-    CSN_SAVGOL_TEMP_BUFFER temp = {0};
-    int res = savgol_allocate_temp_buffer(csound, &temp, winsize, ncoef);
-    if (res != OK) return res;
+/* Fills sg->coeffs (ncoef * winsize doubles, allocated by the caller): row d
+   holds the weights giving the d-th derivative of the least-squares fit at
+   the centre of the window, for a sample spacing of 1. Silent: NOTOK when
+   memory runs out or the arithmetic breaks down, which distinct abscissae
+   otherwise rule out, and the caller reports it.
 
-    // Vandermonde matrix: A[i][j] = (i - center)^j
-    double center = (double) (winsize - 1U) * 0.5;
-    double value = 1.0;
-    for (uint32_t i = 0; i < winsize; i++) {
-        double x = (double) i - center;
-        for (uint32_t j = 0; j < ncoef; j++) {
-            value = j == 0 ? 1.0 : value * x;
-            temp.data[i * ncoef + j] = value;
-            temp.transposed[j * winsize + i] = value;
+   The normal equations (A^T A)^-1 A^T square the exponential conditioning
+   of the Vandermonde matrix A[i][j] = (i - centre)^j: they lose digits from
+   about order 10 and leave a pivot too small to trust well before the order
+   reaches the window, at 41/20 or even 101/8. Instead the abscissae are
+   scaled to [-1, 1] and Arnoldi iteration (Gram-Schmidt run twice, as in
+   Brubeck, Nakatsukasa and Trefethen, "Vandermonde with Arnoldi", SIAM
+   Review 63, 2021) builds polynomials q_0 .. q_o orthonormal over the
+   window. The fit is the projection sum_k (q_k . y) q_k, and its derivatives
+   at the centre follow from the recurrence that defines q_k, differentiated.
+   Every accepted order comes out within a few ulps of the exact
+   coefficients. */
+static int32_t calculate_savgol_coeffs(CSOUND *csound, CSN_SAVGOL_BUFFER *sg, uint32_t winsize, uint32_t ncoef) {
+    double half = (double) (winsize - 1U) * 0.5;
+    double *t = (double *) csound->Calloc(csound, sizeof(double) * (size_t) winsize);
+    double *q = (double *) csound->Calloc(csound, sizeof(double) * (size_t) ncoef * winsize);
+    double *h = (double *) csound->Calloc(csound, sizeof(double) * (size_t) ncoef * ncoef);
+    double *deriv = (double *) csound->Calloc(csound, sizeof(double) * (size_t) ncoef * ncoef);
+    int32_t res = t != NULL && q != NULL && h != NULL && deriv != NULL ? OK : NOTOK;
+
+    if (res == OK) {
+        for (uint32_t i = 0; i < winsize; i++) {
+            t[i] = ((double) i - half) / half;
+            q[i] = 1.0 / sqrt((double) winsize);
         }
     }
 
-    // normal = A^T * A
-    savgol_matrix_mult(temp.transposed, temp.data, temp.normal, ncoef, winsize, ncoef);
+    /* Arnoldi: q_k = (t * q_{k-1} - sum_j h[j][k] q_j) / h[k][k]. */
+    for (uint32_t k = 1; k < ncoef && res == OK; k++) {
+        double *qk = q + (size_t) k * winsize;
+        const double *prev = qk - winsize;
 
-    if (savgol_matrix_inverse(csound, temp.normal, temp.inversed, ncoef) != OK) {
-        savgol_deallocate_temp_buffer(csound, &temp);
-        return csn_init_error(csound, "[csnarray] Could not calculate savgol matrix");
+        for (uint32_t i = 0; i < winsize; i++) qk[i] = t[i] * prev[i];
+
+        for (int32_t pass = 0; pass < 2; pass++) {
+            for (uint32_t j = 0; j < k; j++) {
+                const double *qj = q + (size_t) j * winsize;
+                double c = savgol_dot(qj, qk, winsize);
+                h[j * ncoef + k] += c;
+                for (uint32_t i = 0; i < winsize; i++) qk[i] -= c * qj[i];
+            }
+        }
+
+        double norm = sqrt(savgol_dot(qk, qk, winsize));
+        if (!(norm > 0.0) || !isfinite(norm)) {
+            res = NOTOK;
+            break;
+        }
+        h[k * ncoef + k] = norm;
+        for (uint32_t i = 0; i < winsize; i++) qk[i] /= norm;
     }
 
-    // pinversed = (A^T A)^-1 * A^T
-    savgol_matrix_mult(temp.inversed, temp.transposed, temp.pinversed, ncoef, ncoef, winsize);
-    memcpy(sg->coeffs, temp.pinversed, sizeof(double) * (size_t) ncoef * winsize);
+    if (res == OK) {
+        /* deriv[d][k] is the d-th derivative of q_k at t = 0; q_k has degree
+           k, so the higher derivatives stay zero. */
+        deriv[0] = 1.0 / sqrt((double) winsize);
+        for (uint32_t k = 1; k < ncoef; k++) {
+            double hkk = h[k * ncoef + k];
+            for (uint32_t d = 0; d <= k; d++) {
+                double sum = d > 0 ? (double) d * deriv[(d - 1) * ncoef + k - 1] : 0.0;
+                for (uint32_t j = 0; j < k; j++) sum -= h[j * ncoef + k] * deriv[d * ncoef + j];
+                deriv[d * ncoef + k] = sum / hkk;
+            }
+        }
+
+        /* Sample i weighs sum_k deriv[d][k] q_k[i] in the d-th derivative of
+           the fit at the centre; 1 / half^d converts from t to samples. */
+        double scale = 1.0;
+        for (uint32_t d = 0; d < ncoef && res == OK; d++) {
+            double *row = sg->coeffs + (size_t) d * winsize;
+            for (uint32_t i = 0; i < winsize; i++) {
+                double sum = 0.0;
+                for (uint32_t k = d; k < ncoef; k++) sum += deriv[d * ncoef + k] * q[(size_t) k * winsize + i];
+                row[i] = sum * scale;
+                if (!isfinite(row[i])) res = NOTOK;
+            }
+            scale /= half;
+        }
+    }
+
+    if (t != NULL) csound->Free(csound, t);
+    if (q != NULL) csound->Free(csound, q);
+    if (h != NULL) csound->Free(csound, h);
+    if (deriv != NULL) csound->Free(csound, deriv);
+
     sg->nrows = ncoef;
     sg->ncols = winsize;
-
-    savgol_deallocate_temp_buffer(csound, &temp);
-    return OK;
+    return res;
 }
 
 int32_t csnarray_savgol_mat(CSOUND *csound, CSN_SAVGOL_MATRIX *p) {

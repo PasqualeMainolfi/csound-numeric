@@ -1567,6 +1567,44 @@ instr 7
     assert(iComplexType == 1)
     assert(iReParts[0] == 3 && iReParts[5] == 3)
     assert(iImParts[0] == -4 && iImParts[5] == -4)
+
+    ; csnsaveaudiofile writes a 32-bit float .wav, one channel per row, and
+    ; csnloadaudiofile reads it back with its sample rate. The values are
+    ; exact in single precision, so they come back unchanged.
+    iShape24[] = fillarray(2, 4)
+    iStereo:CsnArr = csnreshape(csnfromarray(array(0.5, -0.25, 1, 0, -0.5, 0.75, 0, 0.25)), iShape24)
+    csnsaveaudiofile "csnum_itime_stereo.wav", iStereo, 48000
+    iStereoBack:CsnArr, iStereoSr csnloadaudiofile "csnum_itime_stereo.wav"
+    iStereoShape[] = csnshape(iStereoBack)
+    iStereoValues[][] = csntoarray(iStereoBack)
+    assert(iStereoSr == 48000)
+    assert(iStereoShape[0] == 2 && iStereoShape[1] == 4)
+    assert(iStereoValues[0][0] == 0.5 && iStereoValues[0][1] == -0.25 && iStereoValues[0][3] == 0)
+    assert(iStereoValues[1][0] == -0.5 && iStereoValues[1][1] == 0.75 && iStereoValues[1][3] == 0.25)
+
+    ; mono = 1 on load averages the channels into a 1-D array
+    iMixed:CsnArr, iMixedSr csnloadaudiofile "csnum_itime_stereo.wav", 1
+    iMixedShape[] = csnshape(iMixed)
+    iMixedValues[] = csntoarray(iMixed)
+    assert(lenarray(iMixedShape) == 1 && iMixedShape[0] == 4)
+    assert(iMixedValues[0] == 0 && iMixedValues[1] == 0.25 && iMixedValues[2] == 0.5 && iMixedValues[3] == 0.125)
+
+    ; mono = 1 on save writes the average as one channel, which loads 1-D;
+    ; the extension is matched whatever its case
+    csnsaveaudiofile "csnum_itime_mixed.WAV", iStereo, 44100, 1
+    iMixedBack:CsnArr, iMixedBackSr csnloadaudiofile "csnum_itime_mixed.WAV"
+    iMixedBackValues[] = csntoarray(iMixedBack)
+    assert(iMixedBackSr == 44100 && csnsize(iMixedBack) == 4)
+    assert(iMixedBackValues[1] == 0.25 && iMixedBackValues[3] == 0.125)
+
+    ; a 1-D array is one channel and comes back 1-D
+    iMonoSource:CsnArr = csnfromarray(array(0.5, 0.25, -1))
+    csnsaveaudiofile "csnum_itime_mono.wav", iMonoSource, 22050
+    iMonoBack:CsnArr, iMonoSr csnloadaudiofile "csnum_itime_mono.wav"
+    iMonoShape[] = csnshape(iMonoBack)
+    iMonoValues[] = csntoarray(iMonoBack)
+    assert(iMonoSr == 22050 && lenarray(iMonoShape) == 1 && iMonoShape[0] == 3)
+    assert(iMonoValues[0] == 0.5 && iMonoValues[2] == -1)
 endin
 
 ; csnrtlock marks a handle as belonging to a real-time path, so neither it nor
@@ -2044,6 +2082,23 @@ instr 13
     iSgHalfDeriv:CsnArr = csncorrelate1d(iSgSignal, iSgHalfSlope, 2)
     iSgHalfValues[] = csntoarray(iSgHalfDeriv)
     assert(abs(iSgHalfValues[0] - 18) < 1e-9)
+
+    ; order winsize - 1 interpolates every sample, so the smoothing row is
+    ; the centre sample alone. The normal equations could not factor this
+    ; one, nor 101/8, and lost up to 4e-10 on the orders they still took.
+    iSgId:CsnArr = csnsavgol(21, 20)
+    iSgIdRow[] = csntoarray(csngetrow(iSgId, 0))
+    iSgIdk = 0
+    while iSgIdk < 21 do
+        assert(abs(iSgIdRow[iSgIdk] - (iSgIdk == 10 ? 1 : 0)) < 1e-12)
+        iSgIdk += 1
+    od
+
+    iSgLong:CsnArr = csnsavgol(101, 8)
+    iSgLongShape[] = csnshape(iSgLong)
+    assert(iSgLongShape[0] == 9 && iSgLongShape[1] == 101)
+    iSgLongSum = csnsum(csngetrow(iSgLong, 0))
+    assert(abs(iSgLongSum - 1) < 1e-12)
 
     ; ------------------------------------------------------------------
     ; Convolution and correlation. Every expected value here is what NumPy
@@ -4714,6 +4769,7 @@ e
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
 ; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
+; csnsaveaudiofile csnloadaudiofile
 ; csnwhere.hh csnwhere.hs csnputmask.hh csnputmask.hs csncompress csnminimum.hh csnminimum.hs csnmaximum.hh
 ; csnmaximum.hs csnatan2.hh csnatan2.hs csnatan2.sh csnrms csnrms.ax csnselect
 ; csnlikeset csnunlikeset csnsetinsert csnsetremove csnsetcontains csnsetunion csnsetintersect
