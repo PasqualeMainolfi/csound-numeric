@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0] - 2026-11-08
+## [1.0.0] - 2026-10-11
 
 - Fix *csnsavgol* refusing or miscomputing higher orders. The coefficients came from the normal equations, whose conditioning grows so fast with the order that 15/14, 41/20 and even 101/8 were refused as singular, and orders still accepted lost up to 4e-10 of relative accuracy. They now come from a polynomial basis orthonormal over the window (Vandermonde with Arnoldi), exact to a few ulps for every order up to `winsize - 1`, and a failure is reported once instead of three times
 - Add *csnloadaudiofile* and *csnsaveaudiofile*: read a `.wav`, `.mp3` or `.flac` file into an array, one row per channel or averaged into one, with the file's sample rate, and write an array as a 32-bit float `.wav`. The k forms act on a trigger, as *csnload* and *csnsave* do. The decoders are dr_wav, dr_mp3 and dr_flac, compiled into the plugin with their symbols kept private
