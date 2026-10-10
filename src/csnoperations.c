@@ -11,14 +11,6 @@
 #include <stdint.h>
 #include <string.h>
 
-static inline bool is_krate(const CSN_ARRAY *arr) {
-    return arr->rate == CSN_RATE_K;
-}
-
-static inline uint8_t rate_of(bool k) {
-    return k ? CSN_RATE_K : CSN_RATE_I;
-}
-
 /* Records z as the last scalar seen and reports whether it moved. */
 static bool complex_scalar_moved(const COMPLEXDAT *z, CSN_COMPLEXDAT *last) {
     double re = 0.0, im = 0.0;

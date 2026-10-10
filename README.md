@@ -9,7 +9,8 @@ library and make it more stable and reliable.*
 orchestra language: n-dimensional arrays with a shape and strides, elementwise
 math, axis-wise reductions, slicing, sorting, statistics, linear-algebra
 primitives, convolution, matrix solving, interpolation and resampling. `CsnArr`
-values can also be combined with the orchestra's arithmetic operators.
+values can also be combined with the orchestra's arithmetic operators, and read
+and written with `[]`: `v[i][j]` for one element, `v[start:end]` for a slice.
 
 The suite is deliberately narrow: it covers **array work only**. There is no
 signal generation and no GUI. Two doors lead out of that: `csnsave` / `csnload`
@@ -34,6 +35,9 @@ library. The plugin builds from C11 sources against the Csound plugin headers.
 
 - **Csound 7** (API 7.0). The plugin is not built for Csound 6: the opcodes rely
   on Csound 7 user-defined types for `CsnArr` and complex arguments.
+- `[]` on `CsnArr` (`v[i][j]`, `v[start:end]`) needs a Csound 7 build that lets
+  a plugin type provide it: csound PR #3363, merged after 7.0.0-beta.18. Before
+  it, `csnget`, `csnset` and `csngetslice` do the same work.
 - A C11 compiler and CMake ≥ 3.16.
 
 ## Building
@@ -166,6 +170,27 @@ operation that would overwrite values it still needs,
 or change the target's layout, is refused. The corresponding named opcodes
 (`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`) remain available, including
 their trigger forms.
+
+### Indexing with `[]`
+
+`v[i][j]` reads and writes one element, one index per dimension, and
+`v[start:end, step, axis]` reads a slice. The end of a slice is included, as in
+Csound's own `slicearray`, and the axis is 0 unless given.
+
+```csound
+iShape[] = fillarray(2, 3)
+M:CsnArr = csnreshape(csnarange(0, 6, 1), iShape)  // [[0, 1, 2], [3, 4, 5]]
+
+iValue = M[1][2]             // 5
+M[0][0] = 10                 // [[10, 1, 2], [3, 4, 5]]
+Cols:CsnArr = M[1:2, 1, 1]   // [[1, 2], [4, 5]]
+```
+
+A write with only i arguments runs once, at init; a k value or index makes it
+run on every control period, and the array k-rate. `[]` needs a Csound 7 build
+that lets a plugin type provide it (csound PR #3363, after 7.0.0-beta.18). See
+[Indexing and slicing with `[]`](doc/indexing.md) for the rules, including
+what the slice syntax cannot express.
 
 ### Choosing the rate: named opcodes take a trigger, operators a cast
 
@@ -314,7 +339,8 @@ csound --opcode-dir=build example/csnsort.csd
   function tables, copy, type and shape queries, and numpy-style printing.
 - **Shape and layout**: reshape, flatten, transpose, flip, roll, pad, truncate,
   head, resize, concat, insert, remove, push, pop.
-- **Indexing**: element get/set, slices, gathers, integer-bin counting
+- **Indexing**: element get/set, also as `v[i][j]`, slices, also as
+  `v[start:end, step, axis]`, gathers, integer-bin counting
   (`bincount`), insertion-point search (`searchsorted`), and the
   index-returning searches (`indexof`, `argwhere`, `argnonzero`, `argisnan`).
 - **Elementwise math**: the four operations plus power, log, divmod, hypot; the
@@ -406,7 +432,8 @@ csound --opcode-dir=build example/csnsort.csd
   normalisation, moving statistics, interpolation/resampling and 1-D
   convolution; all axes for flip, pad and truncate; last axis for FFT-like
   transforms, difference and sorting. Structural operations such as take,
-  slice and stack require an axis.
+  slice and stack require an axis; the slice syntax `v[start:end]` is the
+  exception, along axis 0 unless an axis follows the step.
 - **In-place forms.** Where it makes sense, the opcode that produces a new
   array also has a sibling under the same name that writes back into its source
   and returns nothing: `csnnormalize(data)` normalizes in place, while
@@ -533,6 +560,8 @@ entry means the operation lives outside NumPy proper.
 
 | csnum | NumPy | Notes |
 | --- | --- | --- |
+| `a[i][j]` | `a[i, j]` | One index per dimension; also `a[i][j] = v`. |
+| `a[start:end, step, axis]` | `np.take(a, range(start, end + 1, step), axis)` | End included, as Csound's `slicearray`; axis 0 by default. |
 | `csnget` | `a[i, j]` | Coordinates come in as an i-array. |
 | `csnset` | `a[i, j] = v` | |
 | `csngetrow` | `a[i, :]` | |

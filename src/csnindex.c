@@ -32,21 +32,50 @@ static int32_t get_index_offset(CSOUND *csound, OPDS *perf_h, size_t *offset, ui
     return OK;
 }
 
-static int32_t csnarray_resolve_item(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, ARRAYDAT *indexes, ITEM_TYPE expected_itype, size_t *out_offset) {
+/* The coordinates of one item: the elements of csnget's i[] argument, or the
+   indexes of v[i][j] gathered from their arguments. NULL data when csnget's
+   argument is not a 1-D array. */
+typedef struct {
+    const cs_float *data;
+    size_t count;
+} CSN_INDEXES;
+
+static CSN_INDEXES indexes_of_arraydat(const ARRAYDAT *indexes) {
+    if (indexes == NULL || indexes->data == NULL || indexes->sizes == NULL || indexes->dimensions != 1 || indexes->sizes[0] < 0) {
+        return (CSN_INDEXES) { NULL, 0 };
+    }
+    return (CSN_INDEXES) { indexes->data, (size_t) indexes->sizes[0] };
+}
+
+/* v[i][j] passes each index as its own argument; Csound writes a pointer for
+   each one given, and nothing past them. */
+static int32_t gather_indexes(CSOUND *csound, OPDS *perf_h, cs_float *const *args, size_t count, cs_float *buffer, CSN_INDEXES *out) {
+    if (count == 0 || count > CSN_MAX_DIMS) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Expected one index per dimension (at most %d), got %zu", CSN_MAX_DIMS, count);
+    }
+    for (size_t i = 0; i < count; i++) buffer[i] = *args[i];
+    *out = (CSN_INDEXES) { buffer, count };
+    return OK;
+}
+
+static int32_t csnarray_resolve_item(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_INDEXES indexes, ITEM_TYPE expected_itype, size_t *out_offset) {
     uint32_t ndim = source_arr->ndim;
 
     if (source_arr->itype != expected_itype) {
         if (expected_itype == CSN_COMPLEX) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a real array; use the real form of the accessor");
         }
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a complex array; declare the value as :Complex; to read or write it");
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a complex array; declare the value as :Complex; to read or write it (read an item with csnget)");
     }
 
-    if (indexes == NULL || indexes->data == NULL || indexes->sizes == NULL || indexes->dimensions != 1 || indexes->sizes[0] != (int32_t) ndim) {
+    if (indexes.data == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Index argument must be a 1-D array of exactly %u elements, one per dimension", ndim);
     }
+    if (indexes.count != (size_t) ndim) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Expected %u indexes, one per dimension, got %zu", ndim, indexes.count);
+    }
 
-    int32_t res = get_index_offset(csound, perf_h, out_offset, ndim, source_arr, indexes->data);
+    int32_t res = get_index_offset(csound, perf_h, out_offset, ndim, source_arr, indexes.data);
     if (res != OK) return res;
 
     if (*out_offset >= source_arr->size) {
@@ -56,7 +85,7 @@ static int32_t csnarray_resolve_item(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
     return OK;
 }
 
-static int32_t csnarray_get_set_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, ARRAYDAT *indexes, cs_float *value, bool is_get) {
+static int32_t csnarray_get_set_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_INDEXES indexes, cs_float *value, bool is_get) {
     if (value == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: null value pointer passed to the element accessor");
     }
@@ -83,7 +112,7 @@ static int32_t csnarray_get_set_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *
     return OK;
 }
 
-static int32_t csnarray_get_set_complex_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, ARRAYDAT *indexes, COMPLEXDAT *value, bool is_get) {
+static int32_t csnarray_get_set_complex_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_INDEXES indexes, COMPLEXDAT *value, bool is_get) {
     if (value == NULL) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: null value pointer passed to the element accessor");
     }
@@ -119,7 +148,7 @@ int32_t csnarray_get(CSOUND *csound, CSN_GET *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_locked(csound, NULL, p->source_handle, p->indexes, p->value, true);
+    int32_t res = csnarray_get_set_locked(csound, NULL, p->source_handle, indexes_of_arraydat(p->indexes), p->value, true);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -132,7 +161,7 @@ int32_t csnarray_get_k(CSOUND *csound, CSN_GET *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_locked(csound, &p->h, p->source_handle, p->indexes, p->value, true);
+    int32_t res = csnarray_get_set_locked(csound, &p->h, p->source_handle, indexes_of_arraydat(p->indexes), p->value, true);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -147,7 +176,7 @@ int32_t csnarray_get_complex(CSOUND *csound, CSN_GETCOMPLEX *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_complex_locked(csound, NULL, p->source_handle, p->indexes, p->value, true);
+    int32_t res = csnarray_get_set_complex_locked(csound, NULL, p->source_handle, indexes_of_arraydat(p->indexes), p->value, true);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -160,7 +189,7 @@ int32_t csnarray_get_complex_k(CSOUND *csound, CSN_GETCOMPLEX *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_complex_locked(csound, &p->h, p->source_handle, p->indexes, p->value, true);
+    int32_t res = csnarray_get_set_complex_locked(csound, &p->h, p->source_handle, indexes_of_arraydat(p->indexes), p->value, true);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -176,7 +205,7 @@ int32_t csnarray_set(CSOUND *csound, CSN_SET *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_locked(csound, NULL, p->source_handle, p->indexes, p->value, false);
+    int32_t res = csnarray_get_set_locked(csound, NULL, p->source_handle, indexes_of_arraydat(p->indexes), p->value, false);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -189,7 +218,7 @@ int32_t csnarray_set_k(CSOUND *csound, CSN_SET *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_locked(csound, &p->h, p->source_handle, p->indexes, p->value, false);
+    int32_t res = csnarray_get_set_locked(csound, &p->h, p->source_handle, indexes_of_arraydat(p->indexes), p->value, false);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -205,7 +234,7 @@ int32_t csnarray_set_complex(CSOUND *csound, CSN_SETCOMPLEX *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_complex_locked(csound, NULL, p->source_handle, p->indexes, p->value, false);
+    int32_t res = csnarray_get_set_complex_locked(csound, NULL, p->source_handle, indexes_of_arraydat(p->indexes), p->value, false);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
@@ -218,10 +247,112 @@ int32_t csnarray_set_complex_k(CSOUND *csound, CSN_SETCOMPLEX *p) {
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
-    int32_t res = csnarray_get_set_complex_locked(csound, &p->h, p->source_handle, p->indexes, p->value, false);
+    int32_t res = csnarray_get_set_complex_locked(csound, &p->h, p->source_handle, indexes_of_arraydat(p->indexes), p->value, false);
 
     if (pres.locked) csn_unlock(csound, reg);
     return res;
+}
+
+/* v[i][j]: Csound compiles indexing to ##array_get / ##array_set /
+   ##array_init, one index per dimension. A k form runs at perf only, as
+   kvar = x does: its init just binds the registry, and a k write marks the
+   array k-rate so whatever reads it follows it at perf. */
+static int32_t csnidx_bind(CSOUND *csound, OPDS *h, CSN_REGISTRY **registry) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    *registry = reg;
+    stamp_globals(csound, h);
+    return OK;
+}
+
+static int32_t csnidx_get_run(CSOUND *csound, OPDS *perf_h, CSN_IDX_GET *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, perf_h, reg);
+
+    cs_float buffer[CSN_MAX_DIMS];
+    CSN_INDEXES indexes;
+    int32_t res = gather_indexes(csound, perf_h, p->idx, (size_t) p->INOCOUNT - 1, buffer, &indexes);
+    if (res != OK) return res;
+
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    res = csnarray_get_set_locked(csound, perf_h, p->source_handle, indexes, p->value, true);
+    if (locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t csnidx_set_run(CSOUND *csound, OPDS *perf_h, CSN_IDX_SET *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, perf_h, reg);
+
+    // the array, the value, then the indexes
+    cs_float buffer[CSN_MAX_DIMS];
+    CSN_INDEXES indexes;
+    int32_t res = gather_indexes(csound, perf_h, p->idx, (size_t) p->INOCOUNT - 2, buffer, &indexes);
+    if (res != OK) return res;
+
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    res = csnarray_get_set_locked(csound, perf_h, p->source_handle, indexes, p->value, false);
+    if (locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t csnidx_setc_run(CSOUND *csound, OPDS *perf_h, CSN_IDX_SETC *p) {
+    CSN_REGISTRY *reg = p->registry;
+    CHECK_REGISTRY(csound, perf_h, reg);
+
+    // the array, the value, then the indexes
+    cs_float buffer[CSN_MAX_DIMS];
+    CSN_INDEXES indexes;
+    int32_t res = gather_indexes(csound, perf_h, p->idx, (size_t) p->INOCOUNT - 2, buffer, &indexes);
+    if (res != OK) return res;
+
+    bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    res = csnarray_get_set_complex_locked(csound, perf_h, p->source_handle, indexes, p->value, false);
+    if (locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnidx_get(CSOUND *csound, CSN_IDX_GET *p) {
+    int32_t res = csnidx_bind(csound, &p->h, &p->registry);
+    return res != OK ? res : csnidx_get_run(csound, NULL, p);
+}
+
+int32_t csnidx_get_k_init(CSOUND *csound, CSN_IDX_GET *p) {
+    return csnidx_bind(csound, &p->h, &p->registry);
+}
+
+int32_t csnidx_get_k(CSOUND *csound, CSN_IDX_GET *p) {
+    return csnidx_get_run(csound, &p->h, p);
+}
+
+/* "=" with i arguments, and init whatever the rate of its arguments: one
+   write, at init time. */
+int32_t csnidx_set(CSOUND *csound, CSN_IDX_SET *p) {
+    int32_t res = csnidx_bind(csound, &p->h, &p->registry);
+    return res != OK ? res : csnidx_set_run(csound, NULL, p);
+}
+
+int32_t csnidx_set_k_init(CSOUND *csound, CSN_IDX_SET *p) {
+    csn_mark_krate(p->source_handle);
+    return csnidx_bind(csound, &p->h, &p->registry);
+}
+
+int32_t csnidx_set_k(CSOUND *csound, CSN_IDX_SET *p) {
+    return csnidx_set_run(csound, &p->h, p);
+}
+
+int32_t csnidx_setc(CSOUND *csound, CSN_IDX_SETC *p) {
+    int32_t res = csnidx_bind(csound, &p->h, &p->registry);
+    return res != OK ? res : csnidx_setc_run(csound, NULL, p);
+}
+
+int32_t csnidx_setc_k_init(CSOUND *csound, CSN_IDX_SETC *p) {
+    csn_mark_krate(p->source_handle);
+    return csnidx_bind(csound, &p->h, &p->registry);
+}
+
+int32_t csnidx_setc_k(CSOUND *csound, CSN_IDX_SETC *p) {
+    return csnidx_setc_run(csound, &p->h, p);
 }
 
 static int32_t csnarray_get_rowcol_helper(CSOUND *csound, CSN_GET_ROWCOL *p, bool is_row) {
@@ -745,16 +876,43 @@ static int32_t slice_set_assign_value(const CSN_ARRAY *data, CSN_ARRAY *destinat
     return OK;
 }
 
-static int32_t csnarray_get_slice_impl(CSOUND *csound, CSN_GET_SLICE *p, bool is_ktime) {
+/* v[a:b] ends inclusive, and a negative end means the last element, as
+   Csound's own slicearray: the exclusive stop validate_slice_spec takes. */
+static int32_t native_slice_stop(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *arr, double axis, double start, double end, double *stop) {
+    CSN_AXIS_SPEC ax = csn_normalize_axis_value(axis, arr->ndim);
+    if (ax.kind != CSN_AXIS_INDEX) {
+        *stop = end; // validate_slice_spec reports the axis
+        return OK;
+    }
+    uint32_t extent = arr->shape[ax.index];
+    if (end < 0) {
+        *stop = (double) extent;
+        return OK;
+    }
+    if (end >= (double) extent) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Slice end %g is past the last index %d of axis %u", end, (int32_t) extent - 1, ax.index);
+    }
+    if (end < start) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Slice end %g comes before its start %g; the end is included", end, start);
+    }
+    *stop = end + 1.0;
+    return OK;
+}
+
+/* The slice behind csngetslice (exclusive stop) and v[a:b] (native: inclusive
+   end). The k form slices here only with a spec known at init. A k argument
+   reads 0 there, and it also fixes the slice's extents: the output keeps the
+   source's layout reserved but empty (a slice keeps the rank), and the first
+   performance pass slices. */
+static int32_t slice_init(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY *out_arr, K_DATA *k_data, cs_float *p_axis, cs_float *p_start, cs_float *p_stop, cs_float *p_step, bool is_ktime, bool native) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
     int32_t res = OK;
-    stamp_globals(csound, &p->h);
+    stamp_globals(csound, h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { arr, out_arr }, 2);
 
-    CSN_ARRAY *arr = p->source_handle;
     uint32_t ndim = arr->ndim;
     uint32_t shape[CSN_MAX_DIMS] = {0};
 
@@ -762,44 +920,90 @@ static int32_t csnarray_get_slice_impl(CSOUND *csound, CSN_GET_SLICE *p, bool is
     uint32_t start = 0;
     uint32_t step = 0;
     size_t output_size = 0;
-    /* The k form slices here only with a spec known at init. A k argument
-       reads 0 there, and it also fixes the slice's extents: the output keeps
-       the source's layout reserved but empty (a slice keeps the rank), and the
-       first performance pass slices. */
-    memset(&p->k_data, 0, sizeof(p->k_data));
-    p->k_data.registry = reg;
-    if (is_ktime && !(csn_known_at_init(csound, p->axis) && csn_known_at_init(csound, p->start)
-                      && csn_known_at_init(csound, p->stop) && csn_known_at_init(csound, p->step))) {
+    memset(k_data, 0, sizeof(*k_data));
+    k_data->registry = reg;
+    if (is_ktime && !(csn_known_at_init(csound, p_axis) && csn_known_at_init(csound, p_start) && csn_known_at_init(csound, p_stop) && csn_known_at_init(csound, p_step))) {
         const CSN_ARRAY *ops[1] = { arr };
-        CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, arr->shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+        CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, ndim, arr->shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
         res = out.err;
         pres.locked |= out.locked;
-        if (res == OK) reset_empty_csnarray(p->handle, ndim, arr->shape, arr->itype);
+        if (res == OK) reset_empty_csnarray(out_arr, ndim, arr->shape, arr->itype);
         goto done;
     }
-    double in_start = (double) *p->start;
-    double in_stop = (double) *p->stop;
-    double in_step = (double) *p->step;
-    double in_axis = (double) *p->axis;
-    res = validate_slice_spec(csound, NULL, arr, in_axis, in_start, in_stop, in_step, &axis, &start, &step, shape, &output_size);
+
+    double in_axis = (double) *p_axis;
+    double in_stop = (double) *p_stop;
+    if (native && (res = native_slice_stop(csound, NULL, arr, in_axis, (double) *p_start, in_stop, &in_stop)) != OK) goto done;
+    res = validate_slice_spec(csound, NULL, arr, in_axis, (double) *p_start, in_stop, (double) *p_step, &axis, &start, &step, shape, &output_size);
     if (res != OK) goto done;
 
     const CSN_ARRAY *ops[1] = { arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, NULL, reg, p->handle, ndim, shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    CSNARR_RES out = prepare_output(csound, h, NULL, reg, out_arr, ndim, shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (slice_get_assign_value(arr, p->handle, ndim, axis, start, step) != OK) {
+    if (slice_get_assign_value(arr, out_arr, ndim, axis, start, step) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid slice iterator layout");
         goto done;
     }
 
-    SET_KDATA_BEGIN(p->k_data, reg, shape, ndim, arr->itype);
-    if (is_ktime) {
-        PUBLISH_ELEMENTWISE(&p->k_data, arr, NULL, p->handle, (double) start, (double) step);
-        p->k_data.prev_axis_u = axis;
+    SET_KDATA_BEGIN(*k_data, reg, shape, ndim, arr->itype);
+    if (csn_is_k_form(h)) {
+        PUBLISH_ELEMENTWISE(k_data, arr, NULL, out_arr, (double) start, (double) step);
+        k_data->prev_axis_u = axis;
     }
+    /* v[a:b] with i bounds has a perf pass all the same, to follow a source
+       that changes at perf: prepare_output then makes its output k-rate, and
+       it is k only when the source is, as for the operators. */
+    if (!is_ktime && csn_is_k_form(h)) out_arr->rate = rate_of(is_krate(arr));
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t slice_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY *out_arr, K_DATA *k_data, const cs_float *p_axis, const cs_float *p_start, const cs_float *p_stop, const cs_float *p_step, bool native) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REGISTRY(csound, h, reg);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { arr, out_arr }, 2);
+
+    uint32_t ndim = arr->ndim;
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+
+    uint32_t axis = 0;
+    uint32_t start = 0;
+    uint32_t step = 0;
+    size_t output_size = 0;
+    double in_axis = (double) *p_axis;
+    double in_stop = (double) *p_stop;
+    if (native && (res = native_slice_stop(csound, h, arr, in_axis, (double) *p_start, in_stop, &in_stop)) != OK) goto done;
+    res = validate_slice_spec(csound, h, arr, in_axis, (double) *p_start, in_stop, (double) *p_step, &axis, &start, &step, shape, &output_size);
+    if (res != OK) goto done;
+
+    /* stop is not compared on its own: with start and step fixed it only sets
+       the sliced extent, which the recorded shape already holds, and two stops
+       giving the same extent give the same slice */
+    if (k_data->prev_axis_u == axis && k_data->prev_ndim == ndim
+        && memcmp(k_data->prev_shape, shape, sizeof(uint32_t) * ndim) == 0
+        && CAN_REUSE_ELEMENTWISE(k_data, arr, NULL, out_arr, (double) start, (double) step)) goto done;
+
+    const CSN_ARRAY *ops[1] = { arr };
+    CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, ndim, shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
+    res = out.err;
+    if (res != OK) goto done;
+    pres.locked |= out.locked;
+
+    if (slice_get_assign_value(arr, out_arr, ndim, axis, start, step) != OK) {
+        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid slice iterator layout");
+        goto done;
+    }
+    SET_KDATA_END(*k_data, shape, ndim, arr->itype);
+    PUBLISH_ELEMENTWISE(k_data, arr, NULL, out_arr, (double) start, (double) step);
+    k_data->prev_axis_u = axis;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -807,56 +1011,34 @@ done:
 }
 
 int32_t csnarray_get_slice(CSOUND *csound, CSN_GET_SLICE *p) {
-    return csnarray_get_slice_impl(csound, p, false);
+    return slice_init(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, false, false);
 }
 
 int32_t csnarray_get_slice_k_init(CSOUND *csound, CSN_GET_SLICE *p) {
-    return csnarray_get_slice_impl(csound, p, true);
+    return slice_init(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, true, false);
 }
 
 int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
+    return slice_perf(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, false);
+}
 
-    int32_t res = OK;
-    CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
+/* v[start:end, step, axis]: Csound compiles slice syntax to slicearray. */
+int32_t csnslicearray_init(CSOUND *csound, CSN_SLICEARRAY *p) {
+    return slice_init(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, false, true);
+}
 
-    CSN_ARRAY *arr = p->source_handle;
-    uint32_t ndim = arr->ndim;
-    uint32_t shape[CSN_MAX_DIMS] = {0};
+int32_t csnslicearray_perf(CSOUND *csound, CSN_SLICEARRAY *p) {
+    // The bounds are fixed: it slices again only while the source changes at perf
+    if (!is_krate(p->source_handle)) return OK;
+    return slice_perf(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, true);
+}
 
-    uint32_t axis = 0;
-    uint32_t start = 0;
-    uint32_t step = 0;
-    size_t output_size = 0;
-    res = validate_slice_spec(csound, &p->h, arr, (double) *p->axis, (double) *p->start, (double) *p->stop, (double) *p->step, &axis, &start, &step, shape, &output_size);
-    if (res != OK) goto done;
+int32_t csnslicearray_k_init(CSOUND *csound, CSN_SLICEARRAY *p) {
+    return slice_init(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, true, true);
+}
 
-    /* stop is not compared on its own: with start and step fixed it only sets
-       the sliced extent, which the recorded shape already holds, and two stops
-       giving the same extent give the same slice */
-    if (p->k_data.prev_axis_u == axis && p->k_data.prev_ndim == ndim
-        && memcmp(p->k_data.prev_shape, shape, sizeof(uint32_t) * ndim) == 0
-        && CAN_REUSE_ELEMENTWISE(&p->k_data, arr, NULL, p->handle, (double) start, (double) step)) goto done;
-
-    const CSN_ARRAY *ops[1] = { arr };
-    CSNARR_RES out = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
-    res = out.err;
-    if (res != OK) goto done;
-    pres.locked |= out.locked;
-
-    if (slice_get_assign_value(arr, p->handle, ndim, axis, start, step) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid slice iterator layout");
-        goto done;
-    }
-    SET_KDATA_END(p->k_data, shape, ndim, arr->itype);
-    PUBLISH_ELEMENTWISE(&p->k_data, arr, NULL, p->handle, (double) start, (double) step);
-    p->k_data.prev_axis_u = axis;
-
-done:
-    if (pres.locked) csn_unlock(csound, reg);
-    return res;
+int32_t csnslicearray_k_perf(CSOUND *csound, CSN_SLICEARRAY *p) {
+    return slice_perf(csound, &p->h, p->source_handle, p->handle, &p->k_data, p->axis, p->start, p->stop, p->step, true);
 }
 
 static int32_t csnarray_set_slice_locked(CSOUND *csound, OPDS *perf_h, CSN_SET_SLICE *p) {

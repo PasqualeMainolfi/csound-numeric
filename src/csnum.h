@@ -658,6 +658,39 @@ typedef struct {
     CSN_REGISTRY *registry;
 } CSN_SETCOMPLEX;
 
+/* v[i][j]: Csound passes each index as its own argument. */
+typedef struct {
+    OPDS h;
+    // outputs
+    cs_float *value;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *idx[VARGMAX]; // one per index; Csound writes a pointer for each one given
+    // private
+    CSN_REGISTRY *registry;
+} CSN_IDX_GET;
+
+/* v[i][j] = x and v[i][j] init x */
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *value;
+    cs_float *idx[VARGMAX];
+    // private
+    CSN_REGISTRY *registry;
+} CSN_IDX_SET;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    COMPLEXDAT *value;
+    cs_float *idx[VARGMAX];
+    // private
+    CSN_REGISTRY *registry;
+} CSN_IDX_SETC;
+
 typedef struct {
     OPDS h;
     // ouputs
@@ -708,6 +741,21 @@ typedef struct {
     // private
     K_DATA k_data;
 } CSN_GET_SLICE;
+
+/* v[start:end, step, axis]: Csound compiles slice syntax to slicearray. */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *start;
+    cs_float *stop; // inclusive; negative = last element
+    cs_float *step;
+    cs_float *axis;
+    // private
+    K_DATA k_data;
+} CSN_SLICEARRAY;
 
 typedef struct {
     OPDS h;
@@ -2443,6 +2491,19 @@ int32_t csnarray_take_flat_k(CSOUND *csound, CSN_TAKE_FLAT *p);
 int32_t csnarray_takecomp_flat_k(CSOUND *csound, CSN_TAKECOMPLEX_FLAT *p);
 int32_t csnarray_get_slice_k(CSOUND *csound, CSN_GET_SLICE *p);
 int32_t csnarray_set_slice_k(CSOUND *csound, CSN_SET_SLICE *p);
+int32_t csnidx_get(CSOUND *csound, CSN_IDX_GET *p);
+int32_t csnidx_get_k_init(CSOUND *csound, CSN_IDX_GET *p);
+int32_t csnidx_get_k(CSOUND *csound, CSN_IDX_GET *p);
+int32_t csnidx_set(CSOUND *csound, CSN_IDX_SET *p);
+int32_t csnidx_set_k_init(CSOUND *csound, CSN_IDX_SET *p);
+int32_t csnidx_set_k(CSOUND *csound, CSN_IDX_SET *p);
+int32_t csnidx_setc(CSOUND *csound, CSN_IDX_SETC *p);
+int32_t csnidx_setc_k_init(CSOUND *csound, CSN_IDX_SETC *p);
+int32_t csnidx_setc_k(CSOUND *csound, CSN_IDX_SETC *p);
+int32_t csnslicearray_init(CSOUND *csound, CSN_SLICEARRAY *p);
+int32_t csnslicearray_perf(CSOUND *csound, CSN_SLICEARRAY *p);
+int32_t csnslicearray_k_init(CSOUND *csound, CSN_SLICEARRAY *p);
+int32_t csnslicearray_k_perf(CSOUND *csound, CSN_SLICEARRAY *p);
 int32_t csnarray_push_k(CSOUND *csound, CSN_PUSH_K *p);
 int32_t csnarray_pushcomp_k(CSOUND *csound, CSN_PUSHCOMPLEX_K *p);
 int32_t csnarray_pop_k(CSOUND *csound, CSN_POP_K *p);

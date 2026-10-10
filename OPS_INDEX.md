@@ -90,6 +90,12 @@ including Fortran-order files. A zero trigger does not touch the disk.
 
 ## Indexing and selection
 
+`CsnArr` also takes `[]`: `v[i][j]` reads and writes one element, one index per
+dimension (a complex element is written, and read with `csnget`), and
+`v[start:end, step, axis]` reads a slice, end included as in Csound's
+`slicearray`, along axis 0 by default (i, k — real, complex). See
+[Indexing and slicing with `[]`](doc/indexing.md).
+
 - **csnget** - reads one element by coordinates (i, k — real, complex)
 - **csngetrow** - extracts one row of a 2-D array as a vector (i, k — real, complex)
 - **csngetcol** - extracts one column of a 2-D array as a vector (i, k — real, complex)

@@ -93,6 +93,9 @@ support of each opcode.
 
 ## Indexing and selection
 
+`v[i][j]` reads and writes one element and `v[start:end, step, axis]` reads a
+slice, end included; see [Indexing and slicing with `[]`](indexing.md).
+
 - [csnget](csnget.md) - reads one element by coordinates
 - [csngetrow](csngetrow.md) - extracts one row of a 2-D array as a vector
 - [csngetcol](csngetcol.md) - extracts one column of a 2-D array as a vector

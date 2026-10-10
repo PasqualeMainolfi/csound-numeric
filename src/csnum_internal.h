@@ -68,6 +68,12 @@ static inline bool csn_known_at_init(CSOUND *csound, void *arg) {
    so whatever reads it must follow it there. */
 static inline void csn_mark_krate(CSN_ARRAY *arr) { arr->rate = CSN_RATE_K; }
 
+/* For the opcodes that always have a perf pass (operators, slicearray): they
+   recompute only while an operand is k-rate, and their output is k-rate only
+   then. */
+static inline bool is_krate(const CSN_ARRAY *arr) { return arr->rate == CSN_RATE_K; }
+static inline uint8_t rate_of(bool k) { return k ? CSN_RATE_K : CSN_RATE_I; }
+
 /* The binary-operation cores behind the csnadd family and the operators. */
 int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode, bool perf_redoes);
 int32_t csn_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_BINOP_MODE mode);

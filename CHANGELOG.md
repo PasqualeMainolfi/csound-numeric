@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0] - 2026-10-08
+## [1.0.0] - 2026-11-08
 
 - Fix *csnsavgol* refusing or miscomputing higher orders. The coefficients came from the normal equations, whose conditioning grows so fast with the order that 15/14, 41/20 and even 101/8 were refused as singular, and orders still accepted lost up to 4e-10 of relative accuracy. They now come from a polynomial basis orthonormal over the window (Vandermonde with Arnoldi), exact to a few ulps for every order up to `winsize - 1`, and a failure is reported once instead of three times
 - Add *csnloadaudiofile* and *csnsaveaudiofile*: read a `.wav`, `.mp3` or `.flac` file into an array, one row per channel or averaged into one, with the file's sample rate, and write an array as a 32-bit float `.wav`. The k forms act on a trigger, as *csnload* and *csnsave* do. The decoders are dr_wav, dr_mp3 and dr_flac, compiled into the plugin with their symbols kept private
@@ -8,6 +8,10 @@
 - Remove *csnfree*: nothing is left for it to release
 - Add the rate casts *csnk* and *csni*. An array carries its rate, and the operators run at performance time only while one of their operands is k-rate, so an array built from i-rate arguments was updated once, at init. `csnk A` marks an array k-rate in place, from that line on, so that `A += B` accumulates on every control period; `csnk(A)` returns a k-rate copy, retaken only when `A` changes, for one expression at k; `csni(A)` returns a copy frozen at init, the counterpart of `i()`. `csni A` in place is refused on an array that is already k-rate, since the rate only rises. Named opcodes keep choosing their rate by the trigger
 - Add operators on `CsnArr`: `+`, `-`, `*`, `/` and `^` between two arrays, an array and an i or k scalar either way round, and an array and a `:Complex;`, the compound `+=`, `-=`, `*=` and `/=`, and unary minus. An operator runs at init, and again on every pass while one of its operands is a k-rate result
+- Add `[]` on `CsnArr`: `v[i][j]` reads a real element and writes a real or `:Complex;` one, one index per dimension, and `v[i][j] init x` writes once at init. An access with only i arguments runs once, at init; a k value or index makes it run on every control period, and a k write makes the array k-rate so that the operators on it follow. A complex element is read with *csnget*: Csound types `v[i]` before it knows whether the array is complex
+- Add Csound's slice syntax on `CsnArr`: `v[start:end, step, axis]` returns a copy of the range, end included as in Csound's own `slicearray`, a negative or omitted end meaning the last element, along axis 0 unless given. With i bounds it follows a k-rate source; with a k bound it is retaken every control period. *csngetslice* keeps its excluded stop
+- Report a wrong number of coordinates to *csnget* and *csnset* as `Expected N indexes, one per dimension, got M`, the message `[]` gives
+- Register the opcodes once per Csound instance. Csound can initialise a plugin from the plugin directory twice with the same type pool, which appended every opcode twice; harmless until `[]`, which counts two identical entries as ambiguous
 - Split the i-only and the k forms of *csntranspose* and *csnflatten*, in place and not: the k forms take a trigger, and a call without one now transforms once at init
 - Write a result over one of its own operands only where that is safe: elementwise opcodes compute in place, the rest refuse it at init with a message naming the operand. A k form whose output is its own operand computes from the first pass, never also at init
 - Compute a k form at init only when every argument its result depends on is known there: a constant, an i variable or an array. A k scalar still reads 0 at init, so with one the output is laid out, empty or reserved, and the first pass computes it, where it used to compute from the 0 or publish a copy of the source in its place. *csntoarray* at k-rate accepts such an empty result at init
@@ -23,6 +27,7 @@
 - Fix the k-rate *csncopy* leaving its output at the source's rate: an i-rate source made the result i-rate, so an operator applied to it, `X += Y` among them, never ran at performance time
 - End every error message with a line break. Csound 7 no longer adds one after `InitError` and `PerfError` (develop, October 2026), so csnum's messages ran into the next line of the console. They now go through two helpers, `csn_init_error` and `csn_perf_error`, that format the message and end it, with the compiler checking the format against its arguments
 - Run the regression suite isolated from an installed csnum, and under AddressSanitizer on macOS through a generated launcher
+- Find the prebuilt `version.h` of a Csound source checkout under `platform/android/CsoundAndroid/jni`, where 7.0.0-beta.18 moved it, as well as under the old `Android/` path: the release builds against beta.18 headers stopped at `version.h` not found. The release headers are now pinned to csound develop at 3d4e795, which has `[]` for plugin types (PR #3363)
 - Replace `MYFLT` with `cs_float` and the `MYFLT2*` conversions with `CS_FLOAT2*` throughout the sources, following Csound 7, where `MYFLT` is kept only as a deprecated alias and warns on every use. Both name the same type, so the plugin's binary interface is unchanged; the sources now need Csound 7 headers that define `cs_float`
 
 ## [0.1.12] - 2026-09-30

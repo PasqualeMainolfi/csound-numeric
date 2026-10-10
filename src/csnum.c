@@ -1596,6 +1596,22 @@ static OENTRY localops[] = {
     { "##divin.Hi",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "i",                             (SUBR) csnop_divin_hi_init,                  (SUBR) csnop_divin_hs_perf,             NULL,                                    NULL, 0 },
     { "##divin.Hk",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "k",                             (SUBR) csnop_divin_hk_init,                  (SUBR) csnop_divin_hs_perf,             NULL,                                    NULL, 0 },
     { "=.CsnArr",                S(CSN_OP_ASSIGN),                0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_assign_init,                    (SUBR) csnop_assign_perf,               NULL,                                    NULL, 0 },
+
+    // []: Csound compiles v[i][j] to ##array_get/##array_set/##array_init, one index per dimension
+    { "##array_get.H",           S(CSN_IDX_GET),                  0, "i",                       ":CsnArr;m",                     (SUBR) csnidx_get,                            NULL,                                  NULL,                                    NULL, 0 },
+    { "##array_get.H.k",         S(CSN_IDX_GET),                  0, "k",                       ":CsnArr;z",                     (SUBR) csnidx_get_k_init,                     (SUBR) csnidx_get_k,                   NULL,                                    NULL, 0 },
+    { "##array_set.H",           S(CSN_IDX_SET),                  0, "",                        ":CsnArr;im",                    (SUBR) csnidx_set,                            NULL,                                  NULL,                                    NULL, 0 },
+    { "##array_set.H.k",         S(CSN_IDX_SET),                  0, "",                        ":CsnArr;kz",                    (SUBR) csnidx_set_k_init,                     (SUBR) csnidx_set_k,                   NULL,                                    NULL, 0 },
+    { "##array_set.Hc",          S(CSN_IDX_SETC),                 0, "",                        ":CsnArr;:Complex;m",            (SUBR) csnidx_setc,                           NULL,                                  NULL,                                    NULL, 0 },
+    { "##array_set.Hc.k",        S(CSN_IDX_SETC),                 0, "",                        ":CsnArr;:Complex;z",            (SUBR) csnidx_setc_k_init,                    (SUBR) csnidx_setc_k,                  NULL,                                    NULL, 0 },
+    { "##array_init.H",          S(CSN_IDX_SET),                  0, "",                        ":CsnArr;iz",                    (SUBR) csnidx_set,                            NULL,                                  NULL,                                    NULL, 0 },
+    { "##array_init.H.k",        S(CSN_IDX_SET),                  0, "",                        ":CsnArr;kz",                    (SUBR) csnidx_set,                            NULL,                                  NULL,                                    NULL, 0 },
+
+    // v[a:b, step, axis]: Csound compiles slice syntax to slicearray(v, a, b, step, axis); end inclusive, omitted end = -1 (last), axis 0 by default
+    { "slicearray.H",            S(CSN_SLICEARRAY),               0, ":CsnArr;",                ":CsnArr;ijpo",                  (SUBR) csnslicearray_init,                    (SUBR) csnslicearray_perf,             NULL,                                    NULL, 0 },
+    { "slicearray.H.k",          S(CSN_SLICEARRAY),               0, ":CsnArr;",                ":CsnArr;kJPO",                  (SUBR) csnslicearray_k_init,                  (SUBR) csnslicearray_k_perf,           NULL,                                    NULL, 0 },
+    // ---
+
     { "csnadd",                  S(CSN_BINOP_HH),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_add_hh,                      NULL,                                   NULL,                                    NULL, 0 },
     { "csnadd.k",                S(CSN_BINOP_HH),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;k",             (SUBR) csnarray_add_hh_k_init,               (SUBR) csnarray_add_hh_k,               NULL,                                    NULL, 0 },
     { "csnadd.hs",               S(CSN_BINOP_HS),                 0, ":CsnArr;",                 ":CsnArr;i",                     (SUBR) csnarray_add_hs,                      NULL,                                   NULL,                                    NULL, 0 },
@@ -2084,6 +2100,14 @@ PUBLIC int32_t csoundModuleCreate(CSOUND *csound) {
 
 PUBLIC int32_t csoundModuleInit(CSOUND *csound) {
     if (csound->GetTypePool(csound) == NULL) {
+        return CSOUND_SUCCESS;
+    }
+
+    /* Csound can initialise a plugin from the plugin directory twice with the
+       same type pool. A second copy of the opcodes is harmless to ordinary
+       lookups, but [] counts identical ##array_get entries as ambiguous: the
+       type being there already means this instance has the opcodes. */
+    if (csound->GetType(csound, "CsnArr") != NULL) {
         return CSOUND_SUCCESS;
     }
 

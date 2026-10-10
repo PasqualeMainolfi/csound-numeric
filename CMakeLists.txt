@@ -56,7 +56,9 @@ set(CSOUND_EXTRA_INCLUDE_DIRS "" CACHE STRING
 if(NOT EXISTS "${CSOUND_INCLUDE_DIR}/version.h")
     find_file(CSOUND_VERSION_H version.h
         PATHS "${CSOUND_INCLUDE_DIR}/.."
-        PATH_SUFFIXES Android/CsoundAndroid/jni
+        # A source checkout ships one, prebuilt, for Android: moved under
+        # platform/ in 7.0.0-beta.18
+        PATH_SUFFIXES platform/android/CsoundAndroid/jni Android/CsoundAndroid/jni
         NO_DEFAULT_PATH)
     if(CSOUND_VERSION_H)
         get_filename_component(_vdir "${CSOUND_VERSION_H}" DIRECTORY)
@@ -227,6 +229,29 @@ if(BUILD_TESTING)
                 --opcode-dir=$<TARGET_FILE_DIR:csnum>
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/compound_operators_regression.csd")
+        add_test(
+            NAME csnum_indexing_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/indexing_regression.csd")
+        add_test(
+            NAME csnum_index_count_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/index_count_rejected.csd")
+        set_tests_properties(csnum_index_count_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "PERF ERROR in instr 1 \\(opcode ##array_get\\).*Expected 2 indexes, one per dimension, got 1")
+        add_test(
+            NAME csnum_slice_end_rejected
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/slice_end_rejected.csd")
+        set_tests_properties(csnum_slice_end_rejected PROPERTIES
+            PASS_REGULAR_EXPRESSION "INIT ERROR in instr 1 \\(opcode slicearray.H\\).*Slice end 6 is past the last index 5 of axis 0")
         add_test(
             NAME csnum_rtbutter_audio_regression
             COMMAND "${CSOUND_EXECUTABLE}"
