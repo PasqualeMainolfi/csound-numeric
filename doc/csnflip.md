@@ -14,6 +14,12 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+Both forms also take a `:CsnStr;`. The copy duplicates every string, so it
+owns its own; the in-place form only swaps the strings it already holds,
+allocating nothing, so it may run on a real-time path. A k form that copies
+strings allocates, so it is refused on an output marked for a real-time path.
+See [string arrays](string-arrays.md).
+
 [csnreverse](csnreverse.md) is the flat reversal said directly, with no axis
 argument to give.
 
@@ -28,17 +34,25 @@ csnflip(source:CsnArr)
 csnflip(source:CsnArr, axis:i)
 csnflip(source:CsnArr, trig:k)
 csnflip(source:CsnArr, trig:k, axis:k)
+out:CsnStr = csnflip(source:CsnStr)
+out:CsnStr = csnflip(source:CsnStr, axis:i)
+out:CsnStr = csnflip(source:CsnStr, trig:k)
+out:CsnStr = csnflip(source:CsnStr, trig:k, axis:k)
+csnflip(source:CsnStr)
+csnflip(source:CsnStr, axis:i)
+csnflip(source:CsnStr, trig:k)
+csnflip(source:CsnStr, trig:k, axis:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to reverse.
+* `source:CsnArr / source:CsnStr`: the array to reverse.
 * `axis:i / axis:k` (optional): the axis to reverse along. Omit it to reverse every axis; explicit negative values count from the end, so `-1` is the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger, placed before an explicit axis.
 
 ## Output
 
-* `out:CsnArr`: the reversed array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the reversed array. Omit it for the in-place form.
 
 ## Execution Time
 

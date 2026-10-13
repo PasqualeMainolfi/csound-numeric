@@ -22,13 +22,15 @@ overload, and [csntype](csntype.md) reports `2` for one.
 - Slices: [csngetslice](csngetslice.md) and `v[start:end, step, axis]`.
 - Queries: [csnsize](csnsize.md), [csndims](csndims.md),
   [csnshape](csnshape.md), [csnisempty](csnisempty.md), [csntype](csntype.md).
-- Layout in place: [csnreshape](csnreshape.md), [csnflatten](csnflatten.md).
+- Layout, as a copy or in place: [csnreshape](csnreshape.md),
+  [csnflatten](csnflatten.md), [csntranspose](csntranspose.md),
+  [csnflip](csnflip.md), [csnroll](csnroll.md), [csnreverse](csnreverse.md).
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md) in place,
   [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The forms that return a reordered copy (`csnreshape` and `csnflatten` with an
-output, `csntranspose`, `csnflip`, `csnconcat`, ...) are numeric only for now.
+The other opcodes that build an array from pieces of others (`csnconcat`,
+`csnstack`, `csntake`, `csnpad`, ...) are numeric only for now.
 
 ## Rate and real-time paths
 
@@ -41,7 +43,11 @@ Writing a string allocates. A k-rate pass that writes strings is therefore
 refused on an array marked for a [real-time path](csnrtlock.md), with a message
 that names the opcode; build the array at init instead, or clear the mark. An
 element set to the string it already holds is no write and allocates nothing,
-so a k-rate `csnset` of an unchanged value is free.
+so a k-rate `csnset` of an unchanged value is free. Reordering in place
+(`csntranspose`, `csnflip`, `csnroll`, `csnreverse` without an output) only
+moves the strings the array already holds, so it allocates nothing and is
+allowed there; the k forms that return a copy are refused like any other
+writer.
 
 ## Files
 

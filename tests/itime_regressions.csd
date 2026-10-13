@@ -702,6 +702,73 @@ instr 3
     csnreshape(iStrFlat, iShape22)
     iStrReshapedDims = csndims(iStrFlat)
     assert(iStrFlatDims == 1 && iStrReshapedDims == 2)
+    ; The copying forms duplicate the strings: writing the copy leaves the
+    ; source alone, and a transpose moves them to the transposed slots.
+    SStrGrid[] fillarray "a", "b", "c", "d", "e", "f"
+    iStrGrid:CsnStr = csnfromarray(SStrGrid)
+    iStrShape23[] = fillarray(2, 3)
+    iStrMat:CsnStr = csnreshape(iStrGrid, iStrShape23)
+    iStrLine:CsnStr = csnflatten(iStrMat)
+    iStrT:CsnStr = csntranspose(iStrMat)
+    iStrAxes[] = fillarray(1, 0)
+    iStrTAx:CsnStr = csntranspose(iStrMat, iStrAxes)
+    iStrIdx21[] = fillarray(2, 1)
+    iStrIdx00[] = fillarray(0, 0)
+    csnset(iStrMat, iStrIdx00, "z")
+    SStrMat00 = csnget(iStrMat, iStrIdx00)
+    SStrT00 = csnget(iStrT, iStrIdx00)
+    iStrMat00Cmp = strcmp(SStrMat00, "z")
+    iStrT00Cmp = strcmp(SStrT00, "a")
+    assert(iStrMat00Cmp == 0 && iStrT00Cmp == 0)
+    SStrT21 = csnget(iStrT, iStrIdx21)
+    SStrTAx21 = csnget(iStrTAx, iStrIdx21)
+    SStrLine0 = iStrLine[0]
+    SStrGrid0 = iStrGrid[0]
+    iStrT21Cmp = strcmp(SStrT21, "f")
+    iStrTAx21Cmp = strcmp(SStrTAx21, "f")
+    iStrLine0Cmp = strcmp(SStrLine0, "a")
+    iStrGrid0Cmp = strcmp(SStrGrid0, "a")
+    assert(iStrT21Cmp == 0 && iStrTAx21Cmp == 0 && iStrLine0Cmp == 0 && iStrGrid0Cmp == 0)
+    csntranspose(iStrMat)
+    csntranspose(iStrMat, iStrAxes)
+    csntranspose(iStrMat)
+    iStrMatShape[] = csnshape(iStrMat)
+    SStrMat21 = csnget(iStrMat, iStrIdx21)
+    iStrMat21Cmp = strcmp(SStrMat21, "f")
+    assert(iStrMatShape[0] == 3 && iStrMatShape[1] == 2 && iStrMat21Cmp == 0)
+    ; flip, roll and reverse: a copy owns its strings, in place they are
+    ; only moved. iStrMat is now [[z d] [b e] [c f]].
+    iStrFlipped:CsnStr = csnflip(iStrMat)
+    iStrFlipped0:CsnStr = csnflip(iStrMat, 0)
+    iStrRolled:CsnStr = csnroll(iStrMat, 1)
+    iStrRolledAx:CsnStr = csnroll(iStrMat, 1, 1)
+    iStrReversed:CsnStr = csnreverse(iStrMat)
+    SStrFlipped = csnget(iStrFlipped, iStrIdx00)
+    SStrFlipped0 = csnget(iStrFlipped0, iStrIdx00)
+    SStrRolled = csnget(iStrRolled, iStrIdx00)
+    SStrRolledAx = csnget(iStrRolledAx, iStrIdx00)
+    SStrReversed = csnget(iStrReversed, iStrIdx00)
+    iStrFlippedCmp = strcmp(SStrFlipped, "f")
+    iStrFlipped0Cmp = strcmp(SStrFlipped0, "c")
+    iStrRolledCmp = strcmp(SStrRolled, "f")
+    iStrRolledAxCmp = strcmp(SStrRolledAx, "d")
+    iStrReversedCmp = strcmp(SStrReversed, "f")
+    assert(iStrFlippedCmp == 0 && iStrFlipped0Cmp == 0 && iStrRolledCmp == 0 && iStrRolledAxCmp == 0 && iStrReversedCmp == 0)
+    csnflip(iStrMat)
+    csnflip(iStrMat, 1)
+    csnroll(iStrMat, 2)
+    csnroll(iStrMat, -1, 0)
+    csnreverse(iStrMat)
+    ; [[z d] [b e] [c f]] -> flip [[f c] [e b] [d z]] -> flip 1 [[c f] [b e] [z d]]
+    ; -> roll 2 [[z d] [c f] [b e]] -> roll -1 axis 0 [[c f] [b e] [z d]]
+    ; -> reverse [[d z] [e b] [f c]]
+    SStrInPlace = csnget(iStrMat, iStrIdx00)
+    SStrInPlace21 = csnget(iStrMat, iStrIdx21)
+    SStrFlippedAfter = csnget(iStrFlipped, iStrIdx00)
+    iStrInPlaceCmp = strcmp(SStrInPlace, "d")
+    iStrInPlace21Cmp = strcmp(SStrInPlace21, "c")
+    iStrFlippedAfterCmp = strcmp(SStrFlippedAfter, "f")
+    assert(iStrInPlaceCmp == 0 && iStrInPlace21Cmp == 0 && iStrFlippedAfterCmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -4801,8 +4868,10 @@ e
 ; csnquantile.ax csnlogicand.hh csnlogicor.hh csnlogicand.hs csnlogicor.hs csnlogicand.sh csnlogicor.sh csnlogicnot
 ; csnempty csnempty.s csnzeros csnones csnfull csnfull.c csnfull.s csnlike csnlike.s csnfromarray csnfromarray.c csnfromarray.s
 ; csntoarray csntoarray.c csntoarray.s csndims csndims.s csnsize csnsize.s csnisempty csnisempty.s csnshape csnshape.s csnidentity
-; csnreshape csnreshape.in csnreshape.s.in csnflatten csnflatten.in csnflatten.s.in csntranspose csntranspose.ax csntranspose.in csntranspose.ax.in
-; csnflip csnflip.in csnroll csnroll.in csnroll.ax csnroll.ax.in csnget csnget.c csnget.s csngetrow csngetcol
+; csnreshape csnreshape.s csnreshape.in csnreshape.s.in csnflatten csnflatten.s csnflatten.in csnflatten.s.in csntranspose csntranspose.s
+; csntranspose.ax csntranspose.s.ax csntranspose.in csntranspose.s.in csntranspose.ax.in csntranspose.s.ax.in
+; csnflip csnflip.s csnflip.in csnflip.s.in csnroll csnroll.s csnroll.in csnroll.s.in csnroll.ax csnroll.s.ax csnroll.ax.in csnroll.s.ax.in
+; csnget csnget.c csnget.s csngetrow csngetcol
 ; csnset csnset.c csnset.s csntake csntake.flat csntake.flat.c csngetslice csngetslice.s csnsetslice csnpush
 ; csnpush.c csnpop csnpop.c csninsert.flat csninsert.flat.c csnremove.flat csnremove.flat.c csninsert.block
 ; csnremove.block csnconcat.flat csnconcat.block csnstack csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
@@ -4819,7 +4888,7 @@ e
 ; csnreflect csndiff csncumsum csncumprod csnmatmul csnmatmul.s csntrace csntrace.c
 ; csndiag csnmovmean csnmovmean.in csnmovstd csnmovstd.in csnmovvar csnmovvar.in csnreal
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
-; csnunwrap.in csntype csntype.s csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
+; csnunwrap.in csntype csntype.s csncopy csnreverse csnreverse.s csnreverse.in csnreverse.s.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
 ; csntruncate csntruncate.in csnresize csnresize.in csnsave csnsave.s csnload csnload.s csnprint csnprint.s csnrtlock csnrtlock.s

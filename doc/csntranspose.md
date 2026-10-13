@@ -22,6 +22,12 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+Both forms also take a `:CsnStr;`. The copy duplicates every string, so it
+owns its own; the in-place form only moves the strings it already holds to
+their new slots, allocating nothing, so it may run on a real-time path. A k
+form that copies strings allocates, so it is refused on an output marked for a
+real-time path. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -33,17 +39,25 @@ csntranspose(source:CsnArr)
 csntranspose(source:CsnArr, trig:k)
 csntranspose(source:CsnArr, axes:i[])
 csntranspose(source:CsnArr, axes:k[])
+out:CsnStr = csntranspose(source:CsnStr)
+out:CsnStr = csntranspose(source:CsnStr, trig:k)
+out:CsnStr = csntranspose(source:CsnStr, axes:i[])
+out:CsnStr = csntranspose(source:CsnStr, axes:k[])
+csntranspose(source:CsnStr)
+csntranspose(source:CsnStr, trig:k)
+csntranspose(source:CsnStr, axes:i[])
+csntranspose(source:CsnStr, axes:k[])
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to transpose.
+* `source:CsnArr / source:CsnStr`: the array to transpose.
 * `trig:k`: k-rate trigger of the form without axes. Without it the call is the init-only form and transposes once; with it the axes are reversed again on every pass where it is non-zero.
 * `axes:i[] / axes:k[]` (optional): a permutation of `0 … ndims - 1`. Omitted, the axes are reversed. A `k[]` gives the k-rate form, which re-reads it on every pass; while it does not read as a permutation, as at init before it is written, the output keeps the source's layout, reserved but empty.
 
 ## Output
 
-* `out:CsnArr`: the transposed array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the transposed array. Omit it for the in-place form.
 
 ## Execution Time
 

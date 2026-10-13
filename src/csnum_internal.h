@@ -113,6 +113,7 @@ void fill_csnarray_complex(CSN_ARRAY *array, double re, double im);
 void fisher_yates(PCG32_STATE *rng, double *data, size_t size);
 void complexdat_to_rect(const COMPLEXDAT *c, double *re, double *im);
 void sliding_median_slice(double *dst, const double *src, double *scratch, size_t n, size_t stride, size_t win_size, CSN_MEDIAN_EDGES edge);
+void CSN_MEMCPY(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src);
 int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, const CSN_ARRAY *dst, uint32_t axis);
 int32_t BROADCAST_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], uint32_t n_inputs);
 int32_t ND_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t *strides);

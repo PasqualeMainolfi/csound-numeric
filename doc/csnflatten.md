@@ -18,9 +18,10 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
-The in-place form also takes a `:CsnStr;`, since it only changes the layout; the
-form that returns a copy is numeric only for now. See [string
-arrays](string-arrays.md).
+Both forms also take a `:CsnStr;`. The copy duplicates every string, so it
+owns its own; the in-place form changes the layout and touches no string. A k
+form that copies strings allocates, so it is refused on an output marked for a
+real-time path. See [string arrays](string-arrays.md).
 
 ## Syntax
 
@@ -29,6 +30,8 @@ out:CsnArr = csnflatten(source:CsnArr)
 out:CsnArr = csnflatten(source:CsnArr, trig:k)
 csnflatten(source:CsnArr)
 csnflatten(source:CsnArr, trig:k)
+out:CsnStr = csnflatten(source:CsnStr)
+out:CsnStr = csnflatten(source:CsnStr, trig:k)
 csnflatten(source:CsnStr)
 csnflatten(source:CsnStr, trig:k)
 ```
@@ -40,7 +43,7 @@ csnflatten(source:CsnStr, trig:k)
 
 ## Output
 
-* `out:CsnArr`: the 1-D array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the 1-D array. Omit it for the in-place form.
 
 ## Execution Time
 

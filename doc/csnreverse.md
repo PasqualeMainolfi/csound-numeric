@@ -14,6 +14,12 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+Both forms also take a `:CsnStr;`. The copy duplicates every string, so it
+owns its own; the in-place form only swaps the strings it already holds,
+allocating nothing, so it may run on a real-time path. A k form that copies
+strings allocates, so it is refused on an output marked for a real-time path.
+See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -21,16 +27,20 @@ out:CsnArr = csnreverse(source:CsnArr)
 out:CsnArr = csnreverse(source:CsnArr, trig:k)
 csnreverse(source:CsnArr)
 csnreverse(source:CsnArr, trig:k)
+out:CsnStr = csnreverse(source:CsnStr)
+out:CsnStr = csnreverse(source:CsnStr, trig:k)
+csnreverse(source:CsnStr)
+csnreverse(source:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to reverse.
+* `source:CsnArr / source:CsnStr`: the array to reverse.
 * `trig:k`: k-rate trigger. The reversal is recomputed on a non-zero trigger; a zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the reversed array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the reversed array. Omit it for the in-place form.
 
 ## Execution Time
 

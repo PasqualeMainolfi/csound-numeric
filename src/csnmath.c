@@ -1,5 +1,6 @@
 /* Opcode implementations for the math family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnstrings.h"
 #include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
@@ -2226,20 +2227,34 @@ int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
 
 /* Shared by the i-rate form, the k init and the k perf: a straight copy, or the
    same copy read back to front. A complex item moves as a pair. */
-static void copy_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool reverse, ITEM_TYPE itype) {
+static void copy_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool reverse, ITEM_TYPE itype) {
     if (!reverse) {
-        memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+        if (itype == CSN_STRING) {
+            CSN_MEMCPY(csound, arr, source_arr);
+        } else {
+            memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
+        }
         update_array_data_version(&arr->version);
         csn_copy_array_kind(arr, source_arr);
         return;
     }
 
     for (size_t i = 0; i < source_arr->size; i++) {
-        size_t src = (source_arr->size - 1U - i) * (size_t) itype;
-        size_t dst = i * (size_t) itype;
-        arr->data[dst] = source_arr->data[src];
-        if (itype == CSN_COMPLEX)
-            arr->data[dst + 1U] = source_arr->data[src + 1U];
+        size_t mirror = source_arr->size - 1U - i;
+        switch (itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX: {
+                size_t src = mirror * (size_t) itype;
+                size_t dst = i * (size_t) itype;
+                arr->data[dst] = source_arr->data[src];
+                if (itype == CSN_COMPLEX) arr->data[dst + 1U] = source_arr->data[src + 1U];
+                break;
+            }
+            case CSN_STRING:
+                if (arr->sdata[i] != NULL) csound->Free(csound, arr->sdata[i]);
+                arr->sdata[i] = csound->Strdup(csound, source_arr->sdata[mirror]);
+                break;
+        }
     }
 }
 
@@ -2262,11 +2277,19 @@ static void reverse_in_place(CSN_ARRAY *arr) {
 /* csncopy onto itself has nothing to move (ELEMENTWISE). csnreverse reads the
    far end of the array, so onto itself it swaps the halves instead (CUSTOM:
    the layout is the source's either way). */
-static void copy_into(CSN_ARRAY *arr, const CSN_ARRAY *source_arr, bool aliased, bool reverse) {
+static void copy_into(CSOUND *csound, CSN_ARRAY *arr, const CSN_ARRAY *source_arr, bool aliased, bool reverse) {
     if (!aliased) {
-        copy_assign_value(source_arr, arr, reverse, source_arr->itype);
+        copy_assign_value(csound, source_arr, arr, reverse, source_arr->itype);
     } else if (reverse) {
-        reverse_in_place(arr);
+        switch (source_arr->itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX:
+                reverse_in_place(arr);
+                break;
+            case CSN_STRING:
+                reverse_string_in_place(arr);
+                break;
+        }
         update_array_data_version(&arr->version);
     }
 }
@@ -2290,7 +2313,7 @@ static int32_t csnarray_copy_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse
 
     /* the k form's perf pass reverses an output that is its own source */
     if (!(csn_is_k_form(&p->h) && out.aliased)) {
-        copy_into(p->handle, source_arr, out.aliased, reverse);
+        copy_into(csound, p->handle, source_arr, out.aliased, reverse);
     }
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
 
@@ -2309,6 +2332,12 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
 
     CHECK_KTRIG(p->trig);
 
+    /* a copy duplicates every string; reversing in place only swaps them */
+    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
+
     int32_t res = OK;
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
@@ -2322,7 +2351,7 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    copy_into(p->handle, source_arr, out.aliased, reverse);
+    copy_into(csound, p->handle, source_arr, out.aliased, reverse);
 
     SET_KDATA_END(p->k_data, source_arr->shape, source_arr->ndim, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0);
@@ -2359,7 +2388,11 @@ int32_t csnarray_reverse_k(CSOUND *csound, CSN_UNARYOP *p) {
 static void unaryop_in_apply(CSN_ARRAY *arr, CSN_UNARY_MODE mode) {
     switch (mode) {
         case CSN_REVERSE:
-            reverse_in_place(arr);
+            if (arr->itype == CSN_STRING) {
+                reverse_string_in_place(arr);
+            } else {
+                reverse_in_place(arr);
+            }
             break;
         case CSN_RAD2DEG:
         case CSN_DEG2RAD:

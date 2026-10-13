@@ -309,12 +309,14 @@ csnsave(grid, "labels.npy")               // np.load gives dtype <U5
 
 Creation (`csnempty`, `csnfull`, `csnlike`, `csnfromarray`), the way out
 (`csntoarray` to `S[]`, `csnprint`), elements and slices (`csnget`, `csnset`,
-`[]`, `csngetslice`), the queries, the in-place layout and rate opcodes and
-`csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A string
-has no k form, so their k forms take an explicit trigger; and since writing a
-string allocates, a k pass that writes strings is refused on a
-[real-time path](#real-time-paths). See [String arrays](doc/string-arrays.md)
-for the list, the file formats and a runnable example.
+`[]`, `csngetslice`), the queries, the layout opcodes (`csnreshape`,
+`csnflatten`, `csntranspose`, `csnflip`, `csnroll`, `csnreverse`), the in-place
+rate opcodes and `csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take
+one today. A string has no k form, so their k forms take an explicit trigger;
+and since writing a string allocates, a k pass that writes strings is refused
+on a [real-time path](#real-time-paths). See
+[String arrays](doc/string-arrays.md) for the list, the file formats and a
+runnable example.
 
 ### Printing arrays
 
@@ -780,7 +782,8 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnget` / `csnset` | `a[i, j]` / `a[i, j] = "s"` | Also `v[i][j]`. |
 | `csngetslice` | `a[start:stop:step]` along an axis | Also `v[start:end]`; the slice owns its strings. |
 | `csnsize`, `csndims`, `csnshape`, `csnisempty`, `csntype` | `a.size`, `a.ndim`, `a.shape`, `a.size == 0`, `a.dtype` | `csntype` is `2`. |
-| `csnreshape`, `csnflatten` (in place) | `a.shape = ...`, `a.shape = (a.size,)` | The forms returning a copy are numeric only for now. |
+| `csnreshape`, `csnflatten` | `np.reshape`, `np.ravel` | In place: `a.shape = ...`, `a.shape = (a.size,)`. |
+| `csntranspose`, `csnflip`, `csnroll`, `csnreverse` | `np.transpose`, `np.flip`, `np.roll`, `a[::-1]` | A copy owns its strings; in place nothing is allocated. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
 | `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |
 

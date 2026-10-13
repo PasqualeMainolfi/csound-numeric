@@ -22,7 +22,7 @@ static void fill_csnstrings(CSOUND *csound, CSN_ARRAY *array, const char *value)
 
 /* A string costs an allocation, so a k pass that writes strings cannot run on
    a real-time path. The mark is decided at init, before the first pass. */
-static int32_t check_strings_not_rt(CSOUND *csound, OPDS *h, const CSN_ARRAY *out) {
+int32_t check_strings_not_rt(CSOUND *csound, OPDS *h, const CSN_ARRAY *out) {
     if (!out->rt_locked) return OK;
     return csn_perf_error(csound, h, "[csnarray] '%s' allocates its strings at perf time and the array is on a real-time path; build it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", get_out_name(h));
 }
@@ -687,4 +687,66 @@ int32_t csnload_strings_k(CSOUND *csound, CSN_LOAD *p) {
     if (res != OK) return res;
 
     return load_strings_into(csound, &p->h, &p->h, reg, p->handle, p->path->data, dot);
+}
+
+/* Writes source's strings into destination in transposed order. A copy
+   duplicates every string, releasing what destination held; in place, source
+   and destination hold the same strings, so the pointers are only permuted
+   (into a scratch buffer the caller copies back) and nothing is allocated. */
+int32_t transpose_stringdata_assign(CSOUND *csound, char **source, char **destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, bool in_place) {
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, ndim, shape, size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        size_t src_index = 0;
+        for (uint32_t i = 0; i < ndim; ++i) {
+            src_index += (size_t) it.coords[i] * strides[axes[i]];
+        }
+
+        if (in_place) {
+            destination[linear] = source[src_index];
+        } else {
+            if (destination[linear] != NULL) csound->Free(csound, destination[linear]);
+            destination[linear] = csound->Strdup(csound, source[src_index]);
+        }
+    }
+
+    return OK;
+}
+
+/* Moving strings around inside one array only swaps the slots' pointers: each
+   string keeps its single owner and nothing is allocated, so the in-place
+   flip, roll and reverse are safe on a real-time path. */
+void swap_strings(char **data, size_t a, size_t b) {
+    char *tmp = data[a];
+    data[a] = data[b];
+    data[b] = tmp;
+}
+
+static void reverse_string_run(char **data, size_t base, size_t count, size_t stride) {
+    if (count < 2) return;
+    size_t lo = 0;
+    size_t hi = count - 1;
+    while (lo < hi) {
+        swap_strings(data, base + lo * stride, base + hi * stride);
+        lo++;
+        hi--;
+    }
+}
+
+/* item i of the run moves to (i + shift) mod count, as numpy.roll does */
+void rotate_string_run(char **data, size_t base, size_t count, size_t stride, int32_t shift) {
+    if (count < 2) return;
+    int64_t k = (int64_t) shift % (int64_t) count;
+    if (k < 0) k += (int64_t) count;
+    if (k == 0) return;
+    reverse_string_run(data, base, count, stride);
+    reverse_string_run(data, base, (size_t) k, stride);
+    reverse_string_run(data, base + (size_t) k * stride, count - (size_t) k, stride);
+}
+
+void reverse_string_in_place(CSN_ARRAY *arr) {
+    for (size_t i = 0; i < arr->size / 2U; i++) {
+        swap_strings(arr->sdata, i, arr->size - 1U - i);
+    }
 }

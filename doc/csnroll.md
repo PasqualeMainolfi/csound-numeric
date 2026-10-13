@@ -21,6 +21,12 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+Both forms also take a `:CsnStr;`. The copy duplicates every string, so it
+owns its own; the in-place form only swaps the strings it already holds,
+allocating nothing, so it may run on a real-time path. A k form that copies
+strings allocates, so it is refused on an output marked for a real-time path.
+See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -32,17 +38,25 @@ csnroll(source:CsnArr, shift:i)
 csnroll(source:CsnArr, shift:i, axis:i)
 csnroll(source:CsnArr, shift:k)
 csnroll(source:CsnArr, shift:k, axis:k)
+out:CsnStr = csnroll(source:CsnStr, shift:i)
+out:CsnStr = csnroll(source:CsnStr, shift:i, axis:i)
+out:CsnStr = csnroll(source:CsnStr, shift:k)
+out:CsnStr = csnroll(source:CsnStr, shift:k, axis:k)
+csnroll(source:CsnStr, shift:i)
+csnroll(source:CsnStr, shift:i, axis:i)
+csnroll(source:CsnStr, shift:k)
+csnroll(source:CsnStr, shift:k, axis:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to shift.
+* `source:CsnArr / source:CsnStr`: the array to shift.
 * `shift:i / shift:k`: how many positions to shift by; negative rolls the other way.
 * `axis:i / axis:k` (optional): the axis to shift along. Omit it to read the array flat; `-1` selects the last axis.
 
 ## Output
 
-* `out:CsnArr`: the shifted array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the shifted array. Omit it for the in-place form.
 
 ## Execution Time
 

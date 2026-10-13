@@ -74,12 +74,12 @@ including Fortran-order files. A zero trigger does not touch the disk.
 
 ## Shape and layout
 
-- **csnreshape** - same elements under a new shape (i, k — real, complex, string in place)
-- **csnflatten** - collapses every dimension into one (i, k — real, complex, string in place)
-- **csntranspose** - permutes the axes (i, k — real, complex)
-- **csnflip** - reverses the order along an axis (i, k — real, complex)
-- **csnroll** - circular shift, whole array or along an axis (i, k — real, complex)
-- **csnreverse** - reverses the flat element order (i, k — real, complex)
+- **csnreshape** - same elements under a new shape (i, k — real, complex, string)
+- **csnflatten** - collapses every dimension into one (i, k — real, complex, string)
+- **csntranspose** - permutes the axes (i, k — real, complex, string)
+- **csnflip** - reverses the order along an axis (i, k — real, complex, string)
+- **csnroll** - circular shift, whole array or along an axis (i, k — real, complex, string)
+- **csnreverse** - reverses the flat element order (i, k — real, complex, string)
 - **csnpad** - adds elements before and after, filled with a value (i, k — real, complex)
 - **csntruncate** - shortens one axis, or every axis, to a length (i, k — real, complex)
 - **csnhead** - keeps the first n elements of a 1-D array (i, k — real, complex)

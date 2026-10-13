@@ -116,4 +116,10 @@ int32_t csnload_strings(CSOUND *csound, CSN_LOAD *p);
 int32_t csnload_strings_k_init(CSOUND *csound, CSN_LOAD *p);
 int32_t csnload_strings_k(CSOUND *csound, CSN_LOAD *p);
 
+int32_t check_strings_not_rt(CSOUND *csound, OPDS *h, const CSN_ARRAY *out);
+int32_t transpose_stringdata_assign(CSOUND *csound, char **source, char **destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, bool in_place);
+void swap_strings(char **data, size_t a, size_t b);
+void rotate_string_run(char **data, size_t base, size_t count, size_t stride, int32_t shift);
+void reverse_string_in_place(CSN_ARRAY *arr);
+
 #endif
