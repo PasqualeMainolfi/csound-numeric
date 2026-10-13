@@ -17,21 +17,29 @@ The element type follows the source, so `csnlike` of a complex array is complex,
 and the real `value` fills the real lane with the imaginary lane at zero. Use
 [csncopy](csncopy.md) when the contents matter too.
 
+On a `:CsnStr;` source the fill value is a string. A string argument has no i
+and k forms of its own, so the k form takes a trigger and refills only when it
+is non-zero; it allocates, so it is refused on a [real-time path](csnrtlock.md).
+See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 out:CsnArr = csnlike(source:CsnArr, value:i)
 out:CsnArr = csnlike(source:CsnArr, value:k)
+out:CsnStr = csnlike(source:CsnStr, value:S)
+out:CsnStr = csnlike(source:CsnStr, value:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array whose shape and element type are copied.
-* `value:i / value:k`: the value every element of the new array is set to.
+* `source:CsnArr / source:CsnStr`: the array whose shape and element type are copied.
+* `value:i / value:k / value:S`: the value every element of the new array is set to.
+* `trig:k`: string form only; the array is refilled on a non-zero trigger.
 
 ## Output
 
-* `out:CsnArr`: the new array.
+* `out:CsnArr / out:CsnStr`: the new array.
 
 ## Execution Time
 

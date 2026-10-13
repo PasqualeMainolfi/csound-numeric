@@ -33,6 +33,10 @@ See the
 [OPS_INDEX](../OPS_INDEX.md) for the same list with the rate and element-type
 support of each opcode.
 
+**String arrays.** A `CsnStr` holds strings with the same layout; the opcodes
+that also take one are listed, with the rate and file rules, in
+[String arrays](string-arrays.md).
+
 ## Creation
 
 - [csnempty](csnempty.md) - reserves a shape without publishing any element

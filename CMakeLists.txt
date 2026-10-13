@@ -296,6 +296,16 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/krate_empty_regression.csd")
         add_test(
+            NAME csnum_strings_creation_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_creation_regression.csd")
+        set_tests_properties(csnum_strings_creation_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "strings creation ok"
+            FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
+        add_test(
             NAME csnum_krate_creation_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

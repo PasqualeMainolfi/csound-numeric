@@ -22,16 +22,23 @@ Only `.csn` and `.npy` paths are accepted. At k-rate a zero trigger leaves the
 disk untouched. On a nonzero trigger, a write can be skipped when the same
 array version was already written to the same path by this opcode instance.
 
+A `:CsnStr;` saves to `.npy` as a fixed-width `<U` array, the strings decoded
+from UTF-8 and padded to the longest one, which `np.load` reads back as `str`;
+to `.csn` it saves each element as a byte count and its bytes (dtype `3`). See
+[string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 csnsave(arr:CsnArr, path:S)
 csnsave(arr:CsnArr, path:S, trig:k)
+csnsave(arr:CsnStr, path:S)
+csnsave(arr:CsnStr, path:S, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to write.
+* `arr:CsnArr / arr:CsnStr`: the array to write.
 * `path:S`: destination path; must end in `.csn` or `.npy`.
 * `trig:k`: k-rate trigger. A zero trigger skips the write; an unchanged array and path may also skip a repeat write.
 

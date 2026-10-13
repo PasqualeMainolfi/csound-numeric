@@ -51,14 +51,35 @@ static void csnfile_write_header(CSN_FILE_HEADER *header, CSN_ARRAY *arr) {
     header->dim = arr->ndim;
     header->size = arr->size;
     memcpy(header->shape, arr->shape, sizeof(uint32_t) * CSN_MAX_DIMS);
-    header->data_bytes = sizeof(double) * arr->size * arr->itype;
+    if (arr->itype == CSN_STRING) {
+        uint64_t bytes = 0;
+        for (size_t i = 0; i < arr->size; i++) {
+            const char *item = arr->sdata[i];
+            bytes += sizeof(uint32_t) + (item != NULL ? strlen(item) : 0);
+        }
+        header->data_bytes = bytes;
+    } else {
+        header->data_bytes = sizeof(double) * arr->size * arr->itype;
+    }
+}
+
+static int32_t csnfile_write_strings(FILE *fptr, const CSN_ARRAY *arr) {
+    for (size_t i = 0; i < arr->size; i++) {
+        const char *item = arr->sdata[i] != NULL ? arr->sdata[i] : "";
+        size_t length = strlen(item);
+        if (length > UINT32_MAX) return NOTOK;
+        uint32_t length32 = (uint32_t) length;
+        if (fwrite(&length32, sizeof(uint32_t), 1, fptr) != 1) return NOTOK;
+        if (length > 0 && fwrite(item, 1, length, fptr) != length) return NOTOK;
+    }
+    return OK;
 }
 
 CSN_FILE_ERROR_CODE csnfile_save_array_to_file(CSN_ARRAY *arr, const char *path) {
     CSN_FILE_HEADER header = {0};
     csnfile_write_header(&header, arr);
 
-    int32_t res = CSN_FILE_NO_ERROR;
+    CSN_FILE_ERROR_CODE res = CSN_FILE_NO_ERROR;
 
     FILE *fptr = fopen(path, "wb");
     if (fptr == NULL){
@@ -105,6 +126,10 @@ CSN_FILE_ERROR_CODE csnfile_save_array_to_file(CSN_ARRAY *arr, const char *path)
         res = CSN_FILE_INVALID_HEADER_DATA_BYTES;
         goto done;
     }
+    if (arr->itype == CSN_STRING) {
+        if (csnfile_write_strings(fptr, arr) != OK) res = CSN_FILE_INVALID_HEADER_DATA_RAW;
+        goto done;
+    }
     count = fwrite(arr->data, 1, (size_t) header.data_bytes, fptr);
     if (count != header.data_bytes) {
         res = CSN_FILE_INVALID_HEADER_DATA_RAW;
@@ -138,76 +163,55 @@ static CSN_FILE_ERROR_CODE VALIDATE_VERSION(CSN_FILE_HEADER *header) {
     return CSN_FILE_NO_ERROR;
 }
 
+/* Reads and validates everything up to the payload: magic, version, dtype
+   (any the format defines), layout, and a size that agrees with the shape. */
+static CSN_FILE_ERROR_CODE csnfile_read_header(FILE *fptr, CSN_FILE_HEADER *header) {
+    size_t count;
+    count = fread(header->magic, sizeof(uint8_t), 4, fptr);
+    if (count != 4) return CSN_FILE_INVALID_HEADER_MAGIC;
+    if (memcmp(header->magic, CSN_MAGIC, 4) != 0) return CSN_FILE_INVALID_HEADER_MAGIC;
+
+    count = fread(&header->major, sizeof(uint16_t), 1, fptr);
+    if (count != 1) return CSN_FILE_INVALID_HEADER_VMAJOR;
+    count = fread(&header->minor, sizeof(uint16_t), 1, fptr);
+    if (count != 1) return CSN_FILE_INVALID_HEADER_VMINOR;
+
+    CSN_FILE_ERROR_CODE res = VALIDATE_VERSION(header);
+    if (res != CSN_FILE_NO_ERROR) return res;
+
+    count = fread(&header->dtype, sizeof(uint32_t), 1, fptr);
+    if (count != 1 || (header->dtype != CSN_DTYPE_F64 && header->dtype != CSN_DTYPE_C128 && header->dtype != CSN_DTYPE_STR)) {
+        return CSN_FILE_INVALID_HEADER_DTYPE;
+    }
+    count = fread(&header->dim, sizeof(uint32_t), 1, fptr);
+    if (count != 1) return CSN_FILE_INVALID_HEADER_DIM;
+    count = fread(&header->size, sizeof(uint64_t), 1, fptr);
+    if (count != 1) return CSN_FILE_INVALID_HEADER_SIZE;
+    count = fread(header->shape, sizeof(uint32_t), CSN_MAX_DIMS, fptr);
+    if (count != CSN_MAX_DIMS) return CSN_FILE_INVALID_HEADER_SHAPE;
+
+    count = fread(&header->data_bytes, sizeof(uint64_t), 1, fptr);
+    if (count != 1) return CSN_FILE_INVALID_HEADER_SHAPE;
+
+    size_t check_size = 0;
+    if (get_array_size_from_shape(&check_size, header->dim, header->shape) != OK) return CSN_FILE_EXCEEDS_SIZE_LIMIT;
+    if (header->size != check_size) return CSN_FILE_SIZE_MISMATCH;
+    return CSN_FILE_NO_ERROR;
+}
+
 CSN_FILE_ERROR_CODE csnfile_load_array_from_file(CSOUND *csound, CSN_FILE_HEADER *header, double **data, size_t *data_capacity, const char *path) {
     FILE *fptr = fopen(path, "rb");
     if (fptr == NULL) return CSN_FILE_NOT_FOUND;
 
-    int32_t res = CSN_FILE_NO_ERROR;
-
-    size_t count;
-    count = fread(header->magic, sizeof(uint8_t), 4, fptr);
-    if (count != 4) {
-        res = CSN_FILE_INVALID_HEADER_MAGIC;
-        goto done;
-    }
-    if (memcmp(header->magic, CSN_MAGIC, 4) != 0) {
-        res = CSN_FILE_INVALID_HEADER_MAGIC;
-        goto done;
-    }
-
-    count = fread(&header->major, sizeof(uint16_t), 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_VMAJOR;
-        goto done;
-    }
-    count = fread(&header->minor, sizeof(uint16_t), 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_VMINOR;
-        goto done;
-    }
-
-    res = VALIDATE_VERSION(header);
-    if (res != OK) goto done;
-
-    count = fread(&header->dtype, sizeof(uint32_t), 1, fptr);
-    if (count != 1 || (header->dtype != CSN_DTYPE_F64 && header->dtype != CSN_DTYPE_C128)) {
-        res = CSN_FILE_INVALID_HEADER_DTYPE;
-        goto done;
-    }
-    count = fread(&header->dim, sizeof(uint32_t), 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_DIM;
-        goto done;
-    }
-    count = fread(&header->size, sizeof(uint64_t), 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_SIZE;
-        goto done;
-    }
-    count = fread(header->shape, sizeof(uint32_t), CSN_MAX_DIMS, fptr);
-    if (count != CSN_MAX_DIMS) {
-        res = CSN_FILE_INVALID_HEADER_SHAPE;
-        goto done;
-    }
-
-    count = fread(&header->data_bytes, sizeof(uint64_t), 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_SHAPE;
-        goto done;
-    }
-
-    size_t check_size = 0;
-    if (get_array_size_from_shape(&check_size, header->dim, header->shape) != OK) {
-        res = CSN_FILE_EXCEEDS_SIZE_LIMIT;
-        goto done;
-    }
-    if (header->size != check_size) {
-        res = CSN_FILE_SIZE_MISMATCH;
+    CSN_FILE_ERROR_CODE res = csnfile_read_header(fptr, header);
+    if (res != CSN_FILE_NO_ERROR) goto done;
+    if (header->dtype == CSN_DTYPE_STR) {
+        res = CSN_FILE_DTYPE_KIND_MISMATCH;
         goto done;
     }
 
     ITEM_TYPE itype = (ITEM_TYPE) header->dtype;
-    size_t check_data_bytes = check_size * sizeof(double) * itype;
+    size_t check_data_bytes = (size_t) header->size * sizeof(double) * itype;
     if (header->data_bytes != check_data_bytes) {
         res = CSN_FILE_SIZE_MISMATCH;
         goto done;
@@ -225,7 +229,7 @@ CSN_FILE_ERROR_CODE csnfile_load_array_from_file(CSOUND *csound, CSN_FILE_HEADER
         *data_capacity = new_cap;
     }
 
-    count = fread(*data, 1, (size_t) header->data_bytes, fptr);
+    size_t count = fread(*data, 1, (size_t) header->data_bytes, fptr);
     if (count != header->data_bytes) res = CSN_FILE_INVALID_HEADER_DATA_BYTES;
 
 done:
@@ -276,6 +280,9 @@ void csnfile_dispatch_error(const char **error_message, CSN_FILE_ERROR_CODE erro
             break;
         case CSN_FILE_WRONG_MEMORY_ALLOCATION:
             *error_message = "Memory allocation failed while loading array data";
+            break;
+        case CSN_FILE_DTYPE_KIND_MISMATCH:
+            *error_message = "The file holds numbers and the variable strings, or the reverse: load it into a CsnArr or a CsnStr to match";
             break;
         default:
             *error_message = "Unknown file error";
@@ -365,14 +372,20 @@ static int32_t format_array_dimension(CSOUND *csound, CSN_PRINT_BUFFER *buffer, 
                 if (res != OK) return NOTOK;
             }
             size_t offset = base_offset + (size_t) i * arr->strides[dim];
-            if (arr->itype == CSN_REAL) {
-                res = print_buffer_append(csound, buffer, "%.5g", arr->data[offset]);
-            }
-            else {
-                double re = arr->data[offset * 2];
-                double im = arr->data[offset * 2 + 1];
-
-                res = print_buffer_append(csound, buffer, "%.5g%+.5gj", re, im);
+            switch (arr->itype) {
+                case CSN_REAL:
+                    res = print_buffer_append(csound, buffer, "%.5g", arr->data[offset]);
+                    break;
+                case CSN_COMPLEX: {
+                        double re = arr->data[offset * 2];
+                        double im = arr->data[offset * 2 + 1];
+                        res = print_buffer_append(csound, buffer, "%.5g%+.5gj", re, im);
+                    }
+                    break;
+                case CSN_STRING:
+                    /* quoted as numpy prints them; a slot never written is "" */
+                    res = print_buffer_append(csound, buffer, "'%s'", arr->sdata[offset] != NULL ? arr->sdata[offset] : "");
+                    break;
             }
             if (res != OK) return NOTOK;
             first = false;
@@ -441,7 +454,7 @@ int32_t csnfile_show_array(CSOUND *csound, CSN_PRINT_BUFFER *buffer, const CSN_A
     bool summarize = size > CSN_PRINT_THRESHOLD;
 
     int32_t res = OK;
-    res = print_buffer_append(csound, buffer, "CsnArr(shape=(");
+    res = print_buffer_append(csound, buffer, itype == CSN_STRING ? "CsnStr(shape=(" : "CsnArr(shape=(");
     if (res != OK) return NOTOK;
     for (uint32_t i = 0; i < ndim; i++) {
         if (i > 0) {
@@ -456,7 +469,7 @@ int32_t csnfile_show_array(CSOUND *csound, CSN_PRINT_BUFFER *buffer, const CSN_A
         if (res != OK) return NOTOK;
     }
 
-    const char *dtype = itype == CSN_REAL ? "float64" : "complex128";
+    const char *dtype = itype == CSN_REAL ? "float64" : itype == CSN_STRING ? "str" : "complex128";
     res = print_buffer_append(csound, buffer, "), dtype=%s)\n", dtype);
     if (res != OK) return NOTOK;
 
@@ -493,13 +506,96 @@ static inline void write_u32_le(uint8_t *data, uint32_t value) {
     data[3] = (uint8_t) (value >> 24);
 }
 
+/* numpy's <U dtype holds one UCS4 code point per character, so a Csound
+   string (UTF-8 bytes) is decoded. A byte that does not start a valid
+   sequence stands for itself (as Latin-1), so every byte string can be
+   saved. Reads stop at the terminator: a truncated sequence never runs past
+   it, because '\0' is not a continuation byte. */
+static size_t utf8_decode(const unsigned char *s, uint32_t *code_point) {
+    unsigned char c = s[0];
+    size_t n = 0;
+    uint32_t value = 0;
+    uint32_t smallest = 0;
+    if (c < 0x80) {
+        *code_point = c;
+        return 1;
+    } else if ((c & 0xE0) == 0xC0) {
+        n = 2; value = c & 0x1Fu; smallest = 0x80;
+    } else if ((c & 0xF0) == 0xE0) {
+        n = 3; value = c & 0x0Fu; smallest = 0x800;
+    } else if ((c & 0xF8) == 0xF0) {
+        n = 4; value = c & 0x07u; smallest = 0x10000;
+    } else {
+        *code_point = c;
+        return 1;
+    }
+    for (size_t i = 1; i < n; i++) {
+        if ((s[i] & 0xC0) != 0x80) {
+            *code_point = c;
+            return 1;
+        }
+        value = (value << 6) | (s[i] & 0x3Fu);
+    }
+    if (value < smallest || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {
+        *code_point = c;
+        return 1;
+    }
+    *code_point = value;
+    return n;
+}
+
+static size_t utf8_length(const char *item) {
+    const unsigned char *p = (const unsigned char *) item;
+    size_t length = 0;
+    uint32_t code_point = 0;
+    while (*p != '\0') {
+        p += utf8_decode(p, &code_point);
+        length++;
+    }
+    return length;
+}
+
+/* Every item is padded with zero code points to the widest one, as numpy
+   stores a fixed-width string array. Written little-endian, as declared. */
+static int32_t numpy_write_strings(FILE *fptr, const CSN_ARRAY *arr, size_t width) {
+    uint8_t chunk[4096];
+    size_t used = 0;
+    for (size_t i = 0; i < arr->size; i++) {
+        const unsigned char *p = (const unsigned char *) (arr->sdata[i] != NULL ? arr->sdata[i] : "");
+        for (size_t written = 0; written < width; written++) {
+            uint32_t code_point = 0;
+            if (*p != '\0') p += utf8_decode(p, &code_point);
+            write_u32_le(chunk + used, code_point);
+            used += 4;
+            if (used == sizeof(chunk)) {
+                if (fwrite(chunk, 1, used, fptr) != used) return NOTOK;
+                used = 0;
+            }
+        }
+    }
+    if (used > 0 && fwrite(chunk, 1, used, fptr) != used) return NOTOK;
+    return OK;
+}
+
 CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char *path) {
-    if (arr == NULL || arr->ndim == 0 || arr->ndim > CSN_MAX_DIMS || (arr->itype != CSN_REAL && arr->itype != CSN_COMPLEX)) return CSN_FILE_INVALID_HEADER_DTYPE;
+    if (arr == NULL || arr->ndim == 0 || arr->ndim > CSN_MAX_DIMS || (arr->itype != CSN_REAL && arr->itype != CSN_COMPLEX && arr->itype != CSN_STRING)) return CSN_FILE_INVALID_HEADER_DTYPE;
     if (arr->size != 0 && arr->data == NULL) return CSN_FILE_INVALID_HEADER_DATA_RAW;
     const uint16_t endian_probe = 1;
     const bool little_endian = *(const uint8_t *) &endian_probe == 1;
-    const char *fmt = arr->itype == CSN_REAL
-        ? (little_endian ? "<f8" : ">f8")
+
+    /* numpy has no zero-width string: an array of "" (or with no item) is <U1 */
+    size_t width = 1;
+    char string_fmt[32];
+    if (arr->itype == CSN_STRING) {
+        for (size_t i = 0; i < arr->size; i++) {
+            size_t length = arr->sdata[i] != NULL ? utf8_length(arr->sdata[i]) : 0;
+            if (length > width) width = length;
+        }
+        if (width > SIZE_MAX / 4 || (arr->size > 0 && width * 4 > SIZE_MAX / arr->size)) return CSN_FILE_EXCEEDS_SIZE_LIMIT;
+        snprintf(string_fmt, sizeof(string_fmt), "<U%zu", width);
+    }
+    const char *fmt = arr->itype == CSN_STRING ? string_fmt
+        : arr->itype == CSN_REAL ? (little_endian ? "<f8" : ">f8")
         : (little_endian ? "<c16" : ">c16");
 
     size_t size = 0;
@@ -512,6 +608,7 @@ CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char 
 
     CSN_FILE_NUMPY_HEADER header = {0};
     csnfile_write_numpy_header(&header, dict, arr);
+    if (arr->itype == CSN_STRING) header.data_bytes = (uint64_t) arr->size * width * 4;
 
     CSN_FILE_ERROR_CODE res = CSN_FILE_NO_ERROR;
 
@@ -561,7 +658,9 @@ CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char 
     }
     if (fputc('\n', fptr) == EOF) { res = CSN_FILE_INVALID_HEADER_DATA_RAW; goto done; }
 
-    if (header.data_bytes != 0) {
+    if (arr->itype == CSN_STRING) {
+        if (numpy_write_strings(fptr, arr, width) != OK) res = CSN_FILE_INVALID_HEADER_DATA_RAW;
+    } else if (header.data_bytes != 0) {
         count = fwrite(arr->data, 1, (size_t) header.data_bytes, fptr);
         if (count != header.data_bytes) {
             res = CSN_FILE_INVALID_HEADER_DATA_RAW;
@@ -644,6 +743,10 @@ static inline int32_t parse_numpy_descr(const char *dict, CSN_NUMPY_DESCR *item)
         case 'c':
             item->itype = CSN_COMPLEX;
             break;
+        case 'U': // UCS4 code points
+        case 'S': // bytes
+            item->itype = CSN_STRING;
+            break;
         default:
             return NOTOK;
     }
@@ -662,8 +765,11 @@ static inline int32_t parse_numpy_descr(const char *dict, CSN_NUMPY_DESCR *item)
             break;
         case 'f': if (value != 2 && value != 4 && value != 8) return NOTOK; break;
         case 'c': if (value != 8 && value != 16) return NOTOK; break;
+        /* a width, not a byte count: <U5 is 5 code points, |S5 is 5 bytes */
+        case 'U': case 'S': if (value > CSN_NUMPY_MAX_STRING_WIDTH) return NOTOK; break;
     }
-    if (item->endian == '|' && value != 1) return NOTOK;
+    if (item->endian == '|' && value != 1 && item->kind != 'S') return NOTOK;
+    if (item->kind == 'U' && item->endian == '|') return NOTOK;
 
     return OK;
 }
@@ -745,83 +851,53 @@ static size_t numpy_c_offset(size_t offset, uint32_t ndim, const uint32_t *shape
 }
 
 
-CSN_FILE_ERROR_CODE csnfile_load_array_from_numpy_file(CSOUND *csound, CSN_FILE_NUMPY_HEADER *header, double **data, size_t *data_capacity, const char *path) {
-    if (csound == NULL || header == NULL || data == NULL || data_capacity == NULL || path == NULL)
-        return CSN_FILE_INVALID_HEADER_DATA_RAW;
-    FILE *fptr = fopen(path, "rb");
-    if (fptr == NULL) return CSN_FILE_NOT_FOUND;
-
-    CSN_FILE_ERROR_CODE res = CSN_FILE_NO_ERROR;
-
+/* Reads and validates the header up to the payload, which fptr is then at. */
+static CSN_FILE_ERROR_CODE numpy_read_header(FILE *fptr, CSN_FILE_NUMPY_HEADER *header) {
     size_t count;
     count = fread(header->magic, sizeof(uint8_t), CSN_MAGIC_NUMPY_SIZE, fptr);
-    if (count != CSN_MAGIC_NUMPY_SIZE) {
-        res = CSN_FILE_INVALID_HEADER_MAGIC;
-        goto done;
-    }
-    if (memcmp(header->magic, CSN_NUMPY_MAGIC, CSN_MAGIC_NUMPY_SIZE) != 0) {
-        res = CSN_FILE_INVALID_HEADER_MAGIC;
-        goto done;
-    }
+    if (count != CSN_MAGIC_NUMPY_SIZE) return CSN_FILE_INVALID_HEADER_MAGIC;
+    if (memcmp(header->magic, CSN_NUMPY_MAGIC, CSN_MAGIC_NUMPY_SIZE) != 0) return CSN_FILE_INVALID_HEADER_MAGIC;
 
     count = fread(&header->major, 1, 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_VMAJOR;
-        goto done;
-    }
+    if (count != 1) return CSN_FILE_INVALID_HEADER_VMAJOR;
     count = fread(&header->minor, 1, 1, fptr);
-    if (count != 1) {
-        res = CSN_FILE_INVALID_HEADER_VMINOR;
-        goto done;
-    }
+    if (count != 1) return CSN_FILE_INVALID_HEADER_VMINOR;
 
-    if (header->major < 1 || header->major > 3) {
-        res = CSN_FILE_INVALID_HEADER_VMAJOR;
-        goto done;
-    }
-    if (header->minor != 0) {
-        res = CSN_FILE_INVALID_HEADER_VMINOR;
-        goto done;
-    }
+    if (header->major < 1 || header->major > 3) return CSN_FILE_INVALID_HEADER_VMAJOR;
+    if (header->minor != 0) return CSN_FILE_INVALID_HEADER_VMINOR;
 
     uint8_t length_bytes[4] = {0};
     uint32_t length_size = header->major == 1 ? 2 : 4;
-    if (fread(length_bytes, 1, length_size, fptr) != length_size) {
-        res = CSN_FILE_INVALID_HEADER_SIZE;
-        goto done;
-    }
+    if (fread(length_bytes, 1, length_size, fptr) != length_size) return CSN_FILE_INVALID_HEADER_SIZE;
     header->header_length = (uint32_t) numpy_uint(length_bytes, length_size, true);
-    if (header->header_length == 0 || header->header_length >= sizeof(header->dict)) {
-        res = CSN_FILE_INVALID_HEADER_SIZE;
-        goto done;
-    }
+    if (header->header_length == 0 || header->header_length >= sizeof(header->dict)) return CSN_FILE_INVALID_HEADER_SIZE;
 
     size_t hlen = (size_t) header->header_length;
     count = fread(header->dict, 1, hlen, fptr);
-    if (count != hlen || header->dict[hlen - 1] != '\n') {
-        res = CSN_FILE_INVALID_HEADER_SIZE;
-        goto done;
-    }
+    if (count != hlen || header->dict[hlen - 1] != '\n') return CSN_FILE_INVALID_HEADER_SIZE;
 
     size_t dict_len = hlen - 1;
     while (dict_len > 0 && header->dict[dict_len - 1] == ' ') --dict_len;
     header->padding_len = hlen - dict_len - 1;
     header->dict[dict_len] = '\0';
 
-    if (parse_numpy_descr(header->dict, &header->descr) != OK) {
-        res = CSN_FILE_INVALID_HEADER_DTYPE;
-        goto done;
-    }
-    if (parse_numpy_fortran_order(header->dict, &header->fortran_order) != OK) {
-        res = CSN_FILE_INVALID_HEADER_SIZE;
-        goto done;
-    }
-    if (parse_numpy_shape(header->dict, &header->dim, header->shape) != OK) {
-        res = CSN_FILE_INVALID_HEADER_SHAPE;
-        goto done;
-    }
-    if (get_array_size_from_shape(&header->size, header->dim, header->shape) != OK) {
-        res = CSN_FILE_EXCEEDS_SIZE_LIMIT;
+    if (parse_numpy_descr(header->dict, &header->descr) != OK) return CSN_FILE_INVALID_HEADER_DTYPE;
+    if (parse_numpy_fortran_order(header->dict, &header->fortran_order) != OK) return CSN_FILE_INVALID_HEADER_SIZE;
+    if (parse_numpy_shape(header->dict, &header->dim, header->shape) != OK) return CSN_FILE_INVALID_HEADER_SHAPE;
+    if (get_array_size_from_shape(&header->size, header->dim, header->shape) != OK) return CSN_FILE_EXCEEDS_SIZE_LIMIT;
+    return CSN_FILE_NO_ERROR;
+}
+
+CSN_FILE_ERROR_CODE csnfile_load_array_from_numpy_file(CSOUND *csound, CSN_FILE_NUMPY_HEADER *header, double **data, size_t *data_capacity, const char *path) {
+    if (csound == NULL || header == NULL || data == NULL || data_capacity == NULL || path == NULL)
+        return CSN_FILE_INVALID_HEADER_DATA_RAW;
+    FILE *fptr = fopen(path, "rb");
+    if (fptr == NULL) return CSN_FILE_NOT_FOUND;
+
+    CSN_FILE_ERROR_CODE res = numpy_read_header(fptr, header);
+    if (res != CSN_FILE_NO_ERROR) goto done;
+    if (header->descr.itype == CSN_STRING) {
+        res = CSN_FILE_DTYPE_KIND_MISMATCH;
         goto done;
     }
 
@@ -877,6 +953,197 @@ CSN_FILE_ERROR_CODE csnfile_load_array_from_numpy_file(CSOUND *csound, CSN_FILE_
         start += batch;
     }
     if (fgetc(fptr) != EOF || ferror(fptr)) res = CSN_FILE_SIZE_MISMATCH;
+
+done:
+    fclose(fptr);
+    return res;
+}
+
+/* STRING LOADING */
+
+static void free_string_items(CSOUND *csound, char **items, size_t count) {
+    if (items == NULL) return;
+    for (size_t i = 0; i < count; i++) {
+        if (items[i] != NULL) csound->Free(csound, items[i]);
+    }
+    csound->Free(csound, items);
+}
+
+/* The inverse of utf8_decode: a code point numpy can hold, as UTF-8. */
+static int32_t utf8_encode(uint32_t code_point, char *out, size_t *length) {
+    if (code_point > 0x10FFFF || (code_point >= 0xD800 && code_point <= 0xDFFF)) return NOTOK;
+    if (code_point < 0x80) {
+        out[0] = (char) code_point;
+        *length = 1;
+    } else if (code_point < 0x800) {
+        out[0] = (char) (0xC0 | (code_point >> 6));
+        out[1] = (char) (0x80 | (code_point & 0x3F));
+        *length = 2;
+    } else if (code_point < 0x10000) {
+        out[0] = (char) (0xE0 | (code_point >> 12));
+        out[1] = (char) (0x80 | ((code_point >> 6) & 0x3F));
+        out[2] = (char) (0x80 | (code_point & 0x3F));
+        *length = 3;
+    } else {
+        out[0] = (char) (0xF0 | (code_point >> 18));
+        out[1] = (char) (0x80 | ((code_point >> 12) & 0x3F));
+        out[2] = (char) (0x80 | ((code_point >> 6) & 0x3F));
+        out[3] = (char) (0x80 | (code_point & 0x3F));
+        *length = 4;
+    }
+    return OK;
+}
+
+static char *copy_string_bytes(CSOUND *csound, const char *bytes, size_t length) {
+    char *item = csound->Malloc(csound, length + 1);
+    if (item == NULL) return NULL;
+    if (length > 0) memcpy(item, bytes, length);
+    item[length] = '\0';
+    return item;
+}
+
+/* Every item is a uint32 byte count and its bytes; a count that runs past the
+   payload the header declares is refused before anything is allocated. */
+static CSN_FILE_ERROR_CODE csn_load_strings(CSOUND *csound, FILE *fptr, uint32_t *ndim, uint32_t *shape, char **items, size_t size) {
+    CSN_FILE_HEADER header = {0};
+    CSN_FILE_ERROR_CODE res = csnfile_read_header(fptr, &header);
+    if (res != CSN_FILE_NO_ERROR) return res;
+    if (header.dtype != CSN_DTYPE_STR) return CSN_FILE_DTYPE_KIND_MISMATCH;
+    if (header.size != size) return CSN_FILE_SIZE_MISMATCH;
+
+    uint64_t consumed = 0;
+    for (size_t i = 0; i < size; i++) {
+        uint32_t length = 0;
+        if (fread(&length, sizeof(uint32_t), 1, fptr) != 1) return CSN_FILE_INVALID_HEADER_DATA_RAW;
+        consumed += sizeof(uint32_t);
+        if (consumed > header.data_bytes || length > header.data_bytes - consumed) return CSN_FILE_SIZE_MISMATCH;
+        consumed += length;
+        char *item = csound->Malloc(csound, (size_t) length + 1);
+        if (item == NULL) return CSN_FILE_WRONG_MEMORY_ALLOCATION;
+        items[i] = item;
+        if (length > 0 && fread(item, 1, length, fptr) != length) return CSN_FILE_INVALID_HEADER_DATA_RAW;
+        item[length] = '\0';
+    }
+    if (consumed != header.data_bytes) return CSN_FILE_SIZE_MISMATCH;
+
+    *ndim = header.dim;
+    memcpy(shape, header.shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+    return CSN_FILE_NO_ERROR;
+}
+
+/* <U items are UCS4 code points, re-encoded as UTF-8; |S items are bytes,
+   taken as they are. numpy pads an item with zeros, and a C string ends at
+   the first one, so that is where an item stops. */
+static CSN_FILE_ERROR_CODE numpy_load_strings(CSOUND *csound, FILE *fptr, const CSN_FILE_NUMPY_HEADER *header, char **items) {
+    bool is_unicode = header->descr.kind == 'U';
+    size_t width = header->descr.item_size;
+    size_t item_bytes = is_unicode ? width * 4 : width;
+
+    const uint16_t endian_probe = 1;
+    bool little_endian = header->descr.endian == '<' ||
+        (header->descr.endian == '=' && *(const uint8_t *) &endian_probe == 1);
+
+    size_t c_strides[CSN_MAX_DIMS] = {0};
+    c_strides[header->dim - 1] = 1;
+    for (uint32_t axis = header->dim - 1; axis-- > 0; )
+        c_strides[axis] = c_strides[axis + 1] * header->shape[axis + 1];
+
+    /* UTF-8 takes at most 4 bytes per code point, as UCS4 does */
+    uint8_t *raw = csound->Malloc(csound, item_bytes + 1);
+    char *text = csound->Malloc(csound, width * 4 + 1);
+    CSN_FILE_ERROR_CODE res = CSN_FILE_NO_ERROR;
+    if (raw == NULL || text == NULL) {
+        res = CSN_FILE_WRONG_MEMORY_ALLOCATION;
+        goto done;
+    }
+
+    for (size_t j = 0; j < header->size; j++) {
+        if (item_bytes > 0 && fread(raw, 1, item_bytes, fptr) != item_bytes) {
+            res = CSN_FILE_INVALID_HEADER_DATA_RAW;
+            goto done;
+        }
+        size_t length = 0;
+        if (is_unicode) {
+            for (size_t k = 0; k < width; k++) {
+                uint32_t code_point = (uint32_t) numpy_uint(raw + k * 4, 4, little_endian);
+                if (code_point == 0) break;
+                size_t encoded = 0;
+                if (utf8_encode(code_point, text + length, &encoded) != OK) {
+                    res = CSN_FILE_INVALID_HEADER_DATA_RAW;
+                    goto done;
+                }
+                length += encoded;
+            }
+        } else {
+            while (length < width && raw[length] != 0) {
+                text[length] = (char) raw[length];
+                length++;
+            }
+        }
+        size_t dest = header->fortran_order
+            ? numpy_c_offset(j, header->dim, header->shape, c_strides)
+            : j;
+        items[dest] = copy_string_bytes(csound, text, length);
+        if (items[dest] == NULL) {
+            res = CSN_FILE_WRONG_MEMORY_ALLOCATION;
+            goto done;
+        }
+    }
+    if (fgetc(fptr) != EOF || ferror(fptr)) res = CSN_FILE_SIZE_MISMATCH;
+
+done:
+    if (raw != NULL) csound->Free(csound, raw);
+    if (text != NULL) csound->Free(csound, text);
+    return res;
+}
+
+CSN_FILE_ERROR_CODE csnfile_load_strings(CSOUND *csound, const char *path, const char *ext, uint32_t *ndim, uint32_t *shape, char ***items, size_t *size) {
+    *items = NULL;
+    *size = 0;
+    bool is_numpy = strcmp(ext, CSN_FILE_NPY_EXT) == 0;
+    if (!is_numpy && strcmp(ext, CSN_FILE_EXT) != 0) return CSN_FILE_INVALID_HEADER_MAGIC;
+
+    FILE *fptr = fopen(path, "rb");
+    if (fptr == NULL) return CSN_FILE_NOT_FOUND;
+
+    /* the header is read twice: once here for the item count the list is
+       sized by, once by the loader that walks the payload after it */
+    size_t count = 0;
+    CSN_FILE_ERROR_CODE res = CSN_FILE_NO_ERROR;
+    CSN_FILE_NUMPY_HEADER numpy_header = {0};
+    if (is_numpy) {
+        res = numpy_read_header(fptr, &numpy_header);
+        if (res == CSN_FILE_NO_ERROR && numpy_header.descr.itype != CSN_STRING) res = CSN_FILE_DTYPE_KIND_MISMATCH;
+        count = numpy_header.size;
+    } else {
+        CSN_FILE_HEADER header = {0};
+        res = csnfile_read_header(fptr, &header);
+        if (res == CSN_FILE_NO_ERROR && header.dtype != CSN_DTYPE_STR) res = CSN_FILE_DTYPE_KIND_MISMATCH;
+        count = (size_t) header.size;
+        if (res == CSN_FILE_NO_ERROR) rewind(fptr);
+    }
+    if (res != CSN_FILE_NO_ERROR) goto done;
+
+    char **list = csound->Calloc(csound, sizeof(char *) * (count > 0 ? count : 1));
+    if (list == NULL) {
+        res = CSN_FILE_WRONG_MEMORY_ALLOCATION;
+        goto done;
+    }
+
+    if (is_numpy) {
+        res = numpy_load_strings(csound, fptr, &numpy_header, list);
+        *ndim = numpy_header.dim;
+        memcpy(shape, numpy_header.shape, sizeof(uint32_t) * CSN_MAX_DIMS);
+    } else {
+        res = csn_load_strings(csound, fptr, ndim, shape, list, count);
+    }
+
+    if (res != CSN_FILE_NO_ERROR) {
+        free_string_items(csound, list, count);
+        goto done;
+    }
+    *items = list;
+    *size = count;
 
 done:
     fclose(fptr);

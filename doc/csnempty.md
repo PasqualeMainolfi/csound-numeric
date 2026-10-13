@@ -25,6 +25,10 @@ operand yields the other one, and [csnsum](csnsum.md) over an empty array is `0`
 `itype` is read at init, so an array can be declared empty *and* complex from the
 start with `csnempty(shape, 1)`.
 
+Declared as `:CsnStr;`, the output is a reserved, empty array of strings; it
+takes no `itype`, since the type of the variable already says what it holds. See
+[string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -32,6 +36,8 @@ out:CsnArr = csnempty(shape:i[])
 out:CsnArr = csnempty(shape:i[], itype:i)
 out:CsnArr = csnempty(shape:k[])
 out:CsnArr = csnempty(shape:k[], itype:i)
+out:CsnStr = csnempty(shape:i[])
+out:CsnStr = csnempty(shape:k[])
 ```
 
 ## Arguments
@@ -41,7 +47,7 @@ out:CsnArr = csnempty(shape:k[], itype:i)
 
 ## Output
 
-* `out:CsnArr`: the new, empty array.
+* `out:CsnArr / out:CsnStr`: the new, empty array.
 
 ## Execution Time
 

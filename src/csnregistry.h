@@ -40,12 +40,13 @@ CS_PRINTF3 int32_t csn_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...)
 typedef uint32_t ITEM_TYPE;
 enum {
     CSN_REAL = 1,
-    CSN_COMPLEX
+    CSN_COMPLEX,
+    CSN_STRING
 };
 
 typedef enum {
     CSNARR = 0,
-    CSNSET,
+    CSNSET
 } CSN_ARRAY_KIND;
 
 typedef struct {
@@ -57,7 +58,10 @@ typedef struct {
 } ARRAY_VERSION;
 
 typedef struct {
-    double *data;
+    union {
+        double *data; // CSN_REAL, CSN_COMPLEX
+        char **sdata; // CSN_STRING
+    };
     size_t size;
     size_t capacity;
     uint32_t ndim;
@@ -119,11 +123,13 @@ CSN_REGISTRY *get_registry(CSOUND *csound);
 void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim);
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype);
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
+void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src);
+void free_csnstrings(CSOUND *csound, CSN_ARRAY *array);
+void clear_csnstrings(CSOUND *csound, CSN_ARRAY *array);
 uint32_t pcg32_bounded_u32(PCG32_STATE *rng, uint32_t bound);
 double pcg32_random(PCG32_STATE *rng);
 void pcg32_random_init(PCG32_STATE *rng, uint64_t seed);
 
-int32_t csn_register_type(CSOUND *csound);
 int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *shape);
 
 bool is_same_array_version(const ARRAY_VERSION *version_a, const ARRAY_VERSION *version_b);

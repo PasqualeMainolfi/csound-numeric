@@ -14,16 +14,20 @@ For an array made by [csnempty](csnempty.md) the size is `0` even though
 reservation is capacity, not content. `csnpush` raises the size, `csnpop` lowers
 it.
 
+Also takes a `:CsnStr;`. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 n:i = csnsize(arr:CsnArr)
 n:k = csnsize(arr:CsnArr)
+n:i = csnsize(arr:CsnStr)
+n:k = csnsize(arr:CsnStr)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to query.
+* `arr:CsnArr / arr:CsnStr`: the array to query.
 
 ## Output
 

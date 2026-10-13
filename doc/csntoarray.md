@@ -16,13 +16,21 @@ index.
 mismatch is refused at init rather than silently flattened. Call
 [csnflatten](csnflatten.md) first when a flat copy is what you want.
 
-The `name:type` annotation carries a single bracket pair, so an output of rank 2
-or more is declared the older way, with the rate letter in the name and one
-bracket pair per dimension: `out[][] = csntoarray(arr)`.
+The `name:type` annotation carries a single bracket pair: `out:i[]` declares an
+array of `i`, and its rank comes from what sizes it. An output of rank 2 or more
+is therefore either declared the older way, with the rate letter in the name and
+one bracket pair per dimension, `iout[][] = csntoarray(arr)`, or declared with
+the annotation and given its rank with `init` before the assignment:
+`out:i[] = init(2, 3)`, then `out = csntoarray(arr)`. The extents `init` sets
+need not match, `csntoarray` replaces them; the number of them does.
 
 A complex array must be received by a `:Complex;[]` output; asking for `i[]` from
 a complex array is an error. Use [csnreal](csnreal.md) or
 [csntoreal](csntoreal.md) to drop the imaginary lane on purpose.
+
+From a `:CsnStr;` the output is an `S[]` declared with the array's rank. The k
+form takes a trigger, since `S[]` has no k counterpart to select it. See [string
+arrays](string-arrays.md).
 
 ## Syntax
 
@@ -30,15 +38,18 @@ a complex array is an error. Use [csnreal](csnreal.md) or
 out:i[] = csntoarray(arr:CsnArr)
 out:k[] = csntoarray(arr:CsnArr)
 out:Complex[] = csntoarray(arr:CsnArr)
+out:S[] = csntoarray(arr:CsnStr)
+out:S[] = csntoarray(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to read.
+* `arr:CsnArr / arr:CsnStr`: the array to read.
+* `trig:k`: string form only; the Csound array is refreshed on a non-zero trigger.
 
 ## Output
 
-* `out:i[] / out:k[] / out:Complex[]`: a Csound array with the source's shape. Declare it with one bracket pair per dimension.
+* `out:i[] / out:k[] / out:Complex[] / out:S[]`: a Csound array with the source's shape. Declare it with one bracket pair per dimension, or give it its rank with `init` first.
 
 ## Execution Time
 
@@ -74,6 +85,12 @@ instr 1
     ; rate letter in the name.
     i_mat_out[][] = csntoarray(mat)
     prints("mat[1][2] = %g\n", i_mat_out[1][2])
+
+    ; or keep the annotation, which declares an array of i, and give it its
+    ; rank with init before the assignment
+    typed_out:i[] = init(2, 3)
+    typed_out     = csntoarray(mat)
+    prints("typed[1][2] = %g\n", typed_out[1][2])
 
     ; or flatten first, and receive it as a vector
     flat_out:i[] = csntoarray(csnflatten(mat))

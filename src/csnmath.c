@@ -2209,7 +2209,9 @@ static int32_t csnarray_type_helper(CSOUND *csound, OPDS *perf_h, CSN_UNARYOP_SC
 
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
-    *p->value = p->source_handle->itype == CSN_REAL ? FL(0.0) : FL(1.0);
+    // 0 real, 1 complex, 2 string (csnempty's itype numbering)
+    ITEM_TYPE itype = p->source_handle->itype;
+    *p->value = itype == CSN_STRING ? FL(2.0) : itype == CSN_REAL ? FL(0.0) : FL(1.0);
     if (pres.locked) csn_unlock(csound, reg);
     return OK;
 }

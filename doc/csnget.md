@@ -16,6 +16,10 @@ the two are distinct overloads chosen by the type you declare for the output.
 For a single index into an array read flat, use [csntake](csntake.md); for a
 whole strided run, [csngetslice](csngetslice.md).
 
+On a `:CsnStr;` the element comes back as a copy in an `S` variable; a slot that
+was never written reads as `""`. `v[i][j]` does the same. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -23,17 +27,20 @@ value:i = csnget(arr:CsnArr, cell:i[])
 value:Complex = csnget(arr:CsnArr, cell:i[])
 value:k = csnget(arr:CsnArr, cell:k[])
 value:Complex = csnget(arr:CsnArr, cell:k[])
+value:S = csnget(arr:CsnStr, cell:i[])
+value:S = csnget(arr:CsnStr, cell:k[])
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to read.
+* `arr:CsnArr / arr:CsnStr`: the array to read.
 * `cell:i[] / cell:k[]`: the coordinates, one per dimension, each within its extent.
 
 ## Output
 
 * `value:i / value:k`: the element, for a real array.
 * `value:Complex`: the element, for a complex array.
+* `value:S`: a copy of the element, for a string array.
 
 ## Execution Time
 

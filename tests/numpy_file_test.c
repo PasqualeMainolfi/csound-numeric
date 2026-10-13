@@ -20,6 +20,13 @@ int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *s
 
 static void *test_malloc(CSOUND *csound, size_t size) { (void) csound; return malloc(size); }
 static void *test_realloc(CSOUND *csound, void *ptr, size_t size) { (void) csound; return realloc(ptr, size); }
+static void *test_calloc(CSOUND *csound, size_t size) { (void) csound; return calloc(1, size); }
+static void test_free(CSOUND *csound, void *ptr) { (void) csound; free(ptr); }
+
+static void free_items(char **items, size_t count) {
+    for (size_t i = 0; i < count; ++i) free(items[i]);
+    free(items);
+}
 
 static int write_fixture(const char *path, uint8_t version, const char *descr,
                          bool fortran, uint32_t rows, uint32_t cols,
@@ -51,6 +58,8 @@ int main(int argc, char **argv) {
     CSOUND csound = {0};
     csound.Malloc = test_malloc;
     csound.ReAlloc = test_realloc;
+    csound.Calloc = test_calloc;
+    csound.Free = test_free;
     CSN_FILE_NUMPY_HEADER header = {0};
     double *data = NULL;
     size_t capacity = 0;
@@ -123,6 +132,60 @@ int main(int argc, char **argv) {
     CHECK(csnfile_load_array_from_numpy_file(&csound, &header, &data, &capacity, path) == CSN_FILE_NO_ERROR);
     CHECK(!header.fortran_order && header.size == 4);
     for (size_t i = 0; i < 4; ++i) CHECK(data[i] == values[i]);
+
+    /* strings: >U2 in Fortran order, C order [["a", "bé"], ["€", "𝄞"]] */
+    const uint8_t fortran_u2[] = {
+        0,0,0,0x61, 0,0,0,0,          /* (0,0) a  */
+        0,0,0x20,0xac, 0,0,0,0,       /* (1,0) €  */
+        0,0,0,0x62, 0,0,0,0xe9,       /* (0,1) bé */
+        0,0x01,0xd1,0x1e, 0,0,0,0};   /* (1,1) 𝄞  */
+    uint32_t sndim = 0;
+    uint32_t sshape[CSN_MAX_DIMS] = {0};
+    char **items = NULL;
+    size_t count = 0;
+    CHECK(write_fixture(path, 1, ">U2", true, 2, 2, fortran_u2, sizeof(fortran_u2)) == 0);
+    CHECK(csnfile_load_strings(&csound, path, ".npy", &sndim, sshape, &items, &count) == CSN_FILE_NO_ERROR);
+    CHECK(sndim == 2 && sshape[0] == 2 && sshape[1] == 2 && count == 4);
+    CHECK(strcmp(items[0], "a") == 0 && strcmp(items[1], "b\xc3\xa9") == 0);
+    CHECK(strcmp(items[2], "\xe2\x82\xac") == 0 && strcmp(items[3], "\xf0\x9d\x84\x9e") == 0);
+    free_items(items, count);
+
+    /* |S3: bytes as they are, cut at the first zero */
+    const uint8_t bytes_s3[] = {'a','b',0, 'x','y','z', 0,0,0};
+    CHECK(write_fixture(path, 1, "|S3", false, 1, 3, bytes_s3, sizeof(bytes_s3)) == 0);
+    CHECK(csnfile_load_strings(&csound, path, ".npy", &sndim, sshape, &items, &count) == CSN_FILE_NO_ERROR);
+    CHECK(count == 3 && strcmp(items[0], "ab") == 0 && strcmp(items[1], "xyz") == 0 && items[2][0] == '\0');
+    free_items(items, count);
+
+    /* a surrogate is no code point UTF-8 can carry */
+    const uint8_t surrogate[] = {0x00,0xd8,0,0};
+    CHECK(write_fixture(path, 1, "<U1", false, 1, 1, surrogate, sizeof(surrogate)) == 0);
+    CHECK(csnfile_load_strings(&csound, path, ".npy", &sndim, sshape, &items, &count) == CSN_FILE_INVALID_HEADER_DATA_RAW);
+    CHECK(items == NULL && count == 0);
+
+    /* numbers and strings never cross */
+    CHECK(csnfile_load_array_from_numpy_file(&csound, &header, &data, &capacity, path) == CSN_FILE_DTYPE_KIND_MISMATCH);
+    CHECK(write_fixture(path, 1, "<f8", false, 1, 1, negative_i8, sizeof(negative_i8)) == 0);
+    CHECK(csnfile_load_strings(&csound, path, ".npy", &sndim, sshape, &items, &count) == CSN_FILE_DTYPE_KIND_MISMATCH);
+
+    /* save and load back, through both formats */
+    char *saved[3] = {"x", "citt\xc3\xa0", NULL};
+    CSN_ARRAY sarr = {.sdata = saved, .size = 3, .ndim = 1, .itype = CSN_STRING};
+    sarr.shape[0] = 3;
+    const char *expected[3] = {"x", "citt\xc3\xa0", ""};
+    CHECK(csnfile_save_array_to_numpy_file(&sarr, path) == CSN_FILE_NO_ERROR);
+    CHECK(csnfile_load_strings(&csound, path, ".npy", &sndim, sshape, &items, &count) == CSN_FILE_NO_ERROR);
+    CHECK(sndim == 1 && sshape[0] == 3 && count == 3);
+    for (size_t i = 0; i < 3; ++i) CHECK(strcmp(items[i], expected[i]) == 0);
+    free_items(items, count);
+
+    CHECK(csnfile_save_array_to_file(&sarr, path) == CSN_FILE_NO_ERROR);
+    CHECK(csnfile_load_strings(&csound, path, ".csn", &sndim, sshape, &items, &count) == CSN_FILE_NO_ERROR);
+    CHECK(sndim == 1 && sshape[0] == 3 && count == 3);
+    for (size_t i = 0; i < 3; ++i) CHECK(strcmp(items[i], expected[i]) == 0);
+    free_items(items, count);
+    CSN_FILE_HEADER csn_header = {0};
+    CHECK(csnfile_load_array_from_file(&csound, &csn_header, &data, &capacity, path) == CSN_FILE_DTYPE_KIND_MISMATCH);
 
     free(data);
     CHECK(remove(path) == 0);

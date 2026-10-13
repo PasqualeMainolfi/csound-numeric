@@ -18,16 +18,20 @@ the variance family — and this is the guard to put in front of them.
 It is also the state a k-rate [csnload](csnload.md) sits in until its first
 trigger fires.
 
+Also takes a `:CsnStr;`. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 empty:i = csnisempty(arr:CsnArr)
 empty:k = csnisempty(arr:CsnArr)
+empty:i = csnisempty(arr:CsnStr)
+empty:k = csnisempty(arr:CsnStr)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to query.
+* `arr:CsnArr / arr:CsnStr`: the array to query.
 
 ## Output
 

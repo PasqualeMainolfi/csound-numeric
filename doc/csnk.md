@@ -39,16 +39,20 @@ The cast reaches the operators only. A named opcode chooses its rate by its
 trigger: without one it is the i-rate form and runs once at init whatever the
 rate of its operands; pass a trigger for the k-rate form.
 
+The in-place form also takes a `:CsnStr;`; the form that returns a copy is
+numeric only for now. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 csnk source:CsnArr
 out:CsnArr = csnk(source:CsnArr)
+csnk source:CsnStr
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to make k-rate (in place) or to copy as k-rate.
+* `source:CsnArr / source:CsnStr`: the array to make k-rate (in place) or to copy as k-rate.
 
 ## Output
 

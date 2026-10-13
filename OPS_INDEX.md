@@ -8,6 +8,9 @@ only run at init, `k` for the ones that only act at performance time, and the
 element types accepted, `real, complex` or
 `real only`. The five opcodes that read a complex array and hand back its parts
 are marked `complex only`, since a real input has nothing for them to do.
+`string` marks the opcodes that also take a `CsnStr`, an array of strings
+(`string in place` when only the in-place form does); see
+[String arrays](doc/string-arrays.md).
 
 Conventions that apply throughout: explicit negative axes count from the end,
 so `-1` is always the last axis; omitting an axis selects the opcode's documented
@@ -29,11 +32,11 @@ the k-rate versioning and what the init pass computes.
 
 ## Creation
 
-- **csnempty** - reserves a shape without publishing any element (i, k — real, complex)
+- **csnempty** - reserves a shape without publishing any element (i, k — real, complex, string)
 - **csnzeros** - array of zeros (i, k — real, complex)
 - **csnones** - array of ones (i, k — real, complex)
-- **csnfull** - array filled with one value (i, k — real, complex)
-- **csnlike** - array shaped and typed like another, filled with a value (i, k — real, complex)
+- **csnfull** - array filled with one value (i, k — real, complex, string)
+- **csnlike** - array shaped and typed like another, filled with a value (i, k — real, complex, string)
 - **csnidentity** - identity matrix (i, k — real, complex)
 - **csnarange** - evenly spaced values from start to stop by step (i, k — real only)
 - **csnlinspace** - n values evenly spaced between two bounds (i, k — real only)
@@ -45,19 +48,19 @@ the k-rate versioning and what the init pass computes.
 
 ## Conversion, lifetime and queries
 
-- **csnfromarray** - Csound array to `CsnArr` (i, k — real, complex)
-- **csntoarray** - `CsnArr` to Csound array (i, k — real, complex)
+- **csnfromarray** - Csound array to `CsnArr` (i, k — real, complex, string)
+- **csntoarray** - `CsnArr` to Csound array (i, k — real, complex, string)
 - **csnfromftable** - function table to `CsnArr` (i — real only)
 - **csntoftable** - `CsnArr` to function table, optionally resizing it (i — real only)
 - **csncopy** - independent copy of an array (i, k — real, complex)
-- **csnk** - makes an array k-rate, in place or as a k-rate copy in an expression, so the operators on it run at performance time (i, k — real, complex)
-- **csni** - copy of an array frozen at its init value, the counterpart of `i()` (i — real, complex)
-- **csntype** - item type: 0 real, 1 complex (i, k — real, complex)
-- **csndims** - number of dimensions (i, k — real, complex)
-- **csnsize** - number of elements (i, k — real, complex)
-- **csnshape** - extents, one per dimension (i, k — real, complex)
-- **csnisempty** - 1 when the array holds no element (i, k — real, complex)
-- **csnprint** - prints shape, dtype and values in a NumPy-style layout (i, k — real, complex)
+- **csnk** - makes an array k-rate, in place or as a k-rate copy in an expression, so the operators on it run at performance time (i, k — real, complex, string in place)
+- **csni** - copy of an array frozen at its init value, the counterpart of `i()` (i — real, complex, string in place)
+- **csntype** - item type: 0 real, 1 complex, 2 string (i, k — real, complex, string)
+- **csndims** - number of dimensions (i, k — real, complex, string)
+- **csnsize** - number of elements (i, k — real, complex, string)
+- **csnshape** - extents, one per dimension (i, k — real, complex, string)
+- **csnisempty** - 1 when the array holds no element (i, k — real, complex, string)
+- **csnprint** - prints shape, dtype and values in a NumPy-style layout (i, k — real, complex, string)
 
 ## Persistence
 
@@ -66,13 +69,13 @@ the path extension. `.npy` writes `float64` or `complex128`; the loader also
 converts supported boolean, integer and lower-precision floating/complex dtypes,
 including Fortran-order files. A zero trigger does not touch the disk.
 
-- **csnsave** - writes an array to a `.csn` or `.npy` file (i, k — real, complex)
-- **csnload** - reads a `.csn` or supported numeric `.npy` file (i, k — real, complex)
+- **csnsave** - writes an array to a `.csn` or `.npy` file (i, k — real, complex, string)
+- **csnload** - reads a `.csn` or supported `.npy` file (i, k — real, complex, string)
 
 ## Shape and layout
 
-- **csnreshape** - same elements under a new shape (i, k — real, complex)
-- **csnflatten** - collapses every dimension into one (i, k — real, complex)
+- **csnreshape** - same elements under a new shape (i, k — real, complex, string in place)
+- **csnflatten** - collapses every dimension into one (i, k — real, complex, string in place)
 - **csntranspose** - permutes the axes (i, k — real, complex)
 - **csnflip** - reverses the order along an axis (i, k — real, complex)
 - **csnroll** - circular shift, whole array or along an axis (i, k — real, complex)
@@ -93,14 +96,14 @@ including Fortran-order files. A zero trigger does not touch the disk.
 `CsnArr` also takes `[]`: `v[i][j]` reads and writes one element, one index per
 dimension (a complex element is written, and read with `csnget`), and
 `v[start:end, step, axis]` reads a slice, end included as in Csound's
-`slicearray`, along axis 0 by default (i, k — real, complex). See
+`slicearray`, along axis 0 by default (i, k — real, complex, string). See
 [Indexing and slicing with `[]`](doc/indexing.md).
 
-- **csnget** - reads one element by coordinates (i, k — real, complex)
+- **csnget** - reads one element by coordinates (i, k — real, complex, string)
 - **csngetrow** - extracts one row of a 2-D array as a vector (i, k — real, complex)
 - **csngetcol** - extracts one column of a 2-D array as a vector (i, k — real, complex)
-- **csnset** - writes one element by coordinates (i, k — real, complex)
-- **csngetslice** - extracts a strided slice along an axis (i, k — real, complex)
+- **csnset** - writes one element by coordinates (i, k — real, complex, string)
+- **csngetslice** - extracts a strided slice along an axis (i, k — real, complex, string)
 - **csnsetslice** - writes into a strided slice along an axis (i, k — real, complex)
 - **csntake** - picks one index along an axis, dropping that axis (i, k — real, complex)
 - **csnwhere** - picks from two arrays element by element, driven by a mask (i, k — real only)
@@ -521,8 +524,8 @@ k-rate forms, and affect only arrays created from the source after the change.
 - **csnunpack** - that array back into one signal per channel (a — real only)
 - **csnsnap** - slices a stream into overlapping frames of a chosen size (a — real only)
 - **csnstream** - overlap-adds frames back into a continuous signal (a — real only)
-- **csnrtlock** - marks any array as a real-time path (i, k — real, complex)
-- **csnrtunlock** - clears the real-time mark from one array (i, k — real, complex)
+- **csnrtlock** - marks any array as a real-time path (i, k — real, complex, string)
+- **csnrtunlock** - clears the real-time mark from one array (i, k — real, complex, string)
 - **csnrtlockstart** - starts marking every array the current note creates (i, k)
 - **csnrtlockend** - stops that marking; the note ending stops it too (i, k)
 - **csnrtlockall** - marks every array for the whole performance; orchestra header only, and there is no way to switch it off (i)

@@ -18,16 +18,24 @@ Use [csntake](csntake.md) when you want one index along an axis and want that
 axis to disappear, and [csnsetslice](csnsetslice.md) to write back into the same
 range.
 
+On a `:CsnStr;` the slice holds its own copies of the strings, so writing either
+array leaves the other alone; the k form is refused on a [real-time
+path](csnrtlock.md), since copying strings allocates. Csound's `v[start:end]`
+works on a `:CsnStr;` as well. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 out:CsnArr = csngetslice(source:CsnArr, axis:i, start:i, stop:i, step:i)
 out:CsnArr = csngetslice(source:CsnArr, axis:k, start:k, stop:k, step:k)
+out:CsnStr = csngetslice(source:CsnStr, axis:i, start:i, stop:i, step:i)
+out:CsnStr = csngetslice(source:CsnStr, axis:k, start:k, stop:k, step:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to read.
+* `source:CsnArr / source:CsnStr`: the array to read.
 * `axis:i / axis:k`: the axis to slice along, from `-csndims` to `csndims - 1`; negative values count from the end.
 * `start:i / start:k`: first index, included.
 * `stop:i / stop:k`: last index, excluded.

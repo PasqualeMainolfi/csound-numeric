@@ -15,22 +15,27 @@ an operation that promotes a real operand to complex. Ordering comparisons,
 sorting, rounding, windows and interpolation refuse complex arrays; this is
 how to check before calling one.
 
+A `:CsnStr;` reports `2`. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 itype:i = csntype(arr:CsnArr)
 itype:k = csntype(arr:CsnArr)
 itype:k = csntype(arr:CsnArr, trig:k)
+itype:i = csntype(arr:CsnStr)
+itype:k = csntype(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to query.
+* `arr:CsnArr / arr:CsnStr`: the array to query.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous answer.
 
 ## Output
 
-* `itype:i / itype:k`: `0` for a real array, `1` for a complex one.
+* `itype:i / itype:k`: `0` for a real array, `1` for a complex one, `2` for a string array.
 
 ## Execution Time
 

@@ -105,6 +105,39 @@ int32_t get_array_size_from_shape(size_t *size, uint32_t ndim, const uint32_t *s
     return OK;
 }
 
+/* Csound hands a deallocated instrument's opcode memory to the next note
+   without zeroing it, and an opcode inside a branch the new note does not take
+   is deinitialized all the same. A pointer left behind here would therefore be
+   freed a second time, so every buffer is cleared as it is released. */
+void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array) {
+    if (array->itype == CSN_STRING) {
+        free_csnstrings(csound, array);
+    } else if (array->data != NULL) {
+        csound->Free(csound, array->data);
+    }
+
+    memset(array, 0, sizeof(CSN_ARRAY));
+}
+
+/* Every slot owns its string. A slot past size may still hold one (an op that
+   shrinks the array need not release it), so the walk covers capacity; slots
+   never written stay NULL because the storage is zeroed when it grows. */
+void free_csnstrings(CSOUND *csound, CSN_ARRAY *array) {
+    if (array->sdata == NULL) return;
+    clear_csnstrings(csound, array);
+    csound->Free(csound, array->sdata);
+    array->sdata = NULL;
+}
+
+/* Releases every string but keeps the slots: the string counterpart of the
+   zeroed buffer prepare_output hands a reused numeric output. */
+void clear_csnstrings(CSOUND *csound, CSN_ARRAY *array) {
+    if (array->sdata == NULL) return;
+    for (size_t i = 0; i < array->capacity; i++) {
+        if (array->sdata[i] != NULL) csound->Free(csound, array->sdata[i]);
+        array->sdata[i] = NULL;
+    }
+}
 
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype) {
     if (ndim == 0 || ndim > CSN_MAX_DIMS || shape == NULL) {
@@ -131,8 +164,13 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     /* Always keep room for at least one element, so data is never NULL and
        the first push into an empty array needs no special case. capacity
        counts items, not doubles. */
+    void *array_data = NULL;
     array->capacity = array_length > 0 ? array_length * 2 : 1;
-    double *array_data = csound->Calloc(csound, sizeof(double) * array->capacity * array->itype);
+    if (array->itype != CSN_STRING) {
+        array_data = csound->Calloc(csound, sizeof(double) * array->capacity * array->itype);
+    } else {
+        array_data = csound->Calloc(csound, sizeof(char **) * array->capacity);
+    }
     if (array_data == NULL) {
         return NOTOK;
     }
@@ -141,7 +179,12 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
        whole extent of the axis to its right. */
     compute_strides(array->shape, array->strides, ndim);
 
-    array->data = array_data;
+    if (itype == CSN_STRING) {
+        array->sdata = array_data;
+    } else {
+        array->data = array_data;
+    }
+
     array->size = array_length;
     array->ndim = ndim;
     array->kind = CSNARR;
@@ -181,6 +224,32 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
        whatever src's happens to be. */
     update_array_data_version(&dest->version);
     update_array_layout_version(&dest->version, shape_changed, false, itype_changed);
+    csn_copy_array_kind(dest, src);
+}
+
+/* Deep-copies the strings and the layout, retaining the destination's
+   identity. dest must already hold src->size slots, but unlike
+   travase_csnarray this allocates one string per item, so it is not safe on a
+   real-time path. The strings dest held are released, including those past
+   src->size, so no slot outlives the copy. */
+void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src) {
+    bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
+    for (size_t i = 0; i < dest->capacity; i++) {
+        if (dest->sdata[i] != NULL) csound->Free(csound, dest->sdata[i]);
+        dest->sdata[i] = i < src->size && src->sdata[i] != NULL ? csound->Strdup(csound, src->sdata[i]) : NULL;
+    }
+    memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
+    memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
+    dest->ndim = src->ndim;
+    dest->size = src->size;
+    dest->itype = src->itype;
+    dest->rate = src->rate;
+
+    /* dest keeps its own identity and its own counters; it does not inherit
+       src's. Its payload was just overwritten, so its data version moves
+       whatever src's happens to be. */
+    update_array_data_version(&dest->version);
+    update_array_layout_version(&dest->version, shape_changed, false, false);
     csn_copy_array_kind(dest, src);
 }
 
@@ -308,87 +377,6 @@ void pcg32_random_init(PCG32_STATE *rng, uint64_t seed) {
     else pcg32_manual_seed(rng, seed);
 }
 
-// CSN TYPE SYSTEM
-
-static void csnarr_init_memory(CSOUND *csound, CS_VARIABLE *var, cs_float *memblock) {
-    (void) csound;
-    memset(memblock, 0, var->memBlockSize);
-}
-
-#ifdef CS_TYPE_ARG_4ARG
-static struct csvariable *csnarr_create(void *cs, const struct cstype *type, const void *typeArg, struct insds *ctx) {
-    (void) type;
-    (void) typeArg;
-#else
-static struct csvariable *csnarr_create(void *cs, void *p, struct insds *ctx) {
-    (void) p;
-#endif
-    CSOUND *csound = (CSOUND *) cs;
-    CS_VARIABLE *var = (CS_VARIABLE *) csound->Calloc(csound, sizeof(CS_VARIABLE));
-    if (var == NULL) return NULL;
-
-    var->memBlockSize = CS_FLOAT_ALIGN(sizeof(CSN_ARRAY));
-    var->initializeVariableMemory = &csnarr_init_memory;
-    var->ctx = ctx;
-    return var;
-}
-
-static void csnarr_copy_value(CSOUND *csound, const struct cstype *cstype, void *dest, const void *src, struct insds *ctx) {
-    (void) cstype;
-    (void) ctx;
-    CSN_ARRAY *d = (CSN_ARRAY *) dest;
-    const CSN_ARRAY *s = (const CSN_ARRAY *) src;
-    if (d == s || s->data == NULL) return;
-    if (d->data == NULL) init_array_version(&d->version);
-    if (d->itype != s->itype) {
-        d->capacity = d->itype ? d->capacity * d->itype / s->itype : 0;
-        d->itype = s->itype;
-    }
-    size_t req_size = s->size == 0 ? 1 : s->size;
-    if (ensure_mutation_capacity(csound, NULL, d, req_size, false) != OK) return;
-    travase_csnarray(d, s);
-    update_array_version(&d->version);
-    csn_copy_array_kind(d, s);
-}
-
-static void csnarr_free(void *cs, void *mem) {
-    CSOUND *csound = (CSOUND *) cs;
-    CSN_ARRAY *a = (CSN_ARRAY *) mem;
-#ifdef CSN_VERSION_CROSSCHECK
-    csn_release_shadow(csound, a);
-#endif
-    if (a->data != NULL) csound->Free(csound, a->data);
-    memset(a, 0, sizeof(CSN_ARRAY));
-}
-
-// ARRAY REAL
-static CS_TYPE CS_VAR_TYPE_CSNARRAY = {
-    "CsnArr",
-    "csn array",
-    CS_ARG_TYPE_BOTH,
-    csnarr_create,
-    csnarr_copy_value,
-    csnarr_free,
-    NULL,
-    0
-};
-
-int32_t csn_register_type(CSOUND *csound) {
-    TYPE_POOL *pool = csound->GetTypePool(csound);
-    if (pool == NULL) {
-        return OK;
-    }
-
-    /* Csound may initialise a command-line plugin once while parsing options
-       and again when compiling the orchestra. Treat the second registration
-       as success: it is the same process-wide type, not a conflicting one. */
-    if (csound->GetType(csound, "CsnArr") != NULL) {
-        return OK;
-    }
-
-    return csound->AddVariableType(csound, pool, &CS_VAR_TYPE_CSNARRAY) ? OK : NOTOK;
-}
-
 /* Per thread: Csound's init thread and its perf (and multicore) threads
    each know only whether they themselves hold the mutex. */
 static _Thread_local bool csn_lock_held = false;
@@ -423,11 +411,18 @@ bool csn_lock_if_shared(CSOUND *csound, CSN_REGISTRY *reg, const CSN_ARRAY *cons
 
 void stamp_globals(CSOUND *csound, OPDS *h) {
     const CS_TYPE *csnarr = csound->GetType(csound, "CsnArr");
+    const CS_TYPE *csnstr = csound->GetType(csound, "CsnStr");
+
     void **ptrs = (void **) (h + 1);
     int32_t i = 0;
     ARG *lists[2] = { h->optext->t.outArgs, h->optext->t.inArgs };
-    for (int32_t l = 0; l < 2; l++)
-        for (ARG *a = lists[l]; a != NULL; a = a->next, i++)
-            if (a->type == ARG_GLOBAL && a->argPtr != NULL && ((CS_VARIABLE *) a->argPtr)->varType == csnarr)
+    for (int32_t l = 0; l < 2; l++) {
+        for (ARG *a = lists[l]; a != NULL; a = a->next, i++) {
+            if (a->type != ARG_GLOBAL || a->argPtr == NULL) continue;
+            const CS_TYPE *t = ((CS_VARIABLE *) a->argPtr)->varType;
+            if (t == csnarr || t == csnstr) {
                 ((CSN_ARRAY *) ptrs[i])->shared = true;
+            }
+        }
+    }
 }

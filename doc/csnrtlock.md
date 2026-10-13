@@ -57,16 +57,22 @@ spectrum:CsnArr = csnrfft(frame, 1024, kready, -1)
 the mark when the FFT initializes. Use `csnrtlock` explicitly for sources that
 do not come from the audio bridge, as in the complete example below.
 
+Also marks a `:CsnStr;`. Every k form that writes strings allocates, so on a
+marked string array it stops with an error instead. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 csnrtlock(arr:CsnArr)
 csnrtlock(arr:CsnArr, trig:k)
+csnrtlock(arr:CsnStr)
+csnrtlock(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: array to mark.
+* `arr:CsnArr / arr:CsnStr`: array to mark.
 * `trig:k` (optional, default `1`): apply the mark when non-zero; do nothing when zero.
 
 ## Output

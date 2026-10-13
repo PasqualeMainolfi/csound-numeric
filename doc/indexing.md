@@ -20,6 +20,11 @@ Even:CsnArr = V[0:9, 2]    ; [0, 2, 4, 6, 8]
 Tail:CsnArr = V[7:]        ; [7, 8, 9]
 ```
 
+A [`CsnStr`](string-arrays.md) takes the same syntax: `S1 = names[0][1]`
+reads a copy of an element into an `S` variable, `names[0][1] = "x"` and
+`names[0][1] init "x"` store a copy, and `names[0:0]` is a `CsnStr` slice that
+owns its strings.
+
 ## Elements: `v[i][j]`
 
 One index per dimension, in order: `M[1][2]` on a 2-D array, `V[3]` on a 1-D

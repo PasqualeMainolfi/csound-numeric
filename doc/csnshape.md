@@ -17,16 +17,20 @@ should follow too, to use [csnlike](csnlike.md) instead.
 For an array made by [csnempty](csnempty.md) the shape reports the reserved
 extents even though [csnsize](csnsize.md) reports `0`.
 
+Also takes a `:CsnStr;`. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 shape:i[] = csnshape(arr:CsnArr)
 shape:k[] = csnshape(arr:CsnArr)
+shape:i[] = csnshape(arr:CsnStr)
+shape:k[] = csnshape(arr:CsnStr)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to query.
+* `arr:CsnArr / arr:CsnStr`: the array to query.
 
 ## Output
 

@@ -18,21 +18,29 @@ array; an `i[]` or `k[]` source produces a real one.
 The copy is taken at init for the i-rate form, and on every pass for the k-rate
 form, so a `k[]` that keeps moving keeps the `CsnArr` in step with it.
 
+From a Csound `S[]` the output is a `:CsnStr;` of the same shape, each element a
+copy. An `S[]` has no k counterpart, so the k form takes a trigger; it
+allocates, so it is refused on a [real-time path](csnrtlock.md). See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 out:CsnArr = csnfromarray(source:i[])
 out:CsnArr = csnfromarray(source:k[])
 out:CsnArr = csnfromarray(source:Complex[])
+out:CsnStr = csnfromarray(source:S[])
+out:CsnStr = csnfromarray(source:S[], trig:k)
 ```
 
 ## Arguments
 
-* `source:i[] / source:k[] / source:Complex[]`: the Csound array to copy.
+* `source:i[] / source:k[] / source:Complex[] / source:S[]`: the Csound array to copy.
+* `trig:k`: `S[]` form only; the array is copied again on a non-zero trigger.
 
 ## Output
 
-* `out:CsnArr`: the new csnum array.
+* `out:CsnArr / out:CsnStr`: the new csnum array, a `:CsnStr;` from an `S[]`.
 
 ## Execution Time
 

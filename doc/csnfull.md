@@ -19,6 +19,11 @@ set `itype` to `1`, in which case every element is `value + 0i`, or pass a
 rewrites the elements on every pass, so the fill is restored even if something
 downstream overwrote the array.
 
+With a string `value` the output is a `:CsnStr;` holding a copy of it in every
+element. The k form rebuilds the strings on every pass, which allocates, so it
+is refused on a [real-time path](csnrtlock.md). See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -28,6 +33,8 @@ out:CsnArr = csnfull(shape:i[], value:Complex)
 out:CsnArr = csnfull(shape:k[], value:k)
 out:CsnArr = csnfull(shape:k[], value:k, itype:i)
 out:CsnArr = csnfull(shape:k[], value:Complex)
+out:CsnStr = csnfull(shape:i[], value:S)
+out:CsnStr = csnfull(shape:k[], value:S)
 ```
 
 ## Arguments
@@ -35,11 +42,12 @@ out:CsnArr = csnfull(shape:k[], value:Complex)
 * `shape:i[] / shape:k[]`: one extent per dimension.
 * `value:i / value:k`: the value every element is set to.
 * `value:Complex`: a complex fill value; the array is complex and `itype` is not accepted.
+* `value:S`: a string fill value; the output is a `:CsnStr;` and `itype` is not accepted.
 * `itype:i` (optional, default `0`): `0` for a real array, `1` for a complex one.
 
 ## Output
 
-* `out:CsnArr`: the new array.
+* `out:CsnArr / out:CsnStr`: the new array.
 
 ## Execution Time
 

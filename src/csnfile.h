@@ -15,6 +15,8 @@
 #define CSN_FILE_VERSION_MINOR 0
 #define CSN_FILE_NUMPY_VERSION_MAJOR 3
 #define CSN_FILE_NUMPY_VERSION_MINOR 0
+/* widest <U or |S item csnload accepts: 1M code points (4 MB per item) */
+#define CSN_NUMPY_MAX_STRING_WIDTH (1UL << 20)
 
 
 typedef enum {
@@ -33,11 +35,16 @@ typedef enum {
     CSN_FILE_EXCEEDS_SIZE_LIMIT,
     CSN_FILE_SIZE_MISMATCH,
     CSN_FILE_WRONG_MEMORY_ALLOCATION,
+    CSN_FILE_DTYPE_KIND_MISMATCH,
 } CSN_FILE_ERROR_CODE;
 
+/* The dtype field is the array's itype. A string payload is, per item in C
+   order, a uint32 byte count followed by that many bytes (no terminator),
+   in the host byte order as the rest of the .csn header. */
 typedef enum {
     CSN_DTYPE_F64 = 1,
-    CSN_DTYPE_C128
+    CSN_DTYPE_C128,
+    CSN_DTYPE_STR
 } CSN_DTYPE;
 
 typedef struct {
@@ -95,5 +102,9 @@ CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char 
 CSN_FILE_ERROR_CODE csnfile_load_array_from_numpy_file(CSOUND *csound, CSN_FILE_NUMPY_HEADER *header, double **data, size_t *data_capacity, const char *path);
 
 CSN_FILE_ERROR_CODE csnfile_save_array(CSN_ARRAY *arr, const char *path, const char *ext);
+/* A string array from .csn (dtype 3) or .npy (<U or |S). On success the
+   caller owns *items: *size strings and the list holding them, all from
+   csound->Malloc; on failure nothing is left allocated. */
+CSN_FILE_ERROR_CODE csnfile_load_strings(CSOUND *csound, const char *path, const char *ext, uint32_t *ndim, uint32_t *shape, char ***items, size_t *size);
 
 #endif

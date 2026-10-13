@@ -32,15 +32,7 @@ static int32_t get_index_offset(CSOUND *csound, OPDS *perf_h, size_t *offset, ui
     return OK;
 }
 
-/* The coordinates of one item: the elements of csnget's i[] argument, or the
-   indexes of v[i][j] gathered from their arguments. NULL data when csnget's
-   argument is not a 1-D array. */
-typedef struct {
-    const cs_float *data;
-    size_t count;
-} CSN_INDEXES;
-
-static CSN_INDEXES indexes_of_arraydat(const ARRAYDAT *indexes) {
+CSN_INDEXES indexes_of_arraydat(const ARRAYDAT *indexes) {
     if (indexes == NULL || indexes->data == NULL || indexes->sizes == NULL || indexes->dimensions != 1 || indexes->sizes[0] < 0) {
         return (CSN_INDEXES) { NULL, 0 };
     }
@@ -49,7 +41,7 @@ static CSN_INDEXES indexes_of_arraydat(const ARRAYDAT *indexes) {
 
 /* v[i][j] passes each index as its own argument; Csound writes a pointer for
    each one given, and nothing past them. */
-static int32_t gather_indexes(CSOUND *csound, OPDS *perf_h, cs_float *const *args, size_t count, cs_float *buffer, CSN_INDEXES *out) {
+int32_t gather_indexes(CSOUND *csound, OPDS *perf_h, cs_float *const *args, size_t count, cs_float *buffer, CSN_INDEXES *out) {
     if (count == 0 || count > CSN_MAX_DIMS) {
         return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Expected one index per dimension (at most %d), got %zu", CSN_MAX_DIMS, count);
     }
@@ -58,12 +50,15 @@ static int32_t gather_indexes(CSOUND *csound, OPDS *perf_h, cs_float *const *arg
     return OK;
 }
 
-static int32_t csnarray_resolve_item(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_INDEXES indexes, ITEM_TYPE expected_itype, size_t *out_offset) {
+int32_t csnarray_resolve_item(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_INDEXES indexes, ITEM_TYPE expected_itype, size_t *out_offset) {
     uint32_t ndim = source_arr->ndim;
 
     if (source_arr->itype != expected_itype) {
         if (expected_itype == CSN_COMPLEX) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a real array; use the real form of the accessor");
+        }
+        if (expected_itype == CSN_STRING) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a string array; use the string form of the accessor");
         }
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a complex array; declare the value as :Complex; to read or write it (read an item with csnget)");
     }
@@ -257,7 +252,7 @@ int32_t csnarray_set_complex_k(CSOUND *csound, CSN_SETCOMPLEX *p) {
    ##array_init, one index per dimension. A k form runs at perf only, as
    kvar = x does: its init just binds the registry, and a k write marks the
    array k-rate so whatever reads it follows it at perf. */
-static int32_t csnidx_bind(CSOUND *csound, OPDS *h, CSN_REGISTRY **registry) {
+int32_t csnidx_bind(CSOUND *csound, OPDS *h, CSN_REGISTRY **registry) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     *registry = reg;
@@ -836,7 +831,9 @@ static int32_t validate_slice_spec(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY
     return OK;
 }
 
-static int32_t slice_get_assign_value(const CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t ndim, uint32_t axis, uint32_t start, uint32_t step) {
+/* A string item is copied, never shared: source and slice each own their
+   strings, and either may be rewritten or freed without the other. */
+static int32_t slice_get_assign_value(CSOUND *csound, const CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t ndim, uint32_t axis, uint32_t start, uint32_t step) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -846,7 +843,11 @@ static int32_t slice_get_assign_value(const CSN_ARRAY *source, CSN_ARRAY *destin
             size_t coord = d == axis ? (size_t) start + (size_t) it.coords[d] * step : it.coords[d];
             source_index += coord * source->strides[d];
         }
-        if (source->itype == CSN_COMPLEX) {
+        if (source->itype == CSN_STRING) {
+            const char *item = source->sdata[source_index];
+            if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
+            destination->sdata[linear] = item != NULL ? csound->Strdup(csound, item) : NULL;
+        } else if (source->itype == CSN_COMPLEX) {
             destination->data[linear * 2] = source->data[source_index * 2];
             destination->data[linear * 2 + 1] = source->data[source_index * 2 + 1];
         } else {
@@ -943,7 +944,7 @@ static int32_t slice_init(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY *ou
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (slice_get_assign_value(arr, out_arr, ndim, axis, start, step) != OK) {
+    if (slice_get_assign_value(csound, arr, out_arr, ndim, axis, start, step) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid slice iterator layout");
         goto done;
     }
@@ -991,13 +992,19 @@ static int32_t slice_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY *ou
         && memcmp(k_data->prev_shape, shape, sizeof(uint32_t) * ndim) == 0
         && CAN_REUSE_ELEMENTWISE(k_data, arr, NULL, out_arr, (double) start, (double) step)) goto done;
 
+    /* copying strings allocates, which a real-time path forbids */
+    if (arr->itype == CSN_STRING && out_arr->rt_locked) {
+        res = csn_locked_perf_error(csound, h, "[csnarray] Slicing a string array allocates at perf time and the slice is on a real-time path; slice it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from");
+        goto done;
+    }
+
     const CSN_ARRAY *ops[1] = { arr };
     CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, ndim, shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (slice_get_assign_value(arr, out_arr, ndim, axis, start, step) != OK) {
+    if (slice_get_assign_value(csound, arr, out_arr, ndim, axis, start, step) != OK) {
         res = csn_locked_perf_error(csound, h, "[csnarray] Invalid slice iterator layout");
         goto done;
     }
@@ -1148,14 +1155,25 @@ int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, s
         }
         size_t new_capacity = arr->capacity > 0 ? arr->capacity * 2 : 1;
         if (new_capacity < required_size) new_capacity = required_size;
-        double *new_data = csound->ReAlloc(csound, arr->data, sizeof(double) * new_capacity * arr->itype);
-        if (new_data == NULL) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * new_capacity * arr->itype));
-        }
 
-        arr->data = new_data;
-        arr->capacity = new_capacity;
+        if (arr->itype == CSN_STRING) {
+            char **new_data = csound->ReAlloc(csound, arr->sdata, sizeof(char *) * new_capacity);
+            if (new_data == NULL) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(char *) * new_capacity));
+            }
+            memset(new_data + arr->capacity, 0, sizeof(char *) * (new_capacity - arr->capacity));
+            arr->sdata = new_data;
+            arr->capacity = new_capacity;
+        } else {
+            double *new_data = csound->ReAlloc(csound, arr->data, sizeof(double) * new_capacity * arr->itype);
+            if (new_data == NULL) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(double) * new_capacity * arr->itype));
+            }
+            arr->data = new_data;
+            arr->capacity = new_capacity;
+        }
     }
+
     return OK;
 }
 

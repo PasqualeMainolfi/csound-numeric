@@ -39,15 +39,6 @@ static bool IS_VALID_DCT_MODE(double value) {
     return isfinite(value) && !isnan(value) && trunc(value) == value && value >= 1.0 && value <= 2.0;
 }
 
-/* Csound hands a deallocated instrument's opcode memory to the next note
-   without zeroing it, and an opcode inside a branch the new note does not take
-   is deinitialized all the same. A pointer left behind here would therefore be
-   freed a second time, so every buffer is cleared as it is released. */
-void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array) {
-    if (array->data != NULL) csound->Free(csound, array->data);
-    memset(array, 0, sizeof(CSN_ARRAY));
-}
-
 static inline size_t NEXT_POWER_OF_TWO(size_t n) {
     if (n <= 1) return 1;
     n--;

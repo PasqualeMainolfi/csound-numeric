@@ -25,6 +25,12 @@ instr 1
     i_mat_out[][] = csntoarray(mat)
     prints("mat[1][2] = %g\n", i_mat_out[1][2])
 
+    ; or keep the annotation, which declares an array of i, and give it its
+    ; rank with init before the assignment
+    typed_out:i[] = init(2, 3)
+    typed_out     = csntoarray(mat)
+    prints("typed[1][2] = %g\n", typed_out[1][2])
+
     ; or flatten first, and receive it as a vector
     flat_out:i[] = csntoarray(csnflatten(mat))
     prints("flat      = %g %g %g %g %g %g\n", flat_out[0], flat_out[1], flat_out[2], flat_out[3], flat_out[4], flat_out[5])

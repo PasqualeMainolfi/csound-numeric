@@ -22,6 +22,12 @@ array previously created by `csnlikeset`. After writing into a set array, pass
 it through `csnlikeset` again before using set membership, combination or
 predicate operations. See [Set arrays and their invariant](set-arrays.md).
 
+On a `:CsnStr;` the element takes a copy of the string. Writing the string it
+already holds is no write, so a k-rate set of an unchanged value bumps no
+version and allocates nothing; a real change allocates and is refused on a
+[real-time path](csnrtlock.md). `v[i][j] = "x"` and `v[i][j] init "x"` do the
+same. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -31,13 +37,16 @@ csnset(arr:CsnArr, cell:i[], value:Complex)
 csnset(arr:CsnArr, cell:k[], value:i)
 csnset(arr:CsnArr, cell:k[], value:k)
 csnset(arr:CsnArr, cell:k[], value:Complex)
+csnset(arr:CsnStr, cell:i[], value:S)
+csnset(arr:CsnStr, cell:k[], value:S)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to write into.
+* `arr:CsnArr / arr:CsnStr`: the array to write into.
 * `cell:i[] / cell:k[]`: the coordinates, one per dimension, each within its extent.
 * `value:i / value:k / value:Complex`: the value to store.
+* `value:S`: the string to store, for a string array.
 
 ## Output
 

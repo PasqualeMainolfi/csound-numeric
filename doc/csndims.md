@@ -16,16 +16,20 @@ arguments elsewhere: a valid axis runs from `-csndims` to `csndims - 1`.
 Negative axes count from the end (`-1` is the last); omitting an optional axis
 selects the operation's documented flat, all-axes, or last-axis default.
 
+Also takes a `:CsnStr;`. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 ndim:i = csndims(arr:CsnArr)
 ndim:k = csndims(arr:CsnArr)
+ndim:i = csndims(arr:CsnStr)
+ndim:k = csndims(arr:CsnStr)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to query.
+* `arr:CsnArr / arr:CsnStr`: the array to query.
 
 ## Output
 

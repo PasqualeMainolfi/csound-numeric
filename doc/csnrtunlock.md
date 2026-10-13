@@ -28,16 +28,20 @@ zero, including at initialization.
 `csnrtlock(arr, 0)` is not an unlock operation: with a zero k-rate trigger it
 does nothing. Use `csnrtunlock` explicitly.
 
+Also takes a `:CsnStr;`. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 csnrtunlock(arr:CsnArr)
 csnrtunlock(arr:CsnArr, trig:k)
+csnrtunlock(arr:CsnStr)
+csnrtunlock(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: array whose real-time mark is cleared.
+* `arr:CsnArr / arr:CsnStr`: array whose real-time mark is cleared.
 * `trig:k` (optional, default `1`): clear the mark when non-zero; do nothing when zero.
 
 ## Output

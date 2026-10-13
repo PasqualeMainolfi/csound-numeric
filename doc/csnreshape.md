@@ -17,6 +17,10 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+The in-place form also takes a `:CsnStr;`, since it only changes the layout; the
+form that returns a copy is numeric only for now. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -24,11 +28,13 @@ out:CsnArr = csnreshape(source:CsnArr, shape:i[])
 out:CsnArr = csnreshape(source:CsnArr, shape:k[])
 csnreshape(source:CsnArr, shape:i[])
 csnreshape(source:CsnArr, shape:k[])
+csnreshape(source:CsnStr, shape:i[])
+csnreshape(source:CsnStr, shape:k[])
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to reshape.
+* `source:CsnArr / source:CsnStr`: the array to reshape.
 * `shape:i[] / shape:k[]`: the new extents, one per dimension. Their product must equal the array's element count.
 
 ## Output

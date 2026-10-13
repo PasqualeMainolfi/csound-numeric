@@ -16,7 +16,7 @@
 
 /* Parses the shape argument and prepares the output. The lock, if taken, is
    handed back to the caller, which still has to fill the array under it. */
-static CSNARR_RES create_csnarray_from_shape(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, const ARRAYDAT *source_shape, CSN_ARRAY *out, ITEM_TYPE itype) {
+CSNARR_RES create_csnarray_from_shape(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, const ARRAYDAT *source_shape, CSN_ARRAY *out, ITEM_TYPE itype) {
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
 
@@ -674,12 +674,12 @@ done:
    reallocating, and a marked source that needs more is refused instead of
    letting tabinit allocate. Csound's own copy-on-write detach of a shared
    output array stays outside this guarantee. */
-static bool krate_array_output_fits(const ARRAYDAT *out, size_t items) {
+bool krate_array_output_fits(const ARRAYDAT *out, size_t items) {
     return out->data != NULL && out->arrayMemberSize > 0
         && out->allocated / (size_t) out->arrayMemberSize >= items;
 }
 
-static int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out, size_t items) {
+int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out, size_t items) {
     if (h->perf == NULL || items == 0) return OK;
     if (items > (size_t) INT32_MAX) return NOTOK;
     int32_t logical_size = out->dimensions == 1 && out->sizes != NULL ? out->sizes[0] : 0;
@@ -721,7 +721,7 @@ int32_t from_csnarray_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        res = csn_init_error(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_init_error(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs, or give it %u dimensions with init first", ndim, declared, ndim, ndim);
         goto done;
     }
 
@@ -772,7 +772,7 @@ int32_t from_csnarray_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs, or give it %u dimensions with init first", ndim, declared, ndim, ndim);
         goto done;
     }
 
@@ -841,7 +841,7 @@ int32_t from_csnarray_to_complexarray(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        res = csn_init_error(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_init_error(csound, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs, or give it %u dimensions with init first", ndim, declared, ndim, ndim);
         goto done;
     }
 
@@ -895,7 +895,7 @@ int32_t from_csnarray_to_complexarray_k(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     int32_t declared = p->array->dimensions > 0 ? p->array->dimensions : 1;
     if ((uint32_t) declared != ndim) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs", ndim, declared, ndim);
+        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Handle holds a %u-D array but the output is declared %d-D; declare it with %u bracket pairs, or give it %u dimensions with init first", ndim, declared, ndim, ndim);
         goto done;
     }
 

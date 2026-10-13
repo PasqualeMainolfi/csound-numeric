@@ -666,6 +666,60 @@ instr 3
     iC:Complex = csnget(iComplexSeed, iIndex2)
     iFullComplex:CsnArr = csnfull(iShape2, iA)
     iLike:CsnArr = csnlike(iFull, 3)
+    ; String arrays.
+    iEmptyStr:CsnStr = csnempty(iShape22)
+    iFullStr:CsnStr = csnfull(iShape22, "s")
+    iLikeStr:CsnStr = csnlike(iFullStr, "t")
+    iStrIdx[] = fillarray(1, 0)
+    csnset(iLikeStr, iStrIdx, "u")
+    SStrSet = csnget(iLikeStr, iStrIdx)
+    SStrKept = csnget(iFullStr, iStrIdx)
+    iStrSetCmp = strcmp(SStrSet, "u")
+    iStrKeptCmp = strcmp(SStrKept, "s")
+    assert(iStrSetCmp == 0 && iStrKeptCmp == 0)
+    iStrDims = csndims(iFullStr)
+    iStrSize = csnsize(iFullStr)
+    iStrIsEmpty = csnisempty(iEmptyStr)
+    iStrType = csntype(iFullStr)
+    iStrShape[] = csnshape(iFullStr)
+    assert(iStrDims == 2 && iStrSize == 4 && iStrIsEmpty == 1 && iStrType == 2)
+    assert(iStrShape[0] == 2 && iStrShape[1] == 2)
+    ; A slice owns copies: writing it leaves its source alone.
+    iStrSlice:CsnStr = csngetslice(iLikeStr, 0, 1, 2, 1)
+    iStrSliceIdx[] = fillarray(0, 0)
+    SStrSliced = csnget(iStrSlice, iStrSliceIdx)
+    iStrSlicedCmp = strcmp(SStrSliced, "u")
+    csnset(iStrSlice, iStrSliceIdx, "v")
+    SStrSource = csnget(iLikeStr, iStrIdx)
+    iStrSourceCmp = strcmp(SStrSource, "u")
+    iStrSliceShape[] = csnshape(iStrSlice)
+    assert(iStrSlicedCmp == 0 && iStrSourceCmp == 0)
+    assert(iStrSliceShape[0] == 1 && iStrSliceShape[1] == 2)
+    ; The layout-only opcodes take a CsnStr as they take a CsnArr.
+    iStrFlat:CsnStr = csnfull(iShape22, "f")
+    csnflatten(iStrFlat)
+    iStrFlatDims = csndims(iStrFlat)
+    csnreshape(iStrFlat, iShape22)
+    iStrReshapedDims = csndims(iStrFlat)
+    assert(iStrFlatDims == 1 && iStrReshapedDims == 2)
+    csnrtlock(iStrFlat)
+    csnrtunlock(iStrFlat)
+    csni(iStrFlat)
+    iStrCast:CsnStr = csnempty(iShape2)
+    csnk(iStrCast)
+    ; S[] in and out, printing and saving
+    SStrItems[] fillarray "p", "q"
+    iStrFrom:CsnStr = csnfromarray(SStrItems)
+    SStrBack[] = csntoarray(iStrFrom)
+    SStrSecond = SStrBack[1]
+    iStrSecondCmp = strcmp(SStrSecond, "q")
+    assert(iStrSecondCmp == 0)
+    csnprint(iStrFrom)
+    csnsave(iStrFrom, "csnum_itime_strings.npy")
+    iStrLoaded:CsnStr = csnload("csnum_itime_strings.npy")
+    SStrLoaded = iStrLoaded[0]
+    iStrLoadedCmp = strcmp(SStrLoaded, "p")
+    assert(iStrLoadedCmp == 0)
 
     iNative[][] = init(2, 2)
     iNative[0][0] = 1
@@ -4745,11 +4799,11 @@ e
 ; csnproject csnreject csncross csngrad csnmovmedian csnmovmedian.in csnmovmin csnmovmin.in
 ; csnmovmax csnmovmax.in csnsort csnsort.in csnargsort csnpercentile csnpercentile.ax csnquantile
 ; csnquantile.ax csnlogicand.hh csnlogicor.hh csnlogicand.hs csnlogicor.hs csnlogicand.sh csnlogicor.sh csnlogicnot
-; csnempty csnzeros csnones csnfull csnfull.c csnlike csnfromarray csnfromarray.c
-; csntoarray csntoarray.c csndims csnsize csnisempty csnshape csnidentity
-; csnreshape csnreshape.in csnflatten csnflatten.in csntranspose csntranspose.ax csntranspose.in csntranspose.ax.in
-; csnflip csnflip.in csnroll csnroll.in csnroll.ax csnroll.ax.in csnget csnget.c csngetrow csngetcol
-; csnset csnset.c csntake csntake.flat csntake.flat.c csngetslice csnsetslice csnpush
+; csnempty csnempty.s csnzeros csnones csnfull csnfull.c csnfull.s csnlike csnlike.s csnfromarray csnfromarray.c csnfromarray.s
+; csntoarray csntoarray.c csntoarray.s csndims csndims.s csnsize csnsize.s csnisempty csnisempty.s csnshape csnshape.s csnidentity
+; csnreshape csnreshape.in csnreshape.s.in csnflatten csnflatten.in csnflatten.s.in csntranspose csntranspose.ax csntranspose.in csntranspose.ax.in
+; csnflip csnflip.in csnroll csnroll.in csnroll.ax csnroll.ax.in csnget csnget.c csnget.s csngetrow csngetcol
+; csnset csnset.c csnset.s csntake csntake.flat csntake.flat.c csngetslice csngetslice.s csnsetslice csnpush
 ; csnpush.c csnpop csnpop.c csninsert.flat csninsert.flat.c csnremove.flat csnremove.flat.c csninsert.block
 ; csnremove.block csnconcat.flat csnconcat.block csnstack csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
@@ -4765,17 +4819,17 @@ e
 ; csnreflect csndiff csncumsum csncumprod csnmatmul csnmatmul.s csntrace csntrace.c
 ; csndiag csnmovmean csnmovmean.in csnmovstd csnmovstd.in csnmovvar csnmovvar.in csnreal
 ; csnimag csntoreal csntocomplex csnconj csnangle csnwrap csnwrap.in csnunwrap
-; csnunwrap.in csntype csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
+; csnunwrap.in csntype csntype.s csncopy csnreverse csnreverse.in csnseed csnhypot csnhypot.hs
 ; csndegtorad csndegtorad.in csnradtodeg csnradtodeg.in csnhanning csnhamming csnbartlett csnblackman
 ; csnkaiser csndivmod.hh csndivmod.hs csndivmod.sh csnfromftable csntoftable csnresample csnhead
-; csntruncate csntruncate.in csnresize csnresize.in csnsave csnload csnprint csnrtlock
+; csntruncate csntruncate.in csnresize csnresize.in csnsave csnsave.s csnload csnload.s csnprint csnprint.s csnrtlock csnrtlock.s
 ; csnsaveaudiofile csnloadaudiofile
 ; csnwhere.hh csnwhere.hs csnputmask.hh csnputmask.hs csncompress csnminimum.hh csnminimum.hs csnmaximum.hh
 ; csnmaximum.hs csnatan2.hh csnatan2.hs csnatan2.sh csnrms csnrms.ax csnselect
 ; csnlikeset csnunlikeset csnsetinsert csnsetremove csnsetcontains csnsetunion csnsetintersect
 ; csnsetdiff csnsetsymdiff csnsetissubset csnsetissuperset csnsetisdisjoint csnsetisequal
 ; csnfft csnrfft csnifft csnirfft csnfft2 csnrfft2 csnifft2 csnirfft2 csnstft csnistft
-; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock
+; csnfftfreq csnrfftfreq csnfftshift csnifftshift csnrtunlock csnrtunlock.s
 ; csnconvolve1d csncorrelate1d csnconvolve csncorrelate
 ; csndeconvolve1d csndeconvolve csnfftdeconvolve1d csnfftdeconvolve
 ; csndecorrelate1d csndecorrelate csnfftdecorrelate1d csnfftdecorrelate
@@ -4813,6 +4867,6 @@ e
 ; csnlfilter csnlfilter.ax csnsosfilter csnsosfilter.ax
 ; csnzlfilter csnzlfilter.ax csnzsosfilter csnzsosfilter.ax
 ; csndegtorad.s csnradtodeg.s
-; csni csni.in csnk csnk.in
+; csni csni.in csni.s.in csnk csnk.in csnk.s.in
 ; @covers-end
 </CsoundSynthesizer>

@@ -24,16 +24,22 @@ The k-rate overload prints on every non-zero trigger. A zero trigger emits no
 message. Its trigger is required because it is the argument that distinguishes
 the performance-time overload from the init-time one.
 
+A `:CsnStr;` prints as `CsnStr(shape=(...), dtype=str)` with every element
+quoted, as NumPy prints a string array. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 csnprint(arr:CsnArr)
 csnprint(arr:CsnArr, trig:k)
+csnprint(arr:CsnStr)
+csnprint(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the real or complex array to print.
+* `arr:CsnArr / arr:CsnStr`: the real or complex array to print.
 * `trig:k`: required k-rate trigger; non-zero prints the current array, zero does nothing.
 
 ## Output

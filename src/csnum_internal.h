@@ -81,6 +81,8 @@ int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
 int32_t csn_binop_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *scalar_arg, COMPLEXDAT *complex_arg, K_DATA *k_data, CSN_BINOP_MODE mode);
 
 CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *reg, CSN_ARRAY *out, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype, const CSN_ARRAY *const *operands, size_t n_operands, CSN_ALIAS_POLICY policy);
+CSNARR_RES create_csnarray_from_shape(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, const ARRAYDAT *source_shape, CSN_ARRAY *out, ITEM_TYPE itype);
+CSN_INDEXES indexes_of_arraydat(const ARRAYDAT *indexes);
 int32_t csn_check_outputs_distinct(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *const *outputs, size_t n_outputs);
 bool is_inarg_i_time(OPDS *h, uint32_t arg_index);
 bool BROADCAST_ITER_NEXT(CSN_BROADCAST_ITER *it);
@@ -116,6 +118,11 @@ int32_t BROADCAST_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_
 int32_t ND_ITER_INIT(CSN_BROADCAST_ITER *it, uint32_t ndim, const uint32_t *shape, size_t logical_size, const size_t *strides);
 int32_t ND_ITER_SEEK(CSN_BROADCAST_ITER *it, size_t linear_index);
 int32_t BROADCAST_INIT(uint32_t *out_ndim, uint32_t *out_shape, size_t *out_size, size_t out_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS], const CSN_ARRAY *const sources[], uint32_t n_inputs);
+int32_t reserve_krate_array_output(CSOUND *csound, OPDS *h, ARRAYDAT *out, size_t items);
+bool krate_array_output_fits(const ARRAYDAT *out, size_t items);
+int32_t csnidx_bind(CSOUND *csound, OPDS *h, CSN_REGISTRY **registry);
+int32_t gather_indexes(CSOUND *csound, OPDS *perf_h, cs_float *const *args, size_t count, cs_float *buffer, CSN_INDEXES *out);
+int32_t csnarray_resolve_item(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, CSN_INDEXES indexes, ITEM_TYPE expected_itype, size_t *out_offset);
 int32_t complex_pow(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT base, CSN_COMPLEXDAT exponent);
 int32_t create_empty_csnarray_k_init(CSOUND *csound, CSN_ARR_INIT *p);
 int32_t create_full_csnarray_k_init(CSOUND *csound, CSN_FULL *p);

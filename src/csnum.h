@@ -312,6 +312,14 @@ typedef enum {
     CSN_AXIS_INVALID
 } CSN_AXIS_KIND;
 
+/* The coordinates of one item: the elements of csnget's i[] argument, or the
+   indexes of v[i][j] gathered from their arguments. NULL data when csnget's
+   argument is not a 1-D array. */
+typedef struct {
+    const cs_float *data;
+    size_t count;
+} CSN_INDEXES;
+
 typedef struct {
     CSN_AXIS_KIND kind;
     uint32_t index; /* meaningful only when kind == CSN_AXIS_INDEX */
@@ -413,7 +421,7 @@ typedef struct {
     CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *shape;
-    cs_float *itype; // itype = REAL (0) or COMPLEX (1)
+    cs_float *itype; // itype = REAL (0), COMPLEX (1), STRING (2)
     // private
     CSN_REGISTRY *registry;
 } CSN_ARR_INIT;
@@ -472,6 +480,7 @@ typedef struct {
     CSN_ARRAY *handle;
     // inputs
     ARRAYDAT *source;
+    cs_float *trig; // for strings
     // private
     CSN_REGISTRY *registry;
 } CSN_FROM_ARRAY;
@@ -490,6 +499,7 @@ typedef struct {
     ARRAYDAT *array;
     // inputs
     CSN_ARRAY *source_handle;
+    cs_float *trig; // for strings
     // private
     CSN_REGISTRY *registry;
 } CSN_TO_ARRAY;

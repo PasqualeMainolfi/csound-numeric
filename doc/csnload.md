@@ -35,11 +35,20 @@ Until the first trigger fires the output still holds the empty array the init
 pass published, so a consumer that cannot read an empty extent belongs behind the
 trigger too.
 
+Declared as `:CsnStr;`, the output reads a `.npy` of dtype `<U` (re-encoded as
+UTF-8) or `|S` (bytes as they are), in either byte order and in C or Fortran
+order, or a `.csn` of dtype `3`. A file of numbers loaded into a `:CsnStr;`, or
+of strings into a `:CsnArr;`, is refused. The k form allocates, so it is refused
+on a [real-time path](csnrtlock.md). See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 out:CsnArr = csnload(path:S)
 out:CsnArr = csnload(path:S, trig:k)
+out:CsnStr = csnload(path:S)
+out:CsnStr = csnload(path:S, trig:k)
 ```
 
 ## Arguments
@@ -49,7 +58,7 @@ out:CsnArr = csnload(path:S, trig:k)
 
 ## Output
 
-* `out:CsnArr`: the array read from the file. Empty until the first k-rate trigger fires.
+* `out:CsnArr / out:CsnStr`: the array read from the file, a `:CsnStr;` for a file of strings. Empty until the first k-rate trigger fires.
 
 ## Execution Time
 

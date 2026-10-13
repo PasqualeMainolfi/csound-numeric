@@ -291,6 +291,31 @@ The API also provides intersection, difference, symmetric difference, removal,
 and subset, superset, disjointness, and equality predicates. Each opcode has a
 runnable example in the [set-operation reference](doc/README.md#sorting-and-sets).
 
+### String arrays: `CsnStr`
+
+A `CsnStr` is an array of strings with the layout of a `CsnArr`: a value that
+owns its strings, copied by `B = A`, released with its variable. It is a type
+of its own, so the numeric opcodes refuse it when the orchestra is compiled;
+the ones that also make sense on strings have a `:CsnStr;` overload, and
+`csntype` reports `2` for one.
+
+```csound
+labels:S[]  = fillarray("kick", "snare", "hat", "tom")
+grid:CsnStr = csnfromarray(labels)
+grid[3]     = "crash"                     // [] stores a copy
+first:S     = grid[0]                     // "kick"
+csnsave(grid, "labels.npy")               // np.load gives dtype <U5
+```
+
+Creation (`csnempty`, `csnfull`, `csnlike`, `csnfromarray`), the way out
+(`csntoarray` to `S[]`, `csnprint`), elements and slices (`csnget`, `csnset`,
+`[]`, `csngetslice`), the queries, the in-place layout and rate opcodes and
+`csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A string
+has no k form, so their k forms take an explicit trigger; and since writing a
+string allocates, a k pass that writes strings is refused on a
+[real-time path](#real-time-paths). See [String arrays](doc/string-arrays.md)
+for the list, the file formats and a runnable example.
+
 ### Printing arrays
 
 `csnprint` writes the shape, element type and values directly to Csound's message
@@ -519,7 +544,7 @@ entry means the operation lives outside NumPy proper.
 | `csnfromftable` | — | Csound function table in. |
 | `csntoftable` | — | Csound function table out. |
 | `csncopy` | `np.copy` | |
-| `csntype` | `ndarray.dtype` | `0` real, `1` complex. |
+| `csntype` | `ndarray.dtype` | `0` real, `1` complex, `2` string. |
 | `csndims` | `ndarray.ndim` | |
 | `csnsize` | `ndarray.size` | |
 | `csnshape` | `ndarray.shape` | |
@@ -530,8 +555,8 @@ entry means the operation lives outside NumPy proper.
 
 | csnum | NumPy | Notes |
 | --- | --- | --- |
-| `csnsave` | `np.save` | A `.npy` path writes a NumPy file (`float64` or `complex128`); `.csn` writes csnum's own format. |
-| `csnload` | `np.load` | A `.npy` path reads supported numeric dtypes and C/Fortran order; `.csn` reads csnum's own format. |
+| `csnsave` | `np.save` | A `.npy` path writes a NumPy file (`float64`, `complex128`, or `<U` for a `CsnStr`); `.csn` writes csnum's own format. |
+| `csnload` | `np.load` | A `.npy` path reads supported numeric dtypes, or `<U` / `\|S` into a `CsnStr`, in C or Fortran order; `.csn` reads csnum's own format. |
 | `csnloadaudiofile` | `librosa.load(path, sr=None, mono=False)` | Reads `.wav`, `.mp3` or `.flac`, one row per channel, and returns the file's sample rate; never resamples. |
 | `csnsaveaudiofile` | `soundfile.write` | Writes `.wav` as 32-bit float, one channel per row. |
 
@@ -739,6 +764,25 @@ of re-sorting on every k-rate pass.
 | `csnconj` | `np.conj` | |
 | `csntocomplex` | `a.astype(complex)` | |
 | `csntoreal` | `a.real` | Keeps the real parts. |
+
+### String arrays
+
+A `CsnStr` stands for a NumPy array of dtype `str` (`<U`). These are the
+overloads that take one; the numeric opcodes refuse it at compile time.
+
+| csnum | NumPy | Notes |
+| --- | --- | --- |
+| `csnempty` | `np.empty(shape, dtype=str)` | Reserved and empty, as for numbers. |
+| `csnfull` | `np.full(shape, "s")` | |
+| `csnlike` | `np.full_like(a, "s")` | The k form takes a trigger. |
+| `csnfromarray` | `np.array(list_of_str)` | From an `S[]`; the k form takes a trigger. |
+| `csntoarray` | `ndarray.tolist` | To an `S[]`; the k form takes a trigger. |
+| `csnget` / `csnset` | `a[i, j]` / `a[i, j] = "s"` | Also `v[i][j]`. |
+| `csngetslice` | `a[start:stop:step]` along an axis | Also `v[start:end]`; the slice owns its strings. |
+| `csnsize`, `csndims`, `csnshape`, `csnisempty`, `csntype` | `a.size`, `a.ndim`, `a.shape`, `a.size == 0`, `a.dtype` | `csntype` is `2`. |
+| `csnreshape`, `csnflatten` (in place) | `a.shape = ...`, `a.shape = (a.size,)` | The forms returning a copy are numeric only for now. |
+| `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
+| `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |
 
 ### Fourier analysis
 
