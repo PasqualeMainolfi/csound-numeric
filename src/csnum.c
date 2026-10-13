@@ -445,6 +445,24 @@ bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const C
     return is_same_array_version(&out_arr->version, &k_data->prev_output_version);
 }
 
+/* CAN_REUSE_ELEMENTWISE with string parameters. A STRINGDAT carries no
+   version, and its buffer is rewritten in place, so the previous value is
+   compared against the copy PUBLISH_STRING_ELEMENTWISE kept. */
+static bool same_kept_string(const char *kept, const char *value) {
+    if (value == NULL) return kept == NULL;
+    return kept != NULL && strcmp(kept, value) == 0;
+}
+
+bool CAN_REUSE_STRING_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b) {
+    if (arr_a == NULL || arr_a->data == NULL) return false;
+    if (out_arr != NULL && (arr_a == out_arr || arr_b == out_arr)) return false;
+    if (!is_same_array_version(&arr_a->version, &k_data->prev_source_version)) return false;
+    if (arr_b != NULL && !is_same_array_version(&arr_b->version, &k_data->prev_source_version_b)) return false;
+    if (!same_kept_string(k_data->prev_string, value_a) || !same_kept_string(k_data->prev_string_b, value_b)) return false;
+    if (out_arr == NULL) return true;
+    return is_same_array_version(&out_arr->version, &k_data->prev_output_version);
+}
+
 /* Records what the result was derived from, so the next pass can recognize it. */
 void PUBLISH_ELEMENTWISE(K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b) {
     k_data->prev_scalar_param = scalar_a;
@@ -452,6 +470,28 @@ void PUBLISH_ELEMENTWISE(K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY
     set_array_version(&k_data->prev_source_version, &arr_a->version);
     if (arr_b != NULL) set_array_version(&k_data->prev_source_version_b, &arr_b->version);
     if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
+}
+
+static void keep_string(CSOUND *csound, char **kept, const char *value) {
+    if (same_kept_string(*kept, value)) return;
+    if (*kept != NULL) csound->Free(csound, *kept);
+    *kept = value != NULL ? csound->Strdup(csound, value) : NULL;
+}
+
+/* The strings are copied, and the copies belong to k_data: the opcode releases
+   them with csn_kdata_release_strings at deinit, and before a reinit. Only a
+   changed value allocates. */
+void PUBLISH_STRING_ELEMENTWISE(CSOUND *csound, K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b) {
+    keep_string(csound, &k_data->prev_string, value_a);
+    keep_string(csound, &k_data->prev_string_b, value_b);
+    set_array_version(&k_data->prev_source_version, &arr_a->version);
+    if (arr_b != NULL) set_array_version(&k_data->prev_source_version_b, &arr_b->version);
+    if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
+}
+
+void csn_kdata_release_strings(CSOUND *csound, K_DATA *k_data) {
+    keep_string(csound, &k_data->prev_string, NULL);
+    keep_string(csound, &k_data->prev_string_b, NULL);
 }
 
 bool IS_VALID_SHIFT(double shift) {
@@ -1578,10 +1618,18 @@ static OENTRY localops[] = {
     { "csnconcat.block.k",       S(CSN_CONCAT),                   0, ":CsnArr;",                 ":CsnArr;:CsnArr;kk",            (SUBR) csnarray_concat_block_k_init,         (SUBR) csnarray_concat_block_k,         NULL,                                    NULL, 0 },
     { "csnconcat.flat",          S(CSN_CONCAT),                   0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_concat_flat,                 NULL,                                   NULL,                                    NULL, 0 },
     { "csnconcat.flat.k",        S(CSN_CONCAT),                   0, ":CsnArr;",                 ":CsnArr;:CsnArr;k",             (SUBR) csnarray_concat_flat,                 (SUBR) csnarray_concat_flat_k,          NULL,                                    NULL, 0 },
+    { "csnconcat.s.block",       S(CSN_CONCAT),                   0, ":CsnStr;",                 ":CsnStr;:CsnStr;i",             (SUBR) csnarray_concat_block,                NULL,                                   NULL,                                    NULL, 0 },
+    { "csnconcat.s.block.k",     S(CSN_CONCAT),                   0, ":CsnStr;",                 ":CsnStr;:CsnStr;kk",            (SUBR) csnarray_concat_block_k_init,         (SUBR) csnarray_concat_block_k,         NULL,                                    NULL, 0 },
+    { "csnconcat.s.flat",        S(CSN_CONCAT),                   0, ":CsnStr;",                 ":CsnStr;:CsnStr;",              (SUBR) csnarray_concat_flat,                 NULL,                                   NULL,                                    NULL, 0 },
+    { "csnconcat.s.flat.k",      S(CSN_CONCAT),                   0, ":CsnStr;",                 ":CsnStr;:CsnStr;k",             (SUBR) csnarray_concat_flat,                 (SUBR) csnarray_concat_flat_k,          NULL,                                    NULL, 0 },
     { "csnpad",                  S(CSN_PAD),                      0, ":CsnArr;",                 ":CsnArr;iio",                   (SUBR) csnarray_pad,                         NULL,                                   NULL,                                    NULL, 0 },
     { "csnpad.ax",               S(CSN_PAD),                      0, ":CsnArr;",                 ":CsnArr;iiii",                  (SUBR) csnarray_pad,                         NULL,                                   NULL,                                    NULL, 0 },
     { "csnpad.in",               S(CSN_PAD_IN),                   0, "",                         ":CsnArr;iio",                   (SUBR) csnarray_pad_in,                      NULL,                                   NULL,                                    NULL, 0 },
     { "csnpad.ax.in",            S(CSN_PAD_IN),                   0, "",                         ":CsnArr;iiii",                  (SUBR) csnarray_pad_in,                      NULL,                                   NULL,                                    NULL, 0 },
+    { "csnpad.s",                S(CSN_PADSTRING),                0, ":CsnStr;",                 ":CsnStr;iiS",                   (SUBR) csnstrings_pad,                       NULL,                                   NULL,                                    NULL, 0 },
+    { "csnpad.s.ax",             S(CSN_PADSTRING),                0, ":CsnStr;",                 ":CsnStr;iiSi",                  (SUBR) csnstrings_pad,                       NULL,                                   NULL,                                    NULL, 0 },
+    { "csnpad.s.in",             S(CSN_PADSTRING_IN),             0, "",                         ":CsnStr;iiS",                   (SUBR) csnstrings_pad_in,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnpad.s.ax.in",          S(CSN_PADSTRING_IN),             0, "",                         ":CsnStr;iiSi",                  (SUBR) csnstrings_pad_in,                    NULL,                                   NULL,                                    NULL, 0 },
     { "csnpad.c",                S(CSN_PADCOMPLEX),               0, ":CsnArr;",                 ":CsnArr;ii:Complex;",           (SUBR) csnarray_padcomp,                     NULL,                                   NULL,                                    NULL, 0 },
     { "csnpad.ax.c",             S(CSN_PADCOMPLEX),               0, ":CsnArr;",                 ":CsnArr;ii:Complex;i",          (SUBR) csnarray_padcomp,                     NULL,                                   NULL,                                    NULL, 0 },
     { "csnpad.in.c",             S(CSN_PADCOMPLEX_IN),            0, "",                         ":CsnArr;ii:Complex;",           (SUBR) csnarray_padcomp_in,                  NULL,                                   NULL,                                    NULL, 0 },
@@ -1590,6 +1638,10 @@ static OENTRY localops[] = {
     { "csnpad.ax.k",             S(CSN_PAD),                      0, ":CsnArr;",                 ":CsnArr;kkkkk",                 (SUBR) csnarray_pad_k_init,                  (SUBR) csnarray_pad_k,                  NULL,                                    NULL, 0 },
     { "csnpad.in.k",             S(CSN_PAD_IN),                   0, "",                         ":CsnArr;kkkk",                  (SUBR) csnarray_pad_in_k_init,               (SUBR) csnarray_pad_in_k,               (SUBR) csnarray_pad_in_k_deinit,         NULL, 0 },
     { "csnpad.ax.in.k",          S(CSN_PAD_IN),                   0, "",                         ":CsnArr;kkkkk",                 (SUBR) csnarray_pad_in_k_init,               (SUBR) csnarray_pad_in_k,               (SUBR) csnarray_pad_in_k_deinit,         NULL, 0 },
+    { "csnpad.s.k",              S(CSN_PADSTRING),                0, ":CsnStr;",                 ":CsnStr;kkSk",                  (SUBR) csnstrings_pad_k_init,                (SUBR) csnstrings_pad_k,                (SUBR) csnstrings_pad_k_deinit,          NULL, 0 },
+    { "csnpad.s.ax.k",           S(CSN_PADSTRING),                0, ":CsnStr;",                 ":CsnStr;kkSkk",                 (SUBR) csnstrings_pad_k_init,                (SUBR) csnstrings_pad_k,                (SUBR) csnstrings_pad_k_deinit,          NULL, 0 },
+    { "csnpad.s.in.k",           S(CSN_PADSTRING_IN),             0, "",                         ":CsnStr;kkSk",                  (SUBR) csnstrings_pad_in_k_init,             (SUBR) csnstrings_pad_in_k,             (SUBR) csnstrings_pad_in_k_deinit,       NULL, 0 },
+    { "csnpad.s.ax.in.k",        S(CSN_PADSTRING_IN),             0, "",                         ":CsnStr;kkSkk",                 (SUBR) csnstrings_pad_in_k_init,             (SUBR) csnstrings_pad_in_k,             (SUBR) csnstrings_pad_in_k_deinit,       NULL, 0 },
     { "csnpad.c.k",              S(CSN_PADCOMPLEX),               0, ":CsnArr;",                 ":CsnArr;kk:Complex;k",          (SUBR) csnarray_padcomp_k_init,              (SUBR) csnarray_padcomp_k,              NULL,                                    NULL, 0 },
     { "csnpad.ax.c.k",           S(CSN_PADCOMPLEX),               0, ":CsnArr;",                 ":CsnArr;kk:Complex;kk",         (SUBR) csnarray_padcomp_k_init,              (SUBR) csnarray_padcomp_k,              NULL,                                    NULL, 0 },
     { "csnpad.in.c.k",           S(CSN_PADCOMPLEX_IN),            0, "",                         ":CsnArr;kk:Complex;k",          (SUBR) csnarray_padcomp_in_k_init,           (SUBR) csnarray_padcomp_in_k,           (SUBR) csnarray_padcomp_in_k_deinit,     NULL, 0 },

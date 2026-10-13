@@ -124,6 +124,7 @@ void compute_strides(const uint32_t *shape, size_t *strides, const uint32_t ndim
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype);
 void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src);
 void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src);
+void move_csnstrings(CSOUND *csound, CSN_ARRAY *dest, CSN_ARRAY *src);
 void free_csnstrings(CSOUND *csound, CSN_ARRAY *array);
 void clear_csnstrings(CSOUND *csound, CSN_ARRAY *array);
 uint32_t pcg32_bounded_u32(PCG32_STATE *rng, uint32_t bound);

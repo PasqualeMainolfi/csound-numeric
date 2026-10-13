@@ -1,5 +1,6 @@
 /* Opcode implementations for the index family.
    The public opcode inventory remains centralized in csnum.c. */
+#include "csnstrings.h"
 #include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
@@ -1736,9 +1737,13 @@ static int32_t insert_block_assign_value(CSN_ARRAY *temp, CSN_ARRAY *source_arr,
    struct and clears the pointer. Csound hands a finished note's opcode memory
    to the next one without zeroing it, so a pointer left behind would be freed
    a second time by the next init or deinit. */
-static void free_private_array(CSOUND *csound, CSN_ARRAY **arr) {
+void free_private_array(CSOUND *csound, CSN_ARRAY **arr) {
     if (*arr == NULL) return;
-    if ((*arr)->data != NULL) csound->Free(csound, (*arr)->data);
+    if ((*arr)->itype == CSN_STRING) {
+        free_csnstrings(csound, *arr);
+    } else if ((*arr)->data != NULL) {
+        csound->Free(csound, (*arr)->data);
+    }
     csound->Free(csound, *arr);
     *arr = NULL;
 }
@@ -1759,12 +1764,23 @@ static int32_t fit_private_array(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, uint3
             return csn_locked_perf_error(csound, h, "[csnarray] Array is on a real-time path and has grown to %zu elements, past what '%s' reserved at init; clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", requested_size, get_out_name(h));
         }
         size_t new_capacity = requested_size > 0 ? requested_size * 2 : 1;
-        double *data = csound->ReAlloc(csound, temp->data, sizeof(double) * new_capacity * itype);
-        if (data == NULL) {
-            return csn_locked_perf_error(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(double) * new_capacity * itype);
+        if (itype == CSN_STRING) {
+            /* a string scratch is never retyped; its new slots start NULL */
+            char **sdata = csound->ReAlloc(csound, temp->sdata, sizeof(char *) * new_capacity);
+            if (sdata == NULL) {
+                return csn_locked_perf_error(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(char *) * new_capacity);
+            }
+            memset(sdata + temp->capacity, 0, sizeof(char *) * (new_capacity - temp->capacity));
+            temp->sdata = sdata;
+            temp->capacity = new_capacity;
+        } else {
+            double *data = csound->ReAlloc(csound, temp->data, sizeof(double) * new_capacity * itype);
+            if (data == NULL) {
+                return csn_locked_perf_error(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(double) * new_capacity * itype);
+            }
+            temp->data = data;
+            temp->capacity = new_capacity;
         }
-        temp->data = data;
-        temp->capacity = new_capacity;
     }
     set_csnarray_layout(temp, ndim, shape, requested_size, itype);
     return OK;
@@ -2088,22 +2104,37 @@ static int32_t concat_flat_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *s
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Concatenated length exceeds %u elements", UINT32_MAX);
     }
     out_shape[0] = (uint32_t) (source_arr->size + data_arr->size);
+
     return OK;
 }
 
-static void concat_flat_assign_value(const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination) {
+static void concat_flat_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination) {
+    ITEM_TYPE itype = destination->itype;
     for (size_t linear = 0; linear < destination->size; ++linear) {
-        if (destination->itype == CSN_COMPLEX) {
-            size_t src = linear < source_arr->size ? linear : linear - source_arr->size;
-            const double *from = linear < source_arr->size ? source_arr->data : data_arr->data;
-            destination->data[linear * 2] = from[src * 2];
-            destination->data[linear * 2 + 1] = from[src * 2 + 1];
-            continue;
-        }
+        switch (itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX:
+                if (destination->itype == CSN_COMPLEX) {
+                    size_t src = linear < source_arr->size ? linear : linear - source_arr->size;
+                    const double *from = linear < source_arr->size ? source_arr->data : data_arr->data;
+                    destination->data[linear * 2] = from[src * 2];
+                    destination->data[linear * 2 + 1] = from[src * 2 + 1];
+                    continue;
+                }
 
-        destination->data[linear] = linear < source_arr->size
-            ? source_arr->data[linear]
-            : data_arr->data[linear - source_arr->size];
+                destination->data[linear] = linear < source_arr->size
+                    ? source_arr->data[linear]
+                    : data_arr->data[linear - source_arr->size];
+                break;
+            case CSN_STRING: {
+                const char *from = linear < source_arr->size
+                    ? source_arr->sdata[linear]
+                    : data_arr->sdata[linear - source_arr->size];
+                if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
+                destination->sdata[linear] = csound->Strdup(csound, from);
+                break;
+            }
+        }
     }
 }
 
@@ -2129,7 +2160,7 @@ int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    concat_flat_assign_value(source_arr, data_arr, p->handle);
+    concat_flat_assign_value(csound, source_arr, data_arr, p->handle);
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, 1U, p->handle->itype);
 
 done:
@@ -2140,6 +2171,12 @@ done:
 int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
+
+    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
+
     CHECK_KTRIG(p->arg_a);
 
     int32_t res = OK;
@@ -2160,7 +2197,7 @@ int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    concat_flat_assign_value(source_arr, data_arr, p->handle);
+    concat_flat_assign_value(csound, source_arr, data_arr, p->handle);
     SET_KDATA_END(p->k_data, new_shape, 1U, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, 0.0, 0.0);
 
@@ -2210,6 +2247,7 @@ static int32_t concat_block_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *
             out_shape[i] = source_shape[i];
         }
     }
+
     return OK;
 }
 
@@ -2244,6 +2282,7 @@ static int32_t concat_block_assign_value(const CSN_ARRAY *source_arr, const CSN_
             }
         }
     }
+
     return OK;
 }
 
@@ -2269,7 +2308,13 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (concat_block_assign_value(source_arr, data_arr, p->handle, axis) != OK) {
+    if (p->handle->itype == CSN_STRING) {
+        res = concat_block_string_assign_value(csound, source_arr, data_arr, p->handle, axis);
+    } else {
+        res = concat_block_assign_value(source_arr, data_arr, p->handle, axis);
+    }
+
+    if (res != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
@@ -2317,10 +2362,17 @@ int32_t csnarray_concat_block_k_init(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (concat_block_assign_value(source_arr, data_arr, p->handle, axis) != OK) {
+    if (p->handle->itype == CSN_STRING) {
+        res = concat_block_string_assign_value(csound, source_arr, data_arr, p->handle, axis);
+    } else {
+        res = concat_block_assign_value(source_arr, data_arr, p->handle, axis);
+    }
+
+    if (res != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
+
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, p->handle->ndim, p->handle->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, (double) axis, 0.0);
 
@@ -2332,6 +2384,12 @@ done:
 int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
+
+    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
+
     CHECK_KTRIG(p->arg_a);
 
     int32_t res = OK;
@@ -2353,10 +2411,17 @@ int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (concat_block_assign_value(source_arr, data_arr, p->handle, axis) != OK) {
+    if (p->handle->itype == CSN_STRING) {
+        res = concat_block_string_assign_value(csound, source_arr, data_arr, p->handle, axis);
+    } else {
+        res = concat_block_assign_value(source_arr, data_arr, p->handle, axis);
+    }
+
+    if (res != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
+
     SET_KDATA_END(p->k_data, new_shape, p->handle->ndim, p->handle->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, (double) axis, 0.0);
 
@@ -2365,16 +2430,22 @@ done:
     return res;
 }
 
+/* The fill value's type picks the overload; the array's must match it. */
+static int32_t pad_type_error(CSOUND *csound, OPDS *perf_h, ITEM_TYPE held, ITEM_TYPE expected) {
+    if (expected == CSN_STRING || held == CSN_STRING) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] A CsnStr is padded with a string, a CsnArr with a number");
+    }
+    if (expected == CSN_COMPLEX) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a real array; pad it with a real value");
+    }
+    return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
+}
+
 static int32_t pad_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_arr, const cs_float *axis_in, const cs_float *in_before, const cs_float *in_after, int32_t *out_axis, uint32_t *out_before, uint32_t *out_after, uint32_t *out_shape, ITEM_TYPE expected_type) {
     uint32_t source_ndim = source_arr->ndim;
     const uint32_t *source_shape = source_arr->shape;
 
-    if (source_arr->itype != expected_type) {
-        if (expected_type == CSN_COMPLEX) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a real array; pad it with a real value");
-        }
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
-    }
+    if (source_arr->itype != expected_type) return pad_type_error(csound, perf_h, source_arr->itype, expected_type);
 
     /* The widths are k-rate in the .k overloads, so they have to be screened
        for NaN, infinities and fractions before the cast to uint32_t. */
@@ -2415,6 +2486,7 @@ static int32_t pad_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_ar
             out_shape[i] = source_extent;
         }
     }
+
     return OK;
 }
 
@@ -2468,7 +2540,7 @@ int32_t pad_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *destination, do
     return OK;
 }
 
-static int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in) {
+int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2492,7 +2564,13 @@ static int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, 
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
+    if (out_arr->itype != CSN_STRING) {
+        res = pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before);
+    } else {
+        res = pad_assign_string_value(csound, source_arr, out_arr, valuestring, axis, before);
+    }
+
+    if (res != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
@@ -2528,7 +2606,7 @@ static bool pad_k_init_shape(CSOUND *csound, const CSN_ARRAY *source_arr, const 
     return pad_body(csound, NULL, source_arr, axis_in, in_before, in_after, axis, before, after, shape, itype) == OK;
 }
 
-static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, const cs_float *value_arg, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in) {
+int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, const cs_float *value_arg, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2538,9 +2616,7 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out_arr, source_arr }, 2);
 
     if (source_arr->itype != expected_itype) {
-        res = csn_init_error(csound, expected_itype == CSN_COMPLEX
-            ? "[csnarray] Handle holds a real array; pad it with a real value"
-            : "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
+        res = pad_type_error(csound, NULL, source_arr->itype, expected_itype);
         goto done;
     }
 
@@ -2551,8 +2627,9 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
     /* Padded here only when the widths, the value and the axis are known at
        init; they also fix the padded extents, so otherwise the output keeps
        the source's layout reserved but empty and the first pass pads. */
+    bool know_val = expected_itype == CSN_STRING ? csn_known_at_init(csound, (void *) valuestring) : csn_known_at_init(csound, (void *) value_arg);
     bool known = csn_known_at_init(csound, (void *) in_before) && csn_known_at_init(csound, (void *) in_after)
-        && csn_known_at_init(csound, (void *) value_arg) && csn_known_at_init(csound, (void *) axis_in);
+        && know_val && csn_known_at_init(csound, (void *) axis_in);
     if (!known) {
         /* The init values are no result, but they are the best guess at the
            room the perf pass will need: a marked output keeps the storage it
@@ -2588,10 +2665,17 @@ static int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_dat
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
+    if (out_arr->itype != CSN_STRING) {
+        res = pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before);
+    } else {
+        res = pad_assign_string_value(csound, source_arr, out_arr, valuestring, axis, before);
+    }
+
+    if (res != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
+
     SET_KDATA_BEGIN(*k_data, reg, shape, source_arr->ndim, source_arr->itype);
 
 done:
@@ -2601,18 +2685,18 @@ done:
 
 int32_t csnarray_pad_k_init(CSOUND *csound, CSN_PAD *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, p->value, (double) *p->value, NULL, CSN_REAL, axis_in);
+    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, p->value, (double) *p->value, NULL, NULL, CSN_REAL, axis_in);
 }
 
 int32_t csnarray_padcomp_k_init(CSOUND *csound, CSN_PADCOMPLEX *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, NULL, 0.0, p->value, CSN_COMPLEX, axis_in);
+    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, NULL, 0.0, p->value, NULL, CSN_COMPLEX, axis_in);
 }
 
 /* The fill value is folded into the two scalars of the elementwise check (the
    imaginary part is 0 for a real pad); the axis and the widths are compared
    on their own. */
-static int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig) {
+int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
     CHECK_KTRIG(trig);
@@ -2630,9 +2714,16 @@ static int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CS
 
     double fill_re = value, fill_im = 0.0;
     if (valuecomp != NULL) complexdat_to_rect(valuecomp, &fill_re, &fill_im);
-    if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, out_arr, fill_re, fill_im)
-        && k_data->prev_axis_i == axis && k_data->prev_index == before && k_data->prev_roll_shift == (int32_t) after) {
-        goto done;
+    if (source_arr->itype == CSN_STRING) {
+        if (CAN_REUSE_STRING_ELEMENTWISE(k_data, source_arr, NULL, out_arr, valuestring->data, NULL)
+            && k_data->prev_axis_i == axis && k_data->prev_index == before && k_data->prev_roll_shift == (int32_t) after) {
+            goto done;
+        }
+    } else {
+        if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, out_arr, fill_re, fill_im)
+            && k_data->prev_axis_i == axis && k_data->prev_index == before && k_data->prev_roll_shift == (int32_t) after) {
+            goto done;
+        }
     }
 
     /* Every cell of the padded shape is written below, so the logical size is
@@ -2643,13 +2734,24 @@ static int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CS
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before) != OK) {
+    if (out_arr->itype != CSN_STRING) {
+        res = pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before);
+    } else {
+        res = pad_assign_string_value(csound, source_arr, out_arr, valuestring, axis, before);
+    }
+
+    if (res != OK) {
         res = csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
     SET_KDATA_END(*k_data, new_shape, out_arr->ndim, out_arr->itype);
-    PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out_arr, fill_re, fill_im);
+    if (out_arr->itype == CSN_STRING) {
+        PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, out_arr, valuestring->data, NULL);
+    } else {
+        PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out_arr, fill_re, fill_im);
+    }
+
     k_data->prev_axis_i = axis;
     k_data->prev_index = before;
     k_data->prev_roll_shift = (int32_t) after;
@@ -2661,25 +2763,25 @@ done:
 
 int32_t csnarray_pad_k(CSOUND *csound, CSN_PAD *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_k_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis_in, p->arg_a);
+    return csnarray_pad_k_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, (double) *p->value, NULL, NULL, CSN_REAL, axis_in, p->arg_a);
 }
 
 int32_t csnarray_padcomp_k(CSOUND *csound, CSN_PADCOMPLEX *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_k_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis_in, p->arg_a);
+    return csnarray_pad_k_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, 0.0, p->value, NULL, CSN_COMPLEX, axis_in, p->arg_a);
 }
 
 int32_t csnarray_pad(CSOUND *csound, CSN_PAD *p) {
     const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
-    return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis);
+    return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, (double) *p->value, NULL, NULL, CSN_REAL, axis);
 }
 
 int32_t csnarray_padcomp(CSOUND *csound, CSN_PADCOMPLEX *p) {
     const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
-    return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis);
+    return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, 0.0, p->value, NULL, CSN_COMPLEX, axis);
 }
 
-static int32_t csnarray_pad_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in) {
+int32_t csnarray_pad_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -2711,14 +2813,24 @@ static int32_t csnarray_pad_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source
         goto done;
     }
 
-    if (pad_assign_value(source_arr, temp, value, valuecomp, axis, before) != OK) {
+    if (source_arr->itype == CSN_STRING) {
+        res = pad_assign_string_value(csound, source_arr, temp, valuestring, axis, before);
+    } else {
+        res = pad_assign_value(source_arr, temp, value, valuecomp, axis, before);
+    }
+
+    if (res != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
     res = ensure_mutation_capacity(csound, NULL, source_arr, temp->size, false);
     if (res != OK) goto done;
-    travase_csnarray(source_arr, temp);
+    if (source_arr->itype == CSN_STRING) {
+        move_csnstrings(csound, source_arr, temp);
+    } else {
+        travase_csnarray(source_arr, temp);
+    }
 
 done:
     free_private_array(csound, &temp);
@@ -2728,17 +2840,17 @@ done:
 
 int32_t csnarray_pad_in(CSOUND *csound, CSN_PAD_IN *p) {
     const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
-    return csnarray_pad_in_helper(csound, &p->h, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis);
+    return csnarray_pad_in_helper(csound, &p->h, p->source_handle, p->before, p->after, (double) *p->value, NULL, NULL, CSN_REAL, axis);
 }
 
 int32_t csnarray_padcomp_in(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
     const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
-    return csnarray_pad_in_helper(csound, &p->h, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis);
+    return csnarray_pad_in_helper(csound, &p->h, p->source_handle, p->before, p->after, 0.0, p->value, NULL, CSN_COMPLEX, axis);
 }
 
 /* The in-place k-rate pads build the padded image in a per-instance scratch
    array and then overwrite the source, which keeps its identity. */
-static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, ITEM_TYPE expected_itype, CSN_REGISTRY **out_registry, CSN_ARRAY **out_scratch) {
+int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, ITEM_TYPE expected_itype, CSN_REGISTRY **out_registry, CSN_ARRAY **out_scratch) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     csn_mark_krate(source_arr);
@@ -2751,9 +2863,7 @@ static int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { source_arr }, 1);
 
     if (source_arr->itype != expected_itype) {
-        res = csn_init_error(csound, expected_itype == CSN_COMPLEX
-            ? "[csnarray] Handle holds a real array; pad it with a real value"
-            : "[csnarray] Handle holds a complex array; pad it with a :Complex; value");
+        res = pad_type_error(csound, NULL, source_arr->itype, expected_itype);
         goto done;
     }
 
@@ -2806,7 +2916,7 @@ int32_t csnarray_padcomp_in_k_deinit(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
 
 /* Fits the scratch to the padded shape, fills it and copies it back over the
    source array. */
-static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, CSN_ARRAY *source_arr, const uint32_t *new_shape, double value, COMPLEXDAT *valuecomp, int32_t axis, uint32_t before) {
+static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, CSN_ARRAY *source_arr, const uint32_t *new_shape, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, int32_t axis, uint32_t before) {
     int32_t res = fit_private_array(csound, h, temp, source_arr->ndim, new_shape, source_arr->itype, source_arr->rt_locked);
     if (res != OK) return res;
 
@@ -2815,6 +2925,15 @@ static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, CSN_ARR
     res = ensure_mutation_capacity(csound, h, source_arr, temp->size, source_arr->rt_locked);
     if (res != OK) return res;
 
+    if (source_arr->itype == CSN_STRING) {
+        if (pad_assign_string_value(csound, source_arr, temp, valuestring, axis, before) != OK) {
+            return csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
+        }
+        /* the scratch hands its strings over and is left with none */
+        move_csnstrings(csound, source_arr, temp);
+        return OK;
+    }
+
     if (pad_assign_value(source_arr, temp, value, valuecomp, axis, before) != OK) {
         return csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
     }
@@ -2822,7 +2941,7 @@ static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, CSN_ARR
     return OK;
 }
 
-static int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, CSN_ARRAY *scratch, K_DATA *k_data, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig) {
+int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, CSN_ARRAY *scratch, K_DATA *k_data, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig) {
     CHECK_REGISTRY(csound, h, reg);
     if (scratch == NULL) {
         return csn_perf_error(csound, h, "[csnarray] Internal error: temporary buffer not available");
@@ -2844,14 +2963,25 @@ static int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *r
        its own write is recorded below and recognized on the next pass. */
     double fill_re = value, fill_im = 0.0;
     if (valuecomp != NULL) complexdat_to_rect(valuecomp, &fill_re, &fill_im);
-    if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, NULL, fill_re, fill_im)
-        && k_data->prev_axis_i == axis && k_data->prev_index == before && k_data->prev_roll_shift == (int32_t) after) {
-        goto done;
+    if (expected_itype == CSN_STRING) {
+        if (CAN_REUSE_STRING_ELEMENTWISE(k_data, source_arr, NULL, NULL, valuestring->data, NULL)
+            && k_data->prev_axis_i == axis && k_data->prev_index == before && k_data->prev_roll_shift == (int32_t) after) {
+            goto done;
+        }
+    } else {
+        if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, NULL, fill_re, fill_im)
+            && k_data->prev_axis_i == axis && k_data->prev_index == before && k_data->prev_roll_shift == (int32_t) after) {
+            goto done;
+        }
     }
 
-    res = pad_in_k_commit(csound, h, scratch, source_arr, new_shape, value, valuecomp, axis, before);
+    res = pad_in_k_commit(csound, h, scratch, source_arr, new_shape, value, valuecomp, valuestring, axis, before);
     if (res != OK) goto done;
-    PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, NULL, fill_re, fill_im);
+    if (source_arr->itype == CSN_STRING) {
+        PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, NULL, valuestring->data, NULL);
+    } else {
+        PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, NULL, fill_re, fill_im);
+    }
     k_data->prev_axis_i = axis;
     k_data->prev_index = before;
     k_data->prev_roll_shift = (int32_t) after;
@@ -2863,12 +2993,12 @@ done:
 
 int32_t csnarray_pad_in_k(CSOUND *csound, CSN_PAD_IN *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_in_k_helper(csound, &p->h, p->registry, p->scratch, &p->k_data, p->source_handle, p->before, p->after, (double) *p->value, NULL, CSN_REAL, axis_in, p->arg_a);
+    return csnarray_pad_in_k_helper(csound, &p->h, p->registry, p->scratch, &p->k_data, p->source_handle, p->before, p->after, (double) *p->value, NULL, NULL, CSN_REAL, axis_in, p->arg_a);
 }
 
 int32_t csnarray_padcomp_in_k(CSOUND *csound, CSN_PADCOMPLEX_IN *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
-    return csnarray_pad_in_k_helper(csound, &p->h, p->registry, p->scratch, &p->k_data, p->source_handle, p->before, p->after, 0.0, p->value, CSN_COMPLEX, axis_in, p->arg_a);
+    return csnarray_pad_in_k_helper(csound, &p->h, p->registry, p->scratch, &p->k_data, p->source_handle, p->before, p->after, 0.0, p->value, NULL, CSN_COMPLEX, axis_in, p->arg_a);
 }
 
 /* Reports whether anything actually moved. The loop already reads every

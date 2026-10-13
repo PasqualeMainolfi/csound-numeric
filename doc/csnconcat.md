@@ -19,6 +19,12 @@ start from [csnempty](csnempty.md) without a special first case.
 If either operand is complex the result is complex, and the real operand is
 promoted.
 
+Two `:CsnStr;` operands give a `:CsnStr;`, whose strings are copies: the result
+shares none with its operands. A string array and a numeric one cannot be
+joined; the call is refused when the orchestra is compiled. The k form copies
+strings, which allocates, so it is refused on an output marked for a real-time
+path. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -26,18 +32,22 @@ out:CsnArr = csnconcat(a:CsnArr, b:CsnArr)
 out:CsnArr = csnconcat(a:CsnArr, b:CsnArr, axis:i)
 out:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k)
 out:CsnArr = csnconcat(a:CsnArr, b:CsnArr, trig:k, axis:k)
+out:CsnStr = csnconcat(a:CsnStr, b:CsnStr)
+out:CsnStr = csnconcat(a:CsnStr, b:CsnStr, axis:i)
+out:CsnStr = csnconcat(a:CsnStr, b:CsnStr, trig:k)
+out:CsnStr = csnconcat(a:CsnStr, b:CsnStr, trig:k, axis:k)
 ```
 
 ## Arguments
 
-* `a:CsnArr`: first array; its elements come first.
-* `b:CsnArr`: second array.
+* `a:CsnArr / a:CsnStr`: first array; its elements come first.
+* `b:CsnArr / b:CsnStr`: second array, of the same type as `a`.
 * `axis:i / axis:k` (optional): the axis to stack along. Omitted, both arrays are read flat and the result is 1-D; `-1` selects the last axis.
 * `trig:k`: k-rate trigger. The join is recomputed on a non-zero trigger; a zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the joined array.
+* `out:CsnArr / out:CsnStr`: the joined array.
 
 ## Execution Time
 

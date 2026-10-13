@@ -25,12 +25,14 @@ overload, and [csntype](csntype.md) reports `2` for one.
 - Layout, as a copy or in place: [csnreshape](csnreshape.md),
   [csnflatten](csnflatten.md), [csntranspose](csntranspose.md),
   [csnflip](csnflip.md), [csnroll](csnroll.md), [csnreverse](csnreverse.md).
+- Joining and growing: [csnconcat](csnconcat.md) of two `CsnStr`,
+  [csnpad](csnpad.md) with a string fill value, as a copy or in place.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md) in place,
   [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The other opcodes that build an array from pieces of others (`csnconcat`,
-`csnstack`, `csntake`, `csnpad`, ...) are numeric only for now.
+The other opcodes that build an array from pieces of others (`csnstack`,
+`csntake`, `csnsetslice`, `csnpush`, ...) are numeric only for now.
 
 ## Rate and real-time paths
 
@@ -47,7 +49,7 @@ so a k-rate `csnset` of an unchanged value is free. Reordering in place
 (`csntranspose`, `csnflip`, `csnroll`, `csnreverse` without an output) only
 moves the strings the array already holds, so it allocates nothing and is
 allowed there; the k forms that return a copy are refused like any other
-writer.
+writer, and so is `csnpad` in place, which allocates its fill strings.
 
 ## Files
 

@@ -769,6 +769,46 @@ instr 3
     iStrInPlace21Cmp = strcmp(SStrInPlace21, "c")
     iStrFlippedAfterCmp = strcmp(SStrFlippedAfter, "f")
     assert(iStrInPlaceCmp == 0 && iStrInPlace21Cmp == 0 && iStrFlippedAfterCmp == 0)
+    ; concat and pad copy the strings in; the fill value is a string
+    iStrCat:CsnStr = csnconcat(iStrGrid, iStrGrid)
+    iStrCatAx:CsnStr = csnconcat(iStrMat, iStrMat, 1)
+    iStrPadded:CsnStr = csnpad(iStrGrid, 1, 2, "_")
+    iStrPaddedAx:CsnStr = csnpad(iStrMat, 1, 0, "_", 0)
+    iStrIdx02[] = fillarray(0, 2)
+    iStrIdx10[] = fillarray(1, 0)
+    SStrCat6 = iStrCat[6]
+    SStrCatAx = csnget(iStrCatAx, iStrIdx02)
+    SStrPadded0 = iStrPadded[0]
+    SStrPadded1 = iStrPadded[1]
+    SStrPadded8 = iStrPadded[8]
+    SStrPaddedAx00 = csnget(iStrPaddedAx, iStrIdx00)
+    SStrPaddedAx10 = csnget(iStrPaddedAx, iStrIdx10)
+    iStrCatSize = csnsize(iStrCat)
+    iStrPaddedSize = csnsize(iStrPadded)
+    iStrCat6Cmp = strcmp(SStrCat6, "a")
+    iStrCatAxCmp = strcmp(SStrCatAx, "d")
+    iStrPadded0Cmp = strcmp(SStrPadded0, "_")
+    iStrPadded1Cmp = strcmp(SStrPadded1, "a")
+    iStrPadded8Cmp = strcmp(SStrPadded8, "_")
+    iStrPaddedAx00Cmp = strcmp(SStrPaddedAx00, "_")
+    iStrPaddedAx10Cmp = strcmp(SStrPaddedAx10, "d")
+    assert(iStrCatSize == 12 && iStrPaddedSize == 9 && iStrCat6Cmp == 0 && iStrCatAxCmp == 0)
+    assert(iStrPadded0Cmp == 0 && iStrPadded1Cmp == 0 && iStrPadded8Cmp == 0 && iStrPaddedAx00Cmp == 0 && iStrPaddedAx10Cmp == 0)
+    SStrPQ[] fillarray "p", "q"
+    iStrPadIn:CsnStr = csnfromarray(SStrPQ)
+    csnpad(iStrPadIn, 1, 1, "-")
+    iStrPadIn2:CsnStr = csnfull(iShape22, "s")
+    csnpad(iStrPadIn2, 0, 1, "t", 1)
+    iStrPadInSize = csnsize(iStrPadIn)
+    SStrPadIn0 = iStrPadIn[0]
+    SStrPadIn1 = iStrPadIn[1]
+    SStrPadIn2 = csnget(iStrPadIn2, iStrIdx02)
+    iStrPadIn2Shape[] = csnshape(iStrPadIn2)
+    iStrPadIn0Cmp = strcmp(SStrPadIn0, "-")
+    iStrPadIn1Cmp = strcmp(SStrPadIn1, "p")
+    iStrPadIn2Cmp = strcmp(SStrPadIn2, "t")
+    assert(iStrPadInSize == 4 && iStrPadIn0Cmp == 0 && iStrPadIn1Cmp == 0)
+    assert(iStrPadIn2Shape[0] == 2 && iStrPadIn2Shape[1] == 3 && iStrPadIn2Cmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -4874,7 +4914,8 @@ e
 ; csnget csnget.c csnget.s csngetrow csngetcol
 ; csnset csnset.c csnset.s csntake csntake.flat csntake.flat.c csngetslice csngetslice.s csnsetslice csnpush
 ; csnpush.c csnpop csnpop.c csninsert.flat csninsert.flat.c csnremove.flat csnremove.flat.c csninsert.block
-; csnremove.block csnconcat.flat csnconcat.block csnstack csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
+; csnremove.block csnconcat.flat csnconcat.s.flat csnconcat.block csnconcat.s.block csnstack csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
+; csnpad.s csnpad.s.ax csnpad.s.in csnpad.s.ax.in
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

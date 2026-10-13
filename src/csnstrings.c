@@ -24,7 +24,12 @@ static void fill_csnstrings(CSOUND *csound, CSN_ARRAY *array, const char *value)
    a real-time path. The mark is decided at init, before the first pass. */
 int32_t check_strings_not_rt(CSOUND *csound, OPDS *h, const CSN_ARRAY *out) {
     if (!out->rt_locked) return OK;
-    return csn_perf_error(csound, h, "[csnarray] '%s' allocates its strings at perf time and the array is on a real-time path; build it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", get_out_name(h));
+    /* an in-place form has no output: name the array it writes */
+    const char *name = get_out_name(h);
+    if (strcmp(name, "?") == 0 && h->optext != NULL && h->optext->t.inlist != NULL && h->optext->t.inlist->count > 0) {
+        name = h->optext->t.inlist->arg[0];
+    }
+    return csn_perf_error(csound, h, "[csnarray] '%s' allocates its strings at perf time and the array is on a real-time path; build it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", name);
 }
 
 // EMPTY
@@ -749,4 +754,127 @@ void reverse_string_in_place(CSN_ARRAY *arr) {
     for (size_t i = 0; i < arr->size / 2U; i++) {
         swap_strings(arr->sdata, i, arr->size - 1U - i);
     }
+}
+
+int32_t concat_block_string_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination, uint32_t axis) {
+    uint32_t source_axis_extent = source_arr->size == 0 ? 0U : source_arr->shape[axis];
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, destination->ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        const char *from;
+        if (it.coords[axis] < source_axis_extent) {
+            size_t source_off = 0;
+            for (uint32_t d = 0; d < source_arr->ndim; ++d) {
+                source_off += (size_t) it.coords[d] * source_arr->strides[d];
+            }
+            from = source_arr->sdata[source_off];
+        } else {
+            size_t block_off = 0;
+            for (uint32_t d = 0; d < data_arr->ndim; ++d) {
+                uint32_t coord = it.coords[d] - (d == axis ? source_axis_extent : 0U);
+                block_off += (size_t) coord * data_arr->strides[d];
+            }
+            from = data_arr->sdata[block_off];
+        }
+        if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
+        destination->sdata[linear] = csound->Strdup(csound, from);
+    }
+
+    return OK;
+}
+
+int32_t pad_assign_string_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN_ARRAY *destination, STRINGDAT *value, int32_t axis, uint32_t before) {
+    bool source_is_empty = source_arr->size == 0;
+
+    CSN_BROADCAST_ITER it;
+    if (ND_ITER_INIT(&it, destination->ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
+    while (BROADCAST_ITER_NEXT(&it)) {
+        size_t linear = it.linear_index;
+        bool is_inside = !source_is_empty;
+        size_t source_off = 0;
+        for (uint32_t i = 0; is_inside && i < source_arr->ndim; i++) {
+            bool is_padded_axis = axis == -1 || (uint32_t) axis == i;
+            if (is_padded_axis) {
+                if (it.coords[i] < before || it.coords[i] >= before + source_arr->shape[i]) {
+                    is_inside = false;
+                    break;
+                }
+                source_off += (size_t) (it.coords[i] - before) * source_arr->strides[i];
+            } else {
+                source_off += (size_t) it.coords[i] * source_arr->strides[i];
+            }
+        }
+
+        if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
+        destination->sdata[linear] = csound->Strdup(csound, is_inside ? source_arr->sdata[source_off] : value->data);
+    }
+
+    return OK;
+}
+
+/* The k forms keep a copy of the last fill value in k_data, released here
+   and before a reinit takes the struct again. */
+int32_t csnstrings_pad_k_deinit(CSOUND *csound, CSN_PADSTRING *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_pad_in_k_deinit(CSOUND *csound, CSN_PADSTRING_IN *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    free_private_array(csound, &p->scratch);
+    return OK;
+}
+
+int32_t csnstrings_pad(CSOUND *csound, CSN_PADSTRING *p) {
+    const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
+    if (!IS_VALID_STRINGDAT(p->value)) {
+        return csn_init_error(csound, "[csnarray] Invalid/NULL string");
+    }
+    return csnarray_pad_helper(csound, &p->h, p->handle, p->source_handle, p->before, p->after, 0.0, NULL, p->value, CSN_STRING, axis);
+}
+
+int32_t csnstrings_pad_k_init(CSOUND *csound, CSN_PADSTRING *p) {
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    if (!IS_VALID_STRINGDAT(p->value)) {
+        return csn_init_error(csound, "[csnarray] Invalid/NULL string");
+    }
+    csn_kdata_release_strings(csound, &p->k_data);
+    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, NULL, 0.0, NULL, p->value, CSN_STRING, axis_in);
+}
+
+int32_t csnstrings_pad_k(CSOUND *csound, CSN_PADSTRING *p) {
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    if (!IS_VALID_STRINGDAT(p->value)) {
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
+    }
+    int32_t res = check_strings_not_rt(csound, &p->h, p->handle);
+    if (res != OK) return res;
+    return csnarray_pad_k_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, 0.0, NULL, p->value, CSN_STRING, axis_in, p->arg_a);
+}
+
+int32_t csnstrings_pad_in(CSOUND *csound, CSN_PADSTRING_IN *p) {
+    const cs_float *axis = p->INOCOUNT > 4 ? p->arg_a : NULL;
+    if (!IS_VALID_STRINGDAT(p->value)) {
+        return csn_init_error(csound, "[csnarray] Invalid/NULL string");
+    }
+    return csnarray_pad_in_helper(csound, &p->h, p->source_handle, p->before, p->after, 0.0, NULL, p->value, CSN_STRING, axis);
+}
+
+int32_t csnstrings_pad_in_k_init(CSOUND *csound, CSN_PADSTRING_IN *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    memset(&p->k_data, 0, sizeof(p->k_data));
+    return csnarray_pad_in_k_scratch_init(csound, &p->h, p->source_handle, CSN_STRING, &p->registry, &p->scratch);
+}
+
+/* The fill strings are allocated, so a source on a real-time path is refused
+   even in place. */
+int32_t csnstrings_pad_in_k(CSOUND *csound, CSN_PADSTRING_IN *p) {
+    const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
+    if (!IS_VALID_STRINGDAT(p->value)) {
+        return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
+    }
+    int32_t res = check_strings_not_rt(csound, &p->h, p->source_handle);
+    if (res != OK) return res;
+    return csnarray_pad_in_k_helper(csound, &p->h, p->registry, p->scratch, &p->k_data, p->source_handle, p->before, p->after, 0.0, NULL, p->value, CSN_STRING, axis_in, p->arg_a);
 }

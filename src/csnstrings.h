@@ -83,6 +83,36 @@ typedef struct {
     CSN_REGISTRY *registry;
 } CSN_IDX_SETSTRING;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *before;
+    cs_float *after;
+    STRINGDAT *value;
+    cs_float *arg_a; // axis in pad.ax (INOCOUNT > 4), trigger in pad[.ax].k
+    cs_float *arg_b; // axis in pad.ax.k (INOCOUNT > 5)
+    // private
+    K_DATA k_data;
+} CSN_PADSTRING;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *before;
+    cs_float *after;
+    STRINGDAT *value;
+    cs_float *arg_a; // axis in pad.ax.in (INOCOUNT > 4), trigger in pad[.ax].in.k
+    cs_float *arg_b; // axis in pad.ax.in.k (INOCOUNT > 5)
+    // private
+    CSN_REGISTRY *registry;
+    CSN_ARRAY *scratch;
+    K_DATA k_data;
+} CSN_PADSTRING_IN;
+
 
 int32_t create_empty_csnstrings(CSOUND *csound, CSN_STR_EMPTY *p);
 int32_t create_empty_csnstrings_k_init(CSOUND *csound, CSN_STR_EMPTY *p);
@@ -121,5 +151,16 @@ int32_t transpose_stringdata_assign(CSOUND *csound, char **source, char **destin
 void swap_strings(char **data, size_t a, size_t b);
 void rotate_string_run(char **data, size_t base, size_t count, size_t stride, int32_t shift);
 void reverse_string_in_place(CSN_ARRAY *arr);
+int32_t concat_block_string_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination, uint32_t axis);
+int32_t pad_assign_string_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN_ARRAY *destination, STRINGDAT *value, int32_t axis, uint32_t before);
+
+int32_t csnstrings_pad(CSOUND *csound, CSN_PADSTRING *p);
+int32_t csnstrings_pad_k_init(CSOUND *csound, CSN_PADSTRING *p);
+int32_t csnstrings_pad_k(CSOUND *csound, CSN_PADSTRING *p);
+int32_t csnstrings_pad_in(CSOUND *csound, CSN_PADSTRING_IN *p);
+int32_t csnstrings_pad_in_k_init(CSOUND *csound, CSN_PADSTRING_IN *p);
+int32_t csnstrings_pad_in_k(CSOUND *csound, CSN_PADSTRING_IN *p);
+int32_t csnstrings_pad_k_deinit(CSOUND *csound, CSN_PADSTRING *p);
+int32_t csnstrings_pad_in_k_deinit(CSOUND *csound, CSN_PADSTRING_IN *p);
 
 #endif

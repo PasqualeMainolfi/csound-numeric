@@ -253,6 +253,26 @@ void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src) {
     csn_copy_array_kind(dest, src);
 }
 
+/* travase_csnstrings without the copies: src's strings change owner, so its
+   slots are left NULL and nothing is allocated. dest must already hold
+   src->size slots; the strings it held are released. */
+void move_csnstrings(CSOUND *csound, CSN_ARRAY *dest, CSN_ARRAY *src) {
+    bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
+    clear_csnstrings(csound, dest);
+    memcpy(dest->sdata, src->sdata, sizeof(char *) * src->size);
+    memset(src->sdata, 0, sizeof(char *) * src->size);
+    memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
+    memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
+    dest->ndim = src->ndim;
+    dest->size = src->size;
+    dest->itype = src->itype;
+    dest->rate = src->rate;
+
+    update_array_data_version(&dest->version);
+    update_array_layout_version(&dest->version, shape_changed, false, false);
+    csn_copy_array_kind(dest, src);
+}
+
 /* A consumer caches the version it last computed from inside its own opcode
    struct, which Csound zeroes at allocation. Arrays therefore start at
    CSN_ARRAY_FIRST_VERSION and never reach CSN_ARRAY_NULL_VERSION again: if

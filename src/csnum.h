@@ -408,6 +408,8 @@ typedef struct {
     ITEM_TYPE prev_itype;
     double prev_scalar_param;
     double prev_scalar_param_b;
+    char *prev_string;   // owned copies, see PUBLISH_STRING_ELEMENTWISE
+    char *prev_string_b;
     ARRAY_VERSION prev_source_version;
     ARRAY_VERSION prev_source_version_b;
     ARRAY_VERSION prev_output_version;
@@ -2065,7 +2067,13 @@ void complex_add(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 int32_t pad_assign_value(const CSN_ARRAY *source_arr, CSN_ARRAY *destination, double real_value, COMPLEXDAT *complex_value, int32_t axis, uint32_t before);
 int32_t complex_div(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
 void complex_sub(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT a, CSN_COMPLEXDAT b);
-
+int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, const cs_float *value_arg, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in);
+int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig);
+int32_t csnarray_pad_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in);
+int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, ITEM_TYPE expected_itype, CSN_REGISTRY **out_registry, CSN_ARRAY **out_scratch);
+int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, CSN_ARRAY *scratch, K_DATA *k_data, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig);
+int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in);
+void free_private_array(CSOUND *csound, CSN_ARRAY **arr);
 
 // audio file
 int32_t csnfile_load_audiofile(CSOUND *csound, CSN_LOAD_AUDIO_FILE *p);

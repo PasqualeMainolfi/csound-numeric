@@ -38,6 +38,7 @@ const char *shape_str(char *buf, size_t buf_size, const uint32_t *shape, uint32_
 double median_of_scratch(double *scratch, size_t n);
 double nearest(double x, double x0, double x1, double y0, double y1);
 bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
+bool CAN_REUSE_STRING_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b);
 bool CAN_REUSE_LAST_RESULT(const K_DATA *k_data, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
 bool IS_VALID_INDEX(double index);
 bool IS_VALID_SHIFT(double shift);
@@ -91,6 +92,8 @@ bool IS_VALID_SR(double value);
 void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array);
 void PUBLISH_DERIVED_RESULT(K_DATA *k_data, const CSN_ARRAY *source_arr, const CSN_ARRAY *out_arr);
 void PUBLISH_ELEMENTWISE(K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, double scalar_a, double scalar_b);
+void PUBLISH_STRING_ELEMENTWISE(CSOUND *csound, K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b);
+void csn_kdata_release_strings(CSOUND *csound, K_DATA *k_data);
 void complex_acos(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_acosh(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);
 void complex_asin(CSN_COMPLEXDAT *out, CSN_COMPLEXDAT z);

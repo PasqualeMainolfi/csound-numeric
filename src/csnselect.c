@@ -1921,6 +1921,7 @@ static int32_t stack_body(CSOUND *csound, OPDS *perf_h, uint32_t nargs, CSN_ARRA
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] stack operation requires array with same dtype");
         }
     }
+
     return OK;
 }
 

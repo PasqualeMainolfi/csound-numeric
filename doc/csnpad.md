@@ -16,6 +16,10 @@ gives `4×3`.
 A complex array must be padded with a `:Complex;` value; a real fill value on a
 complex array is refused rather than silently taken as `value + 0i`.
 
+A `:CsnStr;` is padded with a string, which has no default:
+`csnpad(labels, 1, 1, "")` pads with empty strings. Every cell of the result
+owns its string, the fill value included.
+
 Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
@@ -34,6 +38,11 @@ The in-place form rewrites its source within the source's capacity and only
 reallocates when the padded array outgrows it, which a marked source refuses
 too.
 
+A string array is the exception: every pass that pads one allocates its fill
+strings, so the string k forms, with an output or in place, are refused on a
+marked array. A pass that runs with an unchanged fill value and widths, from
+an unchanged source, is reused and writes nothing.
+
 ## Syntax
 
 ```csound
@@ -50,21 +59,30 @@ csnpad(source:CsnArr, before:i, after:i, value:i)
 csnpad(source:CsnArr, before:i, after:i, value:i, axis:i)
 csnpad(source:CsnArr, before:k, after:k, value:k, trig:k)
 csnpad(source:CsnArr, before:k, after:k, value:k, trig:k, axis:k)
+out:CsnStr = csnpad(source:CsnStr, before:i, after:i, value:S)
+out:CsnStr = csnpad(source:CsnStr, before:i, after:i, value:S, axis:i)
+out:CsnStr = csnpad(source:CsnStr, before:k, after:k, value:S, trig:k)
+out:CsnStr = csnpad(source:CsnStr, before:k, after:k, value:S, trig:k, axis:k)
+csnpad(source:CsnStr, before:i, after:i, value:S)
+csnpad(source:CsnStr, before:i, after:i, value:S, axis:i)
+csnpad(source:CsnStr, before:k, after:k, value:S, trig:k)
+csnpad(source:CsnStr, before:k, after:k, value:S, trig:k, axis:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to pad.
+* `source:CsnArr / source:CsnStr`: the array to pad.
 * `before:i / before:k`: how many elements to add at the start.
 * `after:i / after:k`: how many elements to add at the end.
 * `value:i / value:k` (optional, default `0`): the fill value.
 * `value:Complex`: the fill value for a complex array.
+* `value:S`: the fill value for a string array; required.
 * `axis:i / axis:k` (optional): the axis to pad. Omitted, every axis is padded; `-1` selects the last axis.
 * `trig:k`: k-rate trigger. The padding is recomputed on a non-zero trigger; a zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the padded array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the padded array. Omit it for the in-place form.
 
 ## Execution Time
 
