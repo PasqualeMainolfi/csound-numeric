@@ -18,21 +18,27 @@ the intent clearer.
 Use it before an in-place operation you want to keep the original for, and to
 snapshot an array that is still being written.
 
+A `:CsnStr;` gives a `:CsnStr;` holding its own copies of the strings. Copying
+strings allocates, so the k form is refused on a [real-time
+path](csnrtlock.md). See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 out:CsnArr = csncopy(source:CsnArr)
 out:CsnArr = csncopy(source:CsnArr, trig:k)
+out:CsnStr = csncopy(source:CsnStr)
+out:CsnStr = csncopy(source:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to copy.
+* `source:CsnArr / source:CsnStr`: the array to copy.
 * `trig:k`: k-rate trigger. The copy is retaken on a non-zero trigger; a zero trigger republishes the previous one.
 
 ## Output
 
-* `out:CsnArr`: the new, independent array.
+* `out:CsnArr / out:CsnStr`: the new, independent array.
 
 ## Execution Time
 

@@ -20,8 +20,8 @@ is already k-rate is an init error. Lowering it would leave it rewritten at
 performance time by the opcodes that made it k while the operators ignored
 it. Use the expression form to take a frozen copy.
 
-The in-place form also takes a `:CsnStr;`; the form that returns a copy is
-numeric only for now. See [string arrays](string-arrays.md).
+Both forms also take a `:CsnStr;`; the copy holds its own strings. See
+[string arrays](string-arrays.md).
 
 ## Syntax
 
@@ -29,6 +29,7 @@ numeric only for now. See [string arrays](string-arrays.md).
 csni source:CsnArr
 out:CsnArr = csni(source:CsnArr)
 csni source:CsnStr
+out:CsnStr = csni(source:CsnStr)
 ```
 
 ## Arguments
@@ -38,7 +39,7 @@ csni source:CsnStr
 
 ## Output
 
-* `out:CsnArr`: an i-rate copy of `source`, taken at init.
+* `out:CsnArr / out:CsnStr`: an i-rate copy of `source`, taken at init.
 
 ## Execution Time
 

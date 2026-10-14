@@ -17,6 +17,13 @@ Pick one index along an axis, dropping that axis; or one element by flat index.
   single element at that position, as a number or, for a complex array, as a
   `:Complex;`.
 
+On a `:CsnStr;` the axis form returns a `:CsnStr;` holding its own copies of
+the strings, and the flat form returns one element as a copy in an `S`
+variable; a slot that was never written reads as `""`. The k axis form copies
+strings, which allocates, so it is refused on a [real-time path](csnrtlock.md);
+the flat form writes only its `S` output, as [csnget](csnget.md) does. See
+[string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -26,18 +33,22 @@ value:i = csntake(source:CsnArr, index:i)
 value:Complex = csntake(source:CsnArr, index:i)
 value:k = csntake(source:CsnArr, index:k)
 value:Complex = csntake(source:CsnArr, index:k)
+out:CsnStr = csntake(source:CsnStr, axis:i, index:i)
+out:CsnStr = csntake(source:CsnStr, axis:k, index:k)
+value:S = csntake(source:CsnStr, index:i)
+value:S = csntake(source:CsnStr, index:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to read.
+* `source:CsnArr / source:CsnStr`: the array to read.
 * `axis:i / axis:k`: the axis to select along, from `-csndims` to `csndims - 1`; negative values count from the end. Only in the three-argument form, which needs a 2-D or higher array.
 * `index:i / index:k`: the position along `axis`, or the flat index in the two-argument form.
 
 ## Output
 
-* `out:CsnArr`: the selection, with `axis` dropped, in the three-argument form.
-* `value:i / value:k / value:Complex`: the single element, in the two-argument form.
+* `out:CsnArr / out:CsnStr`: the selection, with `axis` dropped, in the three-argument form.
+* `value:i / value:k / value:Complex / value:S`: the single element, in the two-argument form; a copy of the string for a string array.
 
 ## Execution Time
 

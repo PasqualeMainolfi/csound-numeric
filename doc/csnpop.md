@@ -16,6 +16,10 @@ room that is already there.
 A complex array's pop returns a `:Complex;`. Popping an empty array is an error;
 guard it with [csnisempty](csnisempty.md).
 
+A `:CsnStr;` pops into an `S` variable, which gets a copy. The array only drops
+the string from its end without allocating, so the k form is allowed on a
+[real-time path](csnrtlock.md). See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -23,16 +27,18 @@ value:i = csnpop(arr:CsnArr)
 value:Complex = csnpop(arr:CsnArr)
 value:k = csnpop(arr:CsnArr, trig:k)
 value:Complex = csnpop(arr:CsnArr, trig:k)
+value:S = csnpop(arr:CsnStr)
+value:S = csnpop(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to pop from.
+* `arr:CsnArr / arr:CsnStr`: the array to pop from.
 * `trig:k`: k-rate trigger. Nothing is popped on a zero trigger.
 
 ## Output
 
-* `value:i / value:k / value:Complex`: the removed element.
+* `value:i / value:k / value:Complex / value:S`: the removed element; a copy of the string for a string array.
 
 ## Execution Time
 

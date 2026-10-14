@@ -18,6 +18,11 @@ performance.
 
 A complex array takes a `:Complex;` value. [csnpop](csnpop.md) is the inverse.
 
+A `:CsnStr;` takes an `S` value and stores its own copy of it. Storing a copy
+allocates, so the k form is refused on a [real-time path](csnrtlock.md) on
+every pass that pushes, even within the reserved capacity. See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -25,12 +30,14 @@ csnpush(arr:CsnArr, value:i)
 csnpush(arr:CsnArr, value:Complex)
 csnpush(arr:CsnArr, value:k, trig:k)
 csnpush(arr:CsnArr, value:Complex, trig:k)
+csnpush(arr:CsnStr, value:S)
+csnpush(arr:CsnStr, value:S, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: the array to append to.
-* `value:i / value:k / value:Complex`: the element to append.
+* `arr:CsnArr / arr:CsnStr`: the array to append to.
+* `value:i / value:k / value:Complex / value:S`: the element to append; a string for a string array.
 * `trig:k`: k-rate trigger. Nothing is appended on a zero trigger.
 
 ## Output

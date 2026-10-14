@@ -309,12 +309,15 @@ csnsave(grid, "labels.npy")               // np.load gives dtype <U5
 
 Creation (`csnempty`, `csnfull`, `csnlike`, `csnfromarray`), the way out
 (`csntoarray` to `S[]`, `csnprint`), elements and slices (`csnget`, `csnset`,
-`[]`, `csngetslice`), the queries, the layout opcodes (`csnreshape`,
-`csnflatten`, `csntranspose`, `csnflip`, `csnroll`, `csnreverse`), `csnconcat`
-and `csnpad` with a string fill, the in-place rate opcodes and `csnsave` /
-`csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A string has no k
-form, so their k forms take an explicit trigger; and since writing a string
-allocates, a k pass that writes strings is refused on a
+`[]`, `csngetslice`, `csnsetslice`, `csntake`), the queries, the layout
+opcodes (`csnreshape`, `csnflatten`, `csntranspose`, `csnflip`, `csnroll`,
+`csnreverse`), `csnconcat`, `csnstack` and `csnpad` with a string fill,
+`csnpush`, `csnpop`, `csninsert`, `csnremove`, `csntruncate`, `csnhead`,
+`csnresize`, `csncopy`, `csnshuffle`, the masks (`csnwhere`, `csnputmask`,
+`csncompress`, `csnselect`), the rate casts `csni` and `csnk`, and
+`csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
+string has no k form, so their k forms take an explicit trigger; and since
+writing a string allocates, a k pass that writes strings is refused on a
 [real-time path](#real-time-paths). See
 [String arrays](doc/string-arrays.md) for the list, the file formats and a
 runnable example.
@@ -782,11 +785,23 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csntoarray` | `ndarray.tolist` | To an `S[]`; the k form takes a trigger. |
 | `csnget` / `csnset` | `a[i, j]` / `a[i, j] = "s"` | Also `v[i][j]`. |
 | `csngetslice` | `a[start:stop:step]` along an axis | Also `v[start:end]`; the slice owns its strings. |
+| `csnsetslice` | `a[start:stop:step] = b` along an axis | Each slot takes a copy; an unchanged slot allocates nothing. |
+| `csntake` | `np.take(a, i, axis)` / `a.flat[i]` | Along an axis to a `CsnStr`, flat to an `S`. |
 | `csnsize`, `csndims`, `csnshape`, `csnisempty`, `csntype` | `a.size`, `a.ndim`, `a.shape`, `a.size == 0`, `a.dtype` | `csntype` is `2`. |
 | `csnreshape`, `csnflatten` | `np.reshape`, `np.ravel` | In place: `a.shape = ...`, `a.shape = (a.size,)`. |
 | `csntranspose`, `csnflip`, `csnroll`, `csnreverse` | `np.transpose`, `np.flip`, `np.roll`, `a[::-1]` | A copy owns its strings; in place nothing is allocated. |
 | `csnconcat` | `np.concatenate` | Two `CsnStr`; flat without an axis. |
+| `csnstack` | `np.stack` | Two or more `CsnStr`, all of the same shape. |
 | `csnpad` | `np.pad(a, w, constant_values="s")` | The fill string is required; the k forms are refused on a real-time path, in place too. |
+| `csnpush`, `csninsert` | `np.append`, `np.insert` | In place, one `S` or a `CsnStr` block; the k forms are refused on a real-time path. |
+| `csnpop`, `csnremove` | `a[-1]` + `np.delete`, `np.delete` | One element comes back as an `S`, allowed on a real-time path; a removed block is a new `CsnStr`. |
+| `csntruncate`, `csnhead` | `a[:n]` | In place the strings are only moved, so the k form is allowed on a real-time path. |
+| `csnresize` | `ndarray.resize` | What it adds is `""`; the k forms are refused on a real-time path, in place too. |
+| `csncopy`, `csni`, `csnk` | `np.copy` | Each copy owns its strings; a k pass that copies is refused on a real-time path. |
+| `csnshuffle` | `np.random.shuffle` | The same permutation as a numeric array after the same `csnseed`; allowed on a real-time path. |
+| `csnwhere` | `np.where(mask, a, b)` | Real mask; `b` a `CsnStr` or one `S`. |
+| `csnputmask` | `np.putmask(dest, mask, values)` | Destination first, unlike the numeric form; unchanged elements are not rewritten. |
+| `csncompress`, `csnselect` | `np.compress`, `a[mask]` | Real mask; the kept strings are copies. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
 | `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |
 

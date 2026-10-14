@@ -14,6 +14,10 @@ that preserves the layout.
 The mask must have the same shape and dimension count as the source — there is no
 broadcasting — and must be real. The source may be real or complex.
 
+A `:CsnStr;` source gives a `:CsnStr;` holding its own copies of the kept
+strings. Copying strings allocates, so the k form is refused on a [real-time
+path](csnrtlock.md). See [string arrays](string-arrays.md).
+
 The natural way to build a mask is a comparison such as `csngt` or `csneq`, or
 a classifier such as [csnisnan](csnisnan.md), [csnisinf](csnisinf.md), or
 [csnisfin](csnisfin.md). They publish exactly the 1.0 and 0.0 pattern this
@@ -29,17 +33,19 @@ returns the coordinates of the matches rather than the values.
 ```csound
 out:CsnArr = csnselect(source:CsnArr, mask:CsnArr)
 out:CsnArr = csnselect(source:CsnArr, mask:CsnArr, trig:k)
+out:CsnStr = csnselect(source:CsnStr, mask:CsnArr)
+out:CsnStr = csnselect(source:CsnStr, mask:CsnArr, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to gather from.
+* `source:CsnArr / source:CsnStr`: the array to gather from.
 * `mask:CsnArr`: real mask, same shape and dimension count as the source. Non-zero keeps the element.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: 1-D array of the kept elements, in source order.
+* `out:CsnArr / out:CsnStr`: 1-D array of the kept elements, in source order.
 
 ## Execution Time
 

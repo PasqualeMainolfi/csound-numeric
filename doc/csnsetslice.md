@@ -20,17 +20,27 @@ The same bounds rules as `csngetslice` apply — non-negative `start` and `stop`
 with `start < stop <= extent`, and `step > 0` — and an empty destination is
 refused.
 
+On a `:CsnStr;` both arrays are string arrays and each written slot takes a
+copy of its string, so changing `data` afterwards leaves `dest` alone; `data`
+may be `dest` itself. A slot that already holds the same string is left as it
+is and allocates nothing. On an array marked for a [real-time
+path](csnrtlock.md) the k form therefore runs as long as nothing changes, and
+the first slot that would change stops it with a performance error before
+anything is written. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 csnsetslice(dest:CsnArr, data:CsnArr, axis:i, start:i, stop:i, step:i)
 csnsetslice(dest:CsnArr, data:CsnArr, axis:k, start:k, stop:k, step:k)
+csnsetslice(dest:CsnStr, data:CsnStr, axis:i, start:i, stop:i, step:i)
+csnsetslice(dest:CsnStr, data:CsnStr, axis:k, start:k, stop:k, step:k)
 ```
 
 ## Arguments
 
-* `dest:CsnArr`: the array written into.
-* `data:CsnArr`: the values to write. Same rank as `dest`, and shaped like the slice.
+* `dest:CsnArr / dest:CsnStr`: the array written into.
+* `data:CsnArr / data:CsnStr`: the values to write, of the same type as `dest`. Same rank as `dest`, and shaped like the slice.
 * `axis:i / axis:k`: the axis to slice along; negative values count from the end.
 * `start:i / start:k`: first index, included.
 * `stop:i / stop:k`: last index, excluded.

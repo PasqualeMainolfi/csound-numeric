@@ -18,18 +18,24 @@ At k-rate, the permutation happens only when the trigger is non-zero. A zero
 trigger leaves the array unchanged. The trigger must be present because it is
 the argument that selects the performance-time overload.
 
-Real only.
+Real and string arrays; a complex array is refused. A `:CsnStr;` takes the
+same draws as a real array, so after the same [csnseed](csnseed.md) both are
+permuted in the same order. Its strings only change places, so nothing is
+allocated and the k form is allowed on a [real-time path](csnrtlock.md). See
+[string arrays](string-arrays.md).
 
 ## Syntax
 
 ```csound
 csnshuffle(arr:CsnArr)
 csnshuffle(arr:CsnArr, trig:k)
+csnshuffle(arr:CsnStr)
+csnshuffle(arr:CsnStr, trig:k)
 ```
 
 ## Arguments
 
-* `arr:CsnArr`: real array to shuffle in place.
+* `arr:CsnArr / arr:CsnStr`: real or string array to shuffle in place.
 * `trig:k`: required k-rate trigger. A non-zero value shuffles the array; zero does nothing.
 
 ## Output

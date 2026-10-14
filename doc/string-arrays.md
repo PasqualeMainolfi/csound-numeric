@@ -19,20 +19,33 @@ overload, and [csntype](csntype.md) reports `2` for one.
 - Out: [csntoarray](csntoarray.md) to an `S[]`, [csnprint](csnprint.md).
 - Elements: [csnget](csnget.md), [csnset](csnset.md), `v[i][j]`,
   `v[i][j] = "x"`, `v[i][j] init "x"`.
-- Slices: [csngetslice](csngetslice.md) and `v[start:end, step, axis]`.
+- Slices: [csngetslice](csngetslice.md) and `v[start:end, step, axis]`,
+  [csnsetslice](csnsetslice.md), [csntake](csntake.md) along an axis or
+  flat to an `S`.
 - Queries: [csnsize](csnsize.md), [csndims](csndims.md),
   [csnshape](csnshape.md), [csnisempty](csnisempty.md), [csntype](csntype.md).
 - Layout, as a copy or in place: [csnreshape](csnreshape.md),
   [csnflatten](csnflatten.md), [csntranspose](csntranspose.md),
   [csnflip](csnflip.md), [csnroll](csnroll.md), [csnreverse](csnreverse.md).
 - Joining and growing: [csnconcat](csnconcat.md) of two `CsnStr`,
-  [csnpad](csnpad.md) with a string fill value, as a copy or in place.
-- Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md) in place,
-  [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
+  [csnstack](csnstack.md) of two or more, [csnpad](csnpad.md) with a string
+  fill value, as a copy or in place.
+- Growing and shrinking in place: [csnpush](csnpush.md),
+  [csnpop](csnpop.md), [csninsert](csninsert.md) and
+  [csnremove](csnremove.md), one string or a block along an axis.
+- Cutting and resizing, as a copy or in place: [csntruncate](csntruncate.md),
+  [csnhead](csnhead.md), [csnresize](csnresize.md), which fills what it adds
+  with `""`.
+- Copies and order: [csncopy](csncopy.md), [csnshuffle](csnshuffle.md).
+- Masks, with a real mask: [csnwhere](csnwhere.md),
+  [csnputmask](csnputmask.md) as `csnputmask(dest, mask, values)`,
+  [csncompress](csncompress.md), [csnselect](csnselect.md).
+- Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
+  as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The other opcodes that build an array from pieces of others (`csnstack`,
-`csntake`, `csnsetslice`, `csnpush`, ...) are numeric only for now.
+The elementwise string operations (`np.strings.add`, `upper`, `strip`, ...),
+queries, conversions, sorting and sets are not there yet.
 
 ## Rate and real-time paths
 
@@ -45,11 +58,16 @@ Writing a string allocates. A k-rate pass that writes strings is therefore
 refused on an array marked for a [real-time path](csnrtlock.md), with a message
 that names the opcode; build the array at init instead, or clear the mark. An
 element set to the string it already holds is no write and allocates nothing,
-so a k-rate `csnset` of an unchanged value is free. Reordering in place
-(`csntranspose`, `csnflip`, `csnroll`, `csnreverse` without an output) only
-moves the strings the array already holds, so it allocates nothing and is
-allowed there; the k forms that return a copy are refused like any other
-writer, and so is `csnpad` in place, which allocates its fill strings.
+so a k-rate `csnset`, `csnsetslice` or `csnputmask` of unchanged values is
+free. Reordering in place (`csntranspose`, `csnflip`, `csnroll`, `csnreverse`
+without an output, `csnshuffle`) only moves the strings the array already
+holds, so it allocates nothing and is allowed there; the k forms that return a
+copy are refused like any other writer, and so is `csnpad` in place, which
+allocates its fill strings. For the same reason `csnpop`, the one-string
+`csnremove` and `csntruncate` in place are allowed: the strings they drop stay
+with the array past its end, and a later push or insert takes the slot back.
+`csnpush` and `csninsert` store a copy, and `csnresize` in place releases the
+strings left past the end as it grows over them, so their k forms are refused.
 
 ## Files
 

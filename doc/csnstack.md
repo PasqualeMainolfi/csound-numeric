@@ -28,11 +28,19 @@ pass and may allocate again when the input layout or axis changes. Such an
 allocation is rejected if an input has placed the result on a real-time-locked
 path.
 
+Two or more `:CsnStr;` inputs give a `:CsnStr;`, whose strings are copies: the
+result shares none with its inputs. Every input must then be a string array;
+a numeric one among them is refused with a message naming its argument. The
+k form copies strings, which allocates, so it is refused on a [real-time
+path](csnrtlock.md). See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 result:CsnArr = csnstack(axis:i, first:CsnArr, second:CsnArr, ...)
 result:CsnArr = csnstack(trig:k, axis:k, first:CsnArr, second:CsnArr, ...)
+result:CsnStr = csnstack(axis:i, first:CsnStr, second:CsnStr, ...)
+result:CsnStr = csnstack(trig:k, axis:k, first:CsnStr, second:CsnStr, ...)
 ```
 
 ## Arguments
@@ -43,11 +51,11 @@ result:CsnArr = csnstack(trig:k, axis:k, first:CsnArr, second:CsnArr, ...)
   `[0, source dimensions]`; negative values count from the end of the result,
   so `-1` inserts the new last axis.
 * `first:CsnArr, second:CsnArr, ...`: two or more arrays with identical shape,
-  dimensionality and element type.
+  dimensionality and element type; all `:CsnArr;` or all `:CsnStr;`.
 
 ## Output
 
-* `result:CsnArr`: array with one additional dimension. Its extent on `axis` is
+* `result:CsnArr / result:CsnStr`: array with one additional dimension. Its extent on `axis` is
   the number of input arrays.
 
 ## Execution Time

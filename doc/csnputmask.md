@@ -12,13 +12,24 @@ the first replacement, where it was zero from the second. Nothing is published;
 the array named first is modified.
 
 It is the in-place counterpart of [csnwhere](csnwhere.md), and the same shape and
-dimension rules apply. Real only.
+dimension rules apply. Real only, or strings in the form below.
 
 The operation consumes the mask it reads, so it is not idempotent: after the
 first pass the array holds replacement values, not the original 1.0 and 0.0
 pattern. At k-rate this is handled by the version check — the opcode runs once
 per write made by somebody else, not once per control period — so a re-raised
 trigger alone does not apply the mask a second time.
+
+A real mask cannot hold strings, so the string form takes its destination
+first, as `np.putmask(dest, mask, values)` does: `csnputmask(dest, mask,
+values)` writes `values` into the `:CsnStr;` `dest` wherever the real `mask`
+is non-zero and leaves the other elements as they are. `values` is a
+`:CsnStr;` of the mask's shape, or one `S` for every marked element, and may
+be `dest` itself. An element that already holds its value is not written
+again, so applying the same values twice changes nothing; the k form runs on
+a [real-time path](csnrtlock.md) while nothing changes and stops with a
+performance error at the first element that would. See [string
+arrays](string-arrays.md).
 
 ## Syntax
 
@@ -27,6 +38,10 @@ csnputmask mask:CsnArr, on_true:CsnArr, on_false:CsnArr
 csnputmask mask:CsnArr, on_true:CsnArr, on_false:i
 csnputmask mask:CsnArr, on_true:CsnArr, on_false:CsnArr, trig:k
 csnputmask mask:CsnArr, on_true:CsnArr, on_false:k, trig:k
+csnputmask dest:CsnStr, mask:CsnArr, values:CsnStr
+csnputmask dest:CsnStr, mask:CsnArr, value:S
+csnputmask dest:CsnStr, mask:CsnArr, values:CsnStr, trig:k
+csnputmask dest:CsnStr, mask:CsnArr, value:S, trig:k
 ```
 
 ## Arguments
@@ -34,11 +49,14 @@ csnputmask mask:CsnArr, on_true:CsnArr, on_false:k, trig:k
 * `mask:CsnArr`: the selector, and the array that is overwritten.
 * `on_true:CsnArr`: values taken where the mask is non-zero.
 * `on_false:CsnArr / on_false:i / on_false:k`: values taken where the mask is zero.
+* `dest:CsnStr`: the string array that is written, in the string form.
+* `values:CsnStr / value:S`: the strings written where the mask is non-zero, in the string form; an array of the mask's shape or one string.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger skips the pass.
 
 ## Output
 
-None. The first argument is modified in place.
+None. The first argument is modified in place: the mask in the numeric form,
+`dest` in the string form.
 
 ## Execution Time
 

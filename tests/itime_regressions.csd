@@ -809,6 +809,169 @@ instr 3
     iStrPadIn2Cmp = strcmp(SStrPadIn2, "t")
     assert(iStrPadInSize == 4 && iStrPadIn0Cmp == 0 && iStrPadIn1Cmp == 0)
     assert(iStrPadIn2Shape[0] == 2 && iStrPadIn2Shape[1] == 3 && iStrPadIn2Cmp == 0)
+    ; csnstack of CsnStr, also inline where no output type is declared
+    iStrStacked:CsnStr = csnstack(1, iStrGrid, csnreverse(iStrGrid))
+    iStrStackedDims = csndims(csnstack(0, iStrGrid, iStrGrid, iStrGrid))
+    iStrStackedShape[] = csnshape(iStrStacked)
+    iStrIdx51[] = fillarray(5, 1)
+    SStrStacked51 = csnget(iStrStacked, iStrIdx51)
+    iStrStacked51Cmp = strcmp(SStrStacked51, "a")
+    assert(iStrStackedDims == 2 && iStrStackedShape[0] == 6 && iStrStackedShape[1] == 2 && iStrStacked51Cmp == 0)
+    ; csntake copies a row out, or one string by flat index; csnsetslice
+    ; copies a block in, also from the array itself
+    iStrRow:CsnStr = csntake(iStrStacked, 1, 1)
+    iStrRowSize = csnsize(iStrRow)
+    SStrRow5 = iStrRow[5]
+    SStrTaken = csntake(iStrStacked, 3)
+    iStrRow5Cmp = strcmp(SStrRow5, "a")
+    iStrTakenCmp = strcmp(SStrTaken, "e")
+    assert(iStrRowSize == 6 && iStrRow5Cmp == 0 && iStrTakenCmp == 0)
+    iStrShape12[] = fillarray(1, 2)
+    iStrDest:CsnStr = csnfull(iShape22, "o")
+    iStrBlock:CsnStr = csnfull(iStrShape12, "n")
+    csnsetslice(iStrDest, iStrBlock, 0, 1, 2, 1)
+    csnsetslice(iStrDest, iStrDest, 0, 0, 2, 1)
+    SStrDest00 = csnget(iStrDest, iStrIdx00)
+    SStrDest10 = csnget(iStrDest, iStrIdx10)
+    iStrDest00Cmp = strcmp(SStrDest00, "o")
+    iStrDest10Cmp = strcmp(SStrDest10, "n")
+    assert(iStrDest00Cmp == 0 && iStrDest10Cmp == 0)
+    ; csnpush, csninsert, csnremove and csnpop on a 1-D CsnStr; the last two
+    ; leave the string they drop past the end, where a later push takes it back
+    SStrQueue[] fillarray "a", "b"
+    iStrQueue:CsnStr = csnfromarray(SStrQueue)
+    csnpush(iStrQueue, "c")
+    csninsert(iStrQueue, "x", 1)
+    SStrRemoved = csnremove(iStrQueue, 2)
+    SStrPopped = csnpop(iStrQueue)
+    csnpush(iStrQueue, "d")
+    csninsert(iStrQueue, "y", 0)
+    iStrQueueSize = csnsize(iStrQueue)
+    SStrQueue0 = iStrQueue[0]
+    SStrQueue2 = iStrQueue[2]
+    SStrQueue3 = iStrQueue[3]
+    iStrRemovedCmp = strcmp(SStrRemoved, "b")
+    iStrPoppedCmp = strcmp(SStrPopped, "c")
+    iStrQueue0Cmp = strcmp(SStrQueue0, "y")
+    iStrQueue2Cmp = strcmp(SStrQueue2, "x")
+    iStrQueue3Cmp = strcmp(SStrQueue3, "d")
+    assert(iStrQueueSize == 4 && iStrRemovedCmp == 0 && iStrPoppedCmp == 0)
+    assert(iStrQueue0Cmp == 0 && iStrQueue2Cmp == 0 && iStrQueue3Cmp == 0)
+    ; csninsert and csnremove of a block along an axis
+    iStrIns:CsnStr = csnfull(iShape22, "o")
+    iStrInsRow:CsnStr = csnfull(iShape2, "r")
+    csninsert(iStrIns, iStrInsRow, 0, 1)
+    iStrInsShape[] = csnshape(iStrIns)
+    iStrOut:CsnStr = csnremove(iStrIns, 0, 0)
+    iStrOutShape[] = csnshape(iStrOut)
+    SStrOut00 = csnget(iStrOut, iStrIdx00)
+    SStrOut10 = csnget(iStrOut, iStrIdx10)
+    iStrOut00Cmp = strcmp(SStrOut00, "r")
+    iStrOut10Cmp = strcmp(SStrOut10, "o")
+    assert(iStrInsShape[0] == 3 && iStrOutShape[0] == 2 && iStrOutShape[1] == 2)
+    assert(iStrOut00Cmp == 0 && iStrOut10Cmp == 0)
+    ; csntruncate and csnhead copy a prefix out or keep it in place, where the
+    ; strings move; csnresize fills the grown slots with "", also in place
+    ; over the strings a shrink left past the end
+    SStrSix[] fillarray "a", "b", "c", "d", "e", "f"
+    iStrSix:CsnStr = csnfromarray(SStrSix)
+    iStrShape23[] = fillarray(2, 3)
+    iStrMat:CsnStr = csnreshape(iStrSix, iStrShape23)
+    iStrIdx11[] = fillarray(1, 1)
+    iStrTrunc:CsnStr = csntruncate(iStrMat, 2, 1)
+    SStrTrunc11 = csnget(iStrTrunc, iStrIdx11)
+    iStrTruncShape[] = csnshape(iStrTrunc)
+    iStrTrunc11Cmp = strcmp(SStrTrunc11, "e")
+    assert(iStrTruncShape[1] == 2 && iStrTrunc11Cmp == 0)
+    csntruncate(iStrMat, 2, 1)
+    SStrMat10 = csnget(iStrMat, iStrIdx10)
+    iStrMat10Cmp = strcmp(SStrMat10, "d")
+    iStrMatSize = csnsize(iStrMat)
+    assert(iStrMatSize == 4 && iStrMat10Cmp == 0)
+    iStrHead:CsnStr = csnhead(iStrSix, 2)
+    iStrHeadSize = csnsize(iStrHead)
+    SStrHead1 = iStrHead[1]
+    iStrHead1Cmp = strcmp(SStrHead1, "b")
+    assert(iStrHeadSize == 2 && iStrHead1Cmp == 0)
+    iStrShape8[] = fillarray(8)
+    iStrResized:CsnStr = csnresize(iStrSix, iStrShape8)
+    SStrResized5 = iStrResized[5]
+    SStrResized6 = iStrResized[6]
+    iStrResized5Cmp = strcmp(SStrResized5, "f")
+    iStrResized6Cmp = strcmp(SStrResized6, "")
+    assert(iStrResized5Cmp == 0 && iStrResized6Cmp == 0)
+    iStrShape3[] = fillarray(3)
+    csnresize(iStrSix, iStrShape3)
+    csnresize(iStrSix, iStrShape8)
+    SStrSix2 = iStrSix[2]
+    SStrSix3 = iStrSix[3]
+    iStrSix2Cmp = strcmp(SStrSix2, "c")
+    iStrSix3Cmp = strcmp(SStrSix3, "")
+    assert(iStrSix2Cmp == 0 && iStrSix3Cmp == 0)
+    ; csncopy, csni and csnk copy every string; csnshuffle moves them and
+    ; draws the same permutation as a numeric shuffle from the same seed.
+    ; csnk's source is left alone: the file is marked real-time, and a k
+    ; pass that has to copy strings again is refused there
+    SStrABC[] fillarray "a", "b", "c"
+    iStrABC:CsnStr = csnfromarray(SStrABC)
+    iStrABCk:CsnStr = csnfromarray(SStrABC)
+    iStrCopy:CsnStr = csncopy(iStrABC)
+    iStrCopyI:CsnStr = csni(iStrABC)
+    iStrCopyK:CsnStr = csnk(iStrABCk)
+    iStrABC[0] = "z"
+    SStrCopy0 = iStrCopy[0]
+    SStrCopyI0 = iStrCopyI[0]
+    SStrCopyK0 = iStrCopyK[0]
+    iStrCopy0Cmp = strcmp(SStrCopy0, "a")
+    iStrCopyI0Cmp = strcmp(SStrCopyI0, "a")
+    iStrCopyK0Cmp = strcmp(SStrCopyK0, "a")
+    assert(iStrCopy0Cmp == 0 && iStrCopyI0Cmp == 0 && iStrCopyK0Cmp == 0)
+    SStrDigits[] fillarray "0", "1", "2", "3", "4", "5", "6", "7"
+    iStrShuffled:CsnStr = csnfromarray(SStrDigits)
+    iNumShuffled:CsnArr = csnarange(0, 8, 1)
+    csnseed(7)
+    csnshuffle(iStrShuffled)
+    csnseed(7)
+    csnshuffle(iNumShuffled)
+    SStrShuffled3 = iStrShuffled[3]
+    iNumShuffled3 = iNumShuffled[3]
+    iStrShuffled3 = strtod(SStrShuffled3)
+    assert(iStrShuffled3 == iNumShuffled3)
+    ; csnwhere picks a string per element, csnputmask writes the values where
+    ; the mask is set, csncompress and csnselect keep the marked strings
+    SStrWT[] fillarray "a", "b", "c", "d"
+    SStrWF[] fillarray "w", "x", "y", "z"
+    iStrWT:CsnStr = csnfromarray(SStrWT)
+    iStrWF:CsnStr = csnfromarray(SStrWF)
+    iStrWMaskVals[] = fillarray(1, 0, 0, 1)
+    iStrWMask:CsnArr = csnfromarray(iStrWMaskVals)
+    iStrWhere:CsnStr = csnwhere(iStrWMask, iStrWT, iStrWF)
+    iStrWhereS:CsnStr = csnwhere(iStrWMask, iStrWT, "-")
+    SStrWhere1 = iStrWhere[1]
+    SStrWhere3 = iStrWhere[3]
+    SStrWhereS2 = iStrWhereS[2]
+    iStrWhere1Cmp = strcmp(SStrWhere1, "x")
+    iStrWhere3Cmp = strcmp(SStrWhere3, "d")
+    iStrWhereS2Cmp = strcmp(SStrWhereS2, "-")
+    assert(iStrWhere1Cmp == 0 && iStrWhere3Cmp == 0 && iStrWhereS2Cmp == 0)
+    iStrPut:CsnStr = csnfromarray(SStrWF)
+    csnputmask(iStrPut, iStrWMask, iStrWT)
+    csnputmask(iStrPut, iStrWMask, "!")
+    SStrPut0 = iStrPut[0]
+    SStrPut1 = iStrPut[1]
+    iStrPut0Cmp = strcmp(SStrPut0, "!")
+    iStrPut1Cmp = strcmp(SStrPut1, "x")
+    assert(iStrPut0Cmp == 0 && iStrPut1Cmp == 0)
+    iStrCompMaskVals[] = fillarray(0, 1, 1)
+    iStrCompMask:CsnArr = csnfromarray(iStrCompMaskVals)
+    iStrComp:CsnStr = csncompress(iStrWT, iStrCompMask)
+    iStrSel:CsnStr = csnselect(iStrWT, iStrWMask)
+    iStrCompSize = csnsize(iStrComp)
+    SStrComp1 = iStrComp[1]
+    SStrSel1 = iStrSel[1]
+    iStrComp1Cmp = strcmp(SStrComp1, "c")
+    iStrSel1Cmp = strcmp(SStrSel1, "d")
+    assert(iStrCompSize == 2 && iStrComp1Cmp == 0 && iStrSel1Cmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -4915,7 +5078,11 @@ e
 ; csnset csnset.c csnset.s csntake csntake.flat csntake.flat.c csngetslice csngetslice.s csnsetslice csnpush
 ; csnpush.c csnpop csnpop.c csninsert.flat csninsert.flat.c csnremove.flat csnremove.flat.c csninsert.block
 ; csnremove.block csnconcat.flat csnconcat.s.flat csnconcat.block csnconcat.s.block csnstack csnpad csnpad.ax csnpad.in csnpad.ax.in csnpad.c
-; csnpad.s csnpad.s.ax csnpad.s.in csnpad.s.ax.in
+; csnpad.s csnpad.s.ax csnpad.s.in csnpad.s.ax.in csnstack.s csntake.s csntake.s.flat csnsetslice.s
+; csnpush.s csnpop.s csninsert.s.flat csnremove.s.flat csninsert.s.block csnremove.s.block
+; csntruncate.s csntruncate.s.in csnhead.s csnresize.s csnresize.s.in
+; csncopy.s csni.s csnk.s csnshuffle.s
+; csnwhere.s.hh csnwhere.s.hs csnputmask.s.hh csnputmask.s.hs csncompress.s csnselect.s
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

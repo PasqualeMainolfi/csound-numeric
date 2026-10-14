@@ -1,6 +1,7 @@
 /* Opcode implementations for the select family.
    The public opcode inventory remains centralized in csnum.c. */
 #include "csnset.h"
+#include "csnstrings.h"
 #include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
@@ -1450,15 +1451,24 @@ static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr
     return OK;
 }
 
-static int32_t compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
+static int32_t compress_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
     if (axis_out == -1) {
         for (size_t i = 0; i < count_true; i++) {
             size_t index = indexes[i];
-            if (itype == CSN_REAL) {
-                arr->data[i] = source_arr->data[index];
-            } else {
-                arr->data[i * 2] = source_arr->data[index * 2];
-                arr->data[i * 2 + 1] = source_arr->data[index * 2 + 1];
+            switch (itype) {
+                case CSN_REAL:
+                case CSN_COMPLEX:
+                    if (itype == CSN_REAL) {
+                        arr->data[i] = source_arr->data[index];
+                    } else {
+                        arr->data[i * 2] = source_arr->data[index * 2];
+                        arr->data[i * 2 + 1] = source_arr->data[index * 2 + 1];
+                    }
+                    break;
+                case CSN_STRING:
+                    if (arr->sdata[i] != NULL) csound->Free(csound, arr->sdata[i]);
+                    arr->sdata[i] = csound->Strdup(csound, source_arr->sdata[index]);
+                    break;
             }
         }
     } else {
@@ -1471,14 +1481,24 @@ static int32_t compress_assign_value(CSN_ARRAY *arr, CSN_ARRAY *source_arr, size
                 uint32_t coord = d == (uint32_t) axis_out ? indexes[it.coords[d]] : it.coords[d];
                 src_off += (size_t) coord * source_arr->strides[d];
             }
-            if (itype == CSN_REAL) {
-                arr->data[i] = source_arr->data[src_off];
-            } else {
-                arr->data[i * 2] = source_arr->data[src_off * 2];
-                arr->data[i * 2 + 1] = source_arr->data[src_off * 2 + 1];
+            switch (itype) {
+                case CSN_REAL:
+                case CSN_COMPLEX:
+                    if (itype == CSN_REAL) {
+                        arr->data[i] = source_arr->data[src_off];
+                    } else {
+                        arr->data[i * 2] = source_arr->data[src_off * 2];
+                        arr->data[i * 2 + 1] = source_arr->data[src_off * 2 + 1];
+                    }
+                    break;
+                case CSN_STRING:
+                    if (arr->sdata[i] != NULL) csound->Free(csound, arr->sdata[i]);
+                    arr->sdata[i] = csound->Strdup(csound, source_arr->sdata[src_off]);
+                    break;
             }
         }
     }
+
     return OK;
 }
 
@@ -1530,7 +1550,7 @@ int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
     pres.locked |= out.locked;
 
     size_t size = p->handle->size;
-    if (compress_assign_value(p->handle, source_arr, count_true, size, indexes, axis_out, new_dim, itype) != OK) {
+    if (compress_assign_value(csound, p->handle, source_arr, count_true, size, indexes, axis_out, new_dim, itype) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid compress iterator layout");
         goto done;
     }
@@ -1606,6 +1626,10 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->source_scalar_false);
+    if (p->source_handle->itype == CSN_STRING) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
 
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     int32_t res = OK;
@@ -1654,7 +1678,7 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (compress_assign_value(p->handle, source_arr, count_true, p->handle->size, indexes_temp, axis_out, new_dim, itype) != OK) {
+    if (compress_assign_value(csound, p->handle, source_arr, count_true, p->handle->size, indexes_temp, axis_out, new_dim, itype) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid compress iterator layout");
         goto done;
     }
@@ -1683,14 +1707,23 @@ static int32_t select_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, 
     return OK;
 }
 
-static void select_assign_value(CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, CSN_ARRAY *mask_arr) {
+static void select_assign_value(CSOUND *csound, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, CSN_ARRAY *mask_arr) {
     for (size_t i = 0, j = 0; i < source_arr->size; i++) {
         if (mask_arr->data[i] != 0.0) {
-            if (source_arr->itype == CSN_REAL) {
-                out_arr->data[j] = source_arr->data[i];
-            } else {
-                out_arr->data[j * 2] = source_arr->data[i * 2];
-                out_arr->data[j * 2 + 1] = source_arr->data[i * 2 + 1];
+            switch (source_arr->itype) {
+                case CSN_REAL:
+                case CSN_COMPLEX:
+                    if (source_arr->itype == CSN_REAL) {
+                        out_arr->data[j] = source_arr->data[i];
+                    } else {
+                        out_arr->data[j * 2] = source_arr->data[i * 2];
+                        out_arr->data[j * 2 + 1] = source_arr->data[i * 2 + 1];
+                    }
+                    break;
+                case CSN_STRING:
+                    if (out_arr->sdata[j] != NULL) csound->Free(csound, out_arr->sdata[j]);
+                    out_arr->sdata[j] = csound->Strdup(csound, source_arr->sdata[i]);
+                    break;
             }
             j++;
         }
@@ -1727,7 +1760,7 @@ int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    select_assign_value(p->handle, source_arr, mask_arr);
+    select_assign_value(csound, p->handle, source_arr, mask_arr);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -1780,6 +1813,11 @@ int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p) {
     CHECK_KTRIG(p->trig);
     int32_t res = OK;
 
+    if (p->source_handle->itype == CSN_STRING) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
+
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle, p->data_handle }, 3);
 
@@ -1811,13 +1849,13 @@ int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    select_assign_value(p->handle, source_arr, mask_arr);
+    select_assign_value(csound, p->handle, source_arr, mask_arr);
 
     SET_KDATA_END(p->k_data, new_shape, new_dim, itype);
-    p->is_published = true;
     set_array_version(&p->versions.prev_a_version, &source_arr->version);
     set_array_version(&p->versions.prev_b_version, &mask_arr->version);
     set_array_version(&p->k_data.prev_output_version, &p->handle->version);
+    p->is_published = true;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -1844,7 +1882,12 @@ int32_t csnarray_shuffle(CSOUND *csound, CSN_UNARYOP_IN *p) {
     /* the generator is registry state shared by every instrument: each draw
        takes the lock, whether the array is global or not */
     if (!pres.locked) { csn_lock(csound, reg); pres.locked = true; }
-    fisher_yates(&reg->rng, source_arr->data, source_arr->size);
+    if (source_arr->itype == CSN_STRING) {
+        fisher_yates_strings(&reg->rng, source_arr->sdata, source_arr->size);
+    } else {
+        fisher_yates(&reg->rng, source_arr->data, source_arr->size);
+    }
+
     PUBLISH_INPLACE_WRITE(&p->k_data, source_arr, false, false, false);
     p->k_data.registry = reg;
 
@@ -1894,7 +1937,12 @@ int32_t csnarray_shuffle_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
 
     if (source_arr->size == 0) goto done;
     if (!pres.locked) { csn_lock(csound, reg); pres.locked = true; }
-    fisher_yates(&reg->rng, source_arr->data, source_arr->size);
+    if (source_arr->itype == CSN_STRING) {
+        fisher_yates_strings(&reg->rng, source_arr->sdata, source_arr->size);
+    } else {
+        fisher_yates(&reg->rng, source_arr->data, source_arr->size);
+    }
+
     PUBLISH_INPLACE_WRITE(&p->k_data, source_arr, false, false, false);
 
 done:
@@ -1932,18 +1980,22 @@ static bool stack_lock_if_shared(CSOUND *csound, CSN_REGISTRY *reg, CSN_ARRAY *o
     return locked;
 }
 
-static int32_t stack_check_types(CSOUND *csound, CSN_ARRAY *const *sources, uint32_t nargs) {
-    const CS_TYPE *expected = CS_TYPE_CSNARR(csound);
+/* "*" takes any argument, so the arrays are checked here: all of the
+   output's type, a CsnArr or a CsnStr. */
+static int32_t stack_check_types(CSOUND *csound, const CSN_ARRAY *out, CSN_ARRAY *const *sources, uint32_t nargs, uint32_t first_arg) {
+    const CS_TYPE *expected = CS_GET_ARG_TYPE(out);
+    const char *name = expected == CS_TYPE_CSNSTR(csound) ? "CsnStr" : "CsnArr";
     for (uint32_t i = 0; i < nargs; i++) {
         const CS_TYPE *actual_type = CS_GET_ARG_TYPE(sources[i]);
         if (actual_type == NULL || actual_type != expected) {
-            return csn_init_error(csound, "[csnarray] Invalid type: array must be valid CsnArr");
+            return csn_init_error(csound, "[csnarray] Every array stacked into a %s must be a %s: argument %u is not", name, name, first_arg + i);
         }
     }
+
     return OK;
 }
 
-static int32_t stack_assign_value(CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *const *sources) {
+static int32_t stack_assign_value(CSOUND *csound, CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *const *sources) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, stacked->ndim, stacked->shape, stacked->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -1953,13 +2005,23 @@ static int32_t stack_assign_value(CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *
         for (uint32_t i = 0, j = 0; i < stacked->ndim; ++i) {
             if (i != axis) src_offset += (size_t) it.coords[i] * source->strides[j++];
         }
-        if (stacked->itype == CSN_REAL) {
-            stacked->data[linear] = source->data[src_offset];
-        } else {
-            stacked->data[linear * 2] = source->data[src_offset * 2];
-            stacked->data[linear * 2 + 1] = source->data[src_offset * 2 + 1];
+        switch (stacked->itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX:
+                if (stacked->itype == CSN_REAL) {
+                    stacked->data[linear] = source->data[src_offset];
+                } else {
+                    stacked->data[linear * 2] = source->data[src_offset * 2];
+                    stacked->data[linear * 2 + 1] = source->data[src_offset * 2 + 1];
+                }
+                break;
+            case CSN_STRING:
+                if (stacked->sdata[linear] != NULL) csound->Free(csound, stacked->sdata[linear]);
+                stacked->sdata[linear] = csound->Strdup(csound, source->sdata[src_offset]);
+                break;
         }
     }
+
     return OK;
 }
 
@@ -1973,7 +2035,7 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
     }
 
     CSN_ARRAY *const *sources = (CSN_ARRAY *const *) p->source_handles;
-    int32_t res = stack_check_types(csound, sources, (uint32_t) nargs);
+    int32_t res = stack_check_types(csound, p->handle, sources, (uint32_t) nargs, 2U);
     if (res != OK) return res;
 
     stamp_globals(csound, &p->h);
@@ -2010,7 +2072,7 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (stack_assign_value(p->handle, axis, sources) != OK) {
+    if (stack_assign_value(csound, p->handle, axis, sources) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid stack iterator layout");
         goto done;
     }
@@ -2030,7 +2092,7 @@ int32_t csnarray_stack_k_init(CSOUND *csound, CSN_STACK_K *p) {
     }
 
     CSN_ARRAY *const *sources = (CSN_ARRAY *const *) p->source_handles;
-    int32_t res = stack_check_types(csound, sources, (uint32_t) nargs);
+    int32_t res = stack_check_types(csound, p->handle, sources, (uint32_t) nargs, 3U);
     if (res != OK) return res;
 
     p->nargs = nargs;
@@ -2089,6 +2151,13 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
     }
 
     CHECK_KTRIG(p->trig);
+
+    /* the mark is decided at init, so it is read here: every pass that stacks
+       strings copies them */
+    if (p->handle->itype == CSN_STRING) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
     int32_t res = OK;
 
     CSN_ARRAY *const *sources = (CSN_ARRAY *const *) p->source_handles;
@@ -2140,7 +2209,7 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (stack_assign_value(p->handle, axis, sources) != OK) {
+    if (stack_assign_value(csound, p->handle, axis, sources) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid stack iterator layout");
         goto done;
     }

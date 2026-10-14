@@ -546,7 +546,7 @@ int32_t csnarray_get_col_k(CSOUND *csound, CSN_GET_ROWCOL *p) {
     return csnarray_get_rowcol_k_helper(csound, p, false);
 }
 
-static int32_t check_take_flat_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, double index, bool is_complex) {
+int32_t check_take_flat_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, double index, bool is_complex) {
     if (!is_complex) {
         if (arr->itype == CSN_COMPLEX) {
             return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Handle holds a complex array; declare the taken value as :Complex;");
@@ -605,7 +605,7 @@ static int32_t check_take_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, uin
     return OK;
 }
 
-static int32_t take_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t in_ndim, uint32_t out_ndim, uint32_t axis, uint32_t index) {
+static int32_t take_assign_value(CSOUND *csound, CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t in_ndim, uint32_t out_ndim, uint32_t axis, uint32_t index) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, out_ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -614,13 +614,23 @@ static int32_t take_assign_value(CSN_ARRAY *source, CSN_ARRAY *destination, uint
         for (uint32_t i = 0, k = 0; i < in_ndim; ++i) {
             if (i != axis) src_index += (size_t) it.coords[k++] * source->strides[i];
         }
-        if (source->itype == CSN_COMPLEX) {
-            destination->data[linear * 2] = source->data[src_index * 2];
-            destination->data[linear * 2 + 1] = source->data[src_index * 2 + 1];
-        } else {
-            destination->data[linear] = source->data[src_index];
+        switch (source->itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX:
+                if (source->itype == CSN_COMPLEX) {
+                    destination->data[linear * 2] = source->data[src_index * 2];
+                    destination->data[linear * 2 + 1] = source->data[src_index * 2 + 1];
+                } else {
+                    destination->data[linear] = source->data[src_index];
+                }
+                break;
+            case CSN_STRING:
+                if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
+                destination->sdata[linear] = csound->Strdup(csound, source->sdata[src_index]);
+                break;
         }
     }
+
     return OK;
 }
 
@@ -649,7 +659,7 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
 
     /* Walk the destination, which is smaller than the source by exactly the
        extent of the dropped axis. */
-    if (take_assign_value(arr, p->handle, arr->ndim, out_ndim, axis, index) != OK) {
+    if (take_assign_value(csound, arr, p->handle, arr->ndim, out_ndim, axis, index) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid take iterator layout");
         goto done;
     }
@@ -666,6 +676,12 @@ done:
 int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
+
+    /* a pass that takes strings copies them */
+    if (p->source_handle->itype == CSN_STRING) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
@@ -693,7 +709,7 @@ int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (take_assign_value(arr, p->handle, ndim, out_ndim, axis, index) != OK) {
+    if (take_assign_value(csound, arr, p->handle, ndim, out_ndim, axis, index) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid take iterator layout");
         goto done;
     }
@@ -858,7 +874,13 @@ static int32_t slice_get_assign_value(CSOUND *csound, const CSN_ARRAY *source, C
     return OK;
 }
 
-static int32_t slice_set_assign_value(const CSN_ARRAY *data, CSN_ARRAY *destination, uint32_t ndim, const uint32_t *slice_shape, uint32_t axis, uint32_t start, uint32_t step) {
+/* A string slot that already holds the incoming string is left alone, as
+   csnset leaves it: no write, no allocation. With refuse_alloc (a perf pass on
+   a marked array) the first slot that would change stops the walk before
+   anything is written, since the slots before it were all unchanged, and
+   *refused says so. The copy is made before the old string is released: data
+   may be the destination itself. */
+static int32_t slice_set_assign_value(CSOUND *csound, const CSN_ARRAY *data, CSN_ARRAY *destination, uint32_t ndim, const uint32_t *slice_shape, uint32_t axis, uint32_t start, uint32_t step, bool refuse_alloc, bool *refused) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, ndim, slice_shape, data->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -868,13 +890,32 @@ static int32_t slice_set_assign_value(const CSN_ARRAY *data, CSN_ARRAY *destinat
             size_t coord = d == axis ? (size_t) start + (size_t) it.coords[d] * step : it.coords[d];
             destination_index += coord * destination->strides[d];
         }
-        if (data->itype == CSN_COMPLEX) {
-            destination->data[destination_index * 2] = data->data[linear * 2];
-            destination->data[destination_index * 2 + 1] = data->data[linear * 2 + 1];
-        } else {
-            destination->data[destination_index] = data->data[linear];
+
+        switch (data->itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX:
+                if (data->itype == CSN_COMPLEX) {
+                    destination->data[destination_index * 2] = data->data[linear * 2];
+                    destination->data[destination_index * 2 + 1] = data->data[linear * 2 + 1];
+                } else {
+                    destination->data[destination_index] = data->data[linear];
+                }
+                break;
+            case CSN_STRING: {
+                const char *value = data->sdata[linear] != NULL ? data->sdata[linear] : "";
+                char *stored = destination->sdata[destination_index];
+                if (stored != NULL && strcmp(stored, value) == 0) break;
+                if (refuse_alloc) {
+                    *refused = true;
+                    return OK;
+                }
+                destination->sdata[destination_index] = csound->Strdup(csound, value);
+                if (stored != NULL) csound->Free(csound, stored);
+                break;
+            }
         }
     }
+
     return OK;
 }
 
@@ -1086,9 +1127,15 @@ static int32_t csnarray_set_slice_locked(CSOUND *csound, OPDS *perf_h, CSN_SET_S
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Data block holds %zu elements but the slice %s holds %zu", data_arr->size, shape_str(sbuf, sizeof(sbuf), slice_shape, source_ndim), slice_size);
     }
 
-    if (slice_set_assign_value(data_arr, source_arr, source_ndim, slice_shape, axis, start, step) != OK) {
+    bool refused = false;
+    bool refuse_alloc = perf_h != NULL && source_arr->rt_locked && source_arr->itype == CSN_STRING;
+    if (slice_set_assign_value(csound, data_arr, source_arr, source_ndim, slice_shape, axis, start, step, refuse_alloc, &refused) != OK) {
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid slice iterator layout");
     }
+    if (refused) {
+        return csn_locked_perf_error(csound, perf_h, "[csnarray] Writing a string allocates at perf time and the array is on a real-time path; set it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from");
+    }
+
     update_array_data_version(&source_arr->version);
     return OK;
 }
@@ -1697,10 +1744,11 @@ static int32_t check_insert_block_body(CSOUND *csound, CSN_INSERT_BLOCK *p, OPDS
 
     memcpy(temp_shape, source_arr->shape, sizeof(uint32_t) * (size_t) source_ndim);
     temp_shape[*axis]++;
+
     return OK;
 }
 
-static int32_t insert_block_assign_value(CSN_ARRAY *temp, CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, uint32_t source_ndim, uint32_t axis, uint32_t index) {
+static int32_t insert_block_assign_value(CSOUND *csound, CSN_ARRAY *temp, CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, uint32_t source_ndim, uint32_t axis, uint32_t index) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, temp->ndim, temp->shape, temp->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -1710,11 +1758,20 @@ static int32_t insert_block_assign_value(CSN_ARRAY *temp, CSN_ARRAY *source_arr,
             for (uint32_t i = 0, j = 0; i < source_ndim; ++i) {
                 if (i != axis) block_off += (size_t) it.coords[i] * data_arr->strides[j++];
             }
-            if (source_arr->itype == CSN_REAL) {
-                temp->data[linear] = data_arr->data[block_off];
-            } else {
-                temp->data[linear * 2] = data_arr->data[block_off * 2];
-                temp->data[linear * 2 + 1] = data_arr->data[block_off * 2 + 1];
+            switch (source_arr->itype) {
+                case CSN_REAL:
+                case CSN_COMPLEX:
+                    if (source_arr->itype == CSN_REAL) {
+                        temp->data[linear] = data_arr->data[block_off];
+                    } else {
+                        temp->data[linear * 2] = data_arr->data[block_off * 2];
+                        temp->data[linear * 2 + 1] = data_arr->data[block_off * 2 + 1];
+                    }
+                    break;
+                case CSN_STRING:
+                    if (temp->sdata[linear] != NULL) csound->Free(csound, temp->sdata[linear]);
+                    temp->sdata[linear] = csound->Strdup(csound, data_arr->sdata[block_off]);
+                    break;
             }
         } else {
             size_t source_off = 0;
@@ -1722,14 +1779,24 @@ static int32_t insert_block_assign_value(CSN_ARRAY *temp, CSN_ARRAY *source_arr,
                 uint32_t coord = it.coords[d] - (d == axis && it.coords[d] > index ? 1U : 0U);
                 source_off += (size_t) coord * source_arr->strides[d];
             }
-            if (source_arr->itype == CSN_REAL) {
-                temp->data[linear] = source_arr->data[source_off];
-            } else {
-                temp->data[linear * 2] = source_arr->data[source_off * 2];
-                temp->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
+            switch (source_arr->itype) {
+                case CSN_REAL:
+                case CSN_COMPLEX:
+                    if (source_arr->itype == CSN_REAL) {
+                        temp->data[linear] = source_arr->data[source_off];
+                    } else {
+                        temp->data[linear * 2] = source_arr->data[source_off * 2];
+                        temp->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
+                    }
+                    break;
+                case CSN_STRING:
+                    if (temp->sdata[linear] != NULL) csound->Free(csound, temp->sdata[linear]);
+                    temp->sdata[linear] = csound->Strdup(csound, source_arr->sdata[source_off]);
+                    break;
             }
         }
     }
+
     return OK;
 }
 
@@ -1824,7 +1891,7 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
         goto done;
     }
 
-    if (insert_block_assign_value(temp, source_arr, data_arr, source_ndim, axis, index) != OK) {
+    if (insert_block_assign_value(csound, temp, source_arr, data_arr, source_ndim, axis, index) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid insert iterator layout");
         goto done;
     }
@@ -1832,8 +1899,14 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     res = ensure_mutation_capacity(csound, NULL, source_arr, temp->size, false);
     if (res != OK) goto done;
 
-    /* the image is only needed for this one call */
-    travase_csnarray(source_arr, temp);
+    /* the image is only needed for this one call, so its strings change
+       owner instead of being copied again */
+    if (source_arr->itype == CSN_STRING) {
+        move_csnstrings(csound, source_arr, temp);
+    } else {
+        travase_csnarray(source_arr, temp);
+    }
+
     p->registry = reg;
 
 done:
@@ -1902,6 +1975,12 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     CHECK_KTRIG(p->trig);
 
+    /* a pass that inserts strings copies them */
+    if (p->source_handle->itype == CSN_STRING) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->source_handle);
+        if (res_rt != OK) return res_rt;
+    }
+
     int32_t res = OK;
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->data_handle }, 2);
@@ -1923,11 +2002,17 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     res = ensure_mutation_capacity(csound, &p->h, source_arr, p->scratch->size, source_arr->rt_locked);
     if (res != OK) goto done;
 
-    if (insert_block_assign_value(p->scratch, source_arr, data_arr, source_ndim, axis, index) != OK) {
+    if (insert_block_assign_value(csound, p->scratch, source_arr, data_arr, source_ndim, axis, index) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid insert iterator layout");
         goto done;
     }
-    travase_csnarray(source_arr, p->scratch);
+
+    /* the scratch is rebuilt every pass: its strings change owner */
+    if (source_arr->itype == CSN_STRING) {
+        move_csnstrings(csound, source_arr, p->scratch);
+    } else {
+        travase_csnarray(source_arr, p->scratch);
+    }
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -1966,7 +2051,7 @@ static int32_t check_remove_block_body(CSOUND *csound, CSN_TAKE *p, OPDS *perf_h
     return OK;
 }
 
-static int32_t remove_block_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *destination, uint32_t axis, uint32_t index) {
+static int32_t remove_block_assign_value(CSOUND *csound, CSN_ARRAY *source_arr, CSN_ARRAY *destination, uint32_t axis, uint32_t index) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, destination->ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -1976,13 +2061,23 @@ static int32_t remove_block_assign_value(CSN_ARRAY *source_arr, CSN_ARRAY *desti
             uint32_t coord = it.coords[d] + (d == axis && it.coords[d] >= index ? 1U : 0U);
             source_off += (size_t) coord * source_arr->strides[d];
         }
-        if (source_arr->itype == CSN_REAL) {
-            destination->data[linear] = source_arr->data[source_off];
-        } else {
-            destination->data[linear * 2] = source_arr->data[source_off * 2];
-            destination->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
+        switch (source_arr->itype) {
+            case CSN_REAL:
+            case CSN_COMPLEX:
+                if (source_arr->itype == CSN_REAL) {
+                    destination->data[linear] = source_arr->data[source_off];
+                } else {
+                    destination->data[linear * 2] = source_arr->data[source_off * 2];
+                    destination->data[linear * 2 + 1] = source_arr->data[source_off * 2 + 1];
+                }
+                break;
+            case CSN_STRING:
+                if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
+                destination->sdata[linear] = csound->Strdup(csound, source_arr->sdata[source_off]);
+                break;
         }
     }
+
     return OK;
 }
 
@@ -2009,7 +2104,7 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (remove_block_assign_value(source_arr, p->handle, axis, index) != OK) {
+    if (remove_block_assign_value(csound, source_arr, p->handle, axis, index) != OK) {
         res = csn_init_error(csound, "[csnarray] Invalid remove iterator layout");
         goto done;
     }
@@ -2036,7 +2131,7 @@ int32_t csnarray_remove_block_k_init(CSOUND *csound, CSN_TAKE *p) {
     pres.locked |= out.locked;
 
     p->handle->size = source_arr->size;
-    memcpy(p->handle->data, source_arr->data, sizeof(double) * source_arr->size * source_arr->itype);
+    CSN_MEMCPY(csound, p->handle, source_arr);
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
 
 done:
@@ -2050,6 +2145,12 @@ int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p) {
 
     CHECK_KTRIG(p->trig);
 
+    /* a pass that removes from strings copies the rest */
+    if (p->source_handle->itype == CSN_STRING) {
+        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
+        if (res_rt != OK) return res_rt;
+    }
+
     int32_t res = OK;
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
@@ -2061,8 +2162,7 @@ int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p) {
     res = check_remove_block_body(csound, p, &p->h, source_arr, temp_shape, &axis, &index);
     if (res != OK) goto done;
 
-    if (p->k_data.prev_axis_u == axis && p->k_data.prev_index == index
-        && CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0)) goto done;
+    if (p->k_data.prev_axis_u == axis && p->k_data.prev_index == index && CAN_REUSE_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0)) goto done;
 
     uint32_t source_ndim = source_arr->ndim;
     const CSN_ARRAY *ops[1] = { source_arr };
@@ -2071,10 +2171,11 @@ int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (remove_block_assign_value(source_arr, p->handle, axis, index) != OK) {
+    if (remove_block_assign_value(csound, source_arr, p->handle, axis, index) != OK) {
         res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid remove iterator layout");
         goto done;
     }
+
     SET_KDATA_END(p->k_data, temp_shape, source_ndim, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0);
     p->k_data.prev_axis_u = axis;

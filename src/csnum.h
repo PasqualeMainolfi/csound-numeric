@@ -11,6 +11,7 @@
 #define IS_REQUEST_CHANGED(k_data, ndim, itype, shape) ((k_data)->prev_ndim != (ndim) || (k_data)->prev_itype != (itype) || memcmp((k_data)->prev_shape, (shape), sizeof(uint32_t) * (ndim)) != 0)
 #define DEFAULT_TEMPORARY_BUFFER_SIZE 512
 #define CS_TYPE_CSNARR(csound) ((csound)->GetType((csound), "CsnArr"))
+#define CS_TYPE_CSNSTR(csound) ((csound)->GetType((csound), "CsnStr"))
 #define CS_GET_ARG_TYPE(arg) ((arg) == NULL ? NULL : GetTypeForArg((arg)))
 #define CSN_MAX_BROADCAST_INPUTS 4
 

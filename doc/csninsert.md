@@ -23,6 +23,11 @@ Two shapes of insertion share the name.
 
 A complex array takes a `:Complex;` value in the one-element form.
 
+A `:CsnStr;` takes an `S` value in the one-element form and a `:CsnStr;` block
+in the block form, and stores copies of the strings. Copying strings
+allocates, so the k forms are refused on a [real-time path](csnrtlock.md) on
+every pass that inserts. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -33,13 +38,18 @@ csninsert(source:CsnArr, value:Complex, index:k, trig:k)
 csninsert(source:CsnArr, data:CsnArr, axis:i, index:i)
 csninsert(source:CsnArr, data:CsnArr, axis:k, index:k)
 csninsert(source:CsnArr, data:CsnArr, axis:k, index:k, trig:k)
+csninsert(source:CsnStr, value:S, index:i)
+csninsert(source:CsnStr, value:S, index:k, trig:k)
+csninsert(source:CsnStr, data:CsnStr, axis:i, index:i)
+csninsert(source:CsnStr, data:CsnStr, axis:k, index:k)
+csninsert(source:CsnStr, data:CsnStr, axis:k, index:k, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array that is written into.
-* `value:i / value:k / value:Complex`: the single element to insert.
-* `data:CsnArr`: the block to insert; must match `source` on every axis other than `axis`.
+* `source:CsnArr / source:CsnStr`: the array that is written into.
+* `value:i / value:k / value:Complex / value:S`: the single element to insert; a string for a string array.
+* `data:CsnArr / data:CsnStr`: the block to insert, of the same type as `source`; must match it on every axis other than `axis`.
 * `axis:i / axis:k`: the axis the block is inserted along; negative values count from the end.
 * `index:i / index:k`: where to insert. Valid from `0` to the extent, end included.
 * `trig:k` (optional, default `1`): k-rate trigger. Nothing is inserted on a zero trigger.

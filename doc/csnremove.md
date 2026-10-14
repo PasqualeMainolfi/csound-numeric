@@ -18,6 +18,12 @@ behave differently on purpose.
 
 A complex array's one-element form returns a `:Complex;`.
 
+On a `:CsnStr;` the one-element form returns the string as a copy in an `S`
+variable. The array only closes the gap without allocating, so its k form is
+allowed on a [real-time path](csnrtlock.md). The block form returns a
+`:CsnStr;` holding its own copies of the strings; copying allocates, so its k
+form is refused there. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -28,19 +34,24 @@ value:Complex = csnremove(source:CsnArr, index:k, trig:k)
 out:CsnArr = csnremove(source:CsnArr, axis:i, index:i)
 out:CsnArr = csnremove(source:CsnArr, axis:k, index:k)
 out:CsnArr = csnremove(source:CsnArr, axis:k, index:k, trig:k)
+value:S = csnremove(source:CsnStr, index:i)
+value:S = csnremove(source:CsnStr, index:k, trig:k)
+out:CsnStr = csnremove(source:CsnStr, axis:i, index:i)
+out:CsnStr = csnremove(source:CsnStr, axis:k, index:k)
+out:CsnStr = csnremove(source:CsnStr, axis:k, index:k, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to remove from. The one-element form modifies it; the block form does not.
+* `source:CsnArr / source:CsnStr`: the array to remove from. The one-element form modifies it; the block form does not.
 * `index:i / index:k`: the flat index of the element, or the index along `axis` of the block.
 * `axis:i / axis:k`: the axis the block is dropped from; negative values count from the end.
 * `trig:k` (optional, default `1`): k-rate trigger. Nothing is removed on a zero trigger.
 
 ## Output
 
-* `value:i / value:k / value:Complex`: the removed element, in the one-element form.
-* `out:CsnArr`: a new array with the block missing, in the block form.
+* `value:i / value:k / value:Complex / value:S`: the removed element, in the one-element form; a copy of the string for a string array.
+* `out:CsnArr / out:CsnStr`: a new array with the block missing, in the block form.
 
 ## Execution Time
 

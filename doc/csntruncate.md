@@ -21,6 +21,12 @@ Two forms share the name. The one with an output writes a new array and
 leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
+A `:CsnStr;` is truncated the same way. The output form holds its own copies
+of the strings, so its k form is refused on a [real-time path](csnrtlock.md).
+In place, the kept strings are only moved and the dropped ones stay with the
+array past its new end, so nothing is allocated or released and the k form is
+allowed there. See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -32,18 +38,26 @@ csntruncate(source:CsnArr, length:i)
 csntruncate(source:CsnArr, length:i, axis:i)
 csntruncate(source:CsnArr, length:k, trig:k)
 csntruncate(source:CsnArr, length:k, trig:k, axis:k)
+out:CsnStr = csntruncate(source:CsnStr, length:i)
+out:CsnStr = csntruncate(source:CsnStr, length:i, axis:i)
+out:CsnStr = csntruncate(source:CsnStr, length:k, trig:k)
+out:CsnStr = csntruncate(source:CsnStr, length:k, trig:k, axis:k)
+csntruncate(source:CsnStr, length:i)
+csntruncate(source:CsnStr, length:i, axis:i)
+csntruncate(source:CsnStr, length:k, trig:k)
+csntruncate(source:CsnStr, length:k, trig:k, axis:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to shorten.
+* `source:CsnArr / source:CsnStr`: the array to shorten.
 * `length:i / length:k`: the number of elements to keep along the axis.
 * `axis:i / axis:k` (optional): the axis to cut. Omit it to truncate every axis; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the shortened array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the shortened array. Omit it for the in-place form.
 
 ## Execution Time
 

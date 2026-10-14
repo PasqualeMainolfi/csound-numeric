@@ -39,8 +39,11 @@ The cast reaches the operators only. A named opcode chooses its rate by its
 trigger: without one it is the i-rate form and runs once at init whatever the
 rate of its operands; pass a trigger for the k-rate form.
 
-The in-place form also takes a `:CsnStr;`; the form that returns a copy is
-numeric only for now. See [string arrays](string-arrays.md).
+Both forms also take a `:CsnStr;`; the copy holds its own strings. A pass
+that retakes it copies them, which allocates, so on a [real-time
+path](csnrtlock.md) it runs while the source holds still and is refused with
+a performance error once the source changes. See [string
+arrays](string-arrays.md).
 
 ## Syntax
 
@@ -48,6 +51,7 @@ numeric only for now. See [string arrays](string-arrays.md).
 csnk source:CsnArr
 out:CsnArr = csnk(source:CsnArr)
 csnk source:CsnStr
+out:CsnStr = csnk(source:CsnStr)
 ```
 
 ## Arguments
@@ -56,7 +60,7 @@ csnk source:CsnStr
 
 ## Output
 
-* `out:CsnArr`: a k-rate copy of `source`, retaken when `source` changes.
+* `out:CsnArr / out:CsnStr`: a k-rate copy of `source`, retaken when `source` changes.
 
 ## Execution Time
 

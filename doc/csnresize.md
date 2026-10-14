@@ -20,6 +20,12 @@ and returns nothing. In place, a new shape that fits the source's capacity
 reuses its storage; a larger one reallocates, which a
 [real-time path](csnrtlock.md) refuses during performance.
 
+A `:CsnStr;` keeps its strings the same way, and the elements the new shape
+adds are empty strings, `""`. The output form copies the strings it keeps,
+and in place the added elements release whatever strings an earlier shrink
+left past the end, so the k forms of both are refused on a real-time path.
+See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -29,17 +35,23 @@ out:CsnArr = csnresize(source:CsnArr, shape:k[], trig:k)
 csnresize(source:CsnArr, shape:i[])
 csnresize(source:CsnArr, shape:k[])
 csnresize(source:CsnArr, shape:k[], trig:k)
+out:CsnStr = csnresize(source:CsnStr, shape:i[])
+out:CsnStr = csnresize(source:CsnStr, shape:k[])
+out:CsnStr = csnresize(source:CsnStr, shape:k[], trig:k)
+csnresize(source:CsnStr, shape:i[])
+csnresize(source:CsnStr, shape:k[])
+csnresize(source:CsnStr, shape:k[], trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to resize.
+* `source:CsnArr / source:CsnStr`: the array to resize.
 * `shape:i[] / shape:k[]`: the new extents, one per dimension. Any element count is accepted.
 * `trig:k` (optional): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the resized array. Omit it for the in-place form.
+* `out:CsnArr / out:CsnStr`: the resized array. Omit it for the in-place form.
 
 ## Execution Time
 

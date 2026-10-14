@@ -20,6 +20,10 @@ Unlike [csnwhere](csnwhere.md), which keeps the shape and swaps values, this
 opcode changes the length of the axis it works on. The mask must be real; the
 source may be real or complex.
 
+A `:CsnStr;` source gives a `:CsnStr;` holding its own copies of the kept
+strings. Copying strings allocates, so the k form is refused on a [real-time
+path](csnrtlock.md). See [string arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
@@ -27,18 +31,22 @@ out:CsnArr = csncompress(source:CsnArr, mask:CsnArr)
 out:CsnArr = csncompress(source:CsnArr, mask:CsnArr, axis:i)
 out:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k)
 out:CsnArr = csncompress(source:CsnArr, mask:CsnArr, trig:k, axis:k)
+out:CsnStr = csncompress(source:CsnStr, mask:CsnArr)
+out:CsnStr = csncompress(source:CsnStr, mask:CsnArr, axis:i)
+out:CsnStr = csncompress(source:CsnStr, mask:CsnArr, trig:k)
+out:CsnStr = csncompress(source:CsnStr, mask:CsnArr, trig:k, axis:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the array to select from.
+* `source:CsnArr / source:CsnStr`: the array to select from.
 * `mask:CsnArr`: 1-D real mask, no longer than the selected axis.
 * `axis:i / axis:k` (optional): axis to select along. Omit it to read the source flat; `-1` selects the last axis.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the kept entries.
+* `out:CsnArr / out:CsnStr`: the kept entries.
 
 ## Execution Time
 

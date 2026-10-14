@@ -13,23 +13,30 @@ a ring of samples and only the head matters.
 
 `n` must not exceed the array's element count.
 
+A `:CsnStr;` gives a `:CsnStr;` holding its own copies of the strings, so the
+k form is refused on a [real-time path](csnrtlock.md). See [string
+arrays](string-arrays.md).
+
 ## Syntax
 
 ```csound
 out:CsnArr = csnhead(source:CsnArr, n:i)
 out:CsnArr = csnhead(source:CsnArr, n:k)
 out:CsnArr = csnhead(source:CsnArr, n:k, trig:k)
+out:CsnStr = csnhead(source:CsnStr, n:i)
+out:CsnStr = csnhead(source:CsnStr, n:k)
+out:CsnStr = csnhead(source:CsnStr, n:k, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnArr`: the 1-D array to read.
+* `source:CsnArr / source:CsnStr`: the 1-D array to read.
 * `n:i / n:k`: how many elements to keep, counted from the start.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: a new array holding the first `n` elements.
+* `out:CsnArr / out:CsnStr`: a new array holding the first `n` elements.
 
 ## Execution Time
 

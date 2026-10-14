@@ -18,12 +18,17 @@ such as `csngt` or `csneq`, or of a classifier such as
 opcode reads.
 
 The false branch may be a scalar instead of an array. Mask and replacements must
-share shape and dimension count; there is no broadcasting here. Real only — for
-a complex selection, split the parts with [csnreal](csnreal.md) and
-[csnimag](csnimag.md) first.
+share shape and dimension count; there is no broadcasting here. Real or
+string replacements only — for a complex selection, split the parts with
+[csnreal](csnreal.md) and [csnimag](csnimag.md) first.
 
 For the in-place counterpart, which overwrites the mask array itself, see
 [csnputmask](csnputmask.md).
+
+The replacements may be strings: with a real mask, a `:CsnStr;` true branch
+and a `:CsnStr;` or `S` false branch, the result is a `:CsnStr;` holding its
+own copies of the strings. Copying strings allocates, so the k form is refused
+on a [real-time path](csnrtlock.md). See [string arrays](string-arrays.md).
 
 ## Syntax
 
@@ -32,18 +37,22 @@ out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:CsnArr)
 out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:i)
 out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:CsnArr, trig:k)
 out:CsnArr = csnwhere(mask:CsnArr, on_true:CsnArr, on_false:k, trig:k)
+out:CsnStr = csnwhere(mask:CsnArr, on_true:CsnStr, on_false:CsnStr)
+out:CsnStr = csnwhere(mask:CsnArr, on_true:CsnStr, on_false:S)
+out:CsnStr = csnwhere(mask:CsnArr, on_true:CsnStr, on_false:CsnStr, trig:k)
+out:CsnStr = csnwhere(mask:CsnArr, on_true:CsnStr, on_false:S, trig:k)
 ```
 
 ## Arguments
 
 * `mask:CsnArr`: the selector. Non-zero picks `on_true`, zero picks `on_false`.
-* `on_true:CsnArr`: values taken where the mask is non-zero.
-* `on_false:CsnArr / on_false:i / on_false:k`: values taken where the mask is zero.
+* `on_true:CsnArr / on_true:CsnStr`: values taken where the mask is non-zero.
+* `on_false:CsnArr / on_false:i / on_false:k / on_false:CsnStr / on_false:S`: values taken where the mask is zero; strings when `on_true` is a `:CsnStr;`.
 * `trig:k` (optional, default `1`): k-rate trigger. A zero trigger republishes the previous result.
 
 ## Output
 
-* `out:CsnArr`: the selected values.
+* `out:CsnArr / out:CsnStr`: the selected values.
 
 ## Execution Time
 

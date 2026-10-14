@@ -192,6 +192,13 @@ int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h) {
         && is_same_array_version(&in->version, &p->prev_in_version)
         && is_same_array_version(&out->version, &p->prev_out_version)) goto done;
 
+    /* a pass that copies strings allocates them; one with nothing to copy
+       has already returned */
+    if (perf_h != NULL && in->itype == CSN_STRING && out->rt_locked) {
+        res = csn_locked_perf_error(csound, perf_h, "[csnarray] '%s' allocates its strings at perf time and the array is on a real-time path; build it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", get_out_name(&p->h));
+        goto done;
+    }
+
     const CSN_ARRAY *ops[1] = { in };
     CSNARR_RES r = prepare_output(csound, &p->h, perf_h, reg, out, in->ndim, in->shape, in->itype, ops, 1, CSN_ALIAS_REFUSE);
     res = r.err;
@@ -199,7 +206,7 @@ int32_t op_assign_run(CSOUND *csound, CSN_OP_ASSIGN *p, OPDS *perf_h) {
     pres.locked |= r.locked;
 
     out->size = in->size;
-    memcpy(out->data, in->data, sizeof(double) * in->size * (size_t) in->itype);
+    CSN_MEMCPY(csound, out, in);
     update_array_data_version(&out->version);
     out->rate = in->rate;
     csn_copy_array_kind(out, in);

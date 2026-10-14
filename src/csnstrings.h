@@ -113,6 +113,85 @@ typedef struct {
     K_DATA k_data;
 } CSN_PADSTRING_IN;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *value;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *index;
+    // private
+    CSN_REGISTRY *registry;
+} CSN_TAKESTRING_FLAT;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *in_value; // push at the top
+    cs_float *index;    // only for put (at index)
+} CSN_PUSHSTRING;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *in_value; // push at the top
+    cs_float *arg_a;    // trig in push_k
+                     // index in insert_k
+    cs_float *arg_b;    // trig in insert_k
+    // private
+    CSN_REGISTRY *registry;
+} CSN_PUSHSTRING_K;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *out_value;
+    // inputs
+    CSN_ARRAY *source_handle; // remove the top element
+    cs_float *index;         // only for remove (at the index)
+} CSN_POPSTRING;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *out_value;
+    // inputs
+    CSN_ARRAY *source_handle; // remove the top element
+    cs_float *arg_a;    // trig in pop_k
+                     // index in remove_k
+    cs_float *arg_b;    // trig in remove_k
+    // private
+    CSN_REGISTRY *registry;
+} CSN_POPSTRING_K;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;       // mask
+    CSN_ARRAY *source_handle_true;
+    STRINGDAT *source_string_false;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+    CSN_SCRATCH scratch;
+    CSN_THREE_VERSION_K_STATE versions;
+    bool is_published;
+} CSN_WHERESTRING_HS;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *dest_handle;
+    CSN_ARRAY *mask_handle;
+    void *values;           // CSN_ARRAY * in putmask_hh, STRINGDAT * in putmask_hs
+    cs_float *trig;
+    // private
+    CSN_REGISTRY *registry;
+} CSN_PUTMASKSTRING;
 
 int32_t create_empty_csnstrings(CSOUND *csound, CSN_STR_EMPTY *p);
 int32_t create_empty_csnstrings_k_init(CSOUND *csound, CSN_STR_EMPTY *p);
@@ -162,5 +241,31 @@ int32_t csnstrings_pad_in_k_init(CSOUND *csound, CSN_PADSTRING_IN *p);
 int32_t csnstrings_pad_in_k(CSOUND *csound, CSN_PADSTRING_IN *p);
 int32_t csnstrings_pad_k_deinit(CSOUND *csound, CSN_PADSTRING *p);
 int32_t csnstrings_pad_in_k_deinit(CSOUND *csound, CSN_PADSTRING_IN *p);
+int32_t csnstrings_take_flat(CSOUND *csound, CSN_TAKESTRING_FLAT *p);
+int32_t csnstrings_take_flat_k(CSOUND *csound, CSN_TAKESTRING_FLAT *p);
+
+int32_t csnstrings_push(CSOUND *csound, CSN_PUSHSTRING *p);
+int32_t csnstrings_push_k_init(CSOUND *csound, CSN_PUSHSTRING_K *p);
+int32_t csnstrings_push_k(CSOUND *csound, CSN_PUSHSTRING_K *p);
+int32_t csnstrings_pop(CSOUND *csound, CSN_POPSTRING *p);
+int32_t csnstrings_pop_k_init(CSOUND *csound, CSN_POPSTRING_K *p);
+int32_t csnstrings_pop_k(CSOUND *csound, CSN_POPSTRING_K *p);
+int32_t csnstrings_insert(CSOUND *csound, CSN_PUSHSTRING *p);
+int32_t csnstrings_insert_k(CSOUND *csound, CSN_PUSHSTRING_K *p);
+int32_t csnstrings_remove(CSOUND *csound, CSN_POPSTRING *p);
+int32_t csnstrings_remove_k(CSOUND *csound, CSN_POPSTRING_K *p);
+
+int32_t csnstrings_where_hh(CSOUND *csound, CSN_WHERE_HH *p);
+int32_t csnstrings_where_hs(CSOUND *csound, CSN_WHERESTRING_HS *p);
+int32_t csnstrings_where_hh_k_init(CSOUND *csound, CSN_WHERE_HH *p);
+int32_t csnstrings_where_hs_k_init(CSOUND *csound, CSN_WHERESTRING_HS *p);
+int32_t csnstrings_where_hh_k(CSOUND *csound, CSN_WHERE_HH *p);
+int32_t csnstrings_where_hs_k(CSOUND *csound, CSN_WHERESTRING_HS *p);
+int32_t csnstrings_where_deinit(CSOUND *csound, void *p);
+int32_t csnstrings_putmask_hh(CSOUND *csound, CSN_PUTMASKSTRING *p);
+int32_t csnstrings_putmask_hs(CSOUND *csound, CSN_PUTMASKSTRING *p);
+int32_t csnstrings_putmask_k_init(CSOUND *csound, CSN_PUTMASKSTRING *p);
+int32_t csnstrings_putmask_hh_k(CSOUND *csound, CSN_PUTMASKSTRING *p);
+int32_t csnstrings_putmask_hs_k(CSOUND *csound, CSN_PUTMASKSTRING *p);
 
 #endif
