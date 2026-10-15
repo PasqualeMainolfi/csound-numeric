@@ -1987,21 +1987,66 @@ int32_t csnstrings_mul_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
     return strmul_hs_perf(csound, &p->h, p->handle, p->source_handle, p->scalar, &p->k_data);
 }
 
-/* ---------- csnstrupper / csnstrlower / csnstrcapitalize / csnstrswapcase ---------- */
+/* ---------- string maps: case conversions and strip ---------- */
 
-typedef enum { CSN_CASE_UPPER, CSN_CASE_LOWER, CSN_CASE_CAPITALIZE, CSN_CASE_SWAP } CSN_CASE;
+/* A map rewrites one string in its own buffer and never makes it longer, so
+   the copy it starts from is the only write that can need room, and an
+   in-place pass needs no probe first. An idempotent map gives the same
+   strings when applied again, so a k pass on an unchanged source, even one
+   that is its own output, can be skipped. chars is the map's S argument, or
+   NULL for a map that takes none. */
+typedef void (*CSN_STR_MAP) (char *s, int32_t mode, const char *chars);
 
+typedef struct {
+    CSN_STR_MAP fn;
+    int32_t mode;
+    bool idempotent;
+    const STRINGDAT *chars;   /* the S argument, NULL when the opcode has none */
+} CSN_STR_OP;
+
+/* What a map reads from its opcode struct: out is NULL in place, trig is read
+   by the k passes only. */
+typedef struct {
+    OPDS *h;
+    CSN_ARRAY *out;
+    CSN_ARRAY *src;
+    cs_float *trig;
+    K_DATA *k_data;
+} CSN_STR_MAP_ARGS;
+
+typedef enum {
+    CSN_CASE_UPPER,
+    CSN_CASE_LOWER,
+    CSN_CASE_CAPITALIZE,
+    CSN_CASE_SWAP,
+    CSN_CASE_TITLE
+} CSN_CASE;
+
+typedef enum {
+    CSN_STRIP,
+    CSN_LSTRIP,
+    CSN_RSTRIP
+} CSN_STRIP_MODE;
+
+static bool ascii_is_letter(unsigned char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
 static char ascii_upper(unsigned char c) { return (char) (c >= 'a' && c <= 'z' ? c ^ 0x20 : c); }
 static char ascii_lower(unsigned char c) { return (char) (c >= 'A' && c <= 'Z' ? c ^ 0x20 : c); }
-static char ascii_swap(unsigned char c) { return (char) ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ? c ^ 0x20 : c); }
+static char ascii_swap(unsigned char c) { return (char) (ascii_is_letter(c) ? c ^ 0x20 : c); }
+
+/* Python's bytes whitespace: space, \t, \n, \v, \f, \r. */
+static bool ascii_is_space(unsigned char c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
 
 /* ASCII only, whatever the locale: bytes from 0x80 up are left alone, so a
    UTF-8 string keeps its multibyte sequences. Capitalize is
    np.strings.capitalize on bytes: the first byte up, all the others down, so
    a string opening with a digit, a space or a non-ASCII byte comes out all
-   lower case. Swap turns each letter into the other case. */
-static void map_case(char *s, CSN_CASE mode) {
-    switch (mode) {
+   lower case. Swap turns each letter into the other case. Title is
+   np.strings.title on bytes: a letter goes up after anything that is not a
+   letter and down after a letter. Digits and bytes from 0x80 up are not
+   letters, so "1st" gives "1St" and "Cafés" gives "CaféS". */
+static void map_case(char *s, int32_t mode, const char *chars) {
+    (void) chars;
+    switch ((CSN_CASE) mode) {
         case CSN_CASE_CAPITALIZE:
             if (*s != '\0') {
                 *s = ascii_upper((unsigned char) *s);
@@ -2018,235 +2063,511 @@ static void map_case(char *s, CSN_CASE mode) {
         case CSN_CASE_SWAP:
             for (; *s != '\0'; s++) *s = ascii_swap((unsigned char) *s);
             break;
+        case CSN_CASE_TITLE: {
+            bool after_letter = false;
+            for (; *s != '\0'; s++) {
+                unsigned char c = (unsigned char) *s;
+                bool is_letter = ascii_is_letter(c);
+                if (is_letter) *s = after_letter ? ascii_lower(c) : ascii_upper(c);
+                after_letter = is_letter;
+            }
+            break;
+        }
     }
 }
 
-/* out may be src: csn_str_write leaves a slot that is its own value alone.
-   The length never changes, so an in-place pass needs no probe first. */
-static int32_t case_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, CSN_CASE mode) {
+/* A byte strip drops. c comes from inside a string, so it is never the NUL
+   that strchr would find at the end of chars. */
+static bool is_strip_byte(unsigned char c, const char *chars) {
+    return chars == NULL ? ascii_is_space(c) : strchr(chars, c) != NULL;
+}
+
+/* np.strings.strip on bytes. Without chars it drops ASCII whitespace only, so
+   a UTF-8 byte such as the 0xA0 that ends "à" is never taken for a no-break
+   space. chars is a set of bytes, as in Python: any of them goes, in any
+   order, so "xyhixy" with "xy" gives "hi", "" drops nothing, and a multibyte
+   character drops each of its bytes ("é" takes 0xC3 0xA9 off "caffé"). */
+static void strip_mode(char *s, int32_t mode, const char *chars) {
+    char *start = s;
+    char *end = s + strlen(s);
+    if (mode != CSN_RSTRIP) {
+        while (start < end && is_strip_byte((unsigned char) *start, chars)) start++;
+    }
+    if (mode != CSN_LSTRIP) {
+        while (end > start && is_strip_byte((unsigned char) end[-1], chars)) end--;
+    }
+    size_t len = (size_t) (end - start);
+    if (start != s) memmove(s, start, len);
+    s[len] = '\0';
+}
+
+/* Swap undoes itself: X = csnstrswapcase(X, k) swaps again on every pass, as
+   X = csnmul(X, 0.99) scales again. */
+static CSN_STR_OP case_op(CSN_CASE mode) {
+    return (CSN_STR_OP) { map_case, (int32_t) mode, mode != CSN_CASE_SWAP, NULL };
+}
+
+/* chars is NULL for the forms without the S argument. */
+static CSN_STR_OP strip_op(CSN_STRIP_MODE mode, const STRINGDAT *chars) {
+    return (CSN_STR_OP) { strip_mode, (int32_t) mode, true, chars };
+}
+
+static CSN_STR_MAP_ARGS unary_args(CSN_UNARYOP *p) {
+    return (CSN_STR_MAP_ARGS) { &p->h, p->handle, p->source_handle, p->trig, &p->k_data };
+}
+
+static CSN_STR_MAP_ARGS unary_in_args(CSN_UNARYOP_IN *p) {
+    return (CSN_STR_MAP_ARGS) { &p->h, NULL, p->source_handle, p->trig, &p->k_data };
+}
+
+static CSN_STR_MAP_ARGS unary_chars_args(CSN_UNARYOP_STRING *p) {
+    return (CSN_STR_MAP_ARGS) { &p->h, p->handle, p->source_handle, p->trig, &p->k_data };
+}
+
+static CSN_STR_MAP_ARGS unary_chars_in_args(CSN_UNARYOP_STRING_IN *p) {
+    return (CSN_STR_MAP_ARGS) { &p->h, NULL, p->source_handle, p->trig, &p->k_data };
+}
+
+static int32_t check_op_chars(CSOUND *csound, OPDS *perf_h, CSN_STR_OP op) {
+    if (op.chars == NULL || IS_VALID_STRINGDAT(op.chars)) return OK;
+    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+}
+
+static const char *op_chars(CSN_STR_OP op) {
+    return op.chars != NULL ? op.chars->data : NULL;
+}
+
+/* An S argument carries no version, so a k pass compares it against the copy
+   k_data keeps (PUBLISH_STRING_ELEMENTWISE). A map without one keeps none. A
+   copy a real-time pass could not keep leaves k_data stale: every pass
+   computes until one fits. */
+static bool is_same_chars(const K_DATA *k_data, const char *chars) {
+    if (k_data->prev_strings_stale) return false;
+    if (chars == NULL) return k_data->prev_string.data == NULL;
+    return k_data->prev_string.data != NULL && strcmp(k_data->prev_string.data, chars) == 0;
+}
+
+/* out may be src: csn_str_write leaves a slot that is its own value alone. */
+static int32_t string_map_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, CSN_STR_OP op) {
+    const char *chars = op_chars(op);
     for (size_t i = 0; i < src->size; i++) {
         if (csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
-        map_case(out->sdata[i].data, mode);
+        op.fn(out->sdata[i].data, op.mode, chars);
     }
 
     return OK;
 }
 
-/* Every mode but swap gives the same strings when applied again, so a pass
-   on an unchanged source, even one that is its own output, can be skipped.
-   Swap undoes itself: X = csnstrswapcase(X, k) swaps again on every pass,
-   as X = csnmul(X, 0.99) scales again. */
-static bool case_is_idempotent(CSN_CASE mode) {
-    return mode != CSN_CASE_SWAP;
-}
-
-/* With perf_redoes (a k init), an output that is its own source under swap
-   is left to the perf pass, or the first cycle would swap it twice. */
-static int32_t csnstrings_case_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_CASE mode, bool perf_redoes) {
+/* With perf_redoes (a k init), an output that is its own source under a map
+   that is not idempotent is left to the perf pass, or the first cycle would
+   apply it twice. A k init also reserves the copy of chars the perf pass
+   compares against, so a pass on a real-time path keeps it without
+   allocating; it releases the old one first, before a reinit takes the struct
+   again. */
+static int32_t string_map_helper(CSOUND *csound, CSN_STR_MAP_ARGS a, CSN_STR_OP op, bool perf_redoes) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    if (perf_redoes) csn_kdata_release_strings(csound, a.k_data);
 
-    int32_t res = OK;
-    stamp_globals(csound, &p->h);
+    int32_t res = check_op_chars(csound, NULL, op);
+    if (res != OK) return res;
+
+    stamp_globals(csound, a.h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
 
-    const CSN_ARRAY *ops[1] = { p->source_handle };
-    CSNARR_RES r = prepare_output(csound, &p->h, NULL, reg, p->handle, p->source_handle->ndim, p->source_handle->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, NULL, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = r.err;
     if (res != OK) goto done;
     pres.locked |= r.locked;
 
-    p->k_data.registry = reg;
-    if (perf_redoes && r.aliased && !case_is_idempotent(mode)) goto done;
+    a.k_data->registry = reg;
+    if (perf_redoes) csn_kdata_keep_strings(csound, a.k_data, op_chars(op), NULL, true);
+    if (perf_redoes && r.aliased && !op.idempotent) goto done;
 
-    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
-    res = case_assign_value(&w, p->handle, p->source_handle, mode);
-    if (r.aliased) update_array_data_version(&p->source_handle->version);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.out);
+    res = string_map_assign_value(&w, a.out, a.src, op);
+    if (r.aliased) update_array_data_version(&a.src->version);
     if (res != OK) goto done;
 
-    PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, a.out);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-static int32_t csnstrings_case_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_CASE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
+static int32_t string_map_k_helper(CSOUND *csound, CSN_STR_MAP_ARGS a, CSN_STR_OP op) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
 
-    CHECK_KTRIG(p->trig);
+    CHECK_KTRIG(a.trig);
 
-    int32_t res = OK;
+    int32_t res = check_op_chars(csound, a.h, op);
+    if (res != OK) return res;
+    const char *chars = op_chars(op);
+
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
 
-    bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
-    bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
-    bool is_aliased = p->handle == p->source_handle;
-    if (is_same_source && is_same_result && (case_is_idempotent(mode) || !is_aliased)) goto done;
+    bool is_same_source = is_same_array_version(&a.k_data->prev_source_version, &a.src->version);
+    bool is_same_result = is_same_array_version(&a.k_data->prev_output_version, &a.out->version);
+    bool is_aliased = a.out == a.src;
+    if (is_same_source && is_same_result && is_same_chars(a.k_data, chars) && (op.idempotent || !is_aliased)) goto done;
 
-    const CSN_ARRAY *ops[1] = { p->source_handle };
-    CSNARR_RES r = prepare_output(csound, &p->h, &p->h, reg, p->handle, p->source_handle->ndim, p->source_handle->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, a.h, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = r.err;
     if (res != OK) goto done;
     pres.locked |= r.locked;
 
-    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
-    res = case_assign_value(&w, p->handle, p->source_handle, mode);
-    if (r.aliased) update_array_data_version(&p->source_handle->version);
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.out);
+    res = string_map_assign_value(&w, a.out, a.src, op);
+    if (r.aliased) update_array_data_version(&a.src->version);
     if (res != OK) goto done;
 
-    PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+    PUBLISH_STRING_ELEMENTWISE(csound, a.k_data, a.src, NULL, a.out, chars, NULL, !a.out->rt_locked);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-static int32_t csnstrings_case_in_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_CASE mode, bool is_k_init) {
+static int32_t string_map_in_helper(CSOUND *csound, CSN_STR_MAP_ARGS a, CSN_STR_OP op, bool is_k_init) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
+    if (is_k_init) csn_kdata_release_strings(csound, a.k_data);
+
+    int32_t res = check_op_chars(csound, NULL, op);
+    if (res != OK) return res;
+
     /* the target changes at perf: whatever reads it follows it there */
-    if (is_k_init) csn_mark_krate(p->source_handle);
+    if (is_k_init) {
+        csn_mark_krate(a.src);
+        csn_kdata_keep_strings(csound, a.k_data, op_chars(op), NULL, true);
+    }
 
-    int32_t res = OK;
-    stamp_globals(csound, &p->h);
+    stamp_globals(csound, a.h);
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
 
-    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->source_handle);
-    res = case_assign_value(&w, p->source_handle, p->source_handle, mode);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.src);
+    res = string_map_assign_value(&w, a.src, a.src, op);
     if (res != OK) goto done;
-    update_array_data_version(&p->source_handle->version);
+    update_array_data_version(&a.src->version);
 
-    set_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
-    p->k_data.registry = reg;
+    set_array_version(&a.k_data->prev_source_version, &a.src->version);
+    a.k_data->registry = reg;
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
 
-static int32_t csnstrings_case_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_CASE mode) {
-    CSN_REGISTRY *reg = p->k_data.registry;
-    CHECK_REGISTRY(csound, &p->h, reg);
+/* Runs once for each write by someone else, or each new chars, so a map that
+   is not idempotent is applied once per change, as csnreverse.in does. */
+static int32_t string_map_in_k_helper(CSOUND *csound, CSN_STR_MAP_ARGS a, CSN_STR_OP op) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
 
-    CHECK_KTRIG(p->trig);
+    CHECK_KTRIG(a.trig);
 
-    int32_t res = OK;
+    int32_t res = check_op_chars(csound, a.h, op);
+    if (res != OK) return res;
+    const char *chars = op_chars(op);
+
     CSNARR_RES pres = {0};
-    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
 
-    bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
-    if (is_same_source) goto done;
+    bool is_same_source = is_same_array_version(&a.k_data->prev_source_version, &a.src->version);
+    if (is_same_source && is_same_chars(a.k_data, chars)) goto done;
 
-    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->source_handle);
-    res = case_assign_value(&w, p->source_handle, p->source_handle, mode);
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.src);
+    res = string_map_assign_value(&w, a.src, a.src, op);
     if (res != OK) goto done;
-    update_array_data_version(&p->source_handle->version);
+    update_array_data_version(&a.src->version);
 
-    set_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
+    PUBLISH_STRING_ELEMENTWISE(csound, a.k_data, a.src, NULL, NULL, chars, NULL, !a.src->rt_locked);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
-
 
 int32_t csnstrings_lower(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_LOWER, false);
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_LOWER), false);
 }
 
 int32_t csnstrings_lower_k_init(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_LOWER, true);
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_LOWER), true);
 }
 
 int32_t csnstrings_lower_k(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_k_helper(csound, p, CSN_CASE_LOWER);
-}
-
-int32_t csnstrings_upper(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_UPPER, false);
-}
-
-int32_t csnstrings_upper_k_init(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_UPPER, true);
-}
-
-int32_t csnstrings_upper_k(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_k_helper(csound, p, CSN_CASE_UPPER);
+    return string_map_k_helper(csound, unary_args(p), case_op(CSN_CASE_LOWER));
 }
 
 int32_t csnstrings_lower_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_LOWER, false);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_LOWER), false);
 }
 
 int32_t csnstrings_lower_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_LOWER, true);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_LOWER), true);
 }
 
 int32_t csnstrings_lower_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_LOWER);
+    return string_map_in_k_helper(csound, unary_in_args(p), case_op(CSN_CASE_LOWER));
+}
+
+int32_t csnstrings_upper(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_UPPER), false);
+}
+
+int32_t csnstrings_upper_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_UPPER), true);
+}
+
+int32_t csnstrings_upper_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_k_helper(csound, unary_args(p), case_op(CSN_CASE_UPPER));
 }
 
 int32_t csnstrings_upper_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_UPPER, false);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_UPPER), false);
 }
 
 int32_t csnstrings_upper_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_UPPER, true);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_UPPER), true);
 }
 
 int32_t csnstrings_upper_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_UPPER);
+    return string_map_in_k_helper(csound, unary_in_args(p), case_op(CSN_CASE_UPPER));
 }
 
 int32_t csnstrings_capitalize(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_CAPITALIZE, false);
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_CAPITALIZE), false);
 }
 
 int32_t csnstrings_capitalize_k_init(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_CAPITALIZE, true);
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_CAPITALIZE), true);
 }
 
 int32_t csnstrings_capitalize_k(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_k_helper(csound, p, CSN_CASE_CAPITALIZE);
+    return string_map_k_helper(csound, unary_args(p), case_op(CSN_CASE_CAPITALIZE));
 }
 
 int32_t csnstrings_capitalize_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_CAPITALIZE, false);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_CAPITALIZE), false);
 }
 
 int32_t csnstrings_capitalize_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_CAPITALIZE, true);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_CAPITALIZE), true);
 }
 
 int32_t csnstrings_capitalize_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_CAPITALIZE);
+    return string_map_in_k_helper(csound, unary_in_args(p), case_op(CSN_CASE_CAPITALIZE));
 }
 
 int32_t csnstrings_swapcase(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_SWAP, false);
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_SWAP), false);
 }
 
 int32_t csnstrings_swapcase_k_init(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_helper(csound, p, CSN_CASE_SWAP, true);
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_SWAP), true);
 }
 
 int32_t csnstrings_swapcase_k(CSOUND *csound, CSN_UNARYOP *p) {
-    return csnstrings_case_k_helper(csound, p, CSN_CASE_SWAP);
+    return string_map_k_helper(csound, unary_args(p), case_op(CSN_CASE_SWAP));
 }
 
 int32_t csnstrings_swapcase_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_SWAP, false);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_SWAP), false);
 }
 
 int32_t csnstrings_swapcase_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_helper(csound, p, CSN_CASE_SWAP, true);
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_SWAP), true);
 }
 
 int32_t csnstrings_swapcase_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
-    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_SWAP);
+    return string_map_in_k_helper(csound, unary_in_args(p), case_op(CSN_CASE_SWAP));
+}
+
+int32_t csnstrings_title(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_TITLE), false);
+}
+
+int32_t csnstrings_title_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), case_op(CSN_CASE_TITLE), true);
+}
+
+int32_t csnstrings_title_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_k_helper(csound, unary_args(p), case_op(CSN_CASE_TITLE));
+}
+
+int32_t csnstrings_title_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_TITLE), false);
+}
+
+int32_t csnstrings_title_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), case_op(CSN_CASE_TITLE), true);
+}
+
+int32_t csnstrings_title_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_k_helper(csound, unary_in_args(p), case_op(CSN_CASE_TITLE));
+}
+
+int32_t csnstrings_strip(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), strip_op(CSN_STRIP, NULL), false);
+}
+
+int32_t csnstrings_strip_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), strip_op(CSN_STRIP, NULL), true);
+}
+
+int32_t csnstrings_strip_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_k_helper(csound, unary_args(p), strip_op(CSN_STRIP, NULL));
+}
+
+int32_t csnstrings_strip_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), strip_op(CSN_STRIP, NULL), false);
+}
+
+int32_t csnstrings_strip_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), strip_op(CSN_STRIP, NULL), true);
+}
+
+int32_t csnstrings_strip_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_k_helper(csound, unary_in_args(p), strip_op(CSN_STRIP, NULL));
+}
+
+int32_t csnstrings_lstrip(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), strip_op(CSN_LSTRIP, NULL), false);
+}
+
+int32_t csnstrings_lstrip_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), strip_op(CSN_LSTRIP, NULL), true);
+}
+
+int32_t csnstrings_lstrip_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_k_helper(csound, unary_args(p), strip_op(CSN_LSTRIP, NULL));
+}
+
+int32_t csnstrings_lstrip_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), strip_op(CSN_LSTRIP, NULL), false);
+}
+
+int32_t csnstrings_lstrip_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), strip_op(CSN_LSTRIP, NULL), true);
+}
+
+int32_t csnstrings_lstrip_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_k_helper(csound, unary_in_args(p), strip_op(CSN_LSTRIP, NULL));
+}
+
+int32_t csnstrings_rstrip(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), strip_op(CSN_RSTRIP, NULL), false);
+}
+
+int32_t csnstrings_rstrip_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_helper(csound, unary_args(p), strip_op(CSN_RSTRIP, NULL), true);
+}
+
+int32_t csnstrings_rstrip_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_map_k_helper(csound, unary_args(p), strip_op(CSN_RSTRIP, NULL));
+}
+
+int32_t csnstrings_rstrip_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), strip_op(CSN_RSTRIP, NULL), false);
+}
+
+int32_t csnstrings_rstrip_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_helper(csound, unary_in_args(p), strip_op(CSN_RSTRIP, NULL), true);
+}
+
+int32_t csnstrings_rstrip_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return string_map_in_k_helper(csound, unary_in_args(p), strip_op(CSN_RSTRIP, NULL));
+}
+
+/* ---------- strip with a chars argument ---------- */
+
+int32_t csnstrings_stripchar(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_helper(csound, unary_chars_args(p), strip_op(CSN_STRIP, p->value), false);
+}
+
+int32_t csnstrings_stripchar_k_init(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_helper(csound, unary_chars_args(p), strip_op(CSN_STRIP, p->value), true);
+}
+
+int32_t csnstrings_stripchar_k(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_k_helper(csound, unary_chars_args(p), strip_op(CSN_STRIP, p->value));
+}
+
+int32_t csnstrings_stripchar_in(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_helper(csound, unary_chars_in_args(p), strip_op(CSN_STRIP, p->value), false);
+}
+
+int32_t csnstrings_stripchar_in_k_init(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_helper(csound, unary_chars_in_args(p), strip_op(CSN_STRIP, p->value), true);
+}
+
+int32_t csnstrings_stripchar_in_k(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_k_helper(csound, unary_chars_in_args(p), strip_op(CSN_STRIP, p->value));
+}
+
+int32_t csnstrings_lstripchar(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_helper(csound, unary_chars_args(p), strip_op(CSN_LSTRIP, p->value), false);
+}
+
+int32_t csnstrings_lstripchar_k_init(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_helper(csound, unary_chars_args(p), strip_op(CSN_LSTRIP, p->value), true);
+}
+
+int32_t csnstrings_lstripchar_k(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_k_helper(csound, unary_chars_args(p), strip_op(CSN_LSTRIP, p->value));
+}
+
+int32_t csnstrings_lstripchar_in(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_helper(csound, unary_chars_in_args(p), strip_op(CSN_LSTRIP, p->value), false);
+}
+
+int32_t csnstrings_lstripchar_in_k_init(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_helper(csound, unary_chars_in_args(p), strip_op(CSN_LSTRIP, p->value), true);
+}
+
+int32_t csnstrings_lstripchar_in_k(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_k_helper(csound, unary_chars_in_args(p), strip_op(CSN_LSTRIP, p->value));
+}
+
+int32_t csnstrings_rstripchar(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_helper(csound, unary_chars_args(p), strip_op(CSN_RSTRIP, p->value), false);
+}
+
+int32_t csnstrings_rstripchar_k_init(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_helper(csound, unary_chars_args(p), strip_op(CSN_RSTRIP, p->value), true);
+}
+
+int32_t csnstrings_rstripchar_k(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    return string_map_k_helper(csound, unary_chars_args(p), strip_op(CSN_RSTRIP, p->value));
+}
+
+int32_t csnstrings_rstripchar_in(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_helper(csound, unary_chars_in_args(p), strip_op(CSN_RSTRIP, p->value), false);
+}
+
+int32_t csnstrings_rstripchar_in_k_init(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_helper(csound, unary_chars_in_args(p), strip_op(CSN_RSTRIP, p->value), true);
+}
+
+int32_t csnstrings_rstripchar_in_k(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    return string_map_in_k_helper(csound, unary_chars_in_args(p), strip_op(CSN_RSTRIP, p->value));
+}
+
+/* The k forms with chars keep a copy of it in k_data. */
+int32_t csnstrings_mapchars_deinit(CSOUND *csound, CSN_UNARYOP_STRING *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_mapchars_in_deinit(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
 }

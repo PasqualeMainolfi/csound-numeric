@@ -1071,6 +1071,77 @@ instr 3
     SStrSwapSelf0 = iStrSwapSrc[0]
     iStrSwapSelf0Cmp = strcmp(SStrSwapSelf0, "aB c1")
     assert(iStrSwapIn0Cmp == 0 && iStrSwapSelf0Cmp == 0)
+    ; csnstrtitle is np.strings.title on bytes: a letter goes up after a
+    ; non-letter and down after a letter; digits and bytes from 0x80 up are
+    ; not letters
+    SStrTitleItems[] fillarray "mIxEd-CASE", "1st take", "x2y", "Cafés"
+    iStrTitleSrc:CsnStr = csnfromarray(SStrTitleItems)
+    iStrTitle:CsnStr = csnstrtitle(iStrTitleSrc)
+    SStrTitle0 = iStrTitle[0]
+    SStrTitle1 = iStrTitle[1]
+    SStrTitle2 = iStrTitle[2]
+    SStrTitle3 = iStrTitle[3]
+    iStrTitle0Cmp = strcmp(SStrTitle0, "Mixed-Case")
+    iStrTitle1Cmp = strcmp(SStrTitle1, "1St Take")
+    iStrTitle2Cmp = strcmp(SStrTitle2, "X2Y")
+    iStrTitle3Cmp = strcmp(SStrTitle3, "CaféS")
+    assert(iStrTitle0Cmp == 0 && iStrTitle1Cmp == 0 && iStrTitle2Cmp == 0 && iStrTitle3Cmp == 0)
+    csnstrtitle(iStrTitleSrc)
+    SStrTitleIn0 = iStrTitleSrc[0]
+    iStrTitleIn0Cmp = strcmp(SStrTitleIn0, "Mixed-Case")
+    assert(iStrTitleIn0Cmp == 0)
+    ; csnstrstrip / csnstrlstrip / csnstrrstrip drop ASCII whitespace at
+    ; both ends, the left or the right (np.strings.strip on bytes); the 0xA0
+    ; that ends a UTF-8 "à" is not a space
+    SStrStripItems[] fillarray "  ab  ", " \t\n", "città "
+    iStrStripSrc:CsnStr = csnfromarray(SStrStripItems)
+    iStrStrip:CsnStr = csnstrstrip(iStrStripSrc)
+    iStrLStrip:CsnStr = csnstrlstrip(iStrStripSrc)
+    iStrRStrip:CsnStr = csnstrrstrip(iStrStripSrc)
+    SStrStrip0 = iStrStrip[0]
+    SStrStrip1 = iStrStrip[1]
+    SStrLStrip0 = iStrLStrip[0]
+    SStrRStrip0 = iStrRStrip[0]
+    SStrRStrip2 = iStrRStrip[2]
+    iStrStrip0Cmp = strcmp(SStrStrip0, "ab")
+    iStrStrip1Cmp = strcmp(SStrStrip1, "")
+    iStrLStrip0Cmp = strcmp(SStrLStrip0, "ab  ")
+    iStrRStrip0Cmp = strcmp(SStrRStrip0, "  ab")
+    iStrRStrip2Cmp = strcmp(SStrRStrip2, "città")
+    assert(iStrStrip0Cmp == 0 && iStrStrip1Cmp == 0 && iStrLStrip0Cmp == 0 && iStrRStrip0Cmp == 0 && iStrRStrip2Cmp == 0)
+    csnstrlstrip(iStrStripSrc)
+    csnstrrstrip(iStrStripSrc)
+    SStrStripIn0 = iStrStripSrc[0]
+    iStrStripIn0Cmp = strcmp(SStrStripIn0, "ab")
+    csnstrstrip(iStrStripSrc)
+    SStrStripIn2 = iStrStripSrc[2]
+    iStrStripIn2Cmp = strcmp(SStrStripIn2, "città")
+    assert(iStrStripIn0Cmp == 0 && iStrStripIn2Cmp == 0)
+    ; with chars they drop any byte of that set, as Python does: "xy" takes
+    ; both letters, "" drops nothing, "é" drops its two UTF-8 bytes
+    SStrCharsItems[] fillarray "xyhixy", "--a--", "caffé"
+    iStrCharsSrc:CsnStr = csnfromarray(SStrCharsItems)
+    iStrCharsStrip:CsnStr = csnstrstrip(iStrCharsSrc, "xy")
+    iStrCharsNone:CsnStr = csnstrstrip(iStrCharsSrc, "")
+    iStrCharsL:CsnStr = csnstrlstrip(iStrCharsSrc, "-")
+    iStrCharsR:CsnStr = csnstrrstrip(iStrCharsSrc, "é")
+    SStrCharsStrip0 = iStrCharsStrip[0]
+    SStrCharsNone0 = iStrCharsNone[0]
+    SStrCharsL1 = iStrCharsL[1]
+    SStrCharsR2 = iStrCharsR[2]
+    iStrCharsStrip0Cmp = strcmp(SStrCharsStrip0, "hi")
+    iStrCharsNone0Cmp = strcmp(SStrCharsNone0, "xyhixy")
+    iStrCharsL1Cmp = strcmp(SStrCharsL1, "a--")
+    iStrCharsR2Cmp = strcmp(SStrCharsR2, "caff")
+    assert(iStrCharsStrip0Cmp == 0 && iStrCharsNone0Cmp == 0 && iStrCharsL1Cmp == 0 && iStrCharsR2Cmp == 0)
+    csnstrlstrip(iStrCharsSrc, "x")
+    csnstrrstrip(iStrCharsSrc, "y")
+    csnstrstrip(iStrCharsSrc, "-")
+    SStrCharsIn0 = iStrCharsSrc[0]
+    SStrCharsIn1 = iStrCharsSrc[1]
+    iStrCharsIn0Cmp = strcmp(SStrCharsIn0, "yhix")
+    iStrCharsIn1Cmp = strcmp(SStrCharsIn1, "a")
+    assert(iStrCharsIn0Cmp == 0 && iStrCharsIn1Cmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -5186,6 +5257,9 @@ e
 ; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
 ; csnstrcapitalize csnstrcapitalize.in
 ; csnstrswapcase csnstrswapcase.in
+; csnstrtitle csnstrtitle.in
+; csnstrstrip csnstrstrip.in csnstrlstrip csnstrlstrip.in csnstrrstrip csnstrrstrip.in
+; csnstrstrip.ch csnstrstrip.in.ch csnstrlstrip.ch csnstrlstrip.in.ch csnstrrstrip.ch csnstrrstrip.in.ch
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

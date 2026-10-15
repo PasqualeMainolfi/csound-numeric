@@ -43,14 +43,17 @@ overload, and [csntype](csntype.md) reports `2` for one.
 - Elementwise strings: [csnstradd](csnstradd.md) joins two arrays or an array
   and an `S`, with broadcasting, [csnstrmul](csnstrmul.md) repeats each
   string a number of times, and [csnstrupper](csnstrupper.md),
-  [csnstrlower](csnstrlower.md), [csnstrcapitalize](csnstrcapitalize.md) and
-  [csnstrswapcase](csnstrswapcase.md) change the case of the ASCII letters,
-  as a copy or in place.
+  [csnstrlower](csnstrlower.md), [csnstrcapitalize](csnstrcapitalize.md),
+  [csnstrswapcase](csnstrswapcase.md) and [csnstrtitle](csnstrtitle.md)
+  change the case of the ASCII letters, and [csnstrstrip](csnstrstrip.md),
+  [csnstrlstrip](csnstrlstrip.md) and [csnstrrstrip](csnstrrstrip.md) remove
+  ASCII whitespace at the ends, or the bytes of a `chars` string, as a copy or
+  in place.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
   as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The other elementwise string operations (`title`, `strip`, `replace`, ...),
+The other elementwise string operations (`replace`, `center`, `zfill`, ...),
 queries, conversions, sorting and sets are not there yet.
 
 ## Rate
@@ -86,7 +89,9 @@ The room comes from the init pass:
   masks only ever place those strings, and the case conversions
   ([csnstrupper](csnstrupper.md), [csnstrlower](csnstrlower.md),
   [csnstrcapitalize](csnstrcapitalize.md),
-  [csnstrswapcase](csnstrswapcase.md)) keep their length, so their k forms run as
+  [csnstrswapcase](csnstrswapcase.md), [csnstrtitle](csnstrtitle.md)) keep
+  their length and the strips ([csnstrstrip](csnstrstrip.md) and its left and
+  right forms) only shorten, so their k forms run as
   long as the operands keep strings no longer than at init.
 - A form that makes new strings sizes its elements from what it computes at
   init: [csnstradd](csnstradd.md), [csnstrmul](csnstrmul.md) (with a k count,

@@ -138,6 +138,10 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrlower](csnstrlower.md) - converts the ASCII letters of each string to lower case
 - [csnstrcapitalize](csnstrcapitalize.md) - raises the first character of each string and lowers the rest
 - [csnstrswapcase](csnstrswapcase.md) - turns every letter of each string into the other case
+- [csnstrtitle](csnstrtitle.md) - puts each string in title case
+- [csnstrstrip](csnstrstrip.md) - removes whitespace, or given bytes, at both ends of each string
+- [csnstrlstrip](csnstrlstrip.md) - removes whitespace, or given bytes, at the start of each string
+- [csnstrrstrip](csnstrrstrip.md) - removes whitespace, or given bytes, at the end of each string
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

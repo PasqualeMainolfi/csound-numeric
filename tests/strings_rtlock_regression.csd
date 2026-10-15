@@ -73,6 +73,19 @@ instr 1
     Upper:CsnStr = csnstrupper(Src, kOne)
     Capital:CsnStr = csnstrcapitalize(Joined2, kOne)
     Swapped:CsnStr = csnstrswapcase(Joined2, kOne)
+    Titled:CsnStr = csnstrtitle(Joined, kOne)
+    Spaced:CsnStr = csnstradd("  ", Src, kOne)
+    Stripped:CsnStr = csnstrlstrip(Spaced, kOne)
+    Spaced = csnstrstrip(Spaced, kOne)
+    ; Sx is the chars argument: a new one on a constant source makes the
+    ; result again, out of place and in place ("zz" loses its "z" only once
+    ; Sx turns "z")
+    SFenced[] fillarray "zabaz"
+    Fenced:CsnStr = csnfromarray(SFenced)
+    Unfenced:CsnStr = csnstrstrip(Fenced, Sx, kOne)
+    SEdge[] fillarray "azza"
+    Edge:CsnStr = csnfromarray(SEdge)
+    csnstrstrip(Edge, Sx, kOne)
     ; swap undoes itself: onto its own source it swaps again on every pass,
     ; and the k init leaves it to the first pass, so 8 passes give it back
     SToggle[] fillarray "ab"
@@ -102,6 +115,7 @@ instr 1
         kI1 init 1
         kI2 init 2
         kI3 init 3
+        kI4 init 4
         S1 = Flipped[kI2]
         kBad = strcmpk(S1, "z") != 0 ? 1 : 0
         S2 = Rolled[kI1]
@@ -150,6 +164,18 @@ instr 1
         kBad += strcmpk(S23, "BBBBZ") != 0 ? 1 : 0
         S24 = Toggle[kI0]
         kBad += strcmpk(S24, "ab") != 0 ? 1 : 0
+        S25 = Titled[kI3]
+        kBad += strcmpk(S25, "Z") != 0 ? 1 : 0
+        S26 = Titled[kI4]
+        kBad += strcmpk(S26, "Bbbb") != 0 ? 1 : 0
+        S27 = Stripped[kI0]
+        kBad += strcmpk(S27, "z") != 0 ? 1 : 0
+        S28 = Spaced[kI1]
+        kBad += strcmpk(S28, "bbbb") != 0 ? 1 : 0
+        S29 = Unfenced[kI0]
+        kBad += strcmpk(S29, "aba") != 0 ? 1 : 0
+        S30 = Edge[kI0]
+        kBad += strcmpk(S30, "") != 0 ? 1 : 0
         gkBad = kBad
         ; the init pass runs this branch too, with timeinstk() still 0
         gkDone = timeinstk()

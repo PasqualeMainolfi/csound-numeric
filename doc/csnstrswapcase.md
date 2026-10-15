@@ -109,6 +109,7 @@ CsnStr(shape=(3,), dtype=str)
 * [csnstrupper](csnstrupper.md)
 * [csnstrlower](csnstrlower.md)
 * [csnstrcapitalize](csnstrcapitalize.md)
+* [csnstrtitle](csnstrtitle.md)
 * [csnstradd](csnstradd.md)
 * [string arrays](string-arrays.md)
 
