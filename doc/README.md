@@ -142,6 +142,9 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrstrip](csnstrstrip.md) - removes whitespace, or given bytes, at both ends of each string
 - [csnstrlstrip](csnstrlstrip.md) - removes whitespace, or given bytes, at the start of each string
 - [csnstrrstrip](csnstrrstrip.md) - removes whitespace, or given bytes, at the end of each string
+- [csnstrcenter](csnstrcenter.md) - pads each string with spaces on both sides to a width
+- [csnstrljust](csnstrljust.md) - pads each string with spaces on the right to a width
+- [csnstrrjust](csnstrrjust.md) - pads each string with spaces on the left to a width
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

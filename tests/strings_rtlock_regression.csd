@@ -32,6 +32,11 @@ gkDone init 0
 gSKeep[] fillarray "keep", "this"
 GKeep@global:CsnStr = csnfromarray(gSKeep)
 
+; a padding in place that one slot has no room for leaves every slot as it
+; was, the one with room included (instr 5): "ab" sits in a 5-byte buffer
+gSPad[] fillarray "abcd", "a"
+GPad@global:CsnStr = csnfromarray(gSPad)
+
 instr 1
     kOne init 1
     kTwo init 2
@@ -86,6 +91,49 @@ instr 1
     SEdge[] fillarray "azza"
     Edge:CsnStr = csnfromarray(SEdge)
     csnstrstrip(Edge, Sx, kOne)
+    ; a k width lays the strings out at init with its init value, so the
+    ; widest one reserves the room the passes fill; a constant width pads at
+    ; init in place and onto its own source, and a rewritten slot is padded
+    ; again in its buffer
+    kWidth init 5
+    kWidth = kc % 2 == 1 ? 3 : 5
+    Centered:CsnStr = csnstrcenter(Src, kWidth, kOne)
+    SOne[] fillarray "q"
+    One:CsnStr = csnfromarray(SOne)
+    OneRight:CsnStr = csnstrrjust(One, kWidth, kOne)
+    SWide[] fillarray "ab"
+    Wide:CsnStr = csnfromarray(SWide)
+    Wide = csnstrljust(Wide, 4, kOne)
+    SRight[] fillarray "b", "c"
+    Right:CsnStr = csnfromarray(SRight)
+    csnset(Right, kIdx0, Sx)
+    csnstrrjust(Right, 4, kOne)
+    ; a k width unknown at init pads in place on the first pass, inside the
+    ; buffer "abcdefgh" left ("yyyy" gives the slice its room); the in-place
+    ; k form marks its target k-rate, or the slice reading it keeps the value
+    ; it had at init
+    SLate[] fillarray "abcdefgh", "yyyy"
+    Late:CsnStr = csnfromarray(SLate)
+    iLateIdx[] fillarray 0
+    csnset(Late, iLateIdx, "x")
+    kLateWidth init 0
+    kLateWidth = 4
+    csnstrrjust(Late, kLateWidth, kOne)
+    LateView:CsnStr = Late[0:1]
+    ; a fill that changes on a source that does not makes the result again,
+    ; as a copy and in place (the in-place one fills its first pass only:
+    ; "9" is 4 bytes long by then)
+    if kc % 2 == 1 then
+        SFill strcpyk "-"
+    else
+        SFill strcpyk "."
+    endif
+    SNine[] fillarray "9"
+    Nine:CsnStr = csnfromarray(SNine)
+    NineFilled:CsnStr = csnstrrjust(Nine, 4, SFill, kOne)
+    SNine2[] fillarray "9", "99999"
+    Nine2:CsnStr = csnfromarray(SNine2)
+    csnstrljust(Nine2, 4, SFill, kOne)
     ; swap undoes itself: onto its own source it swaps again on every pass,
     ; and the k init leaves it to the first pass, so 8 passes give it back
     SToggle[] fillarray "ab"
@@ -176,6 +224,22 @@ instr 1
         kBad += strcmpk(S29, "aba") != 0 ? 1 : 0
         S30 = Edge[kI0]
         kBad += strcmpk(S30, "") != 0 ? 1 : 0
+        S31 = Centered[kI0]
+        kBad += strcmpk(S31, " z ") != 0 ? 1 : 0
+        S35 = OneRight[kI0]
+        kBad += strcmpk(S35, "  q") != 0 ? 1 : 0
+        S36 = LateView[kI0]
+        kBad += strcmpk(S36, "   x") != 0 ? 1 : 0
+        S37 = NineFilled[kI0]
+        kBad += strcmpk(S37, "---9") != 0 ? 1 : 0
+        S38 = Nine2[kI0]
+        kBad += strcmpk(S38, "9...") != 0 ? 1 : 0
+        S32 = Wide[kI0]
+        kBad += strcmpk(S32, "ab  ") != 0 ? 1 : 0
+        S33 = Right[kI0]
+        kBad += strcmpk(S33, "   z") != 0 ? 1 : 0
+        S34 = Right[kI1]
+        kBad += strcmpk(S34, "   c") != 0 ? 1 : 0
         gkBad = kBad
         ; the init pass runs this branch too, with timeinstk() still 0
         gkDone = timeinstk()
@@ -206,12 +270,29 @@ instr 4
     csnset(GKeep, kIdx, Sv)
 endin
 
+instr 5
+    kOne init 1
+    ; nothing is known at init, so the first pass pads, and "a" has no room
+    kWidth init 0
+    kWidth = 4
+    csnstrrjust(GPad, kWidth, kOne)
+endin
+
+instr 6
+    ; shrink the first string inside its buffer before instr 5 runs
+    iIdx[] fillarray 0
+    csnset(GPad, iIdx, "ab")
+    turnoff
+endin
+
 instr 3
     ; read at i-time: a k-rate if would let prints run at init either way
     iDone = i(gkDone)
     iBad = i(gkBad)
     SKept = GKeep[0]
     iKept = strcmp(SKept, "keep")
+    SPadKept = GPad[0]
+    iKept += strcmp(SPadKept, "ab")
     if iDone > 0 && iBad == 0 && iKept == 0 then
         prints("csnum string writes stayed in their buffers\n")
     endif
@@ -223,6 +304,8 @@ endin
 i 1 0 0.1
 i 2 0.2 0.01
 i 4 0.25 0.01
+i 6 0.26 0.01
+i 5 0.27 0.01
 i 3 0.3 0.01
 </CsScore>
 </CsoundSynthesizer>

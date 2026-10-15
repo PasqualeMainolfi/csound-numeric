@@ -2571,3 +2571,428 @@ int32_t csnstrings_mapchars_in_deinit(CSOUND *csound, CSN_UNARYOP_STRING_IN *p) 
     csn_kdata_release_strings(csound, &p->k_data);
     return OK;
 }
+
+/* ---------- padding: center, ljust, rjust ---------- */
+
+typedef enum { CSN_STRING_CENTER, CSN_STRING_LJUST, CSN_STRING_RJUST } CSN_JUST_MODE;
+
+/* What a padding reads from its opcode struct: out is NULL in place, fill is
+   NULL for the forms without one, trig is read by the k passes only. */
+typedef struct {
+    OPDS *h;
+    CSN_ARRAY *out;
+    CSN_ARRAY *src;
+    cs_float *width;
+    const STRINGDAT *fill;
+    cs_float *trig;
+    K_DATA *k_data;
+} CSN_JUST_ARGS;
+
+static CSN_JUST_ARGS just_args(CSN_BINOP_HS *p) {
+    return (CSN_JUST_ARGS) { &p->h, p->handle, p->source_handle, p->scalar, NULL, p->trig, &p->k_data };
+}
+
+static CSN_JUST_ARGS just_in_args(CSN_UNARYOP_SCALAR_IN *p) {
+    return (CSN_JUST_ARGS) { &p->h, NULL, p->source_handle, p->value, NULL, p->trig, &p->k_data };
+}
+
+static CSN_JUST_ARGS just_fill_args(CSN_STRJUST *p) {
+    return (CSN_JUST_ARGS) { &p->h, p->handle, p->source_handle, p->width, p->fill, p->trig, &p->k_data };
+}
+
+static CSN_JUST_ARGS just_fill_in_args(CSN_STRJUST_IN *p) {
+    return (CSN_JUST_ARGS) { &p->h, NULL, p->source_handle, p->width, p->fill, p->trig, &p->k_data };
+}
+
+/* np.strings.center / ljust / rjust on bytes, which follow CPython: center
+   puts the odd fill on the left when the width is odd, (marg & width & 1),
+   so "ab" in 5 gives "  ab " and "a" in 4 gives " a  ". */
+static size_t just_left(size_t len, size_t width, CSN_JUST_MODE mode) {
+    size_t marg = width - len;
+    switch (mode) {
+        case CSN_STRING_CENTER: return marg / 2 + (marg & width & 1);
+        case CSN_STRING_RJUST: return marg;
+        case CSN_STRING_LJUST: break;
+    }
+    return 0;
+}
+
+static int32_t check_width(CSOUND *csound, OPDS *perf_h, double width) {
+    if (IS_VALID_LENGTH(width)) return OK;
+    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A width must be a whole number from 0 up, got %g", width);
+}
+
+/* The fill is one byte, as NumPy wants one character in a bytes array: an
+   ASCII character, never a multibyte UTF-8 one. Without a fill, a space. */
+static int32_t read_fill(CSOUND *csound, OPDS *perf_h, const STRINGDAT *fill, char *c) {
+    if (fill == NULL) {
+        *c = ' ';
+        return OK;
+    }
+    if (!IS_VALID_STRINGDAT(fill) || strlen(fill->data) != 1) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A fill character must be exactly one byte, got \"%s\"", IS_VALID_STRINGDAT(fill) ? fill->data : "");
+    }
+    *c = fill->data[0];
+    return OK;
+}
+
+static const char *slot_string(const CSN_STRDATA *slot) {
+    return slot->data != NULL ? slot->data : "";
+}
+
+/* Pads every string shorter than width bytes to width; a longer one is kept
+   as it is, as NumPy keeps it. out may be src: in place the slots are probed
+   first, so a real-time pass that stops leaves the array as it was, and the
+   text moves right inside its own buffer, after any growth. changed says
+   whether a string was padded. */
+static int32_t string_just_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, size_t width, char fill, CSN_JUST_MODE mode, bool *changed) {
+    bool in_place = out == src;
+    *changed = false;
+
+    if (in_place && w->no_growth) {
+        for (size_t i = 0; i < src->size; i++) {
+            const CSN_STRDATA *slot = &src->sdata[i];
+            if (strlen(slot_string(slot)) < width && width + 1 > slot->capacity) {
+                return w->err = refuse_string_growth(w->csound, w->perf_h, width + 1, slot->capacity);
+            }
+        }
+    }
+
+    for (size_t i = 0; i < src->size; i++) {
+        size_t len = strlen(slot_string(&src->sdata[i]));
+        if (len >= width) {
+            if (!in_place && csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
+            continue;
+        }
+
+        int32_t res = ensure_string_capacity(w->csound, w->perf_h, &out->sdata[i], width + 1, w->no_growth);
+        if (res != OK) return w->err = res;
+        char *dest = out->sdata[i].data;
+        size_t left = just_left(len, width, mode);
+        if (in_place) {
+            memmove(dest + left, dest, len);
+        } else {
+            memcpy(dest + left, slot_string(&src->sdata[i]), len);
+        }
+        memset(dest, fill, left);
+        memset(dest + left + len, fill, width - len - left);
+        dest[width] = '\0';
+        *changed = true;
+    }
+
+    return OK;
+}
+
+/* The fill is one byte, so k_data keeps it as a number, with no copy. */
+static void publish_just(K_DATA *k_data, const CSN_ARRAY *src, const CSN_ARRAY *out, size_t width, char fill) {
+    PUBLISH_DERIVED_RESULT(k_data, src, out);
+    k_data->prev_size = width;
+    k_data->prev_scalar_param = (double) (unsigned char) fill;
+}
+
+static bool is_same_just(const K_DATA *k_data, size_t width, char fill) {
+    return k_data->prev_size == width && k_data->prev_scalar_param == (double) (unsigned char) fill;
+}
+
+/* A k width is not known at init, but its init value still lays the strings
+   out, as csnstrmul does with a count: the buffers it reserves are what a
+   pass on a real-time path may fill, and the perf pass compares the width it
+   reads. An init value that is no width reserves nothing and raises no error;
+   the perf pass judges the width. Padding again to the same width changes
+   nothing, so an output that is its own source is padded here too, unless
+   its width is a k one: a padding cannot be undone, and the init value would
+   stay in the strings. */
+static int32_t string_just_helper(CSOUND *csound, CSN_JUST_ARGS a, CSN_JUST_MODE mode, bool perf_redoes) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    char fill = ' ';
+    int32_t res = read_fill(csound, NULL, a.fill, &fill);
+    if (res != OK) return res;
+    double width_value = (double) *a.width;
+    bool known = !perf_redoes || csn_known_at_init(csound, a.width);
+    if (known) {
+        res = check_width(csound, NULL, width_value);
+        if (res != OK) return res;
+    }
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, NULL, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    a.k_data->registry = reg;
+    if (!IS_VALID_LENGTH(width_value) || (r.aliased && !known)) goto done;
+    size_t width = (size_t) width_value;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.out);
+    res = string_just_assign_value(&w, a.out, a.src, width, fill, mode, &changed);
+    if (r.aliased && changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    publish_just(a.k_data, a.src, a.out, width, fill);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_just_k_helper(CSOUND *csound, CSN_JUST_ARGS a, CSN_JUST_MODE mode) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    char fill = ' ';
+    int32_t res = read_fill(csound, a.h, a.fill, &fill);
+    if (res != OK) return res;
+    res = check_width(csound, a.h, (double) *a.width);
+    if (res != OK) return res;
+    size_t width = (size_t) *a.width;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    bool is_same_source = is_same_array_version(&a.k_data->prev_source_version, &a.src->version);
+    bool is_same_result = is_same_array_version(&a.k_data->prev_output_version, &a.out->version);
+    if (is_same_source && is_same_result && is_same_just(a.k_data, width, fill)) goto done;
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, a.h, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.out);
+    res = string_just_assign_value(&w, a.out, a.src, width, fill, mode, &changed);
+    if (r.aliased && changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    publish_just(a.k_data, a.src, a.out, width, fill);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* In place a padding cannot be undone, so a k width unknown at init is left
+   to the first pass rather than applied with its init value. */
+static int32_t string_just_in_helper(CSOUND *csound, CSN_JUST_ARGS a, CSN_JUST_MODE mode, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    a.k_data->registry = reg;
+
+    /* the target changes at perf: whatever reads it follows it there */
+    if (is_k_init) csn_mark_krate(a.src);
+
+    char fill = ' ';
+    int32_t res = read_fill(csound, NULL, a.fill, &fill);
+    if (res != OK) return res;
+    if (is_k_init && !csn_known_at_init(csound, a.width)) return OK;
+
+    res = check_width(csound, NULL, (double) *a.width);
+    if (res != OK) return res;
+    size_t width = (size_t) *a.width;
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.src);
+    res = string_just_assign_value(&w, a.src, a.src, width, fill, mode, &changed);
+    if (changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    publish_just(a.k_data, a.src, NULL, width, fill);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* Runs once for each write by someone else, each new width or each new fill. */
+static int32_t string_just_in_k_helper(CSOUND *csound, CSN_JUST_ARGS a, CSN_JUST_MODE mode) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    char fill = ' ';
+    int32_t res = read_fill(csound, a.h, a.fill, &fill);
+    if (res != OK) return res;
+    res = check_width(csound, a.h, (double) *a.width);
+    if (res != OK) return res;
+    size_t width = (size_t) *a.width;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
+
+    bool is_same_source = is_same_array_version(&a.k_data->prev_source_version, &a.src->version);
+    if (is_same_source && is_same_just(a.k_data, width, fill)) goto done;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.src);
+    res = string_just_assign_value(&w, a.src, a.src, width, fill, mode, &changed);
+    if (changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    publish_just(a.k_data, a.src, NULL, width, fill);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_center(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_helper(csound, just_args(p), CSN_STRING_CENTER, false);
+}
+
+int32_t csnstrings_center_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_helper(csound, just_args(p), CSN_STRING_CENTER, true);
+}
+
+int32_t csnstrings_center_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_k_helper(csound, just_args(p), CSN_STRING_CENTER);
+}
+
+int32_t csnstrings_center_in(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_helper(csound, just_in_args(p), CSN_STRING_CENTER, false);
+}
+
+int32_t csnstrings_center_in_k_init(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_helper(csound, just_in_args(p), CSN_STRING_CENTER, true);
+}
+
+int32_t csnstrings_center_in_k(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_k_helper(csound, just_in_args(p), CSN_STRING_CENTER);
+}
+
+int32_t csnstrings_ljust(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_helper(csound, just_args(p), CSN_STRING_LJUST, false);
+}
+
+int32_t csnstrings_ljust_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_helper(csound, just_args(p), CSN_STRING_LJUST, true);
+}
+
+int32_t csnstrings_ljust_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_k_helper(csound, just_args(p), CSN_STRING_LJUST);
+}
+
+int32_t csnstrings_ljust_in(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_helper(csound, just_in_args(p), CSN_STRING_LJUST, false);
+}
+
+int32_t csnstrings_ljust_in_k_init(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_helper(csound, just_in_args(p), CSN_STRING_LJUST, true);
+}
+
+int32_t csnstrings_ljust_in_k(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_k_helper(csound, just_in_args(p), CSN_STRING_LJUST);
+}
+
+int32_t csnstrings_rjust(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_helper(csound, just_args(p), CSN_STRING_RJUST, false);
+}
+
+int32_t csnstrings_rjust_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_helper(csound, just_args(p), CSN_STRING_RJUST, true);
+}
+
+int32_t csnstrings_rjust_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    return string_just_k_helper(csound, just_args(p), CSN_STRING_RJUST);
+}
+
+int32_t csnstrings_rjust_in(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_helper(csound, just_in_args(p), CSN_STRING_RJUST, false);
+}
+
+int32_t csnstrings_rjust_in_k_init(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_helper(csound, just_in_args(p), CSN_STRING_RJUST, true);
+}
+
+int32_t csnstrings_rjust_in_k(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p) {
+    return string_just_in_k_helper(csound, just_in_args(p), CSN_STRING_RJUST);
+}
+
+/* ---------- padding with a fill character ---------- */
+
+int32_t csnstrings_center_fill(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_helper(csound, just_fill_args(p), CSN_STRING_CENTER, false);
+}
+
+int32_t csnstrings_center_fill_k_init(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_helper(csound, just_fill_args(p), CSN_STRING_CENTER, true);
+}
+
+int32_t csnstrings_center_fill_k(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_k_helper(csound, just_fill_args(p), CSN_STRING_CENTER);
+}
+
+int32_t csnstrings_center_fill_in(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_helper(csound, just_fill_in_args(p), CSN_STRING_CENTER, false);
+}
+
+int32_t csnstrings_center_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_helper(csound, just_fill_in_args(p), CSN_STRING_CENTER, true);
+}
+
+int32_t csnstrings_center_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_k_helper(csound, just_fill_in_args(p), CSN_STRING_CENTER);
+}
+
+int32_t csnstrings_ljust_fill(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_helper(csound, just_fill_args(p), CSN_STRING_LJUST, false);
+}
+
+int32_t csnstrings_ljust_fill_k_init(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_helper(csound, just_fill_args(p), CSN_STRING_LJUST, true);
+}
+
+int32_t csnstrings_ljust_fill_k(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_k_helper(csound, just_fill_args(p), CSN_STRING_LJUST);
+}
+
+int32_t csnstrings_ljust_fill_in(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_helper(csound, just_fill_in_args(p), CSN_STRING_LJUST, false);
+}
+
+int32_t csnstrings_ljust_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_helper(csound, just_fill_in_args(p), CSN_STRING_LJUST, true);
+}
+
+int32_t csnstrings_ljust_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_k_helper(csound, just_fill_in_args(p), CSN_STRING_LJUST);
+}
+
+int32_t csnstrings_rjust_fill(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_helper(csound, just_fill_args(p), CSN_STRING_RJUST, false);
+}
+
+int32_t csnstrings_rjust_fill_k_init(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_helper(csound, just_fill_args(p), CSN_STRING_RJUST, true);
+}
+
+int32_t csnstrings_rjust_fill_k(CSOUND *csound, CSN_STRJUST *p) {
+    return string_just_k_helper(csound, just_fill_args(p), CSN_STRING_RJUST);
+}
+
+int32_t csnstrings_rjust_fill_in(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_helper(csound, just_fill_in_args(p), CSN_STRING_RJUST, false);
+}
+
+int32_t csnstrings_rjust_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_helper(csound, just_fill_in_args(p), CSN_STRING_RJUST, true);
+}
+
+int32_t csnstrings_rjust_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p) {
+    return string_just_in_k_helper(csound, just_fill_in_args(p), CSN_STRING_RJUST);
+}

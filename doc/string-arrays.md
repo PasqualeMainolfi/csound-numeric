@@ -47,8 +47,10 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnstrswapcase](csnstrswapcase.md) and [csnstrtitle](csnstrtitle.md)
   change the case of the ASCII letters, and [csnstrstrip](csnstrstrip.md),
   [csnstrlstrip](csnstrlstrip.md) and [csnstrrstrip](csnstrrstrip.md) remove
-  ASCII whitespace at the ends, or the bytes of a `chars` string, as a copy or
-  in place.
+  ASCII whitespace at the ends, or the bytes of a `chars` string, and
+  [csnstrcenter](csnstrcenter.md), [csnstrljust](csnstrljust.md) and
+  [csnstrrjust](csnstrrjust.md) pad with spaces to a width, as a copy or in
+  place.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
   as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
@@ -95,7 +97,9 @@ The room comes from the init pass:
   long as the operands keep strings no longer than at init.
 - A form that makes new strings sizes its elements from what it computes at
   init: [csnstradd](csnstradd.md), [csnstrmul](csnstrmul.md) (with a k count,
-  from its init value), [csnfull](csnfull.md) and [csnlike](csnlike.md) with
+  from its init value), the paddings ([csnstrcenter](csnstrcenter.md) and its
+  left and right forms, with a k width from its init value; in place only
+  with a width known at init), [csnfull](csnfull.md) and [csnlike](csnlike.md) with
   their fill, [csnpad](csnpad.md) with its fill and the source's longest
   string.
 - An element set at init, with [csnset](csnset.md), `v[i] = "x"` or

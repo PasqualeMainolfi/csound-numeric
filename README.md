@@ -316,7 +316,8 @@ opcodes (`csnreshape`, `csnflatten`, `csntranspose`, `csnflip`, `csnroll`,
 `csnresize`, `csncopy`, `csnshuffle`, the masks (`csnwhere`, `csnputmask`,
 `csncompress`, `csnselect`), the elementwise `csnstradd`, `csnstrmul`,
 `csnstrupper`, `csnstrlower`, `csnstrcapitalize`, `csnstrswapcase`,
-`csnstrtitle`, `csnstrstrip`, `csnstrlstrip` and `csnstrrstrip`, the rate
+`csnstrtitle`, `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip`, `csnstrcenter`,
+`csnstrljust` and `csnstrrjust`, the rate
 casts `csni` and `csnk`, and `csnsave` / `csnload` (`.npy` as `<U` or
 `|S`, `.csn`) take one today. A string has no k form, so their k forms take an
 explicit trigger. Each element keeps the buffer of its string, so on a
@@ -811,6 +812,7 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnstrcapitalize` | `np.strings.capitalize` | First character up, the rest down; ASCII only, as on a bytes (`S`) array. Also in place. |
 | `csnstrtitle` | `np.strings.title` | As on a bytes (`S`) array: ASCII letters only, and digits and UTF-8 bytes are not letters (`"1st"` gives `"1St"`, `"Cafés"` gives `"CaféS"`). Also in place. |
 | `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip` | `np.strings.strip`, `lstrip`, `rstrip` | ASCII whitespace only, as on a bytes (`S`) array, so UTF-8 survives. `chars` is a set of bytes, as on a bytes array: a multibyte character stands for each of its bytes. Also in place. |
+| `csnstrcenter`, `csnstrljust`, `csnstrrjust` | `np.strings.center`, `ljust`, `rjust` | Width in bytes, as on a bytes (`S`) array; center splits an odd margin as CPython does. A negative width is refused rather than ignored; `fillchar` (here `fill`) must be one byte. Also in place. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
 | `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |

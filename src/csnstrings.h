@@ -240,6 +240,40 @@ typedef struct {
     K_DATA k_data;
 } CSN_UNARYOP_STRING_IN;
 
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *value;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+} CSN_UNARYOP_SCALAR_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *width;
+    STRINGDAT *fill;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+} CSN_STRJUST;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *width;
+    STRINGDAT *fill;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+} CSN_STRJUST_IN;
+
 
 int32_t ensure_string_capacity(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *slot, size_t bytes, bool rt_locked);
 
@@ -408,5 +442,42 @@ int32_t csnstrings_rstripchar_in_k_init(CSOUND *csound, CSN_UNARYOP_STRING_IN *p
 int32_t csnstrings_rstripchar_in_k(CSOUND *csound, CSN_UNARYOP_STRING_IN *p);
 int32_t csnstrings_mapchars_deinit(CSOUND *csound, CSN_UNARYOP_STRING *p);
 int32_t csnstrings_mapchars_in_deinit(CSOUND *csound, CSN_UNARYOP_STRING_IN *p);
+
+int32_t csnstrings_center(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_center_k_init(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_center_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_center_in(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_center_in_k_init(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_center_in_k(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_ljust(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_ljust_k_init(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_ljust_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_ljust_in(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_ljust_in_k_init(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_ljust_in_k(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_rjust(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_rjust_k_init(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_rjust_k(CSOUND *csound, CSN_BINOP_HS *p);
+int32_t csnstrings_rjust_in(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_rjust_in_k_init(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_rjust_in_k(CSOUND *csound, CSN_UNARYOP_SCALAR_IN *p);
+int32_t csnstrings_center_fill(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_center_fill_k_init(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_center_fill_k(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_center_fill_in(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_center_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_center_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_ljust_fill(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_ljust_fill_k_init(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_ljust_fill_k(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_ljust_fill_in(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_ljust_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_ljust_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_rjust_fill(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_rjust_fill_k_init(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_rjust_fill_k(CSOUND *csound, CSN_STRJUST *p);
+int32_t csnstrings_rjust_fill_in(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_rjust_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p);
+int32_t csnstrings_rjust_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p);
 
 #endif

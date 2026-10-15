@@ -1142,6 +1142,59 @@ instr 3
     iStrCharsIn0Cmp = strcmp(SStrCharsIn0, "yhix")
     iStrCharsIn1Cmp = strcmp(SStrCharsIn1, "a")
     assert(iStrCharsIn0Cmp == 0 && iStrCharsIn1Cmp == 0)
+
+    ; csnstrcenter / csnstrljust / csnstrrjust pad with spaces to a width in
+    ; bytes (np.strings on bytes); center puts the odd space on the left when
+    ; the width is odd, as CPython does, and a longer string stays as it is
+    SStrJustItems[] fillarray "ab", "abc", "abcdef"
+    iStrJustSrc:CsnStr = csnfromarray(SStrJustItems)
+    iStrCenter:CsnStr = csnstrcenter(iStrJustSrc, 5)
+    iStrCenter4:CsnStr = csnstrcenter(iStrJustSrc, 4)
+    iStrLJust:CsnStr = csnstrljust(iStrJustSrc, 4)
+    iStrRJust:CsnStr = csnstrrjust(iStrJustSrc, 4)
+    SStrCenter0 = iStrCenter[0]
+    SStrCenter4_1 = iStrCenter4[1]
+    SStrCenter2 = iStrCenter[2]
+    SStrLJust0 = iStrLJust[0]
+    SStrRJust0 = iStrRJust[0]
+    iStrCenter0Cmp = strcmp(SStrCenter0, "  ab ")
+    iStrCenter4_1Cmp = strcmp(SStrCenter4_1, "abc ")
+    iStrCenter2Cmp = strcmp(SStrCenter2, "abcdef")
+    iStrLJust0Cmp = strcmp(SStrLJust0, "ab  ")
+    iStrRJust0Cmp = strcmp(SStrRJust0, "  ab")
+    assert(iStrCenter0Cmp == 0 && iStrCenter4_1Cmp == 0 && iStrCenter2Cmp == 0 && iStrLJust0Cmp == 0 && iStrRJust0Cmp == 0)
+    ; in place the text moves right inside its own, grown, buffer
+    csnstrrjust(iStrJustSrc, 4)
+    csnstrcenter(iStrJustSrc, 7)
+    SStrJustIn0 = iStrJustSrc[0]
+    SStrJustIn2 = iStrJustSrc[2]
+    iStrJustIn0Cmp = strcmp(SStrJustIn0, "    ab ")
+    iStrJustIn2Cmp = strcmp(SStrJustIn2, " abcdef")
+    csnstrljust(iStrJustSrc, 8)
+    SStrJustIn1 = iStrJustSrc[1]
+    iStrJustIn1Cmp = strcmp(SStrJustIn1, "   abc  ")
+    assert(iStrJustIn0Cmp == 0 && iStrJustIn2Cmp == 0 && iStrJustIn1Cmp == 0)
+    ; with a fill character, one byte, in place of the space
+    SStrFillItems[] fillarray "ab", "7"
+    iStrFillSrc:CsnStr = csnfromarray(SStrFillItems)
+    iStrFillC:CsnStr = csnstrcenter(iStrFillSrc, 5, "*")
+    iStrFillL:CsnStr = csnstrljust(iStrFillSrc, 4, "-")
+    iStrFillR:CsnStr = csnstrrjust(iStrFillSrc, 3, "0")
+    SStrFillC0 = iStrFillC[0]
+    SStrFillL0 = iStrFillL[0]
+    SStrFillR1 = iStrFillR[1]
+    iStrFillC0Cmp = strcmp(SStrFillC0, "**ab*")
+    iStrFillL0Cmp = strcmp(SStrFillL0, "ab--")
+    iStrFillR1Cmp = strcmp(SStrFillR1, "007")
+    assert(iStrFillC0Cmp == 0 && iStrFillL0Cmp == 0 && iStrFillR1Cmp == 0)
+    csnstrrjust(iStrFillSrc, 3, "0")
+    csnstrljust(iStrFillSrc, 4, ".")
+    csnstrcenter(iStrFillSrc, 6, "=")
+    SStrFillIn0 = iStrFillSrc[0]
+    SStrFillIn1 = iStrFillSrc[1]
+    iStrFillIn0Cmp = strcmp(SStrFillIn0, "=0ab.=")
+    iStrFillIn1Cmp = strcmp(SStrFillIn1, "=007.=")
+    assert(iStrFillIn0Cmp == 0 && iStrFillIn1Cmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -5260,6 +5313,8 @@ e
 ; csnstrtitle csnstrtitle.in
 ; csnstrstrip csnstrstrip.in csnstrlstrip csnstrlstrip.in csnstrrstrip csnstrrstrip.in
 ; csnstrstrip.ch csnstrstrip.in.ch csnstrlstrip.ch csnstrlstrip.in.ch csnstrrstrip.ch csnstrrstrip.in.ch
+; csnstrcenter csnstrcenter.in csnstrljust csnstrljust.in csnstrrjust csnstrrjust.in
+; csnstrcenter.fill csnstrcenter.in.fill csnstrljust.fill csnstrljust.in.fill csnstrrjust.fill csnstrrjust.in.fill
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd
