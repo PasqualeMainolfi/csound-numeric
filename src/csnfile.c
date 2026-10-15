@@ -54,7 +54,7 @@ static void csnfile_write_header(CSN_FILE_HEADER *header, CSN_ARRAY *arr) {
     if (arr->itype == CSN_STRING) {
         uint64_t bytes = 0;
         for (size_t i = 0; i < arr->size; i++) {
-            const char *item = arr->sdata[i];
+            const char *item = arr->sdata[i].data;
             bytes += sizeof(uint32_t) + (item != NULL ? strlen(item) : 0);
         }
         header->data_bytes = bytes;
@@ -65,7 +65,7 @@ static void csnfile_write_header(CSN_FILE_HEADER *header, CSN_ARRAY *arr) {
 
 static int32_t csnfile_write_strings(FILE *fptr, const CSN_ARRAY *arr) {
     for (size_t i = 0; i < arr->size; i++) {
-        const char *item = arr->sdata[i] != NULL ? arr->sdata[i] : "";
+        const char *item = arr->sdata[i].data != NULL ? arr->sdata[i].data : "";
         size_t length = strlen(item);
         if (length > UINT32_MAX) return NOTOK;
         uint32_t length32 = (uint32_t) length;
@@ -384,7 +384,7 @@ static int32_t format_array_dimension(CSOUND *csound, CSN_PRINT_BUFFER *buffer, 
                     break;
                 case CSN_STRING:
                     /* quoted as numpy prints them; a slot never written is "" */
-                    res = print_buffer_append(csound, buffer, "'%s'", arr->sdata[offset] != NULL ? arr->sdata[offset] : "");
+                    res = print_buffer_append(csound, buffer, "'%s'", arr->sdata[offset].data != NULL ? arr->sdata[offset].data : "");
                     break;
             }
             if (res != OK) return NOTOK;
@@ -561,7 +561,7 @@ static int32_t numpy_write_strings(FILE *fptr, const CSN_ARRAY *arr, size_t widt
     uint8_t chunk[4096];
     size_t used = 0;
     for (size_t i = 0; i < arr->size; i++) {
-        const unsigned char *p = (const unsigned char *) (arr->sdata[i] != NULL ? arr->sdata[i] : "");
+        const unsigned char *p = (const unsigned char *) (arr->sdata[i].data != NULL ? arr->sdata[i].data : "");
         for (size_t written = 0; written < width; written++) {
             uint32_t code_point = 0;
             if (*p != '\0') p += utf8_decode(p, &code_point);
@@ -588,7 +588,7 @@ CSN_FILE_ERROR_CODE csnfile_save_array_to_numpy_file(CSN_ARRAY *arr, const char 
     char string_fmt[32];
     if (arr->itype == CSN_STRING) {
         for (size_t i = 0; i < arr->size; i++) {
-            size_t length = arr->sdata[i] != NULL ? utf8_length(arr->sdata[i]) : 0;
+            size_t length = arr->sdata[i].data != NULL ? utf8_length(arr->sdata[i].data) : 0;
             if (length > width) width = length;
         }
         if (width > SIZE_MAX / 4 || (arr->size > 0 && width * 4 > SIZE_MAX / arr->size)) return CSN_FILE_EXCEEDS_SIZE_LIMIT;

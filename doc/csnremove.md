@@ -21,8 +21,9 @@ A complex array's one-element form returns a `:Complex;`.
 On a `:CsnStr;` the one-element form returns the string as a copy in an `S`
 variable. The array only closes the gap without allocating, so its k form is
 allowed on a [real-time path](csnrtlock.md). The block form returns a
-`:CsnStr;` holding its own copies of the strings; copying allocates, so its k
-form is refused there. See [string arrays](string-arrays.md).
+`:CsnStr;` holding its own copies of the strings; there its k form writes into
+the room the output's slots already hold and stops with a performance error at
+the first string that does not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

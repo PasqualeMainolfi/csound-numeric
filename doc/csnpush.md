@@ -18,9 +18,11 @@ performance.
 
 A complex array takes a `:Complex;` value. [csnpop](csnpop.md) is the inverse.
 
-A `:CsnStr;` takes an `S` value and stores its own copy of it. Storing a copy
-allocates, so the k form is refused on a [real-time path](csnrtlock.md) on
-every pass that pushes, even within the reserved capacity. See [string
+A `:CsnStr;` takes an `S` value and stores its own copy of it in the slot just
+past the end, where a pop left the string it dropped. On a [real-time
+path](csnrtlock.md) the k form runs as long as the value fits that slot (a
+push after a pop of the same string always does) and stops with a performance
+error, changing nothing, when it does not. See [string
 arrays](string-arrays.md).
 
 ## Syntax

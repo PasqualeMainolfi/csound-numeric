@@ -305,10 +305,10 @@ void fisher_yates(PCG32_STATE *rng, double *data, size_t size) {
 /* The same draws as fisher_yates, so a seed gives the same permutation to
    numbers and strings. The strings only change places: nothing is allocated,
    which keeps a shuffle usable on a real-time path. */
-void fisher_yates_strings(PCG32_STATE *rng, char **data, size_t size) {
+void fisher_yates_strings(PCG32_STATE *rng, CSN_STRDATA *data, size_t size) {
     for (size_t i = size - 1; i > 0; --i) {
         uint32_t j = pcg32_bounded_u32(rng, (uint32_t) (i + 1));
-        char *temp = data[i];
+        CSN_STRDATA temp = data[i];
         data[i] = data[j];
         data[j] = temp;
     }
@@ -382,39 +382,33 @@ int32_t csn_locked_perf_error(CSOUND *csound, OPDS *h, const char *fmt, ...) {
 }
 
 /* Copies src's items into dest, which already holds src->size slots. Every
-   string slot owns its string, so a CsnStr is copied string by string, and
-   allocates: a k form calls this only off the real-time path. */
-void CSN_MEMCPY(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src) {
-    if (src->itype == CSN_STRING) {
-        for (size_t i = 0; i < src->size; i++) {
-            if (dest->sdata[i] != NULL) csound->Free(csound, dest->sdata[i]);
-            dest->sdata[i] = csound->Strdup(csound, src->sdata[i]);
-        }
-    } else {
-        memcpy(dest->data, src->data, sizeof(double) * src->size * src->itype);
-    }
+   string slot owns its string, so a CsnStr is copied string by string, into
+   the slot's buffer through w: a string longer than its slot grows it, or
+   stops a pass on a real-time path (w's error, already reported). */
+int32_t CSN_MEMCPY(CSN_STR_WRITER *w, CSN_ARRAY *dest, const CSN_ARRAY *src) {
+    return CSN_MEMCPY_OFFSETBY(w, dest, src, src->size, 0, 0);
 }
 
 /* CSN_MEMCPY over size items from src_base to dst_base. dest and src must be
-   different arrays: a string slot is released before the copy is made. */
-void CSN_MEMCPY_OFFSETBY(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src, size_t size, size_t dst_base, size_t src_base) {
+   different arrays, or the two runs must not overlap. */
+int32_t CSN_MEMCPY_OFFSETBY(CSN_STR_WRITER *w, CSN_ARRAY *dest, const CSN_ARRAY *src, size_t size, size_t dst_base, size_t src_base) {
     if (src->itype == CSN_STRING) {
         for (size_t i = 0; i < size; i++) {
-            if (dest->sdata[i + dst_base] != NULL) csound->Free(csound, dest->sdata[i + dst_base]);
-            dest->sdata[i + dst_base] = csound->Strdup(csound, src->sdata[i + src_base]);
+            if (csn_str_write(w, &dest->sdata[i + dst_base], src->sdata[i + src_base].data) != OK) return w->err;
         }
     } else {
         memcpy(dest->data + dst_base * src->itype, src->data + src_base * src->itype, sizeof(double) * size * src->itype);
     }
+    return OK;
 }
 
-/* Zeroes size items from offset; a string slot is released and left NULL,
-   which reads as "". */
+/* Zeroes size items from offset; a string slot is emptied to "" and keeps
+   its buffer. */
 void CSN_MEMSET(CSOUND *csound, CSN_ARRAY *src, size_t size, size_t offset) {
+    (void) csound;
     if (src->itype == CSN_STRING) {
         for (size_t i = offset; i < offset + size; i++) {
-            if (src->sdata[i] != NULL) csound->Free(csound, src->sdata[i]);
-            src->sdata[i] = NULL;
+            if (src->sdata[i].data != NULL) src->sdata[i].data[0] = '\0';
         }
     } else {
         memset(src->data + offset * src->itype, 0, sizeof(double) * size * src->itype);
@@ -485,18 +479,20 @@ bool CAN_REUSE_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const C
 
 /* CAN_REUSE_ELEMENTWISE with string parameters. A STRINGDAT carries no
    version, and its buffer is rewritten in place, so the previous value is
-   compared against the copy PUBLISH_STRING_ELEMENTWISE kept. */
-static bool same_kept_string(const char *kept, const char *value) {
-    if (value == NULL) return kept == NULL;
-    return kept != NULL && strcmp(kept, value) == 0;
+   compared against the copy PUBLISH_STRING_ELEMENTWISE kept. An absent value
+   (NULL) matches only an absent copy. */
+static bool same_kept_string(const CSN_STRDATA *kept, const char *value) {
+    if (value == NULL) return kept->data == NULL;
+    return kept->data != NULL && strcmp(kept->data, value) == 0;
 }
 
 bool CAN_REUSE_STRING_ELEMENTWISE(const K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b) {
     if (arr_a == NULL || arr_a->data == NULL) return false;
+    if (k_data->prev_strings_stale) return false;
     if (out_arr != NULL && (arr_a == out_arr || arr_b == out_arr)) return false;
     if (!is_same_array_version(&arr_a->version, &k_data->prev_source_version)) return false;
     if (arr_b != NULL && !is_same_array_version(&arr_b->version, &k_data->prev_source_version_b)) return false;
-    if (!same_kept_string(k_data->prev_string, value_a) || !same_kept_string(k_data->prev_string_b, value_b)) return false;
+    if (!same_kept_string(&k_data->prev_string, value_a) || !same_kept_string(&k_data->prev_string_b, value_b)) return false;
     if (out_arr == NULL) return true;
     return is_same_array_version(&out_arr->version, &k_data->prev_output_version);
 }
@@ -510,26 +506,41 @@ void PUBLISH_ELEMENTWISE(K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY
     if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
 }
 
-static void keep_string(CSOUND *csound, char **kept, const char *value) {
-    if (same_kept_string(*kept, value)) return;
-    if (*kept != NULL) csound->Free(csound, *kept);
-    *kept = value != NULL ? csound->Strdup(csound, value) : NULL;
+/* Without may_grow the copy is written only into the buffer it already has:
+   false says it did not fit and nothing was kept. */
+static bool keep_string(CSOUND *csound, CSN_STRDATA *kept, const char *value, bool may_grow) {
+    if (value == NULL) {
+        csn_str_release(csound, kept);
+        return true;
+    }
+    if (same_kept_string(kept, value)) return true;
+    if (!may_grow && strlen(value) + 1 > kept->capacity) return false;
+    return csn_str_set(csound, kept, value) == OK;
 }
 
-/* The strings are copied, and the copies belong to k_data: the opcode releases
-   them with csn_kdata_release_strings at deinit, and before a reinit. Only a
-   changed value allocates. */
-void PUBLISH_STRING_ELEMENTWISE(CSOUND *csound, K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b) {
-    keep_string(csound, &k_data->prev_string, value_a);
-    keep_string(csound, &k_data->prev_string_b, value_b);
+/* Keeps copies of the string parameters in k_data, which owns them: the
+   opcode releases them with csn_kdata_release_strings at deinit, and before a
+   reinit. A changed value is written into the copy's buffer, so it allocates
+   only when it outgrows it, and never without may_grow (a pass on a real-time
+   path): a copy that does not fit marks k_data stale, and every pass computes
+   until one fits again. A k init calls this alone to reserve the buffers. */
+void csn_kdata_keep_strings(CSOUND *csound, K_DATA *k_data, const char *value_a, const char *value_b, bool may_grow) {
+    bool kept_a = keep_string(csound, &k_data->prev_string, value_a, may_grow);
+    bool kept_b = keep_string(csound, &k_data->prev_string_b, value_b, may_grow);
+    k_data->prev_strings_stale = !kept_a || !kept_b;
+}
+
+void PUBLISH_STRING_ELEMENTWISE(CSOUND *csound, K_DATA *k_data, const CSN_ARRAY *arr_a, const CSN_ARRAY *arr_b, const CSN_ARRAY *out_arr, const char *value_a, const char *value_b, bool may_grow) {
+    csn_kdata_keep_strings(csound, k_data, value_a, value_b, may_grow);
     set_array_version(&k_data->prev_source_version, &arr_a->version);
     if (arr_b != NULL) set_array_version(&k_data->prev_source_version_b, &arr_b->version);
     if (out_arr != NULL) set_array_version(&k_data->prev_output_version, &out_arr->version);
 }
 
 void csn_kdata_release_strings(CSOUND *csound, K_DATA *k_data) {
-    keep_string(csound, &k_data->prev_string, NULL);
-    keep_string(csound, &k_data->prev_string_b, NULL);
+    csn_str_release(csound, &k_data->prev_string);
+    csn_str_release(csound, &k_data->prev_string_b);
+    k_data->prev_strings_stale = false;
 }
 
 bool IS_VALID_SHIFT(double shift) {
@@ -643,7 +654,8 @@ CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *r
             set_csnarray_layout(out, ndim, shape, size, itype);
             if (itype_changed) update_array_layout_version(&out->version, false, false, true);
             /* producers expect a zeroed buffer, as a fresh Calloc gives; for
-               strings that means every slot released and NULL */
+               strings that means every slot emptied to "", each keeping its
+               buffer for the strings the producer writes next */
             if (itype == CSN_STRING) {
                 clear_csnstrings(csound, out);
             } else {
@@ -672,6 +684,24 @@ CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *r
         bool rt = reg->rt_glock_global || reg->rt_glock_owner == h->insdshead;
         for (size_t i = 0; i < n_operands && !rt; i++) rt = operands[i]->rt_locked;
         out->rt_locked = rt;
+    }
+
+    /* A string output on a real-time path writes its k passes into the slots'
+       buffers, so they are sized here: room for the longest string an operand
+       holds, which is every string a copying form can place. A form that
+       makes longer strings (csnstradd, a pad's fill) computes at init or
+       reserves for itself. */
+    if (perf_h == NULL && out->rt_locked && itype == CSN_STRING && !aliased) {
+        size_t bytes = 1;
+        for (size_t i = 0; i < n_operands; i++) {
+            if (operands[i]->itype != CSN_STRING) continue;
+            size_t longest = csn_str_longest(operands[i]);
+            if (longest > bytes) bytes = longest;
+        }
+        if (csn_str_reserve_slots(csound, out, bytes) != OK) {
+            res = csn_init_error(csound, "[csnarray] Out of memory: reserving the string slots of '%s' failed", get_out_name(h));
+            goto fail;
+        }
     }
 
     result.aliased = aliased;
@@ -1323,6 +1353,34 @@ static OENTRY localops[] = {
     { "csnputmask.s.hs",         S(CSN_PUTMASKSTRING),            0, "",                         ":CsnStr;:CsnArr;S",             (SUBR) csnstrings_putmask_hs,                NULL,                                   NULL,                                    NULL, 0 },
     { "csnputmask.s.hh.k",       S(CSN_PUTMASKSTRING),            0, "",                         ":CsnStr;:CsnArr;:CsnStr;P",     (SUBR) csnstrings_putmask_k_init,            (SUBR) csnstrings_putmask_hh_k,         NULL,                                    NULL, 0 },
     { "csnputmask.s.hs.k",       S(CSN_PUTMASKSTRING),            0, "",                         ":CsnStr;:CsnArr;SP",            (SUBR) csnstrings_putmask_k_init,            (SUBR) csnstrings_putmask_hs_k,         NULL,                                    NULL, 0 },
+    { "csnstradd",               S(CSN_BINOP_HH),                 0, ":CsnStr;",                 ":CsnStr;:CsnStr;",              (SUBR) csnstrings_add_hh,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstradd.k",             S(CSN_BINOP_HH),                 0, ":CsnStr;",                 ":CsnStr;:CsnStr;k",             (SUBR) csnstrings_add_hh_k_init,             (SUBR) csnstrings_add_hh_k,             NULL,                                    NULL, 0 },
+    { "csnstradd.hs",            S(CSN_BINOPSTRING_HS),           0, ":CsnStr;",                 ":CsnStr;S",                     (SUBR) csnstrings_add_hs,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstradd.hs.k",          S(CSN_BINOPSTRING_HS),           0, ":CsnStr;",                 ":CsnStr;SP",                    (SUBR) csnstrings_add_hs_k_init,             (SUBR) csnstrings_add_hs_k,             (SUBR) csnstrings_add_hs_deinit,         NULL, 0 },
+    { "csnstradd.sh",            S(CSN_BINOPSTRING_SH),           0, ":CsnStr;",                 "S:CsnStr;",                     (SUBR) csnstrings_add_sh,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstradd.sh.k",          S(CSN_BINOPSTRING_SH),           0, ":CsnStr;",                 "S:CsnStr;P",                    (SUBR) csnstrings_add_sh_k_init,             (SUBR) csnstrings_add_sh_k,             (SUBR) csnstrings_add_sh_deinit,         NULL, 0 },
+    { "csnstrmul",               S(CSN_BINOP_HH),                 0, ":CsnStr;",                 ":CsnStr;:CsnArr;",              (SUBR) csnstrings_mul_hh,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrmul.k",             S(CSN_BINOP_HH),                 0, ":CsnStr;",                 ":CsnStr;:CsnArr;k",             (SUBR) csnstrings_mul_hh_k_init,             (SUBR) csnstrings_mul_hh_k,             NULL,                                    NULL, 0 },
+    { "csnstrmul.hs",            S(CSN_BINOP_HS),                 0, ":CsnStr;",                 ":CsnStr;i",                     (SUBR) csnstrings_mul_hs,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrmul.hs.k",          S(CSN_BINOP_HS),                 0, ":CsnStr;",                 ":CsnStr;kP",                    (SUBR) csnstrings_mul_hs_k_init,             (SUBR) csnstrings_mul_hs_k,             NULL,                                    NULL, 0 },
+    { "csnstrlower",             S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;",                      (SUBR) csnstrings_lower,                     NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrlower.k",           S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;P",                     (SUBR) csnstrings_lower_k_init,              (SUBR) csnstrings_lower_k,              NULL,                                    NULL, 0 },
+    { "csnstrlower.in",          S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;",                      (SUBR) csnstrings_lower_in,                  NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrlower.in.k",        S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;P",                     (SUBR) csnstrings_lower_in_k_init,           (SUBR) csnstrings_lower_in_k,           NULL,                                    NULL, 0 },
+    { "csnstrupper",             S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;",                      (SUBR) csnstrings_upper,                     NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrupper.k",           S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;P",                     (SUBR) csnstrings_upper_k_init,              (SUBR) csnstrings_upper_k,              NULL,                                    NULL, 0 },
+    { "csnstrupper.in",          S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;",                      (SUBR) csnstrings_upper_in,                  NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrupper.in.k",        S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;P",                     (SUBR) csnstrings_upper_in_k_init,           (SUBR) csnstrings_upper_in_k,           NULL,                                    NULL, 0 },
+    { "csnstrcapitalize",        S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;",                      (SUBR) csnstrings_capitalize,                NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrcapitalize.k",      S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;P",                     (SUBR) csnstrings_capitalize_k_init,         (SUBR) csnstrings_capitalize_k,         NULL,                                    NULL, 0 },
+    { "csnstrcapitalize.in",     S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;",                      (SUBR) csnstrings_capitalize_in,             NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrcapitalize.in.k",   S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;P",                     (SUBR) csnstrings_capitalize_in_k_init,      (SUBR) csnstrings_capitalize_in_k,      NULL,                                    NULL, 0 },
+    { "csnstrswapcase",          S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;",                      (SUBR) csnstrings_swapcase,                  NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrswapcase.k",        S(CSN_UNARYOP),                  0, ":CsnStr;",                 ":CsnStr;P",                     (SUBR) csnstrings_swapcase_k_init,           (SUBR) csnstrings_swapcase_k,           NULL,                                    NULL, 0 },
+    { "csnstrswapcase.in",       S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;",                      (SUBR) csnstrings_swapcase_in,               NULL,                                   NULL,                                    NULL, 0 },
+    { "csnstrswapcase.in.k",     S(CSN_UNARYOP_IN),               0, "",                         ":CsnStr;P",                     (SUBR) csnstrings_swapcase_in_k_init,        (SUBR) csnstrings_swapcase_in_k,        NULL,                                    NULL, 0 },
+
+
 
     { "csnminimum.hh",           S(CSN_BINOP_HH),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;",              (SUBR) csnarray_minimum_hh,                  NULL,                                   NULL,                                    NULL, 0 },
     { "csnminimum.hh.k",         S(CSN_BINOP_HH),                 0, ":CsnArr;",                 ":CsnArr;:CsnArr;P",             (SUBR) csnarray_minimum_hh_k_init,           (SUBR) csnarray_minimum_hh_k,           NULL,                                    NULL, 0 },

@@ -19,8 +19,10 @@ and the real `value` fills the real lane with the imaginary lane at zero. Use
 
 On a `:CsnStr;` source the fill value is a string. A string argument has no i
 and k forms of its own, so the k form takes a trigger and refills only when it
-is non-zero; it allocates, so it is refused on a [real-time path](csnrtlock.md).
-See [string arrays](string-arrays.md).
+is non-zero. On a [real-time path](csnrtlock.md) it writes into the room its
+slots already hold and stops with a performance error at the first string that
+does not fit; onto its own source it checks every slot first and changes
+nothing when it stops. See [string arrays](string-arrays.md).
 
 ## Syntax
 

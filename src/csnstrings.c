@@ -3,26 +3,83 @@
 #include "csnum.h"
 #include "csnum_internal.h"
 #include "csnfile.h"
+#include <ctype.h>
+#include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include "arrays.h"
 
 
+/* Grows a slot to hold at least bytes bytes, terminator included, keeping
+   what it holds. A string that fits costs nothing; growth on a real-time path
+   is refused at perf, so an rt-locked output runs while its strings fit the
+   buffers reserved at init. */
+static int32_t refuse_string_growth(CSOUND *csound, OPDS *perf_h, size_t bytes, size_t capacity) {
+    return csn_locked_perf_error(csound, perf_h, "[csnarray] A string needs %zu bytes, its slot holds %zu, and growing it allocates at perf time on a real-time path; build it at i-rate so the slots reserve their room, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from", bytes, capacity);
+}
+
+/* Grows a slot to hold at least bytes bytes, terminator included, keeping
+   what it holds. A string that fits costs nothing; growth on a real-time path
+   is refused at perf, so an rt-locked output runs while its strings fit the
+   buffers reserved at init. */
+int32_t ensure_string_capacity(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *slot, size_t bytes, bool rt_locked) {
+    if (bytes <= slot->capacity) return OK;
+    if (perf_h != NULL && rt_locked) return refuse_string_growth(csound, perf_h, bytes, slot->capacity);
+    if (csn_str_reserve(csound, slot, bytes) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", bytes);
+    }
+    return OK;
+}
+
+/* Copies value into the slot through w; value may be the slot's own string,
+   and NULL stores "". */
+int32_t csn_str_write(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value) {
+    if (value == NULL) value = "";
+    if (value == slot->data) return OK;
+    size_t bytes = strlen(value) + 1;
+    int32_t res = ensure_string_capacity(w->csound, w->perf_h, slot, bytes, w->no_growth);
+    if (res != OK) return w->err = res;
+    memmove(slot->data, value, bytes);
+    return OK;
+}
+
+/* The error csn_str_write would raise for value, without writing anything.
+   An in-place pass asks this of every slot before it writes one, so a pass
+   that stops leaves the array as it was. */
+int32_t csn_str_check(CSN_STR_WRITER *w, const CSN_STRDATA *slot, const char *value) {
+    if (!w->no_growth || value == NULL || value == slot->data) return OK;
+    size_t bytes = strlen(value) + 1;
+    if (bytes <= slot->capacity) return OK;
+    return w->err = refuse_string_growth(w->csound, w->perf_h, bytes, slot->capacity);
+}
+
 static bool IS_VALID_STRINGDAT(const STRINGDAT *value) {
     return value != NULL && value->data != NULL;
 }
 
-/* Every slot owns its string, so one already there is released first: an
-   aliased output reaches here with its strings still in place. */
-static void fill_csnstrings(CSOUND *csound, CSN_ARRAY *array, const char *value) {
-    for (size_t i = 0; i < array->size; i++) {
-        if (array->sdata[i] != NULL) csound->Free(csound, array->sdata[i]);
-        array->sdata[i] = csound->Strdup(csound, value);
+/* Every slot owns its string, so the value is written into the slot's
+   buffer: an aliased output reaches here with its strings still in place. At
+   init a marked array gives the fill room in every slot it can grow into, so
+   a k pass that reshapes it within its capacity still writes in place. */
+static int32_t fill_csnstrings(CSN_STR_WRITER *w, CSN_ARRAY *array, const char *value) {
+    if (w->perf_h == NULL && array->rt_locked) {
+        if (csn_str_reserve_slots(w->csound, array, strlen(value) + 1) != OK) {
+            return w->err = csn_init_error(w->csound, "[csnarray] Out of memory: reserving the string slots failed");
+        }
     }
+    for (size_t i = 0; i < array->size; i++) {
+        int32_t res = csn_str_write(w, &array->sdata[i], value);
+        if (res != OK) return res;
+    }
+    return OK;
 }
 
-/* A string costs an allocation, so a k pass that writes strings cannot run on
-   a real-time path. The mark is decided at init, before the first pass. */
+/* For the k forms whose pass cannot write into reserved buffers: csnload
+   reads its strings fresh from the file, and the in-place forms that rebuild
+   the array in a working copy hand their buffers back and forth every pass.
+   Every other string writer goes through a CSN_STR_WRITER, which refuses only
+   the string that would grow its slot. The mark is decided at init. */
 int32_t check_strings_not_rt(CSOUND *csound, OPDS *h, const CSN_ARRAY *out) {
     if (!out->rt_locked) return OK;
     /* an in-place form has no output: name the array it writes */
@@ -99,10 +156,11 @@ int32_t create_fullstr_csnarray(CSOUND *csound, CSN_FULLSTR *p) {
     CSNARR_RES pres = create_csnarray_from_shape(csound, &p->h, reg, p->shape, p->handle, CSN_STRING);
     if (pres.err != OK) return pres.err;
 
-    fill_csnstrings(csound, p->handle, p->value->data);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    int32_t res = fill_csnstrings(&w, p->handle, p->value->data);
 
     if (pres.locked) csn_unlock(csound, reg);
-    return OK;
+    return res;
 }
 
 int32_t create_fullstr_csnarray_k_init(CSOUND *csound, CSN_FULLSTR *p) {
@@ -117,12 +175,9 @@ int32_t create_fullstr_csnarray_k(CSOUND *csound, CSN_FULLSTR *p) {
         return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
     }
 
-    int32_t res = check_strings_not_rt(csound, &p->h, p->handle);
-    if (res != OK) return res;
-
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
-    res = parse_shape_array_k(csound, &p->h, p->shape, &ndim, shape);
+    int32_t res = parse_shape_array_k(csound, &p->h, p->shape, &ndim, shape);
     if (res != OK) return res;
 
     size_t requested_size = 0;
@@ -134,7 +189,8 @@ int32_t create_fullstr_csnarray_k(CSOUND *csound, CSN_FULLSTR *p) {
     res = pres.err;
     if (res != OK) goto done;
 
-    fill_csnstrings(csound, p->handle, p->value->data);
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = fill_csnstrings(&w, p->handle, p->value->data);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -167,7 +223,8 @@ int32_t create_like_csnstrings(CSOUND *csound, CSN_STR_INIT_LIKE *p) {
     res = pres.err;
     if (res != OK) goto done;
 
-    fill_csnstrings(csound, p->handle, p->value->data);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = fill_csnstrings(&w, p->handle, p->value->data);
     /* An output that is its own source (ELEMENTWISE) reaches here untouched by
        prepare_output, which then moved no version: the fill has to. */
     if (pres.aliased) update_array_data_version(&p->handle->version);
@@ -191,9 +248,7 @@ int32_t create_like_csnstrings_k(CSOUND *csound, CSN_STR_INIT_LIKE *p) {
         return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
     }
 
-    int32_t res = check_strings_not_rt(csound, &p->h, p->handle);
-    if (res != OK) return res;
-
+    int32_t res = OK;
     CSN_ARRAY *source_arr = p->handle_from;
     uint32_t ndim = source_arr->ndim;
     uint32_t shape[CSN_MAX_DIMS] = {0};
@@ -210,8 +265,13 @@ int32_t create_like_csnstrings_k(CSOUND *csound, CSN_STR_INIT_LIKE *p) {
     if (res != OK) goto done;
 
     /* ELEMENTWISE has already refused an aliased output whose layout would
-       change, so the output has the requested layout either way */
-    fill_csnstrings(csound, p->handle, p->value->data);
+       change, so the output has the requested layout either way. In place the
+       slots are checked first, so a pass that stops leaves them as they were. */
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    if (pres.aliased) {
+        for (size_t i = 0; i < p->handle->size && res == OK; i++) res = csn_str_check(&w, &p->handle->sdata[i], p->value->data);
+    }
+    if (res == OK) res = fill_csnstrings(&w, p->handle, p->value->data);
     if (pres.aliased) update_array_data_version(&p->handle->version);
 
 done:
@@ -241,7 +301,7 @@ static int32_t csnstrings_get_locked(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_
     int32_t res = csnarray_resolve_item(csound, perf_h, source_arr, indexes, CSN_STRING, &offset);
     if (res != OK) return res;
 
-    COPY_STRING_TO_STRINGDAT(csound, h, out, source_arr->sdata[offset]);
+    COPY_STRING_TO_STRINGDAT(csound, h, out, source_arr->sdata[offset].data);
     return OK;
 }
 
@@ -256,16 +316,14 @@ static int32_t csnstrings_set_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
 
     /* Compared first, as the numeric csnset does: a k-rate set that stores the
        same string every pass is not a write, and it allocates nothing. */
-    char *stored = source_arr->sdata[offset];
+    const char *stored = source_arr->sdata[offset].data;
     if (stored != NULL && strcmp(stored, value) == 0) return OK;
 
-    /* Only a real change allocates, so only then is the rt mark in the way. */
-    if (perf_h != NULL && source_arr->rt_locked) {
-        return csn_locked_perf_error(csound, perf_h, "[csnarray] Writing a string allocates at perf time and the array is on a real-time path; set it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from");
-    }
-
-    if (stored != NULL) csound->Free(csound, stored);
-    source_arr->sdata[offset] = csound->Strdup(csound, value);
+    /* The string goes into the slot's buffer: on a real-time path one that
+       does not fit is refused, before anything changes. */
+    CSN_STR_WRITER w = csn_str_writer(csound, perf_h, source_arr);
+    res = csn_str_write(&w, &source_arr->sdata[offset], value);
+    if (res != OK) return res;
     update_array_data_version(&source_arr->version);
     return OK;
 }
@@ -419,7 +477,7 @@ int32_t from_array_to_csnstrings(CSOUND *csound, CSN_FROM_ARRAY *p) {
 
     const STRINGDAT *items = (const STRINGDAT *) p->source->data;
     for (size_t i = 0; i < total_size; i++) {
-        p->handle->sdata[i] = csound->Strdup(csound, items[i].data != NULL ? items[i].data : "");
+        csn_str_set(csound, &p->handle->sdata[i], items[i].data);
     }
 
     p->registry = reg;
@@ -462,16 +520,14 @@ int32_t from_array_to_csnstrings_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
         return csn_perf_error(csound, &p->h, "[csnarray] Source shape is invalid or its element count exceeds the configured limit");
     }
 
-    int32_t res = check_strings_not_rt(csound, &p->h, p->handle);
-    if (res != OK) return res;
-
     CSNARR_RES pres = prepare_output(csound, &p->h, &p->h, reg, p->handle, ndim, shape, CSN_STRING, NULL, 0, CSN_ALIAS_REFUSE);
-    res = pres.err;
+    int32_t res = pres.err;
     if (res != OK) goto done;
 
     const STRINGDAT *items = (const STRINGDAT *) p->source->data;
-    for (size_t i = 0; i < requested_size; i++) {
-        p->handle->sdata[i] = csound->Strdup(csound, items[i].data != NULL ? items[i].data : "");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    for (size_t i = 0; i < requested_size && res == OK; i++) {
+        res = csn_str_write(&w, &p->handle->sdata[i], items[i].data);
     }
 
 done:
@@ -532,7 +588,7 @@ int32_t from_csnstrings_to_array(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     STRINGDAT *items = (STRINGDAT *) p->array->data;
     for (size_t i = 0; i < total_size; i++) {
-        COPY_STRING_TO_STRINGDAT(csound, &p->h, &items[i], src->sdata[i]);
+        COPY_STRING_TO_STRINGDAT(csound, &p->h, &items[i], src->sdata[i].data);
     }
 
 done:
@@ -592,7 +648,7 @@ int32_t from_csnstrings_to_array_k(CSOUND *csound, CSN_TO_ARRAY *p) {
 
     STRINGDAT *items = (STRINGDAT *) p->array->data;
     for (size_t i = 0; i < total_size; i++) {
-        COPY_STRING_TO_STRINGDAT(csound, &p->h, &items[i], src->sdata[i]);
+        COPY_STRING_TO_STRINGDAT(csound, &p->h, &items[i], src->sdata[i].data);
     }
 
 done:
@@ -633,7 +689,9 @@ static int32_t load_strings_into(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGI
     int32_t res = pres.err;
     if (res == OK) {
         for (size_t i = 0; i < size; i++) {
-            out->sdata[i] = items[i];
+            csn_str_release(csound, &out->sdata[i]);
+            out->sdata[i].data = items[i];
+            out->sdata[i].capacity = strlen(items[i]) + 1;
             items[i] = NULL;
         }
     }
@@ -696,10 +754,10 @@ int32_t csnload_strings_k(CSOUND *csound, CSN_LOAD *p) {
 }
 
 /* Writes source's strings into destination in transposed order. A copy
-   duplicates every string, releasing what destination held; in place, source
-   and destination hold the same strings, so the pointers are only permuted
-   (into a scratch buffer the caller copies back) and nothing is allocated. */
-int32_t transpose_stringdata_assign(CSOUND *csound, char **source, char **destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, bool in_place) {
+   writes every string into destination's slots; in place, source and
+   destination hold the same strings, so the slots are only permuted (into a
+   scratch buffer the caller copies back) and nothing is allocated. */
+int32_t transpose_stringdata_assign(CSN_STR_WRITER *w, CSN_STRDATA *source, CSN_STRDATA *destination, size_t size, uint32_t ndim, const uint32_t *shape, const size_t *strides, const uint32_t *axes, bool in_place) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, ndim, shape, size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -712,24 +770,25 @@ int32_t transpose_stringdata_assign(CSOUND *csound, char **source, char **destin
         if (in_place) {
             destination[linear] = source[src_index];
         } else {
-            if (destination[linear] != NULL) csound->Free(csound, destination[linear]);
-            destination[linear] = csound->Strdup(csound, source[src_index]);
+            int32_t res = csn_str_write(w, &destination[linear], source[src_index].data);
+            if (res != OK) return res;
         }
     }
 
     return OK;
 }
 
-/* Moving strings around inside one array only swaps the slots' pointers: each
-   string keeps its single owner and nothing is allocated, so the in-place
-   flip, roll and reverse are safe on a real-time path. */
-void swap_strings(char **data, size_t a, size_t b) {
-    char *tmp = data[a];
+/* Moving strings around inside one array only swaps the slots, buffer and
+   capacity together: each string keeps its single owner and nothing is
+   allocated, so the in-place flip, roll and reverse are safe on a real-time
+   path. */
+void swap_strings(CSN_STRDATA *data, size_t a, size_t b) {
+    CSN_STRDATA tmp = data[a];
     data[a] = data[b];
     data[b] = tmp;
 }
 
-static void reverse_string_run(char **data, size_t base, size_t count, size_t stride) {
+static void reverse_string_run(CSN_STRDATA *data, size_t base, size_t count, size_t stride) {
     if (count < 2) return;
     size_t lo = 0;
     size_t hi = count - 1;
@@ -741,7 +800,7 @@ static void reverse_string_run(char **data, size_t base, size_t count, size_t st
 }
 
 /* item i of the run moves to (i + shift) mod count, as numpy.roll does */
-void rotate_string_run(char **data, size_t base, size_t count, size_t stride, int32_t shift) {
+void rotate_string_run(CSN_STRDATA *data, size_t base, size_t count, size_t stride, int32_t shift) {
     if (count < 2) return;
     int64_t k = (int64_t) shift % (int64_t) count;
     if (k < 0) k += (int64_t) count;
@@ -757,7 +816,7 @@ void reverse_string_in_place(CSN_ARRAY *arr) {
     }
 }
 
-int32_t concat_block_string_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination, uint32_t axis) {
+int32_t concat_block_string_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination, uint32_t axis) {
     uint32_t source_axis_extent = source_arr->size == 0 ? 0U : source_arr->shape[axis];
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, destination->ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
@@ -769,23 +828,23 @@ int32_t concat_block_string_assign_value(CSOUND *csound, const CSN_ARRAY *source
             for (uint32_t d = 0; d < source_arr->ndim; ++d) {
                 source_off += (size_t) it.coords[d] * source_arr->strides[d];
             }
-            from = source_arr->sdata[source_off];
+            from = source_arr->sdata[source_off].data;
         } else {
             size_t block_off = 0;
             for (uint32_t d = 0; d < data_arr->ndim; ++d) {
                 uint32_t coord = it.coords[d] - (d == axis ? source_axis_extent : 0U);
                 block_off += (size_t) coord * data_arr->strides[d];
             }
-            from = data_arr->sdata[block_off];
+            from = data_arr->sdata[block_off].data;
         }
-        if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
-        destination->sdata[linear] = csound->Strdup(csound, from);
+        int32_t res = csn_str_write(w, &destination->sdata[linear], from);
+        if (res != OK) return res;
     }
 
     return OK;
 }
 
-int32_t pad_assign_string_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN_ARRAY *destination, STRINGDAT *value, int32_t axis, uint32_t before) {
+int32_t pad_assign_string_value(CSN_STR_WRITER *w, const CSN_ARRAY *source_arr, CSN_ARRAY *destination, STRINGDAT *value, int32_t axis, uint32_t before) {
     bool source_is_empty = source_arr->size == 0;
 
     CSN_BROADCAST_ITER it;
@@ -807,8 +866,8 @@ int32_t pad_assign_string_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN
             }
         }
 
-        if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
-        destination->sdata[linear] = csound->Strdup(csound, is_inside ? source_arr->sdata[source_off] : value->data);
+        int32_t res = csn_str_write(w, &destination->sdata[linear], is_inside ? source_arr->sdata[source_off].data : value->data);
+        if (res != OK) return res;
     }
 
     return OK;
@@ -841,7 +900,18 @@ int32_t csnstrings_pad_k_init(CSOUND *csound, CSN_PADSTRING *p) {
         return csn_init_error(csound, "[csnarray] Invalid/NULL string");
     }
     csn_kdata_release_strings(csound, &p->k_data);
-    return csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, NULL, 0.0, NULL, p->value, CSN_STRING, axis_in);
+    int32_t res = csnarray_pad_k_init_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, NULL, 0.0, NULL, p->value, CSN_STRING, axis_in);
+    /* reserve the copy the perf pass compares against, and room in every
+       slot for the fill, so a pass on a real-time path allocates nothing */
+    if (res == OK) csn_kdata_keep_strings(csound, &p->k_data, p->value->data, NULL, true);
+    if (res == OK && p->handle->rt_locked) {
+        size_t bytes = strlen(p->value->data) + 1;
+        size_t longest = csn_str_longest(p->source_handle);
+        if (csn_str_reserve_slots(csound, p->handle, longest > bytes ? longest : bytes) != OK) {
+            res = csn_init_error(csound, "[csnarray] Out of memory: reserving the string slots of '%s' failed", get_out_name(&p->h));
+        }
+    }
+    return res;
 }
 
 int32_t csnstrings_pad_k(CSOUND *csound, CSN_PADSTRING *p) {
@@ -849,8 +919,6 @@ int32_t csnstrings_pad_k(CSOUND *csound, CSN_PADSTRING *p) {
     if (!IS_VALID_STRINGDAT(p->value)) {
         return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
     }
-    int32_t res = check_strings_not_rt(csound, &p->h, p->handle);
-    if (res != OK) return res;
     return csnarray_pad_k_helper(csound, &p->h, &p->k_data, p->handle, p->source_handle, p->before, p->after, 0.0, NULL, p->value, CSN_STRING, axis_in, p->arg_a);
 }
 
@@ -868,8 +936,9 @@ int32_t csnstrings_pad_in_k_init(CSOUND *csound, CSN_PADSTRING_IN *p) {
     return csnarray_pad_in_k_scratch_init(csound, &p->h, p->source_handle, CSN_STRING, &p->registry, &p->scratch);
 }
 
-/* The fill strings are allocated, so a source on a real-time path is refused
-   even in place. */
+/* In place the padded image is built in a working copy whose slots then
+   trade places with the source's, so the buffers move every pass and none
+   stays reserved: a source on a real-time path is refused. */
 int32_t csnstrings_pad_in_k(CSOUND *csound, CSN_PADSTRING_IN *p) {
     const cs_float *axis_in = p->INOCOUNT > 5 ? p->arg_b : NULL;
     if (!IS_VALID_STRINGDAT(p->value)) {
@@ -887,7 +956,7 @@ static int32_t take_flat_string_locked(CSOUND *csound, OPDS *perf_h, CSN_TAKESTR
     int32_t res = check_take_flat_body(csound, perf_h, arr, (double) *p->index, false);
     if (res != OK) return res;
 
-    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->value, arr->sdata[(size_t) *p->index]);
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->value, arr->sdata[(size_t) *p->index].data);
     return OK;
 }
 
@@ -947,16 +1016,23 @@ static int32_t check_popstring_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr
 
 /* Stores a copy of value at index, shifting the slots from index up by one.
    The slot at size, past the end, is the one the shift overwrites: its
-   string, if any, is released once the copy is in place. */
+   buffer moves to index and takes the copy, so a value that fits it (the
+   string a pop left there, say) allocates nothing. */
 static int32_t insertstring_at(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t index, const char *value) {
     size_t new_size = arr->size + 1;
     int32_t res = ensure_mutation_capacity(csound, perf_h, arr, new_size, arr->rt_locked);
     if (res != OK) return res;
 
-    char *dropped = arr->sdata[arr->size];
-    memmove(arr->sdata + index + 1, arr->sdata + index, sizeof(char *) * (arr->size - index));
-    arr->sdata[index] = csound->Strdup(csound, value);
-    if (dropped != NULL) csound->Free(csound, dropped);
+    /* on a real-time path the spare buffer must already hold the value */
+    CSN_STR_WRITER w = csn_str_writer(csound, perf_h, arr);
+    res = csn_str_check(&w, &arr->sdata[arr->size], value);
+    if (res != OK) return res;
+
+    CSN_STRDATA spare = arr->sdata[arr->size];
+    memmove(arr->sdata + index + 1, arr->sdata + index, sizeof(*arr->sdata) * (arr->size - index));
+    arr->sdata[index] = spare;
+    res = csn_str_write(&w, &arr->sdata[index], value);
+    if (res != OK) return res;
 
     arr->size = new_size;
     arr->shape[0] = (uint32_t) new_size;
@@ -968,11 +1044,11 @@ static int32_t insertstring_at(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, siz
 /* Hands the string at index to out and closes the gap; the string itself
    moves to the slot just past the new end. */
 static void removestring_at(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, size_t index, STRINGDAT *out) {
-    COPY_STRING_TO_STRINGDAT(csound, h, out, arr->sdata[index]);
+    COPY_STRING_TO_STRINGDAT(csound, h, out, arr->sdata[index].data);
 
-    char *removed = arr->sdata[index];
+    CSN_STRDATA removed = arr->sdata[index];
     size_t new_size = arr->size - 1;
-    memmove(arr->sdata + index, arr->sdata + index + 1, sizeof(char *) * (new_size - index));
+    memmove(arr->sdata + index, arr->sdata + index + 1, sizeof(*arr->sdata) * (new_size - index));
     arr->sdata[new_size] = removed;
 
     arr->size = new_size;
@@ -1018,14 +1094,10 @@ int32_t csnstrings_push_k(CSOUND *csound, CSN_PUSHSTRING_K *p) {
         return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
     }
 
-    /* the stored copy is an allocation */
-    int32_t res = check_strings_not_rt(csound, &p->h, p->source_handle);
-    if (res != OK) return res;
-
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
 
     CSN_ARRAY *arr = p->source_handle;
-    res = check_pushstring_body(csound, &p->h, arr);
+    int32_t res = check_pushstring_body(csound, &p->h, arr);
     if (res == OK) res = insertstring_at(csound, &p->h, arr, arr->size, p->in_value->data);
 
     if (locked) csn_unlock(csound, reg);
@@ -1115,12 +1187,8 @@ int32_t csnstrings_insert_k(CSOUND *csound, CSN_PUSHSTRING_K *p) {
         return csn_perf_error(csound, &p->h, "[csnarray] Invalid/NULL string");
     }
 
-    /* the stored copy is an allocation */
-    int32_t res = check_strings_not_rt(csound, &p->h, p->source_handle);
-    if (res != OK) return res;
-
     bool locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
-    res = insertstring_value_locked(csound, &p->h, p->source_handle, (double) *p->arg_a, p->in_value->data);
+    int32_t res = insertstring_value_locked(csound, &p->h, p->source_handle, (double) *p->arg_a, p->in_value->data);
     if (locked) csn_unlock(csound, reg);
     return res;
 }
@@ -1198,12 +1266,13 @@ static int32_t where_body_string(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *
     return OK;
 }
 
-static void where_string_assign(CSOUND *csound, CSN_ARRAY *out_arr, const CSN_ARRAY *mask_arr, const CSN_ARRAY *true_arr, const CSN_ARRAY *false_arr, const STRINGDAT *false_string) {
+static int32_t where_string_assign(CSN_STR_WRITER *w, CSN_ARRAY *out_arr, const CSN_ARRAY *mask_arr, const CSN_ARRAY *true_arr, const CSN_ARRAY *false_arr, const STRINGDAT *false_string) {
     for (size_t i = 0; i < out_arr->size; i++) {
-        const char *item = mask_arr->data[i] != 0.0 ? true_arr->sdata[i] : false_arr != NULL ? false_arr->sdata[i] : false_string->data;
-        if (out_arr->sdata[i] != NULL) csound->Free(csound, out_arr->sdata[i]);
-        out_arr->sdata[i] = csound->Strdup(csound, item);
+        const char *item = mask_arr->data[i] != 0.0 ? true_arr->sdata[i].data : false_arr != NULL ? false_arr->sdata[i].data : false_string->data;
+        int32_t res = csn_str_write(w, &out_arr->sdata[i], item);
+        if (res != OK) return res;
     }
+    return OK;
 }
 
 static bool same_string(const char *a, const char *b) {
@@ -1229,7 +1298,8 @@ static int32_t where_string_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *mask_arr,
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    where_string_assign(csound, out_arr, mask_arr, true_arr, false_arr, false_string);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, out_arr);
+    res = where_string_assign(&w, out_arr, mask_arr, true_arr, false_arr, false_string);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -1254,7 +1324,10 @@ int32_t csnstrings_where_deinit(CSOUND *csound, void *p) {
 }
 
 /* The operands may be k results their producers could not compute at init:
-   the output is laid out, reserved but empty, at the mask's shape. */
+   the output is then laid out, reserved but empty, at the mask's shape. When
+   they all hold their elements the selection is made here, which also gives
+   the slots (and the copy of the false string) the room a pass on a real-time
+   path writes into; the first pass still makes it again. */
 static int32_t where_string_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *mask_arr, CSN_ARRAY *true_arr, CSN_ARRAY *false_arr, CSN_ARRAY *out_arr, STRINGDAT *false_string, K_DATA *k_data, bool *is_published) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
@@ -1275,7 +1348,15 @@ static int32_t where_string_k_init_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *ma
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    reset_empty_csnarray(out_arr, mask_arr->ndim, mask_arr->shape, CSN_STRING);
+    bool filled = mask_arr->size > 0 && true_arr->size == mask_arr->size && (false_arr == NULL || false_arr->size == mask_arr->size);
+    if (filled) {
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, out_arr);
+        res = where_string_assign(&w, out_arr, mask_arr, true_arr, false_arr, false_string);
+        if (res != OK) goto done;
+        if (false_arr == NULL) csn_kdata_keep_strings(csound, k_data, false_string->data, NULL, true);
+    } else {
+        reset_empty_csnarray(out_arr, mask_arr->ndim, mask_arr->shape, CSN_STRING);
+    }
     SET_KDATA_BEGIN(*k_data, reg, mask_arr->shape, mask_arr->ndim, CSN_STRING);
     set_array_version(&k_data->prev_output_version, &out_arr->version);
     *is_published = false;
@@ -1291,10 +1372,7 @@ static int32_t where_string_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *mask_ar
 
     CHECK_KTRIG(trig);
 
-    /* a pass that selects strings copies them */
-    int32_t res = check_strings_not_rt(csound, h, out_arr);
-    if (res != OK) return res;
-
+    int32_t res = OK;
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out_arr, mask_arr, true_arr, false_arr }, 4);
 
@@ -1306,7 +1384,7 @@ static int32_t where_string_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *mask_ar
         bool is_same_true = is_same_array_version(&versions->prev_b_version, &true_arr->version);
         bool is_same_false = false_arr != NULL
             ? is_same_array_version(&versions->prev_c_version, &false_arr->version)
-            : same_string(k_data->prev_string, false_string->data);
+            : !k_data->prev_strings_stale && same_string(k_data->prev_string.data, false_string->data);
         bool is_same_result = is_same_array_version(&k_data->prev_output_version, &out_arr->version);
         if (is_same_mask && is_same_true && is_same_false && is_same_result) goto done;
     }
@@ -1318,7 +1396,9 @@ static int32_t where_string_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *mask_ar
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    where_string_assign(csound, out_arr, mask_arr, true_arr, false_arr, false_string);
+    CSN_STR_WRITER w = csn_str_writer(csound, h, out_arr);
+    res = where_string_assign(&w, out_arr, mask_arr, true_arr, false_arr, false_string);
+    if (res != OK) goto done;
 
     SET_KDATA_END(*k_data, out_arr->shape, out_arr->ndim, CSN_STRING);
     set_array_version(&k_data->prev_output_version, &out_arr->version);
@@ -1326,9 +1406,8 @@ static int32_t where_string_k_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *mask_ar
     set_array_version(&versions->prev_b_version, &true_arr->version);
     if (false_arr != NULL) {
         set_array_version(&versions->prev_c_version, &false_arr->version);
-    } else if (!same_string(k_data->prev_string, false_string->data)) {
-        if (k_data->prev_string != NULL) csound->Free(csound, k_data->prev_string);
-        k_data->prev_string = csound->Strdup(csound, false_string->data);
+    } else {
+        csn_kdata_keep_strings(csound, k_data, false_string->data, NULL, !out_arr->rt_locked);
     }
     *is_published = true;
 
@@ -1355,11 +1434,10 @@ int32_t csnstrings_where_hs_k(CSOUND *csound, CSN_WHERESTRING_HS *p) {
 
 /* csnputmask(dest, mask, values), as np.putmask: where the mask is non-zero
    dest takes the value, elsewhere it keeps its own. A slot that already holds
-   the value is left alone, as csnset leaves it, so a pass that changes
-   nothing allocates nothing. On a marked array at perf time the first slot
-   that would change stops the walk before anything is written, since the
-   slots before it were all unchanged. The copy is made before the old string
-   is released: values may be dest itself. */
+   the value is left alone, as csnset leaves it, and a value is written into
+   the slot's buffer. On a marked array at perf time a value that does not fit
+   its slot stops the pass before anything is written. values may be dest itself: the copy
+   goes into the slot's own buffer, which csn_str_set allows. */
 static int32_t putmask_string_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *dest, const CSN_ARRAY *mask_arr, const CSN_ARRAY *values_arr, const STRINGDAT *value) {
     int32_t res = check_string_mask(csound, perf_h, mask_arr, dest, "destination");
     if (res != OK) return res;
@@ -1371,21 +1449,20 @@ static int32_t putmask_string_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *de
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid/NULL string");
     }
 
-    bool refuse_alloc = perf_h != NULL && dest->rt_locked;
+    /* on a real-time path every slot is checked before one is written */
+    CSN_STR_WRITER w = csn_str_writer(csound, perf_h, dest);
     bool written = false;
-    for (size_t i = 0; i < dest->size; i++) {
-        if (mask_arr->data[i] == 0.0) continue;
-        const char *item = values_arr != NULL ? values_arr->sdata[i] : value->data;
-        if (item == NULL) item = "";
-        char *stored = dest->sdata[i];
-        if (stored != NULL && strcmp(stored, item) == 0) continue;
-        if (refuse_alloc) {
-            res = csn_locked_perf_error(csound, perf_h, "[csnarray] Writing a string allocates at perf time and the array is on a real-time path; set it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from");
-            break;
+    for (int32_t pass = w.no_growth ? 0 : 1; pass < 2 && res == OK; pass++) {
+        for (size_t i = 0; i < dest->size; i++) {
+            if (mask_arr->data[i] == 0.0) continue;
+            const char *item = values_arr != NULL ? values_arr->sdata[i].data : value->data;
+            if (item == NULL) item = "";
+            const char *stored = dest->sdata[i].data;
+            if (stored != NULL && strcmp(stored, item) == 0) continue;
+            res = pass == 0 ? csn_str_check(&w, &dest->sdata[i], item) : csn_str_write(&w, &dest->sdata[i], item);
+            if (res != OK) break;
+            written |= pass == 1;
         }
-        dest->sdata[i] = csound->Strdup(csound, item);
-        if (stored != NULL) csound->Free(csound, stored);
-        written = true;
     }
 
     if (written) update_array_data_version(&dest->version);
@@ -1437,4 +1514,739 @@ int32_t csnstrings_putmask_hs_k(CSOUND *csound, CSN_PUTMASKSTRING *p) {
     CHECK_REGISTRY(csound, &p->h, p->registry);
     CHECK_KTRIG(p->trig);
     return putmask_string_helper(csound, p, &p->h, NULL, (const STRINGDAT *) p->values);
+}
+
+/* ---------- csnstradd and csnstrmul ----------
+
+   Each result slot is written into its own buffer, so a pass allocates only
+   for a result longer than the slot held. On a real-time path a slot may not
+   grow: every slot is measured first and a pass that would grow one stops
+   before anything is written (ensure_string_capacity refuses it), leaving the
+   output as the previous pass left it. The output may be one of the operands
+   (X = csnstradd(X, Y)); its offset is then the linear index itself, so each
+   slot is read before it is written. */
+
+/* Measures the slot (probe) or writes a + b into it. */
+static int32_t concat_into_slot(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t i, const CSN_STRDATA *slot_a, const CSN_STRDATA *slot_b, const char *left, const char *right, bool probe) {
+    CSN_STRDATA *slot = &arr->sdata[i];
+    const char *a = slot_a != NULL ? slot_a->data : left;
+    const char *b = slot_b != NULL ? slot_b->data : right;
+    size_t la = a != NULL ? strlen(a) : 0;
+    size_t lb = b != NULL ? strlen(b) : 0;
+    int32_t res = ensure_string_capacity(csound, perf_h, slot, la + lb + 1, arr->rt_locked);
+    if (res != OK || probe) return res;
+
+    /* the slot may be an operand, and growing it may have moved it */
+    if (slot_a != NULL) a = slot_a->data;
+    if (slot_b != NULL) b = slot_b->data;
+    if (b == slot->data) {
+        /* b first: it sits at the start of the slot */
+        if (lb > 0) memmove(slot->data + la, b, lb);
+        if (la > 0) memmove(slot->data, a, la);
+    } else {
+        /* a first: it may sit at the start of the slot */
+        if (la > 0) memmove(slot->data, a, la);
+        if (lb > 0) memmove(slot->data + la, b, lb);
+    }
+    slot->data[la + lb] = '\0';
+    return OK;
+}
+
+static int32_t addstring_hh_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_BROADCAST_ITER *layout, const CSN_ARRAY *source_arr_a, const CSN_ARRAY *source_arr_b, CSN_ARRAY *arr) {
+    bool probe_first = perf_h != NULL && arr->rt_locked;
+    for (int32_t pass = probe_first ? 0 : 1; pass < 2; pass++) {
+        CSN_BROADCAST_ITER it = *layout;
+        while (BROADCAST_ITER_NEXT(&it)) {
+            int32_t res = concat_into_slot(csound, perf_h, arr, it.linear_index, &source_arr_a->sdata[it.offsets[0]], &source_arr_b->sdata[it.offsets[1]], NULL, NULL, pass == 0);
+            if (res != OK) return res;
+        }
+    }
+
+    return OK;
+}
+
+/* is_left puts the string before each element (csnstradd(S, X)). */
+static int32_t addstring_hs_sh_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_arr, const STRINGDAT *string, CSN_ARRAY *arr, bool is_left) {
+    bool probe_first = perf_h != NULL && arr->rt_locked;
+    for (int32_t pass = probe_first ? 0 : 1; pass < 2; pass++) {
+        for (size_t i = 0; i < source_arr->size; i++) {
+            const CSN_STRDATA *item = &source_arr->sdata[i];
+            int32_t res = is_left
+                ? concat_into_slot(csound, perf_h, arr, i, NULL, item, string->data, NULL, pass == 0)
+                : concat_into_slot(csound, perf_h, arr, i, item, NULL, NULL, string->data, pass == 0);
+            if (res != OK) return res;
+        }
+    }
+
+    return OK;
+}
+
+static int32_t string_broadcast_layout(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *a, const CSN_ARRAY *b, uint32_t *ndim, uint32_t *shape, CSN_BROADCAST_ITER *it) {
+    size_t size = 0;
+    size_t broad_strides[CSN_MAX_BROADCAST_INPUTS][CSN_MAX_DIMS] = {0};
+    const CSN_ARRAY *sources[2] = { a, b };
+
+    char abuf[CSN_SHAPE_STR_MAX], bbuf[CSN_SHAPE_STR_MAX];
+    if (BROADCAST_INIT(ndim, shape, &size, broad_strides, sources, 2) != OK || BROADCAST_ITER_INIT(it, *ndim, shape, size, broad_strides, 2) != OK) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Shapes %s and %s cannot be broadcast together: aligned from the last axis, each pair must match or be 1", shape_str(abuf, sizeof(abuf), a->shape, a->ndim), shape_str(bbuf, sizeof(bbuf), b->shape, b->ndim));
+    }
+
+    return OK;
+}
+
+/* ---------- csnstrmul ---------- */
+
+/* np.strings.multiply: a count below 0 repeats 0 times. A count must be a
+   whole number; it is checked before anything is written. */
+static bool is_repeat_count(double count) {
+    return isfinite(count) && trunc(count) == count;
+}
+
+static int32_t check_repeat_count(CSOUND *csound, OPDS *perf_h, double count) {
+    if (!is_repeat_count(count)) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] A repeat count must be a whole number, got %g", count);
+    }
+
+    return OK;
+}
+
+static int32_t strmul_counts_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *counts) {
+    if (counts->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Repeat counts must be a real array");
+    }
+    for (size_t i = 0; i < counts->size; i++) {
+        int32_t res = check_repeat_count(csound, perf_h, counts->data[i]);
+        if (res != OK) return res;
+    }
+
+    return OK;
+}
+
+/* Measures the slot (probe) or writes count copies of the item into it. */
+static int32_t repeat_into_slot(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, size_t i, const CSN_STRDATA *item, double count, bool probe) {
+    CSN_STRDATA *slot = &arr->sdata[i];
+    size_t la = item->data != NULL ? strlen(item->data) : 0;
+    /* past 2^63 any non-empty string overflows below; the cap keeps the
+       conversion defined */
+    size_t reps = count > 0.0 && la > 0 ? (size_t) fmin(count, 0x1p63) : 0;
+    if (reps > 0 && la > (SIZE_MAX - 1) / reps) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Repeating a %zu-byte string %g times overflows the string size", la, count);
+    }
+    size_t total = la * reps;
+    int32_t res = ensure_string_capacity(csound, perf_h, slot, total + 1, arr->rt_locked);
+    if (res != OK || probe) return res;
+
+    /* the item may be the slot itself, and growing it may have moved it; the
+       first copy goes in, then each step doubles what is already there */
+    if (total > 0 && item->data != slot->data) memmove(slot->data, item->data, la);
+    for (size_t done = la; done < total;) {
+        size_t chunk = done < total - done ? done : total - done;
+        memcpy(slot->data + done, slot->data, chunk);
+        done += chunk;
+    }
+    slot->data[total] = '\0';
+    return OK;
+}
+
+static int32_t strmul_hh_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_BROADCAST_ITER *layout, const CSN_ARRAY *source_arr, const CSN_ARRAY *counts, CSN_ARRAY *arr) {
+    bool probe_first = perf_h != NULL && arr->rt_locked;
+    for (int32_t pass = probe_first ? 0 : 1; pass < 2; pass++) {
+        CSN_BROADCAST_ITER it = *layout;
+        while (BROADCAST_ITER_NEXT(&it)) {
+            int32_t res = repeat_into_slot(csound, perf_h, arr, it.linear_index, &source_arr->sdata[it.offsets[0]], counts->data[it.offsets[1]], pass == 0);
+            if (res != OK) return res;
+        }
+    }
+
+    return OK;
+}
+
+static int32_t strmul_hs_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_arr, double count, CSN_ARRAY *arr) {
+    bool probe_first = perf_h != NULL && arr->rt_locked;
+    for (int32_t pass = probe_first ? 0 : 1; pass < 2; pass++) {
+        for (size_t i = 0; i < source_arr->size; i++) {
+            int32_t res = repeat_into_slot(csound, perf_h, arr, i, &source_arr->sdata[i], count, pass == 0);
+            if (res != OK) return res;
+        }
+    }
+
+    return OK;
+}
+
+/* ---------- array-array forms (csnstradd hh, csnstrmul hh) ---------- */
+
+typedef enum { CSN_STR_ADD, CSN_STR_MUL } CSN_STR_BINOP;
+
+static int32_t string_binop_hh_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *b, CSN_STR_BINOP op) {
+    return op == CSN_STR_MUL ? strmul_counts_body(csound, perf_h, b) : OK;
+}
+
+static int32_t string_binop_hh_assign(CSOUND *csound, OPDS *perf_h, const CSN_BROADCAST_ITER *it, const CSN_ARRAY *a, const CSN_ARRAY *b, CSN_ARRAY *out, CSN_STR_BINOP op) {
+    return op == CSN_STR_MUL ? strmul_hh_assign_value(csound, perf_h, it, a, b, out) : addstring_hh_assign_value(csound, perf_h, it, a, b, out);
+}
+
+/* As csn_binop_hh_init: an output that is its own operand is left to the
+   perf pass of a k form, or X = csnstradd(X, Y) would apply twice in the
+   first cycle. Computing here also reserves the slots' buffers, which is what
+   lets a k pass on a real-time path run without allocating. */
+static int32_t string_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op, bool perf_redoes) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    stamp_globals(csound, h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, a, b }, 3);
+
+    res = string_binop_hh_body(csound, NULL, b, op);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    CSN_BROADCAST_ITER it = {0};
+    res = string_broadcast_layout(csound, NULL, a, b, &new_ndim, new_shape, &it);
+    if (res != OK) goto done;
+
+    const CSN_ARRAY *sources[2] = { a, b };
+    CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, new_ndim, new_shape, CSN_STRING, sources, 2, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    bool compute = !perf_redoes || !r.aliased;
+    if (compute) {
+        res = string_binop_hh_assign(csound, NULL, &it, a, b, out, op);
+        if (res != OK) goto done;
+        if (r.aliased) update_array_data_version(&out->version);
+    }
+
+    SET_KDATA_BEGIN(*k_data, reg, new_shape, new_ndim, CSN_STRING);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REGISTRY(csound, h, reg);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, a, b }, 3);
+
+    /* never true for an output that is one of its operands */
+    if (CAN_REUSE_ELEMENTWISE(k_data, a, b, out, 0.0, 0.0)) goto done;
+
+    res = string_binop_hh_body(csound, h, b, op);
+    if (res != OK) goto done;
+
+    uint32_t new_ndim = 0;
+    uint32_t new_shape[CSN_MAX_DIMS] = {0};
+    CSN_BROADCAST_ITER it = {0};
+    res = string_broadcast_layout(csound, h, a, b, &new_ndim, new_shape, &it);
+    if (res != OK) goto done;
+
+    const CSN_ARRAY *sources[2] = { a, b };
+    CSNARR_RES r = prepare_output(csound, h, h, reg, out, new_ndim, new_shape, CSN_STRING, sources, 2, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    res = string_binop_hh_assign(csound, h, &it, a, b, out, op);
+    if (res != OK) goto done;
+    if (r.aliased) update_array_data_version(&out->version);
+
+    SET_KDATA_END(*k_data, new_shape, new_ndim, CSN_STRING);
+    PUBLISH_ELEMENTWISE(k_data, a, b, out, 0.0, 0.0);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_add_hh(CSOUND *csound, CSN_BINOP_HH *p) {
+    return string_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, CSN_STR_ADD, false);
+}
+
+int32_t csnstrings_add_hh_k_init(CSOUND *csound, CSN_BINOP_HH *p) {
+    return string_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, CSN_STR_ADD, true);
+}
+
+int32_t csnstrings_add_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
+    CHECK_KTRIG(p->trig);
+    return string_binop_hh_perf(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, CSN_STR_ADD);
+}
+
+int32_t csnstrings_mul_hh(CSOUND *csound, CSN_BINOP_HH *p) {
+    return string_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, CSN_STR_MUL, false);
+}
+
+int32_t csnstrings_mul_hh_k_init(CSOUND *csound, CSN_BINOP_HH *p) {
+    return string_binop_hh_init(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, CSN_STR_MUL, true);
+}
+
+int32_t csnstrings_mul_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
+    CHECK_KTRIG(p->trig);
+    return string_binop_hh_perf(csound, &p->h, p->handle, p->source_handle_a, p->source_handle_b, &p->k_data, CSN_STR_MUL);
+}
+
+/* ---------- csnstradd with one string (hs / sh) ---------- */
+
+/* The k forms keep a copy of the string in k_data, released here and at the
+   start of a k init, before a reinit takes the struct again. */
+static int32_t addstring_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool perf_redoes, bool is_left) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    if (perf_redoes) csn_kdata_release_strings(csound, k_data);
+
+    if (!IS_VALID_STRINGDAT(value)) {
+        return csn_init_error(csound, "[csnarray] Invalid/NULL string");
+    }
+
+    int32_t res = OK;
+    stamp_globals(csound, h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, source_arr }, 2);
+
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, source_arr->ndim, source_arr->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    /* An S argument has no rate, so it always holds its value here; only an
+       output that is its own operand is left to the perf pass. */
+    bool compute = !perf_redoes || !r.aliased;
+    if (compute) {
+        res = addstring_hs_sh_assign_value(csound, NULL, source_arr, value, out, is_left);
+        if (res != OK) goto done;
+        if (r.aliased) update_array_data_version(&out->version);
+    }
+
+    /* reserve the copy the perf pass compares against, so a pass on a
+       real-time path can keep it without allocating */
+    if (perf_redoes) csn_kdata_keep_strings(csound, k_data, value->data, NULL, true);
+
+    SET_KDATA_BEGIN(*k_data, reg, source_arr->shape, source_arr->ndim, CSN_STRING);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t addstring_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool is_left) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REGISTRY(csound, h, reg);
+
+    if (!IS_VALID_STRINGDAT(value)) {
+        return csn_perf_error(csound, h, "[csnarray] Invalid/NULL string");
+    }
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, source_arr }, 2);
+
+    if (CAN_REUSE_STRING_ELEMENTWISE(k_data, source_arr, NULL, out, value->data, NULL)) goto done;
+
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES r = prepare_output(csound, h, h, reg, out, source_arr->ndim, source_arr->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    res = addstring_hs_sh_assign_value(csound, h, source_arr, value, out, is_left);
+    if (res != OK) goto done;
+    if (r.aliased) update_array_data_version(&out->version);
+
+    SET_KDATA_END(*k_data, source_arr->shape, source_arr->ndim, CSN_STRING);
+    PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, out, value->data, NULL, !out->rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_add_hs(CSOUND *csound, CSN_BINOPSTRING_HS *p) {
+    return addstring_hs_sh_init(csound, &p->h, p->handle, p->source_handle, p->value, &p->k_data, false, false);
+}
+
+int32_t csnstrings_add_hs_k_init(CSOUND *csound, CSN_BINOPSTRING_HS *p) {
+    return addstring_hs_sh_init(csound, &p->h, p->handle, p->source_handle, p->value, &p->k_data, true, false);
+}
+
+int32_t csnstrings_add_hs_k(CSOUND *csound, CSN_BINOPSTRING_HS *p) {
+    CHECK_KTRIG(p->trig);
+    return addstring_hs_sh_perf(csound, &p->h, p->handle, p->source_handle, p->value, &p->k_data, false);
+}
+
+int32_t csnstrings_add_sh(CSOUND *csound, CSN_BINOPSTRING_SH *p) {
+    return addstring_hs_sh_init(csound, &p->h, p->handle, p->source_handle, p->value, &p->k_data, false, true);
+}
+
+int32_t csnstrings_add_sh_k_init(CSOUND *csound, CSN_BINOPSTRING_SH *p) {
+    return addstring_hs_sh_init(csound, &p->h, p->handle, p->source_handle, p->value, &p->k_data, true, true);
+}
+
+int32_t csnstrings_add_sh_k(CSOUND *csound, CSN_BINOPSTRING_SH *p) {
+    CHECK_KTRIG(p->trig);
+    return addstring_hs_sh_perf(csound, &p->h, p->handle, p->source_handle, p->value, &p->k_data, true);
+}
+
+int32_t csnstrings_add_hs_deinit(CSOUND *csound, CSN_BINOPSTRING_HS *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_add_sh_deinit(CSOUND *csound, CSN_BINOPSTRING_SH *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+/* ---------- csnstrmul with one count (hs) ---------- */
+
+static int32_t strmul_hs_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data, bool perf_redoes) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    stamp_globals(csound, h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, source_arr }, 2);
+
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, source_arr->ndim, source_arr->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    /* A k count is not known yet and the first pass computes, but its init
+       value still lays the strings out: the buffers it reserves are what a
+       pass on a real-time path may fill. An init value that is no count
+       reserves nothing and raises no error; the perf pass judges the count. */
+    bool known = csn_known_at_init(csound, count);
+    bool compute = !perf_redoes || !r.aliased;
+    if (compute && !known && !is_repeat_count((double) *count)) compute = false;
+    if (compute) {
+        res = check_repeat_count(csound, NULL, (double) *count);
+        if (res != OK) goto done;
+        res = strmul_hs_assign_value(csound, NULL, source_arr, (double) *count, out);
+        if (res != OK) goto done;
+        if (r.aliased) update_array_data_version(&out->version);
+    }
+
+    SET_KDATA_BEGIN(*k_data, reg, source_arr->shape, source_arr->ndim, CSN_STRING);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t strmul_hs_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data) {
+    CSN_REGISTRY *reg = k_data->registry;
+    CHECK_REGISTRY(csound, h, reg);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { out, source_arr }, 2);
+
+    double n = (double) *count;
+    if (CAN_REUSE_ELEMENTWISE(k_data, source_arr, NULL, out, n, 0.0)) goto done;
+
+    res = check_repeat_count(csound, h, n);
+    if (res != OK) goto done;
+
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES r = prepare_output(csound, h, h, reg, out, source_arr->ndim, source_arr->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    res = strmul_hs_assign_value(csound, h, source_arr, n, out);
+    if (res != OK) goto done;
+    if (r.aliased) update_array_data_version(&out->version);
+
+    SET_KDATA_END(*k_data, source_arr->shape, source_arr->ndim, CSN_STRING);
+    PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out, n, 0.0);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_mul_hs(CSOUND *csound, CSN_BINOP_HS *p) {
+    return strmul_hs_init(csound, &p->h, p->handle, p->source_handle, p->scalar, &p->k_data, false);
+}
+
+int32_t csnstrings_mul_hs_k_init(CSOUND *csound, CSN_BINOP_HS *p) {
+    return strmul_hs_init(csound, &p->h, p->handle, p->source_handle, p->scalar, &p->k_data, true);
+}
+
+int32_t csnstrings_mul_hs_k(CSOUND *csound, CSN_BINOP_HS *p) {
+    CHECK_KTRIG(p->trig);
+    return strmul_hs_perf(csound, &p->h, p->handle, p->source_handle, p->scalar, &p->k_data);
+}
+
+/* ---------- csnstrupper / csnstrlower / csnstrcapitalize / csnstrswapcase ---------- */
+
+typedef enum { CSN_CASE_UPPER, CSN_CASE_LOWER, CSN_CASE_CAPITALIZE, CSN_CASE_SWAP } CSN_CASE;
+
+static char ascii_upper(unsigned char c) { return (char) (c >= 'a' && c <= 'z' ? c ^ 0x20 : c); }
+static char ascii_lower(unsigned char c) { return (char) (c >= 'A' && c <= 'Z' ? c ^ 0x20 : c); }
+static char ascii_swap(unsigned char c) { return (char) ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ? c ^ 0x20 : c); }
+
+/* ASCII only, whatever the locale: bytes from 0x80 up are left alone, so a
+   UTF-8 string keeps its multibyte sequences. Capitalize is
+   np.strings.capitalize on bytes: the first byte up, all the others down, so
+   a string opening with a digit, a space or a non-ASCII byte comes out all
+   lower case. Swap turns each letter into the other case. */
+static void map_case(char *s, CSN_CASE mode) {
+    switch (mode) {
+        case CSN_CASE_CAPITALIZE:
+            if (*s != '\0') {
+                *s = ascii_upper((unsigned char) *s);
+                s++;
+            }
+            for (; *s != '\0'; s++) *s = ascii_lower((unsigned char) *s);
+            break;
+        case CSN_CASE_UPPER:
+            for (; *s != '\0'; s++) *s = ascii_upper((unsigned char) *s);
+            break;
+        case CSN_CASE_LOWER:
+            for (; *s != '\0'; s++) *s = ascii_lower((unsigned char) *s);
+            break;
+        case CSN_CASE_SWAP:
+            for (; *s != '\0'; s++) *s = ascii_swap((unsigned char) *s);
+            break;
+    }
+}
+
+/* out may be src: csn_str_write leaves a slot that is its own value alone.
+   The length never changes, so an in-place pass needs no probe first. */
+static int32_t case_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, CSN_CASE mode) {
+    for (size_t i = 0; i < src->size; i++) {
+        if (csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
+        map_case(out->sdata[i].data, mode);
+    }
+
+    return OK;
+}
+
+/* Every mode but swap gives the same strings when applied again, so a pass
+   on an unchanged source, even one that is its own output, can be skipped.
+   Swap undoes itself: X = csnstrswapcase(X, k) swaps again on every pass,
+   as X = csnmul(X, 0.99) scales again. */
+static bool case_is_idempotent(CSN_CASE mode) {
+    return mode != CSN_CASE_SWAP;
+}
+
+/* With perf_redoes (a k init), an output that is its own source under swap
+   is left to the perf pass, or the first cycle would swap it twice. */
+static int32_t csnstrings_case_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_CASE mode, bool perf_redoes) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    CSNARR_RES r = prepare_output(csound, &p->h, NULL, reg, p->handle, p->source_handle->ndim, p->source_handle->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    p->k_data.registry = reg;
+    if (perf_redoes && r.aliased && !case_is_idempotent(mode)) goto done;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = case_assign_value(&w, p->handle, p->source_handle, mode);
+    if (r.aliased) update_array_data_version(&p->source_handle->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t csnstrings_case_k_helper(CSOUND *csound, CSN_UNARYOP *p, CSN_CASE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    CHECK_KTRIG(p->trig);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+
+    bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
+    bool is_same_result = is_same_array_version(&p->k_data.prev_output_version, &p->handle->version);
+    bool is_aliased = p->handle == p->source_handle;
+    if (is_same_source && is_same_result && (case_is_idempotent(mode) || !is_aliased)) goto done;
+
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    CSNARR_RES r = prepare_output(csound, &p->h, &p->h, reg, p->handle, p->source_handle->ndim, p->source_handle->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = case_assign_value(&w, p->handle, p->source_handle, mode);
+    if (r.aliased) update_array_data_version(&p->source_handle->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t csnstrings_case_in_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_CASE mode, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    /* the target changes at perf: whatever reads it follows it there */
+    if (is_k_init) csn_mark_krate(p->source_handle);
+
+    int32_t res = OK;
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->source_handle);
+    res = case_assign_value(&w, p->source_handle, p->source_handle, mode);
+    if (res != OK) goto done;
+    update_array_data_version(&p->source_handle->version);
+
+    set_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
+    p->k_data.registry = reg;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t csnstrings_case_in_k_helper(CSOUND *csound, CSN_UNARYOP_IN *p, CSN_CASE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    CHECK_KTRIG(p->trig);
+
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    bool is_same_source = is_same_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
+    if (is_same_source) goto done;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->source_handle);
+    res = case_assign_value(&w, p->source_handle, p->source_handle, mode);
+    if (res != OK) goto done;
+    update_array_data_version(&p->source_handle->version);
+
+    set_array_version(&p->k_data.prev_source_version, &p->source_handle->version);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+
+int32_t csnstrings_lower(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_LOWER, false);
+}
+
+int32_t csnstrings_lower_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_LOWER, true);
+}
+
+int32_t csnstrings_lower_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_k_helper(csound, p, CSN_CASE_LOWER);
+}
+
+int32_t csnstrings_upper(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_UPPER, false);
+}
+
+int32_t csnstrings_upper_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_UPPER, true);
+}
+
+int32_t csnstrings_upper_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_k_helper(csound, p, CSN_CASE_UPPER);
+}
+
+int32_t csnstrings_lower_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_LOWER, false);
+}
+
+int32_t csnstrings_lower_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_LOWER, true);
+}
+
+int32_t csnstrings_lower_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_LOWER);
+}
+
+int32_t csnstrings_upper_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_UPPER, false);
+}
+
+int32_t csnstrings_upper_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_UPPER, true);
+}
+
+int32_t csnstrings_upper_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_UPPER);
+}
+
+int32_t csnstrings_capitalize(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_CAPITALIZE, false);
+}
+
+int32_t csnstrings_capitalize_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_CAPITALIZE, true);
+}
+
+int32_t csnstrings_capitalize_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_k_helper(csound, p, CSN_CASE_CAPITALIZE);
+}
+
+int32_t csnstrings_capitalize_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_CAPITALIZE, false);
+}
+
+int32_t csnstrings_capitalize_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_CAPITALIZE, true);
+}
+
+int32_t csnstrings_capitalize_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_CAPITALIZE);
+}
+
+int32_t csnstrings_swapcase(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_SWAP, false);
+}
+
+int32_t csnstrings_swapcase_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_helper(csound, p, CSN_CASE_SWAP, true);
+}
+
+int32_t csnstrings_swapcase_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return csnstrings_case_k_helper(csound, p, CSN_CASE_SWAP);
+}
+
+int32_t csnstrings_swapcase_in(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_SWAP, false);
+}
+
+int32_t csnstrings_swapcase_in_k_init(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_helper(csound, p, CSN_CASE_SWAP, true);
+}
+
+int32_t csnstrings_swapcase_in_k(CSOUND *csound, CSN_UNARYOP_IN *p) {
+    return csnstrings_case_in_k_helper(csound, p, CSN_CASE_SWAP);
 }

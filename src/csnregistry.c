@@ -124,19 +124,73 @@ void FREE_CSNARRDATA(CSOUND *csound, CSN_ARRAY *array) {
    never written stay NULL because the storage is zeroed when it grows. */
 void free_csnstrings(CSOUND *csound, CSN_ARRAY *array) {
     if (array->sdata == NULL) return;
-    clear_csnstrings(csound, array);
+    for (size_t i = 0; i < array->capacity; i++) csn_str_release(csound, &array->sdata[i]);
     csound->Free(csound, array->sdata);
     array->sdata = NULL;
 }
 
-/* Releases every string but keeps the slots: the string counterpart of the
-   zeroed buffer prepare_output hands a reused numeric output. */
+/* Empties every string but keeps the buffers: the string counterpart of the
+   zeroed buffer prepare_output hands a reused numeric output. Nothing is
+   released, so the next fill writes in place while its strings fit. */
 void clear_csnstrings(CSOUND *csound, CSN_ARRAY *array) {
+    (void) csound;
     if (array->sdata == NULL) return;
     for (size_t i = 0; i < array->capacity; i++) {
-        if (array->sdata[i] != NULL) csound->Free(csound, array->sdata[i]);
-        array->sdata[i] = NULL;
+        if (array->sdata[i].data != NULL) array->sdata[i].data[0] = '\0';
     }
+}
+
+/* Grows a slot to hold at least bytes bytes, terminator included, keeping
+   what it holds. A slot already that large is left alone. */
+int32_t csn_str_reserve(CSOUND *csound, CSN_STRDATA *slot, size_t bytes) {
+    if (bytes <= slot->capacity) return OK;
+    size_t new_capacity = slot->capacity * 2;
+    if (new_capacity < bytes) new_capacity = bytes;
+    char *data = csound->ReAlloc(csound, slot->data, new_capacity);
+    if (data == NULL) return NOTOK;
+    if (slot->data == NULL) data[0] = '\0';
+    slot->data = data;
+    slot->capacity = new_capacity;
+    return OK;
+}
+
+/* Copies value into the slot, in place when it fits. value may be the slot's
+   own string; NULL stores "". */
+int32_t csn_str_set(CSOUND *csound, CSN_STRDATA *slot, const char *value) {
+    if (value == NULL) value = "";
+    if (value == slot->data) return OK;
+    size_t length = strlen(value);
+    if (csn_str_reserve(csound, slot, length + 1) != OK) return NOTOK;
+    memmove(slot->data, value, length + 1);
+    return OK;
+}
+
+/* Gives every slot of the array, over its whole capacity, room for at least
+   bytes bytes, keeping what each holds. */
+int32_t csn_str_reserve_slots(CSOUND *csound, CSN_ARRAY *array, size_t bytes) {
+    if (array->sdata == NULL) return OK;
+    for (size_t i = 0; i < array->capacity; i++) {
+        if (csn_str_reserve(csound, &array->sdata[i], bytes) != OK) return NOTOK;
+    }
+    return OK;
+}
+
+/* The longest string the array holds, in bytes with its terminator. */
+size_t csn_str_longest(const CSN_ARRAY *array) {
+    size_t bytes = 1;
+    for (size_t i = 0; i < array->size; i++) {
+        const char *item = array->sdata[i].data;
+        size_t n = item != NULL ? strlen(item) + 1 : 1;
+        if (n > bytes) bytes = n;
+    }
+    return bytes;
+}
+
+/* Frees the slot's buffer and leaves it NULL, which reads as "". */
+void csn_str_release(CSOUND *csound, CSN_STRDATA *slot) {
+    if (slot->data != NULL) csound->Free(csound, slot->data);
+    slot->data = NULL;
+    slot->capacity = 0;
 }
 
 int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const uint32_t *shape, ITEM_TYPE itype) {
@@ -169,7 +223,7 @@ int32_t allocate_array(CSOUND *csound, CSN_ARRAY *array, uint32_t ndim, const ui
     if (array->itype != CSN_STRING) {
         array_data = csound->Calloc(csound, sizeof(double) * array->capacity * array->itype);
     } else {
-        array_data = csound->Calloc(csound, sizeof(char **) * array->capacity);
+        array_data = csound->Calloc(csound, sizeof(CSN_STRDATA) * array->capacity);
     }
     if (array_data == NULL) {
         return NOTOK;
@@ -228,15 +282,18 @@ void travase_csnarray(CSN_ARRAY *dest, const CSN_ARRAY *src) {
 }
 
 /* Deep-copies the strings and the layout, retaining the destination's
-   identity. dest must already hold src->size slots, but unlike
-   travase_csnarray this allocates one string per item, so it is not safe on a
-   real-time path. The strings dest held are released, including those past
-   src->size, so no slot outlives the copy. */
+   identity. dest must already hold src->size slots. Each string is written
+   into the slot's buffer, so only a string longer than the slot held
+   allocates; unlike travase_csnarray it is not safe on a real-time path. The
+   slots past src->size are emptied, so no old string outlives the copy. */
 void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src) {
     bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
     for (size_t i = 0; i < dest->capacity; i++) {
-        if (dest->sdata[i] != NULL) csound->Free(csound, dest->sdata[i]);
-        dest->sdata[i] = i < src->size && src->sdata[i] != NULL ? csound->Strdup(csound, src->sdata[i]) : NULL;
+        if (i < src->size) {
+            csn_str_set(csound, &dest->sdata[i], src->sdata[i].data);
+        } else if (dest->sdata[i].data != NULL) {
+            dest->sdata[i].data[0] = '\0';
+        }
     }
     memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
     memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
@@ -253,14 +310,23 @@ void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src) {
     csn_copy_array_kind(dest, src);
 }
 
-/* travase_csnstrings without the copies: src's strings change owner, so its
-   slots are left NULL and nothing is allocated. dest must already hold
-   src->size slots; the strings it held are released. */
+/* travase_csnstrings without the copies: src's strings change owner and
+   src's slots get dest's old buffers back, emptied, so nothing is allocated
+   or released. dest must already hold src->size slots. */
 void move_csnstrings(CSOUND *csound, CSN_ARRAY *dest, CSN_ARRAY *src) {
+    (void) csound;
     bool shape_changed = dest->size != src->size || memcmp(dest->shape, src->shape, sizeof(uint32_t) * src->ndim) != 0;
-    clear_csnstrings(csound, dest);
-    memcpy(dest->sdata, src->sdata, sizeof(char *) * src->size);
-    memset(src->sdata, 0, sizeof(char *) * src->size);
+    /* the slots trade places: dest's old buffers go back to src, emptied,
+       so neither side frees or allocates */
+    for (size_t i = 0; i < src->size; i++) {
+        CSN_STRDATA held = dest->sdata[i];
+        dest->sdata[i] = src->sdata[i];
+        if (held.data != NULL) held.data[0] = '\0';
+        src->sdata[i] = held;
+    }
+    for (size_t i = src->size; i < dest->capacity; i++) {
+        if (dest->sdata[i].data != NULL) dest->sdata[i].data[0] = '\0';
+    }
     memcpy(dest->shape, src->shape, sizeof(uint32_t) * src->ndim);
     memcpy(dest->strides, src->strides, sizeof(size_t) * src->ndim);
     dest->ndim = src->ndim;

@@ -1107,7 +1107,7 @@ static int32_t truncate_assign_shape(CSOUND *csound, OPDS *perf_h, const uint32_
     return OK;
 }
 
-static int32_t truncate_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t *new_shape, uint32_t new_ndim, int32_t axis) {
+static int32_t truncate_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *arr, CSN_ARRAY *source_arr, uint32_t *new_shape, uint32_t new_ndim, int32_t axis) {
     uint32_t source_ndim = source_arr->ndim;
     uint32_t *source_shape = source_arr->shape;
     size_t source_size = source_arr->size;
@@ -1119,7 +1119,7 @@ static int32_t truncate_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *
         while (BROADCAST_ITER_NEXT(&it)) {
             size_t i = it.linear_index;
             size_t src_offset = it.offsets[0];
-            CSN_MEMCPY_OFFSETBY(csound, arr, source_arr, 1, i, src_offset);
+            if (CSN_MEMCPY_OFFSETBY(w, arr, source_arr, 1, i, src_offset) != OK) return w->err;
         }
     } else if (axis > 0 && (uint32_t) axis < source_ndim) {
         size_t block_size = 1;
@@ -1134,11 +1134,11 @@ static int32_t truncate_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *
             size_t src_base = outer * src_axis_size * block_size;
             size_t dst_base = outer * dst_axis_size * block_size;
             size_t copy_count = block_size * dst_axis_size;
-            CSN_MEMCPY_OFFSETBY(csound, arr, source_arr, copy_count, dst_base, src_base);
+            if (CSN_MEMCPY_OFFSETBY(w, arr, source_arr, copy_count, dst_base, src_base) != OK) return w->err;
         }
     } else {
         /* axis == 0 || CSN_HEAD_ARR: the kept elements are already a prefix */
-        CSN_MEMCPY_OFFSETBY(csound, arr, source_arr, arr->size, 0, 0);
+        if (CSN_MEMCPY_OFFSETBY(w, arr, source_arr, arr->size, 0, 0) != OK) return w->err;
     }
     return OK;
 }
@@ -1241,8 +1241,9 @@ static int32_t truncate_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MODE 
        find what to keep, and sets the new layout itself once it has moved the
        data. */
     if (!out.aliased) {
-        if (truncate_assign_value(csound, p->handle, source_arr, new_shape, new_ndim, axis) != OK) {
-            res = csn_init_error(csound, "[csnarray] Invalid truncate iterator layout");
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        if (truncate_assign_value(&w, p->handle, source_arr, new_shape, new_ndim, axis) != OK) {
+            res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid truncate iterator layout");
             goto done;
         }
     } else {
@@ -1318,13 +1319,14 @@ static int32_t resize_parse_shape_and_size(CSOUND *csound, OPDS *perf_h, uint32_
     return OK;
 }
 
-static void resize_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t new_size) {
+static int32_t resize_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t new_size) {
     size_t count = source_arr->size < new_size ? source_arr->size : new_size;
-    CSN_MEMCPY_OFFSETBY(csound, arr, source_arr, count, 0, 0);
+    if (CSN_MEMCPY_OFFSETBY(w, arr, source_arr, count, 0, 0) != OK) return w->err;
     if (new_size > source_arr->size) {
         size_t count_diff = new_size - source_arr->size;
-        CSN_MEMSET(csound, arr, count_diff, source_arr->size);
+        CSN_MEMSET(w->csound, arr, count_diff, source_arr->size);
     }
+    return OK;
 }
 
 static int32_t resize_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, size_t new_size, ITEM_TYPE itype, bool rt_locked) {
@@ -1340,11 +1342,11 @@ static int32_t resize_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *s
         if (itype == CSN_STRING) {
             /* free_csnstrings walks the whole capacity: the new slots start
                NULL */
-            char **new_sdata = csound->ReAlloc(csound, source_arr->sdata, sizeof(char *) * new_cap);
+            CSN_STRDATA *new_sdata = csound->ReAlloc(csound, source_arr->sdata, sizeof(CSN_STRDATA) * new_cap);
             if (new_sdata == NULL) {
                 return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Internal error: memory allocation failed");
             }
-            memset(new_sdata + source_arr->capacity, 0, sizeof(char *) * (new_cap - source_arr->capacity));
+            memset(new_sdata + source_arr->capacity, 0, sizeof(CSN_STRDATA) * (new_cap - source_arr->capacity));
             source_arr->sdata = new_sdata;
         } else {
             double *new_data = csound->ReAlloc(csound, source_arr->data, sizeof(double) * new_cap * itype);
@@ -1358,8 +1360,8 @@ static int32_t resize_in_assign_value(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *s
 
     /* Growing past the old contents must read as zeros even when the buffer did
        not have to move: the spare capacity still holds whatever a larger
-       earlier layout left in it. A string left there is released, so the new
-       slots read as "". */
+       earlier layout left in it. A string left there is emptied, keeping its
+       buffer, so the new slots read as "". */
     if (new_size > old_size) {
         CSN_MEMSET(csound, source_arr, new_size - old_size, old_size);
     }
@@ -1391,7 +1393,9 @@ int32_t csnarray_resize(CSOUND *csound, CSN_RESIZE *p) {
     pres.locked |= out.locked;
 
     if (!out.aliased) {
-        resize_assign_value(csound, p->handle, source_arr, new_size);
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        res = resize_assign_value(&w, p->handle, source_arr, new_size);
+        if (res != OK) goto done;
     } else {
         res = resize_in_assign_value(csound, NULL, source_arr, new_size, source_arr->itype, source_arr->rt_locked);
         if (res != OK) goto done;
@@ -1466,7 +1470,9 @@ static int32_t truncate_k_init_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZ
     reset_empty_csnarray(p->handle, new_ndim, new_shape, itype);
     if (source_size > 0) {
         p->handle->size = source_size;
-        CSN_MEMCPY(csound, p->handle, source_arr);
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, source_arr);
+        if (res != OK) goto done;
     }
 
 record:
@@ -1498,12 +1504,6 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
 
     int32_t res = OK;
     CHECK_KTRIG(p->arg_a);
-
-    /* a copy allocates its strings; in place they are only moved */
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
@@ -1538,8 +1538,9 @@ static int32_t truncate_k_helper(CSOUND *csound, CSN_TRUNCATE *p, CSN_RESIZE_MOD
     pres.locked |= out.locked;
 
     if (!out.aliased) {
-        if (truncate_assign_value(csound, p->handle, source_arr, new_shape, new_ndim, axis) != OK) {
-            res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid truncate iterator layout");
+        CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+        if (truncate_assign_value(&w, p->handle, source_arr, new_shape, new_ndim, axis) != OK) {
+            res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid truncate iterator layout");
             goto done;
         }
     } else {
@@ -1668,13 +1669,6 @@ int32_t csnarray_resize_k(CSOUND *csound, CSN_RESIZE *p) {
 
     CHECK_KTRIG(p->trig);
 
-    /* a copy allocates its strings, and in place the grown slots release
-       what a shrink left there */
-    if (p->source_handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
-
     uint32_t ndim = 0;
     uint32_t shape[CSN_MAX_DIMS] = {0};
     size_t new_size = 0;
@@ -1701,7 +1695,9 @@ int32_t csnarray_resize_k(CSOUND *csound, CSN_RESIZE *p) {
     pres.locked |= out.locked;
 
     if (!out.aliased) {
-        resize_assign_value(csound, p->handle, source_arr, new_size);
+        CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+        res = resize_assign_value(&w, p->handle, source_arr, new_size);
+        if (res != OK) goto done;
     } else {
         res = resize_in_assign_value(csound, &p->h, source_arr, new_size, source_arr->itype, source_arr->rt_locked);
         if (res != OK) goto done;
@@ -1740,12 +1736,6 @@ int32_t csnarray_resize_in_k(CSOUND *csound, CSN_RESIZE_IN *p) {
     size_t new_size = 0;
 
     CHECK_KTRIG(p->trig);
-
-    /* the grown slots release what a shrink left there */
-    if (p->source_handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->source_handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     int32_t res = resize_parse_shape_and_size(csound, &p->h, &ndim, shape, p->new_shape, &new_size);
     if (res != OK) return res;

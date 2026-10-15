@@ -19,10 +19,10 @@ axis to disappear, and [csnsetslice](csnsetslice.md) to write back into the same
 range.
 
 On a `:CsnStr;` the slice holds its own copies of the strings, so writing either
-array leaves the other alone; the k form is refused on a [real-time
-path](csnrtlock.md), since copying strings allocates. Csound's `v[start:end]`
-works on a `:CsnStr;` as well. See [string
-arrays](string-arrays.md).
+array leaves the other alone. On a [real-time path](csnrtlock.md) the k form
+writes into the room its slots already hold and stops with a performance error
+at the first string that does not fit. Csound's `v[start:end]` works on a
+`:CsnStr;` as well. See [string arrays](string-arrays.md).
 
 ## Syntax
 

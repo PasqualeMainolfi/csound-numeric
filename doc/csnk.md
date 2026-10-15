@@ -40,9 +40,9 @@ trigger: without one it is the i-rate form and runs once at init whatever the
 rate of its operands; pass a trigger for the k-rate form.
 
 Both forms also take a `:CsnStr;`; the copy holds its own strings. A pass
-that retakes it copies them, which allocates, so on a [real-time
-path](csnrtlock.md) it runs while the source holds still and is refused with
-a performance error once the source changes. See [string
+that retakes it writes them into the room its slots already hold, so on a
+[real-time path](csnrtlock.md) it runs as long as each string fits and stops
+with a performance error at the first that does not. See [string
 arrays](string-arrays.md).
 
 ## Syntax

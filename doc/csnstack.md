@@ -30,9 +30,9 @@ path.
 
 Two or more `:CsnStr;` inputs give a `:CsnStr;`, whose strings are copies: the
 result shares none with its inputs. Every input must then be a string array;
-a numeric one among them is refused with a message naming its argument. The
-k form copies strings, which allocates, so it is refused on a [real-time
-path](csnrtlock.md). See [string arrays](string-arrays.md).
+a numeric one among them is refused with a message naming its argument. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

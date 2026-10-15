@@ -57,10 +57,19 @@ typedef struct {
     uint64_t itype_version;
 } ARRAY_VERSION;
 
+/* One string slot. data is owned by the slot and NULL reads as "". capacity
+   counts the bytes data holds, terminator included, so a shorter or equal
+   string is written in place and only a longer one reallocates. The pair
+   moves as a unit: a swap or a move hands the buffer over with its size. */
+typedef struct {
+    char *data;
+    size_t capacity;
+} CSN_STRDATA;
+
 typedef struct {
     union {
-        double *data; // CSN_REAL, CSN_COMPLEX
-        char **sdata; // CSN_STRING
+        double *data;       // CSN_REAL, CSN_COMPLEX
+        CSN_STRDATA *sdata; // CSN_STRING
     };
     size_t size;
     size_t capacity;
@@ -117,6 +126,23 @@ typedef struct {
 } CSN_REGISTRY;
 
 
+/* Where a pass writes its strings. A perf pass on a real-time path (perf_h set,
+   the array marked) writes only into the buffers its slots already hold: a
+   string that does not fit stops the pass with a performance error instead of
+   growing the slot. Anywhere else a slot grows as it needs. err keeps the
+   first error a write raised, already reported, so a caller that also
+   reports its own failures can tell the two apart. */
+typedef struct {
+    CSOUND *csound;
+    OPDS *perf_h;
+    bool no_growth;
+    int32_t err;
+} CSN_STR_WRITER;
+
+static inline CSN_STR_WRITER csn_str_writer(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *arr) {
+    return (CSN_STR_WRITER) { csound, perf_h, perf_h != NULL && arr->rt_locked, OK };
+}
+
 // REGISTRY INTERFACE
 
 CSN_REGISTRY *get_registry(CSOUND *csound);
@@ -127,6 +153,11 @@ void travase_csnstrings(CSOUND *csound, CSN_ARRAY *dest, const CSN_ARRAY *src);
 void move_csnstrings(CSOUND *csound, CSN_ARRAY *dest, CSN_ARRAY *src);
 void free_csnstrings(CSOUND *csound, CSN_ARRAY *array);
 void clear_csnstrings(CSOUND *csound, CSN_ARRAY *array);
+int32_t csn_str_reserve(CSOUND *csound, CSN_STRDATA *slot, size_t bytes);
+int32_t csn_str_set(CSOUND *csound, CSN_STRDATA *slot, const char *value);
+void csn_str_release(CSOUND *csound, CSN_STRDATA *slot);
+int32_t csn_str_reserve_slots(CSOUND *csound, CSN_ARRAY *array, size_t bytes);
+size_t csn_str_longest(const CSN_ARRAY *array);
 uint32_t pcg32_bounded_u32(PCG32_STATE *rng, uint32_t bound);
 double pcg32_random(PCG32_STATE *rng);
 void pcg32_random_init(PCG32_STATE *rng, uint64_t seed);

@@ -34,7 +34,7 @@ See the
 support of each opcode.
 
 **String arrays.** A `CsnStr` holds strings with the same layout; the opcodes
-that also take one are listed, with the rate and file rules, in
+that also take one are listed, with the rate, real-time and file rules, in
 [String arrays](string-arrays.md).
 
 ## Creation
@@ -132,6 +132,12 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnminimum](csnminimum.md) - elementwise minimum of two arrays, or of an array and a scalar
 - [csnmaximum](csnmaximum.md) - elementwise maximum of two arrays, or of an array and a scalar
 - [csnclip](csnclip.md) - clamps every element between two bounds
+- [csnstradd](csnstradd.md) - joins strings elementwise, two arrays with broadcasting or an array and one string
+- [csnstrmul](csnstrmul.md) - repeats each string a number of times
+- [csnstrupper](csnstrupper.md) - converts the ASCII letters of each string to upper case
+- [csnstrlower](csnstrlower.md) - converts the ASCII letters of each string to lower case
+- [csnstrcapitalize](csnstrcapitalize.md) - raises the first character of each string and lowers the rest
+- [csnstrswapcase](csnstrswapcase.md) - turns every letter of each string into the other case
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

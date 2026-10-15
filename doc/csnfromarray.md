@@ -19,9 +19,9 @@ The copy is taken at init for the i-rate form, and on every pass for the k-rate
 form, so a `k[]` that keeps moving keeps the `CsnArr` in step with it.
 
 From a Csound `S[]` the output is a `:CsnStr;` of the same shape, each element a
-copy. An `S[]` has no k counterpart, so the k form takes a trigger; it
-allocates, so it is refused on a [real-time path](csnrtlock.md). See [string
-arrays](string-arrays.md).
+copy. An `S[]` has no k counterpart, so the k form takes a trigger. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

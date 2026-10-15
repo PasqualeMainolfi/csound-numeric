@@ -15,8 +15,9 @@ The mask must have the same shape and dimension count as the source — there is
 broadcasting — and must be real. The source may be real or complex.
 
 A `:CsnStr;` source gives a `:CsnStr;` holding its own copies of the kept
-strings. Copying strings allocates, so the k form is refused on a [real-time
-path](csnrtlock.md). See [string arrays](string-arrays.md).
+strings. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 The natural way to build a mask is a comparison such as `csngt` or `csneq`, or
 a classifier such as [csnisnan](csnisnan.md), [csnisinf](csnisinf.md), or

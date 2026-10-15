@@ -625,6 +625,16 @@ if(BUILD_TESTING)
             PASS_REGULAR_EXPRESSION "csnum growth guards held on every real-time path"
             TIMEOUT 60)
         add_test(
+            NAME csnum_strings_rtlock_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_rtlock_regression.csd")
+        set_tests_properties(csnum_strings_rtlock_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "A string needs 22 bytes, its slot holds 4.*csnum string writes stayed in their buffers"
+            TIMEOUT 60)
+        add_test(
             NAME csnum_rtlockall_growth_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

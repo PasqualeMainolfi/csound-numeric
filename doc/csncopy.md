@@ -18,9 +18,9 @@ the intent clearer.
 Use it before an in-place operation you want to keep the original for, and to
 snapshot an array that is still being written.
 
-A `:CsnStr;` gives a `:CsnStr;` holding its own copies of the strings. Copying
-strings allocates, so the k form is refused on a [real-time
-path](csnrtlock.md). See [string arrays](string-arrays.md).
+A `:CsnStr;` gives a `:CsnStr;` holding its own copies of the strings. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

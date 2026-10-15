@@ -20,9 +20,9 @@ rewrites the elements on every pass, so the fill is restored even if something
 downstream overwrote the array.
 
 With a string `value` the output is a `:CsnStr;` holding a copy of it in every
-element. The k form rebuilds the strings on every pass, which allocates, so it
-is refused on a [real-time path](csnrtlock.md). See [string
-arrays](string-arrays.md).
+element. The k form rewrites the strings on every pass. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

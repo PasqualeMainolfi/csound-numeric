@@ -19,10 +19,11 @@ Pick one index along an axis, dropping that axis; or one element by flat index.
 
 On a `:CsnStr;` the axis form returns a `:CsnStr;` holding its own copies of
 the strings, and the flat form returns one element as a copy in an `S`
-variable; a slot that was never written reads as `""`. The k axis form copies
-strings, which allocates, so it is refused on a [real-time path](csnrtlock.md);
-the flat form writes only its `S` output, as [csnget](csnget.md) does. See
-[string arrays](string-arrays.md).
+variable; a slot that was never written reads as `""`. On a [real-time
+path](csnrtlock.md) the k axis form writes into the room its slots already
+hold and stops with a performance error at the first string that does not
+fit; the flat form writes only its `S` output, as [csnget](csnget.md) does.
+See [string arrays](string-arrays.md).
 
 ## Syntax
 

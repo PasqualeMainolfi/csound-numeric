@@ -23,10 +23,10 @@ refused.
 On a `:CsnStr;` both arrays are string arrays and each written slot takes a
 copy of its string, so changing `data` afterwards leaves `dest` alone; `data`
 may be `dest` itself. A slot that already holds the same string is left as it
-is and allocates nothing. On an array marked for a [real-time
-path](csnrtlock.md) the k form therefore runs as long as nothing changes, and
-the first slot that would change stops it with a performance error before
-anything is written. See [string arrays](string-arrays.md).
+is, and a new string goes into the room its slot already holds. On an array
+marked for a [real-time path](csnrtlock.md) the k form checks every slot first
+and stops with a performance error, before anything is written, when a string
+does not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

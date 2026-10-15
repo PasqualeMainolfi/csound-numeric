@@ -21,9 +21,9 @@ promoted.
 
 Two `:CsnStr;` operands give a `:CsnStr;`, whose strings are copies: the result
 shares none with its operands. A string array and a numeric one cannot be
-joined; the call is refused when the orchestra is compiled. The k form copies
-strings, which allocates, so it is refused on an output marked for a real-time
-path. See [string arrays](string-arrays.md).
+joined; the call is refused when the orchestra is compiled. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

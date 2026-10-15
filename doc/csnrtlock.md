@@ -57,9 +57,13 @@ spectrum:CsnArr = csnrfft(frame, 1024, kready, -1)
 the mark when the FFT initializes. Use `csnrtlock` explicitly for sources that
 do not come from the audio bridge, as in the complete example below.
 
-Also marks a `:CsnStr;`. Every k form that writes strings allocates, so on a
-marked string array it stops with an error instead. See [string
-arrays](string-arrays.md).
+Also marks a `:CsnStr;`. Each string element keeps the buffer it was given,
+and a k form writes its strings into those buffers: on a marked string array a
+pass runs as long as every string fits the room its element already holds, and
+the first string that does not fit stops it with a performance error instead
+of growing the buffer. The room comes from the init pass, so build the array
+there with strings at least as long as the ones its k forms will write. See
+[string arrays](string-arrays.md#real-time-paths) for the whole rule.
 
 ## Syntax
 

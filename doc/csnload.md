@@ -38,9 +38,9 @@ trigger too.
 Declared as `:CsnStr;`, the output reads a `.npy` of dtype `<U` (re-encoded as
 UTF-8) or `|S` (bytes as they are), in either byte order and in C or Fortran
 order, or a `.csn` of dtype `3`. A file of numbers loaded into a `:CsnStr;`, or
-of strings into a `:CsnArr;`, is refused. The k form allocates, so it is refused
-on a [real-time path](csnrtlock.md). See [string
-arrays](string-arrays.md).
+of strings into a `:CsnArr;`, is refused. The k form reads new strings from the
+file on every triggered pass, so it is refused on a [real-time
+path](csnrtlock.md). See [string arrays](string-arrays.md).
 
 ## Syntax
 

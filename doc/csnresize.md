@@ -21,10 +21,12 @@ reuses its storage; a larger one reallocates, which a
 [real-time path](csnrtlock.md) refuses during performance.
 
 A `:CsnStr;` keeps its strings the same way, and the elements the new shape
-adds are empty strings, `""`. The output form copies the strings it keeps,
-and in place the added elements release whatever strings an earlier shrink
-left past the end, so the k forms of both are refused on a real-time path.
-See [string arrays](string-arrays.md).
+adds are empty strings, `""`. In place the added elements empty whatever
+strings an earlier shrink left past the end and keep their room, so the k form
+grows within the capacity the array was reserved with. The output form copies
+the strings it keeps into the room its slots already hold; on a [real-time
+path](csnrtlock.md) its k form stops with a performance error at the first
+string that does not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

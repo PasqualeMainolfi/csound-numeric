@@ -41,8 +41,7 @@ static bool binop_hh_dense_real(CSOUND *csound, OPDS *perf_h, const double *a, c
 }
 
 static int32_t binop_hh_assign_value(CSOUND *csound, OPDS *perf_h, CSN_BROADCAST_ITER *it, const CSN_ARRAY *source_arr_a, const CSN_ARRAY *source_arr_b, CSN_ARRAY *arr, ITEM_TYPE itype, CSN_BINOP_MODE mode) {
-    if (itype == CSN_REAL && source_arr_a->itype == CSN_REAL && source_arr_b->itype == CSN_REAL
-        && source_arr_a->size == it->size && source_arr_b->size == it->size) {
+    if (itype == CSN_REAL && source_arr_a->itype == CSN_REAL && source_arr_b->itype == CSN_REAL && source_arr_a->size == it->size && source_arr_b->size == it->size) {
         int32_t res = OK;
         if (binop_hh_dense_real(csound, perf_h, source_arr_a->data, source_arr_b->data, arr->data, it->size, mode, &res)) return res;
     }
@@ -2227,16 +2226,17 @@ int32_t csnarray_type_k(CSOUND *csound, CSN_UNARYOP_SCALAR *p) {
 
 /* Shared by the i-rate form, the k init and the k perf: a straight copy, or the
    same copy read back to front. A complex item moves as a pair. */
-static void copy_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool reverse, ITEM_TYPE itype) {
+static int32_t copy_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *source_arr, CSN_ARRAY *arr, bool reverse, ITEM_TYPE itype) {
     if (!reverse) {
+        int32_t res = OK;
         if (itype == CSN_STRING) {
-            CSN_MEMCPY(csound, arr, source_arr);
+            res = CSN_MEMCPY(w, arr, source_arr);
         } else {
             memcpy(arr->data, source_arr->data, sizeof(double) * source_arr->size * (size_t) itype);
         }
         update_array_data_version(&arr->version);
         csn_copy_array_kind(arr, source_arr);
-        return;
+        return res;
     }
 
     for (size_t i = 0; i < source_arr->size; i++) {
@@ -2251,11 +2251,11 @@ static void copy_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, CSN_A
                 break;
             }
             case CSN_STRING:
-                if (arr->sdata[i] != NULL) csound->Free(csound, arr->sdata[i]);
-                arr->sdata[i] = csound->Strdup(csound, source_arr->sdata[mirror]);
+                if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[mirror].data) != OK) return w->err;
                 break;
         }
     }
+    return OK;
 }
 
 static void reverse_in_place(CSN_ARRAY *arr) {
@@ -2277,9 +2277,9 @@ static void reverse_in_place(CSN_ARRAY *arr) {
 /* csncopy onto itself has nothing to move (ELEMENTWISE). csnreverse reads the
    far end of the array, so onto itself it swaps the halves instead (CUSTOM:
    the layout is the source's either way). */
-static void copy_into(CSOUND *csound, CSN_ARRAY *arr, const CSN_ARRAY *source_arr, bool aliased, bool reverse) {
+static int32_t copy_into(CSN_STR_WRITER *w, CSN_ARRAY *arr, const CSN_ARRAY *source_arr, bool aliased, bool reverse) {
     if (!aliased) {
-        copy_assign_value(csound, source_arr, arr, reverse, source_arr->itype);
+        return copy_assign_value(w, source_arr, arr, reverse, source_arr->itype);
     } else if (reverse) {
         switch (source_arr->itype) {
             case CSN_REAL:
@@ -2292,6 +2292,7 @@ static void copy_into(CSOUND *csound, CSN_ARRAY *arr, const CSN_ARRAY *source_ar
         }
         update_array_data_version(&arr->version);
     }
+    return OK;
 }
 
 /* Serves the i-rate form and the k form's init. */
@@ -2313,7 +2314,9 @@ static int32_t csnarray_copy_helper(CSOUND *csound, CSN_UNARYOP *p, bool reverse
 
     /* the k form's perf pass reverses an output that is its own source */
     if (!(csn_is_k_form(&p->h) && out.aliased)) {
-        copy_into(csound, p->handle, source_arr, out.aliased, reverse);
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        res = copy_into(&w, p->handle, source_arr, out.aliased, reverse);
+        if (res != OK) goto done;
     }
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
 
@@ -2332,12 +2335,6 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
 
     CHECK_KTRIG(p->trig);
 
-    /* a copy duplicates every string; reversing in place only swaps them */
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
-
     int32_t res = OK;
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
@@ -2351,7 +2348,9 @@ static int32_t csnarray_copy_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool rever
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    copy_into(csound, p->handle, source_arr, out.aliased, reverse);
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = copy_into(&w, p->handle, source_arr, out.aliased, reverse);
+    if (res != OK) goto done;
 
     SET_KDATA_END(p->k_data, source_arr->shape, source_arr->ndim, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, 0.0, 0.0);

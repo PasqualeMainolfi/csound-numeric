@@ -18,9 +18,10 @@ leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 Both forms also take a `:CsnStr;`. The copy duplicates every string, so it
-owns its own; the in-place form changes the layout and touches no string. A k
-form that copies strings allocates, so it is refused on an output marked for a
-real-time path. See [string arrays](string-arrays.md).
+owns its own; the in-place form changes the layout and touches no string. On a
+[real-time path](csnrtlock.md) the copying k form writes into the room its
+slots already hold and stops with a performance error at the first string that
+does not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

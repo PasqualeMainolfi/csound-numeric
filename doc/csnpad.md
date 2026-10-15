@@ -38,10 +38,14 @@ The in-place form rewrites its source within the source's capacity and only
 reallocates when the padded array outgrows it, which a marked source refuses
 too.
 
-A string array is the exception: every pass that pads one allocates its fill
-strings, so the string k forms, with an output or in place, are refused on a
-marked array. A pass that runs with an unchanged fill value and widths, from
-an unchanged source, is reused and writes nothing.
+A string array writes its strings into the room its slots already hold. With
+an output, the k init gives every slot room for the fill and for the longest
+string of the source, so on a marked output the k form runs as long as the
+strings fit that room and stops with a performance error at the first that
+does not. In place the padded image is built in a working copy whose slots
+then trade places with the source's, so the string k form in place is refused
+on a marked array. A pass that runs with an unchanged fill value and widths,
+from an unchanged source, is reused and writes nothing.
 
 ## Syntax
 

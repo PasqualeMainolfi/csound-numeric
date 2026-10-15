@@ -24,9 +24,10 @@ predicate operations. See [Set arrays and their invariant](set-arrays.md).
 
 On a `:CsnStr;` the element takes a copy of the string. Writing the string it
 already holds is no write, so a k-rate set of an unchanged value bumps no
-version and allocates nothing; a real change allocates and is refused on a
-[real-time path](csnrtlock.md). `v[i][j] = "x"` and `v[i][j] init "x"` do the
-same. See [string arrays](string-arrays.md).
+version. A new string goes into the room the element already holds: on a
+[real-time path](csnrtlock.md) a k-rate set runs as long as it fits and stops
+with a performance error, changing nothing, when it does not. `v[i][j] = "x"`
+and `v[i][j] init "x"` do the same. See [string arrays](string-arrays.md).
 
 ## Syntax
 

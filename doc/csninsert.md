@@ -24,9 +24,13 @@ Two shapes of insertion share the name.
 A complex array takes a `:Complex;` value in the one-element form.
 
 A `:CsnStr;` takes an `S` value in the one-element form and a `:CsnStr;` block
-in the block form, and stores copies of the strings. Copying strings
-allocates, so the k forms are refused on a [real-time path](csnrtlock.md) on
-every pass that inserts. See [string arrays](string-arrays.md).
+in the block form, and stores copies of the strings. The one-element form
+writes its copy into the slot just past the end, where a pop or a remove left
+the string it dropped: on a [real-time path](csnrtlock.md) its k form runs as
+long as the value fits that slot and stops with a performance error,
+changing nothing, when it does not. The block form rebuilds the array in a
+working copy, so its k form is refused there on every pass that inserts. See
+[string arrays](string-arrays.md).
 
 ## Syntax
 

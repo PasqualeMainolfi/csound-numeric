@@ -13,9 +13,9 @@ a ring of samples and only the head matters.
 
 `n` must not exceed the array's element count.
 
-A `:CsnStr;` gives a `:CsnStr;` holding its own copies of the strings, so the
-k form is refused on a [real-time path](csnrtlock.md). See [string
-arrays](string-arrays.md).
+A `:CsnStr;` gives a `:CsnStr;` holding its own copies of the strings. On a [real-time path](csnrtlock.md) the k form writes into the room its slots
+already hold and stops with a performance error at the first string that does
+not fit. See [string arrays](string-arrays.md).
 
 ## Syntax
 

@@ -972,6 +972,105 @@ instr 3
     iStrComp1Cmp = strcmp(SStrComp1, "c")
     iStrSel1Cmp = strcmp(SStrSel1, "d")
     assert(iStrCompSize == 2 && iStrComp1Cmp == 0 && iStrSel1Cmp == 0)
+    ; csnstradd joins the strings elementwise (np.strings.add) and csnstrmul
+    ; repeats them (np.strings.multiply: a count below 0 gives "")
+    SStrAddA[] fillarray "a", "bb"
+    SStrAddB[] fillarray "x", "yy"
+    iStrAddA:CsnStr = csnfromarray(SStrAddA)
+    iStrAddB:CsnStr = csnfromarray(SStrAddB)
+    iStrAddHH:CsnStr = csnstradd(iStrAddA, iStrAddB)
+    iStrAddHS:CsnStr = csnstradd(iStrAddA, "!")
+    iStrAddSH:CsnStr = csnstradd("<", iStrAddA)
+    SStrAddHH1 = iStrAddHH[1]
+    SStrAddHS0 = iStrAddHS[0]
+    SStrAddSH1 = iStrAddSH[1]
+    iStrAddHH1Cmp = strcmp(SStrAddHH1, "bbyy")
+    iStrAddHS0Cmp = strcmp(SStrAddHS0, "a!")
+    iStrAddSH1Cmp = strcmp(SStrAddSH1, "<bb")
+    assert(iStrAddHH1Cmp == 0 && iStrAddHS0Cmp == 0 && iStrAddSH1Cmp == 0)
+    ; the output may be an operand: the string goes in front of each element
+    iStrAddSelf:CsnStr = csnfromarray(SStrAddA)
+    iStrAddSelf = csnstradd("<", iStrAddSelf)
+    SStrAddSelf1 = iStrAddSelf[1]
+    iStrAddSelf1Cmp = strcmp(SStrAddSelf1, "<bb")
+    assert(iStrAddSelf1Cmp == 0)
+    iStrMulCountVals[] = fillarray(3, -1)
+    iStrMulCounts:CsnArr = csnfromarray(iStrMulCountVals)
+    iStrMulHH:CsnStr = csnstrmul(iStrAddA, iStrMulCounts)
+    iStrMulHS:CsnStr = csnstrmul(iStrAddA, 2)
+    SStrMulHH0 = iStrMulHH[0]
+    SStrMulHH1 = iStrMulHH[1]
+    SStrMulHS1 = iStrMulHS[1]
+    iStrMulHH0Cmp = strcmp(SStrMulHH0, "aaa")
+    iStrMulHH1Cmp = strcmp(SStrMulHH1, "")
+    iStrMulHS1Cmp = strcmp(SStrMulHS1, "bbbb")
+    assert(iStrMulHH0Cmp == 0 && iStrMulHH1Cmp == 0 && iStrMulHS1Cmp == 0)
+    ; csnstrupper / csnstrlower map ASCII letters only: bytes from 0x80 up
+    ; stay as they are, so a UTF-8 string keeps its sequences
+    SStrCaseItems[] fillarray "aB1", "Dé"
+    iStrCase:CsnStr = csnfromarray(SStrCaseItems)
+    iStrUpper:CsnStr = csnstrupper(iStrCase)
+    iStrLower:CsnStr = csnstrlower(iStrCase)
+    SStrUpper0 = iStrUpper[0]
+    SStrUpper1 = iStrUpper[1]
+    SStrLower0 = iStrLower[0]
+    iStrUpper0Cmp = strcmp(SStrUpper0, "AB1")
+    iStrUpper1Cmp = strcmp(SStrUpper1, "Dé")
+    iStrLower0Cmp = strcmp(SStrLower0, "ab1")
+    assert(iStrUpper0Cmp == 0 && iStrUpper1Cmp == 0 && iStrLower0Cmp == 0)
+    ; the source is left alone, and the output may be the source itself
+    SStrCaseSrc0 = iStrCase[0]
+    iStrCaseSrc0Cmp = strcmp(SStrCaseSrc0, "aB1")
+    iStrCase = csnstrlower(iStrCase)
+    SStrCaseSelf0 = iStrCase[0]
+    iStrCaseSelf0Cmp = strcmp(SStrCaseSelf0, "ab1")
+    assert(iStrCaseSrc0Cmp == 0 && iStrCaseSelf0Cmp == 0)
+    csnstrupper(iStrCase)
+    SStrCaseUp0 = iStrCase[0]
+    iStrCaseUp0Cmp = strcmp(SStrCaseUp0, "AB1")
+    csnstrlower(iStrCase)
+    SStrCaseIn0 = iStrCase[0]
+    iStrCaseIn0Cmp = strcmp(SStrCaseIn0, "ab1")
+    assert(iStrCaseUp0Cmp == 0 && iStrCaseIn0Cmp == 0)
+    ; csnstrcapitalize is np.strings.capitalize on bytes: the first byte up,
+    ; the others down, so a leading digit, space or non-ASCII byte leaves the
+    ; whole string lower case
+    SStrCapItems[] fillarray "aBC", "", "1aB", "éA", " hI"
+    iStrCapSrc:CsnStr = csnfromarray(SStrCapItems)
+    iStrCap:CsnStr = csnstrcapitalize(iStrCapSrc)
+    SStrCap0 = iStrCap[0]
+    SStrCap1 = iStrCap[1]
+    SStrCap2 = iStrCap[2]
+    SStrCap3 = iStrCap[3]
+    SStrCap4 = iStrCap[4]
+    iStrCap0Cmp = strcmp(SStrCap0, "Abc")
+    iStrCap1Cmp = strcmp(SStrCap1, "")
+    iStrCap2Cmp = strcmp(SStrCap2, "1ab")
+    iStrCap3Cmp = strcmp(SStrCap3, "éa")
+    iStrCap4Cmp = strcmp(SStrCap4, " hi")
+    assert(iStrCap0Cmp == 0 && iStrCap1Cmp == 0 && iStrCap2Cmp == 0 && iStrCap3Cmp == 0 && iStrCap4Cmp == 0)
+    csnstrcapitalize(iStrCapSrc)
+    SStrCapIn0 = iStrCapSrc[0]
+    iStrCapIn0Cmp = strcmp(SStrCapIn0, "Abc")
+    assert(iStrCapIn0Cmp == 0)
+    ; csnstrswapcase turns each ASCII letter into the other case: spaces,
+    ; digits and bytes from 0x80 up stay (np.strings.swapcase on bytes)
+    SStrSwapItems[] fillarray "aB c1", "Dé"
+    iStrSwapSrc:CsnStr = csnfromarray(SStrSwapItems)
+    iStrSwap:CsnStr = csnstrswapcase(iStrSwapSrc)
+    SStrSwap0 = iStrSwap[0]
+    SStrSwap1 = iStrSwap[1]
+    iStrSwap0Cmp = strcmp(SStrSwap0, "Ab C1")
+    iStrSwap1Cmp = strcmp(SStrSwap1, "dé")
+    assert(iStrSwap0Cmp == 0 && iStrSwap1Cmp == 0)
+    ; in place, and onto its own source at i-rate: swapped once each
+    csnstrswapcase(iStrSwapSrc)
+    SStrSwapIn0 = iStrSwapSrc[0]
+    iStrSwapIn0Cmp = strcmp(SStrSwapIn0, "Ab C1")
+    iStrSwapSrc = csnstrswapcase(iStrSwapSrc)
+    SStrSwapSelf0 = iStrSwapSrc[0]
+    iStrSwapSelf0Cmp = strcmp(SStrSwapSelf0, "aB c1")
+    assert(iStrSwapIn0Cmp == 0 && iStrSwapSelf0Cmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -5083,6 +5182,10 @@ e
 ; csntruncate.s csntruncate.s.in csnhead.s csnresize.s csnresize.s.in
 ; csncopy.s csni.s csnk.s csnshuffle.s
 ; csnwhere.s.hh csnwhere.s.hs csnputmask.s.hh csnputmask.s.hs csncompress.s csnselect.s
+; csnstradd csnstradd.hs csnstradd.sh csnstrmul csnstrmul.hs
+; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
+; csnstrcapitalize csnstrcapitalize.in
+; csnstrswapcase csnstrswapcase.in
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

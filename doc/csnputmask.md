@@ -26,9 +26,10 @@ values)` writes `values` into the `:CsnStr;` `dest` wherever the real `mask`
 is non-zero and leaves the other elements as they are. `values` is a
 `:CsnStr;` of the mask's shape, or one `S` for every marked element, and may
 be `dest` itself. An element that already holds its value is not written
-again, so applying the same values twice changes nothing; the k form runs on
-a [real-time path](csnrtlock.md) while nothing changes and stops with a
-performance error at the first element that would. See [string
+again, so applying the same values twice changes nothing. A value is written
+into the room its element already holds: on a [real-time path](csnrtlock.md)
+the k form checks every element first and stops with a performance error,
+changing nothing, when a value does not fit. See [string
 arrays](string-arrays.md).
 
 ## Syntax

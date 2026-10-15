@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
     CHECK(csnfile_load_strings(&csound, path, ".npy", &sndim, sshape, &items, &count) == CSN_FILE_DTYPE_KIND_MISMATCH);
 
     /* save and load back, through both formats */
-    char *saved[3] = {"x", "citt\xc3\xa0", NULL};
+    CSN_STRDATA saved[3] = {{.data = "x"}, {.data = "citt\xc3\xa0"}, {.data = NULL}};
     CSN_ARRAY sarr = {.sdata = saved, .size = 3, .ndim = 1, .itype = CSN_STRING};
     sarr.shape[0] = 3;
     const char *expected[3] = {"x", "citt\xc3\xa0", ""};

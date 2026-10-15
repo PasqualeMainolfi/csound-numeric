@@ -154,7 +154,9 @@ int32_t csnarray_reshape(CSOUND *csound, CSN_RESHAPE *p) {
     if (out.aliased) {
         set_csnarray_layout(arr, ndim, shape, arr->size, arr->itype);
     } else {
-        CSN_MEMCPY(csound, p->handle, arr);
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, arr);
+        if (res != OK) goto done;
     }
 
 done:
@@ -217,7 +219,9 @@ int32_t csnarray_reshape_k_init(CSOUND *csound, CSN_RESHAPE *p) {
         goto done;
     }
 
-    CSN_MEMCPY(csound, p->handle, source);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = CSN_MEMCPY(&w, p->handle, source);
+    if (res != OK) goto done;
     SET_KDATA_BEGIN(p->k_data, reg, shape, ndim, itype);
     PUBLISH_DERIVED_RESULT(&p->k_data, source, p->handle);
 
@@ -241,12 +245,6 @@ int32_t csnarray_reshape_k(CSOUND *csound, CSN_RESHAPE *p) {
     size_t requested_size = 0;
     if (get_array_size_from_shape(&requested_size, ndim, shape) != OK) {
         return csn_perf_error(csound, &p->h, "[csnarray] Shape is invalid or its element count exceeds the configured limit");
-    }
-
-    /* a copy duplicates every string; reshaping in place moves none */
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
     }
 
     int32_t res = OK;
@@ -275,7 +273,9 @@ int32_t csnarray_reshape_k(CSOUND *csound, CSN_RESHAPE *p) {
     if (out.aliased) {
         set_csnarray_layout(source, ndim, shape, requested_size, itype);
     } else {
-        CSN_MEMCPY(csound, p->handle, source);
+        CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, source);
+        if (res != OK) goto done;
     }
 
     SET_KDATA_END(p->k_data, shape, ndim, itype);
@@ -406,7 +406,9 @@ int32_t csnarray_flatten(CSOUND *csound, CSN_RESHAPE *p) {
     if (out.aliased) {
         set_csnarray_layout(source, 1U, shape, source->size, source->itype);
     } else {
-        CSN_MEMCPY(csound, p->handle, source);
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, source);
+        if (res != OK) goto done;
     }
 
     SET_KDATA_BEGIN(p->k_data, reg, shape, 1U, source->itype);
@@ -421,12 +423,6 @@ int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
     CHECK_KTRIG(p->trig);
-
-    /* a copy duplicates every string; flattening in place moves none */
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
@@ -450,7 +446,9 @@ int32_t csnarray_flatten_k(CSOUND *csound, CSN_RESHAPE *p) {
     if (out.aliased) {
         set_csnarray_layout(source, ndim, shape, requested_size, itype);
     } else {
-        CSN_MEMCPY(csound, p->handle, source);
+        CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, source);
+        if (res != OK) goto done;
     }
 
     SET_KDATA_END(p->k_data, shape, ndim, itype);
@@ -587,7 +585,7 @@ static void transpose_shape(const CSN_ARRAY *source, const uint32_t *axes, uint3
    layout unless it is source itself: then the result goes through buffer
    (size * itype doubles) and source takes the new layout afterwards. Data
    versions are the caller's. */
-static int32_t transpose_into(CSOUND *csound, CSN_ARRAY *source, CSN_ARRAY *out, void *buffer, const uint32_t *shape, const uint32_t *axes) {
+static int32_t transpose_into(CSN_STR_WRITER *w, CSN_ARRAY *source, CSN_ARRAY *out, void *buffer, const uint32_t *shape, const uint32_t *axes) {
     uint32_t ndim = source->ndim;
     ITEM_TYPE itype = source->itype;
     size_t count = itype != CSN_STRING ? source->size * (size_t) source->itype : source->size;
@@ -601,9 +599,9 @@ static int32_t transpose_into(CSOUND *csound, CSN_ARRAY *source, CSN_ARRAY *out,
                 }
                 break;
             case CSN_STRING: {
-                    char **destination = out == source ? (char **) buffer : out->sdata;
-                    if (transpose_stringdata_assign(csound, source->sdata, destination, source->size, ndim, shape, source->strides, axes, out == source) != OK) return NOTOK;
-                    if (out == source) memcpy(source->sdata, buffer, sizeof(char *) * count);
+                    CSN_STRDATA *destination = out == source ? (CSN_STRDATA *) buffer : out->sdata;
+                    if (transpose_stringdata_assign(w, source->sdata, destination, source->size, ndim, shape, source->strides, axes, out == source) != OK) return NOTOK;
+                    if (out == source) memcpy(source->sdata, buffer, sizeof(CSN_STRDATA) * count);
                 }
                 break;
 
@@ -664,7 +662,7 @@ static int32_t transpose_init_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_def
 
     if (out.aliased) {
         size_t capacity = itype != CSN_STRING ? source->capacity * (size_t) itype : source->capacity;
-        size_t item_size = itype != CSN_STRING ? sizeof(double) : sizeof(char *);
+        size_t item_size = itype != CSN_STRING ? sizeof(double) : sizeof(CSN_STRDATA);
         res = csn_scratch_reserve(csound, NULL, false, &p->scratch, capacity > 0 ? capacity : 1, item_size);
         if (res != OK) goto done;
     }
@@ -672,8 +670,9 @@ static int32_t transpose_init_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_def
     if (!has_axes && !out.aliased) reset_empty_csnarray(p->handle, ndim, shape, itype);
     if (!has_axes || (csn_is_k_form(&p->h) && out.aliased)) goto done;
 
-    if (transpose_into(csound, source, p->handle, p->scratch.scratch, shape, axes) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    if (transpose_into(&w, source, p->handle, p->scratch.scratch, shape, axes) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     if (out.aliased) update_array_data_version(&p->handle->version);
@@ -711,12 +710,6 @@ static int32_t transpose_k_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_defaul
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
 
-    /* a copy duplicates every string; transposing in place only permutes them */
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
-
     int32_t res = OK;
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
@@ -746,13 +739,14 @@ static int32_t transpose_k_helper(CSOUND *csound, CSN_RESHAPE *p, bool is_defaul
 
     if (out.aliased) {
         size_t s_size = itype != CSN_STRING ? source->size * (size_t) itype : source->size;
-        size_t i_size = itype != CSN_STRING ? sizeof(double) : sizeof(char *);
+        size_t i_size = itype != CSN_STRING ? sizeof(double) : sizeof(CSN_STRDATA);
         res = csn_scratch_reserve(csound, &p->h, source->rt_locked, &p->scratch, s_size, i_size);
         if (res != OK) goto done;
     }
 
-    if (transpose_into(csound, source, p->handle, p->scratch.scratch, shape, axes) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid transpose iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    if (transpose_into(&w, source, p->handle, p->scratch.scratch, shape, axes) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     if (out.aliased) update_array_data_version(&p->handle->version);
@@ -799,15 +793,16 @@ int32_t csnarray_transpose_in(CSOUND *csound, CSN_RESHAPE_IN *p) {
     transpose_shape(arr, axes, shape);
 
     size_t count = arr->itype != CSN_STRING ? arr->size * (size_t) arr->itype : arr->size;
-    size_t item_size = arr->itype != CSN_STRING ? sizeof(double) : sizeof(char *);
+    size_t item_size = arr->itype != CSN_STRING ? sizeof(double) : sizeof(CSN_STRDATA);
     buffer = csound->Calloc(csound, item_size * (count > 0 ? count : 1));
     if (buffer == NULL) {
         res = csn_init_error(csound, "[csnarray] Out of memory: allocation of %zu bytes failed", item_size * count);
         goto done;
     }
 
-    if (transpose_into(csound, arr, arr, buffer, shape, axes) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, arr);
+    if (transpose_into(&w, arr, arr, buffer, shape, axes) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     update_array_data_version(&arr->version);
@@ -836,7 +831,7 @@ static int32_t transpose_in_k_init_helper(CSOUND *csound, CSN_RESHAPE_IN *p, boo
 
     deinit_scratch(csound, &p->scratch);
     size_t capacity = arr->itype != CSN_STRING ? arr->capacity * (size_t) arr->itype : arr->capacity;
-    size_t i_size = arr->itype != CSN_STRING ? sizeof(double) : sizeof(char *);
+    size_t i_size = arr->itype != CSN_STRING ? sizeof(double) : sizeof(CSN_STRDATA);
     res = csn_scratch_reserve(csound, NULL, false, &p->scratch, capacity > 0 ? capacity : 1, i_size);
     if (res != OK) goto done;
 
@@ -847,8 +842,9 @@ static int32_t transpose_in_k_init_helper(CSOUND *csound, CSN_RESHAPE_IN *p, boo
     uint32_t shape[CSN_MAX_DIMS];
     if (transpose_axes(is_default, p->new_shape, arr->ndim, axes) != CSN_TRANSPOSE_AXES_OK || arr->size == 0) goto done;
     transpose_shape(arr, axes, shape);
-    if (transpose_into(csound, arr, arr, p->scratch.scratch, shape, axes) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, arr);
+    if (transpose_into(&w, arr, arr, p->scratch.scratch, shape, axes) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     update_array_data_version(&arr->version);
@@ -901,13 +897,14 @@ static int32_t transpose_in_k_helper(CSOUND *csound, CSN_RESHAPE_IN *p, bool is_
     if (is_same_axes && CAN_REUSE_ELEMENTWISE(&p->k_data, arr, NULL, NULL, 0.0, 0.0)) goto done;
 
     size_t capacity = arr->itype != CSN_STRING ? arr->size * (size_t) arr->itype : arr->size;
-    size_t i_size = arr->itype != CSN_STRING ? sizeof(double) : sizeof(char *);
+    size_t i_size = arr->itype != CSN_STRING ? sizeof(double) : sizeof(CSN_STRDATA);
     res = csn_scratch_reserve(csound, &p->h, arr->rt_locked, &p->scratch, capacity, i_size);
     if (res != OK) goto done;
 
     transpose_shape(arr, axes, shape);
-    if (transpose_into(csound, arr, arr, p->scratch.scratch, shape, axes) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid transpose iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, arr);
+    if (transpose_into(&w, arr, arr, p->scratch.scratch, shape, axes) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid transpose iterator layout");
         goto done;
     }
     update_array_data_version(&arr->version);
@@ -1031,6 +1028,19 @@ static void flip_roll_apply(CSN_ARRAY *arr, CSN_FLIP_ROLL_MODE mode, int32_t axi
     }
 }
 
+/* Undoes flip_roll_apply on a string array's slots: a flip is its own
+   inverse, a roll goes back by its shift. Only slots move. */
+static void flip_roll_unapply_strings(CSN_ARRAY *arr, CSN_FLIP_ROLL_MODE mode, int32_t axis, int32_t shift) {
+    if (mode == CSN_FLIP) {
+        flip_roll_apply(arr, mode, axis, shift);
+        return;
+    }
+    size_t run = mode == CSN_ROLL ? arr->size : arr->shape[axis];
+    if (run < 2) return;
+    int32_t inverse = (int32_t) -((int64_t) shift % (int64_t) run);
+    flip_roll_apply(arr, mode, axis, inverse);
+}
+
 /* flip takes an optional axis (all axes when omitted), roll a shift, rollaxis a
    shift and an axis. The flip axis -1 stands for all axes. */
 static int32_t flip_roll_params(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *arr, CSN_FLIP_ROLL_MODE mode, const cs_float *shift_in, const cs_float *axis_in, int32_t *shift, int32_t *axis) {
@@ -1097,7 +1107,14 @@ static int32_t flip_roll_init_helper(CSOUND *csound, CSN_FLIP_ROLL *p, CSN_FLIP_
        source's), the values are left to the first pass */
     if (!csn_known_at_init(csound, (void *) shift_in) || !csn_known_at_init(csound, (void *) axis_in)) goto done;
 
-    if (!out.aliased) CSN_MEMCPY(csound, p->handle, source);
+    if (!out.aliased) {
+        /* each string slot first goes back to where the last pass's
+           permutation took it, so its buffer meets the string it held */
+        if (source->itype == CSN_STRING) flip_roll_unapply_strings(p->handle, mode, axis, shift);
+        CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, source);
+        if (res != OK) goto done;
+    }
     flip_roll_apply(p->handle, mode, axis, shift);
     if (out.aliased && source->size > 0) update_array_data_version(&p->handle->version);
 
@@ -1112,12 +1129,6 @@ done:
 static int32_t flip_roll_k_helper(CSOUND *csound, CSN_FLIP_ROLL *p, CSN_FLIP_ROLL_MODE mode, const cs_float *shift_in, const cs_float *axis_in) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
-
-    /* a copy duplicates every string; in place they are only swapped */
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
@@ -1138,7 +1149,14 @@ static int32_t flip_roll_k_helper(CSOUND *csound, CSN_FLIP_ROLL *p, CSN_FLIP_ROL
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (!out.aliased) CSN_MEMCPY(csound, p->handle, source);
+    if (!out.aliased) {
+        /* each string slot first goes back to where the last pass's
+           permutation took it, so its buffer meets the string it held */
+        if (source->itype == CSN_STRING) flip_roll_unapply_strings(p->handle, mode, axis, shift);
+        CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+        res = CSN_MEMCPY(&w, p->handle, source);
+        if (res != OK) goto done;
+    }
     flip_roll_apply(p->handle, mode, axis, shift);
     if (out.aliased && source->size > 0) update_array_data_version(&p->handle->version);
 

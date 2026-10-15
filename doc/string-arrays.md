@@ -40,34 +40,89 @@ overload, and [csntype](csntype.md) reports `2` for one.
 - Masks, with a real mask: [csnwhere](csnwhere.md),
   [csnputmask](csnputmask.md) as `csnputmask(dest, mask, values)`,
   [csncompress](csncompress.md), [csnselect](csnselect.md).
+- Elementwise strings: [csnstradd](csnstradd.md) joins two arrays or an array
+  and an `S`, with broadcasting, [csnstrmul](csnstrmul.md) repeats each
+  string a number of times, and [csnstrupper](csnstrupper.md),
+  [csnstrlower](csnstrlower.md), [csnstrcapitalize](csnstrcapitalize.md) and
+  [csnstrswapcase](csnstrswapcase.md) change the case of the ASCII letters,
+  as a copy or in place.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
   as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The elementwise string operations (`np.strings.add`, `upper`, `strip`, ...),
+The other elementwise string operations (`title`, `strip`, `replace`, ...),
 queries, conversions, sorting and sets are not there yet.
 
-## Rate and real-time paths
+## Rate
 
 A string argument has no i and k forms, so an opcode whose only other
 arguments are strings cannot be told apart by rate: its k form takes an
 explicit trigger, `csnlike(src, "x", ktrig)`, `csnfromarray(Sarr, ktrig)`,
-`csnload(path, ktrig)`, and the call without one is the init-time form.
+`csnload(path, ktrig)`, `csnstradd(arr, "x", ktrig)`, and the call without one
+is the init-time form.
 
-Writing a string allocates. A k-rate pass that writes strings is therefore
-refused on an array marked for a [real-time path](csnrtlock.md), with a message
-that names the opcode; build the array at init instead, or clear the mark. An
-element set to the string it already holds is no write and allocates nothing,
-so a k-rate `csnset`, `csnsetslice` or `csnputmask` of unchanged values is
-free. Reordering in place (`csntranspose`, `csnflip`, `csnroll`, `csnreverse`
-without an output, `csnshuffle`) only moves the strings the array already
-holds, so it allocates nothing and is allowed there; the k forms that return a
-copy are refused like any other writer, and so is `csnpad` in place, which
-allocates its fill strings. For the same reason `csnpop`, the one-string
-`csnremove` and `csntruncate` in place are allowed: the strings they drop stay
-with the array past its end, and a later push or insert takes the slot back.
-`csnpush` and `csninsert` store a copy, and `csnresize` in place releases the
-strings left past the end as it grows over them, so their k forms are refused.
+## Real-time paths
+
+Every element owns a buffer for its string and keeps it. A string is written
+into the buffer of the element that takes it, and only a string longer than
+the buffer makes the buffer grow; an element emptied by a shrink, a resize or
+a reused output keeps its buffer for the next string.
+
+On an array marked for a [real-time path](csnrtlock.md) no buffer may grow
+during performance. A k pass that writes strings therefore runs as long as
+every string fits the room its element already holds, and the first one that
+does not fit stops the pass with a performance error that names the opcode and
+both sizes:
+
+```text
+[csnarray] A string needs 22 bytes, its slot holds 4, and growing it allocates
+at perf time on a real-time path; ...
+```
+
+The room comes from the init pass:
+
+- An output marked at init gives each of its elements room for the longest
+  string its operands hold there. Slices, takes, layout copies, joins and
+  masks only ever place those strings, and the case conversions
+  ([csnstrupper](csnstrupper.md), [csnstrlower](csnstrlower.md),
+  [csnstrcapitalize](csnstrcapitalize.md),
+  [csnstrswapcase](csnstrswapcase.md)) keep their length, so their k forms run as
+  long as the operands keep strings no longer than at init.
+- A form that makes new strings sizes its elements from what it computes at
+  init: [csnstradd](csnstradd.md), [csnstrmul](csnstrmul.md) (with a k count,
+  from its init value), [csnfull](csnfull.md) and [csnlike](csnlike.md) with
+  their fill, [csnpad](csnpad.md) with its fill and the source's longest
+  string.
+- An element set at init, with [csnset](csnset.md), `v[i] = "x"` or
+  [csnsetslice](csnsetslice.md), has the room of that string.
+
+So a chain that runs under a deadline is built at init with strings at least
+as long as the ones it will write; an array marked later, with
+[csnrtlock](csnrtlock.md) after the opcodes that write it, has only the room
+its strings took when they were written.
+
+A write in place checks every element before it writes one, so a pass that
+stops leaves the array as it was: [csnset](csnset.md) and `v[i] = "x"`,
+[csnsetslice](csnsetslice.md), [csnputmask](csnputmask.md),
+[csnlike](csnlike.md) and [csnstradd](csnstradd.md) or
+[csnstrmul](csnstrmul.md) onto their own operand, and the one-string
+[csnpush](csnpush.md) and [csninsert](csninsert.md), which take the element
+past the end where a [csnpop](csnpop.md) or [csnremove](csnremove.md) left
+the string it dropped. A form with an output stops at the first string that
+does not fit, on an output already emptied for the new result; the note stops
+with it. An element set to the string it already holds is no write at all, so
+a k-rate set of unchanged values is free.
+
+Moving strings costs nothing: reordering in place (`csntranspose`, `csnflip`,
+`csnroll`, `csnreverse` without an output, `csnshuffle`), `csnpop`, the
+one-string `csnremove` and `csntruncate` in place only move the elements and
+their buffers, so they always run on a marked array.
+
+Three k forms stay refused on a marked array, on every pass that writes:
+[csnload](csnload.md), which reads new strings from the file, and
+[csnpad](csnpad.md) and the block [csninsert](csninsert.md) in place, which
+rebuild the array in a working copy whose elements trade places with the
+source's on every pass, so no buffer stays where its room was reserved.
 
 ## Files
 

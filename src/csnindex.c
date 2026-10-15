@@ -605,7 +605,7 @@ static int32_t check_take_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, uin
     return OK;
 }
 
-static int32_t take_assign_value(CSOUND *csound, CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t in_ndim, uint32_t out_ndim, uint32_t axis, uint32_t index) {
+static int32_t take_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t in_ndim, uint32_t out_ndim, uint32_t axis, uint32_t index) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, out_ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -625,8 +625,7 @@ static int32_t take_assign_value(CSOUND *csound, CSN_ARRAY *source, CSN_ARRAY *d
                 }
                 break;
             case CSN_STRING:
-                if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
-                destination->sdata[linear] = csound->Strdup(csound, source->sdata[src_index]);
+                if (csn_str_write(w, &destination->sdata[linear], source->sdata[src_index].data) != OK) return w->err;
                 break;
         }
     }
@@ -659,8 +658,9 @@ int32_t csnarray_take(CSOUND *csound, CSN_TAKE *p) {
 
     /* Walk the destination, which is smaller than the source by exactly the
        extent of the dropped axis. */
-    if (take_assign_value(csound, arr, p->handle, arr->ndim, out_ndim, axis, index) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid take iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    if (take_assign_value(&w, arr, p->handle, arr->ndim, out_ndim, axis, index) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid take iterator layout");
         goto done;
     }
 
@@ -676,12 +676,6 @@ done:
 int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
-
-    /* a pass that takes strings copies them */
-    if (p->source_handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
@@ -709,8 +703,9 @@ int32_t csnarray_take_k(CSOUND *csound, CSN_TAKE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (take_assign_value(csound, arr, p->handle, ndim, out_ndim, axis, index) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid take iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    if (take_assign_value(&w, arr, p->handle, ndim, out_ndim, axis, index) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid take iterator layout");
         goto done;
     }
 
@@ -850,7 +845,7 @@ static int32_t validate_slice_spec(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY
 
 /* A string item is copied, never shared: source and slice each own their
    strings, and either may be rewritten or freed without the other. */
-static int32_t slice_get_assign_value(CSOUND *csound, const CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t ndim, uint32_t axis, uint32_t start, uint32_t step) {
+static int32_t slice_get_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *source, CSN_ARRAY *destination, uint32_t ndim, uint32_t axis, uint32_t start, uint32_t step) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -861,9 +856,8 @@ static int32_t slice_get_assign_value(CSOUND *csound, const CSN_ARRAY *source, C
             source_index += coord * source->strides[d];
         }
         if (source->itype == CSN_STRING) {
-            const char *item = source->sdata[source_index];
-            if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
-            destination->sdata[linear] = item != NULL ? csound->Strdup(csound, item) : NULL;
+            const char *item = source->sdata[source_index].data;
+            if (csn_str_write(w, &destination->sdata[linear], item) != OK) return w->err;
         } else if (source->itype == CSN_COMPLEX) {
             destination->data[linear * 2] = source->data[source_index * 2];
             destination->data[linear * 2 + 1] = source->data[source_index * 2 + 1];
@@ -875,12 +869,12 @@ static int32_t slice_get_assign_value(CSOUND *csound, const CSN_ARRAY *source, C
 }
 
 /* A string slot that already holds the incoming string is left alone, as
-   csnset leaves it: no write, no allocation. With refuse_alloc (a perf pass on
-   a marked array) the first slot that would change stops the walk before
-   anything is written, since the slots before it were all unchanged, and
-   *refused says so. The copy is made before the old string is released: data
-   may be the destination itself. */
-static int32_t slice_set_assign_value(CSOUND *csound, const CSN_ARRAY *data, CSN_ARRAY *destination, uint32_t ndim, const uint32_t *slice_shape, uint32_t axis, uint32_t start, uint32_t step, bool refuse_alloc, bool *refused) {
+   csnset leaves it: no write. A probe walk writes nothing and only checks
+   that every changed string fits its slot where w forbids growth, so a pass
+   on a real-time path that would grow one stops before anything changes.
+   data may be the destination itself: the copy goes into the slot's own
+   buffer, which csn_str_write allows. */
+static int32_t slice_set_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *data, CSN_ARRAY *destination, uint32_t ndim, const uint32_t *slice_shape, uint32_t axis, uint32_t start, uint32_t step, bool probe) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, ndim, slice_shape, data->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -894,6 +888,7 @@ static int32_t slice_set_assign_value(CSOUND *csound, const CSN_ARRAY *data, CSN
         switch (data->itype) {
             case CSN_REAL:
             case CSN_COMPLEX:
+                if (probe) break;
                 if (data->itype == CSN_COMPLEX) {
                     destination->data[destination_index * 2] = data->data[linear * 2];
                     destination->data[destination_index * 2 + 1] = data->data[linear * 2 + 1];
@@ -902,15 +897,11 @@ static int32_t slice_set_assign_value(CSOUND *csound, const CSN_ARRAY *data, CSN
                 }
                 break;
             case CSN_STRING: {
-                const char *value = data->sdata[linear] != NULL ? data->sdata[linear] : "";
-                char *stored = destination->sdata[destination_index];
+                const char *value = data->sdata[linear].data != NULL ? data->sdata[linear].data : "";
+                const char *stored = destination->sdata[destination_index].data;
                 if (stored != NULL && strcmp(stored, value) == 0) break;
-                if (refuse_alloc) {
-                    *refused = true;
-                    return OK;
-                }
-                destination->sdata[destination_index] = csound->Strdup(csound, value);
-                if (stored != NULL) csound->Free(csound, stored);
+                CSN_STRDATA *slot = &destination->sdata[destination_index];
+                if ((probe ? csn_str_check(w, slot, value) : csn_str_write(w, slot, value)) != OK) return w->err;
                 break;
             }
         }
@@ -986,8 +977,9 @@ static int32_t slice_init(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY *ou
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (slice_get_assign_value(csound, arr, out_arr, ndim, axis, start, step) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid slice iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, out_arr);
+    if (slice_get_assign_value(&w, arr, out_arr, ndim, axis, start, step) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid slice iterator layout");
         goto done;
     }
 
@@ -1034,20 +1026,15 @@ static int32_t slice_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *arr, CSN_ARRAY *ou
         && memcmp(k_data->prev_shape, shape, sizeof(uint32_t) * ndim) == 0
         && CAN_REUSE_ELEMENTWISE(k_data, arr, NULL, out_arr, (double) start, (double) step)) goto done;
 
-    /* copying strings allocates, which a real-time path forbids */
-    if (arr->itype == CSN_STRING && out_arr->rt_locked) {
-        res = csn_locked_perf_error(csound, h, "[csnarray] Slicing a string array allocates at perf time and the slice is on a real-time path; slice it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from");
-        goto done;
-    }
-
     const CSN_ARRAY *ops[1] = { arr };
     CSNARR_RES out = prepare_output(csound, h, h, reg, out_arr, ndim, shape, arr->itype, ops, 1, CSN_ALIAS_REFUSE);
     res = out.err;
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (slice_get_assign_value(csound, arr, out_arr, ndim, axis, start, step) != OK) {
-        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid slice iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, h, out_arr);
+    if (slice_get_assign_value(&w, arr, out_arr, ndim, axis, start, step) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, h, "[csnarray] Invalid slice iterator layout");
         goto done;
     }
     SET_KDATA_END(*k_data, shape, ndim, arr->itype);
@@ -1127,13 +1114,12 @@ static int32_t csnarray_set_slice_locked(CSOUND *csound, OPDS *perf_h, CSN_SET_S
         return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Data block holds %zu elements but the slice %s holds %zu", data_arr->size, shape_str(sbuf, sizeof(sbuf), slice_shape, source_ndim), slice_size);
     }
 
-    bool refused = false;
-    bool refuse_alloc = perf_h != NULL && source_arr->rt_locked && source_arr->itype == CSN_STRING;
-    if (slice_set_assign_value(csound, data_arr, source_arr, source_ndim, slice_shape, axis, start, step, refuse_alloc, &refused) != OK) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid slice iterator layout");
-    }
-    if (refused) {
-        return csn_locked_perf_error(csound, perf_h, "[csnarray] Writing a string allocates at perf time and the array is on a real-time path; set it at i-rate, clear the mark with csnrtunlock, or pass irt=0 at the audio source it descends from");
+    CSN_STR_WRITER w = csn_str_writer(csound, perf_h, source_arr);
+    bool probe_first = w.no_growth && source_arr->itype == CSN_STRING;
+    for (int32_t pass = probe_first ? 0 : 1; pass < 2; pass++) {
+        if (slice_set_assign_value(&w, data_arr, source_arr, source_ndim, slice_shape, axis, start, step, pass == 0) != OK) {
+            return w.err != OK ? w.err : CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Invalid slice iterator layout");
+        }
     }
 
     update_array_data_version(&source_arr->version);
@@ -1205,11 +1191,11 @@ int32_t ensure_mutation_capacity(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, s
         if (new_capacity < required_size) new_capacity = required_size;
 
         if (arr->itype == CSN_STRING) {
-            char **new_data = csound->ReAlloc(csound, arr->sdata, sizeof(char *) * new_capacity);
+            CSN_STRDATA *new_data = csound->ReAlloc(csound, arr->sdata, sizeof(CSN_STRDATA) * new_capacity);
             if (new_data == NULL) {
-                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(char *) * new_capacity));
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] Out of memory: allocation of %zu bytes failed", (size_t) (sizeof(CSN_STRDATA) * new_capacity));
             }
-            memset(new_data + arr->capacity, 0, sizeof(char *) * (new_capacity - arr->capacity));
+            memset(new_data + arr->capacity, 0, sizeof(CSN_STRDATA) * (new_capacity - arr->capacity));
             arr->sdata = new_data;
             arr->capacity = new_capacity;
         } else {
@@ -1748,7 +1734,7 @@ static int32_t check_insert_block_body(CSOUND *csound, CSN_INSERT_BLOCK *p, OPDS
     return OK;
 }
 
-static int32_t insert_block_assign_value(CSOUND *csound, CSN_ARRAY *temp, CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, uint32_t source_ndim, uint32_t axis, uint32_t index) {
+static int32_t insert_block_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *temp, CSN_ARRAY *source_arr, CSN_ARRAY *data_arr, uint32_t source_ndim, uint32_t axis, uint32_t index) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, temp->ndim, temp->shape, temp->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -1769,8 +1755,7 @@ static int32_t insert_block_assign_value(CSOUND *csound, CSN_ARRAY *temp, CSN_AR
                     }
                     break;
                 case CSN_STRING:
-                    if (temp->sdata[linear] != NULL) csound->Free(csound, temp->sdata[linear]);
-                    temp->sdata[linear] = csound->Strdup(csound, data_arr->sdata[block_off]);
+                    if (csn_str_write(w, &temp->sdata[linear], data_arr->sdata[block_off].data) != OK) return w->err;
                     break;
             }
         } else {
@@ -1790,8 +1775,7 @@ static int32_t insert_block_assign_value(CSOUND *csound, CSN_ARRAY *temp, CSN_AR
                     }
                     break;
                 case CSN_STRING:
-                    if (temp->sdata[linear] != NULL) csound->Free(csound, temp->sdata[linear]);
-                    temp->sdata[linear] = csound->Strdup(csound, source_arr->sdata[source_off]);
+                    if (csn_str_write(w, &temp->sdata[linear], source_arr->sdata[source_off].data) != OK) return w->err;
                     break;
             }
         }
@@ -1833,11 +1817,11 @@ static int32_t fit_private_array(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, uint3
         size_t new_capacity = requested_size > 0 ? requested_size * 2 : 1;
         if (itype == CSN_STRING) {
             /* a string scratch is never retyped; its new slots start NULL */
-            char **sdata = csound->ReAlloc(csound, temp->sdata, sizeof(char *) * new_capacity);
+            CSN_STRDATA *sdata = csound->ReAlloc(csound, temp->sdata, sizeof(CSN_STRDATA) * new_capacity);
             if (sdata == NULL) {
-                return csn_locked_perf_error(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(char *) * new_capacity);
+                return csn_locked_perf_error(csound, h, "[csnarray] Out of memory: allocation of %zu bytes failed", sizeof(CSN_STRDATA) * new_capacity);
             }
-            memset(sdata + temp->capacity, 0, sizeof(char *) * (new_capacity - temp->capacity));
+            memset(sdata + temp->capacity, 0, sizeof(CSN_STRDATA) * (new_capacity - temp->capacity));
             temp->sdata = sdata;
             temp->capacity = new_capacity;
         } else {
@@ -1891,8 +1875,9 @@ int32_t csnarray_insert_block(CSOUND *csound, CSN_INSERT_BLOCK *p) {
         goto done;
     }
 
-    if (insert_block_assign_value(csound, temp, source_arr, data_arr, source_ndim, axis, index) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid insert iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, temp);
+    if (insert_block_assign_value(&w, temp, source_arr, data_arr, source_ndim, axis, index) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid insert iterator layout");
         goto done;
     }
 
@@ -1975,7 +1960,9 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
 
     CHECK_KTRIG(p->trig);
 
-    /* a pass that inserts strings copies them */
+    /* The inserted image is built in a working copy whose slots then trade
+       places with the source's, so the buffers move every pass and none stays
+       reserved: strings on a real-time path are refused. */
     if (p->source_handle->itype == CSN_STRING) {
         int32_t res_rt = check_strings_not_rt(csound, &p->h, p->source_handle);
         if (res_rt != OK) return res_rt;
@@ -2002,8 +1989,9 @@ int32_t csnarray_insert_block_k(CSOUND *csound, CSN_INSERT_BLOCK *p) {
     res = ensure_mutation_capacity(csound, &p->h, source_arr, p->scratch->size, source_arr->rt_locked);
     if (res != OK) goto done;
 
-    if (insert_block_assign_value(csound, p->scratch, source_arr, data_arr, source_ndim, axis, index) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid insert iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->scratch);
+    if (insert_block_assign_value(&w, p->scratch, source_arr, data_arr, source_ndim, axis, index) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid insert iterator layout");
         goto done;
     }
 
@@ -2051,7 +2039,7 @@ static int32_t check_remove_block_body(CSOUND *csound, CSN_TAKE *p, OPDS *perf_h
     return OK;
 }
 
-static int32_t remove_block_assign_value(CSOUND *csound, CSN_ARRAY *source_arr, CSN_ARRAY *destination, uint32_t axis, uint32_t index) {
+static int32_t remove_block_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *source_arr, CSN_ARRAY *destination, uint32_t axis, uint32_t index) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, destination->ndim, destination->shape, destination->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -2072,8 +2060,7 @@ static int32_t remove_block_assign_value(CSOUND *csound, CSN_ARRAY *source_arr, 
                 }
                 break;
             case CSN_STRING:
-                if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
-                destination->sdata[linear] = csound->Strdup(csound, source_arr->sdata[source_off]);
+                if (csn_str_write(w, &destination->sdata[linear], source_arr->sdata[source_off].data) != OK) return w->err;
                 break;
         }
     }
@@ -2104,8 +2091,9 @@ int32_t csnarray_remove_block(CSOUND *csound, CSN_TAKE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (remove_block_assign_value(csound, source_arr, p->handle, axis, index) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid remove iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    if (remove_block_assign_value(&w, source_arr, p->handle, axis, index) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid remove iterator layout");
         goto done;
     }
 
@@ -2131,7 +2119,9 @@ int32_t csnarray_remove_block_k_init(CSOUND *csound, CSN_TAKE *p) {
     pres.locked |= out.locked;
 
     p->handle->size = source_arr->size;
-    CSN_MEMCPY(csound, p->handle, source_arr);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = CSN_MEMCPY(&w, p->handle, source_arr);
+    if (res != OK) goto done;
     SET_KDATA_BEGIN(p->k_data, reg, source_arr->shape, source_arr->ndim, source_arr->itype);
 
 done:
@@ -2144,12 +2134,6 @@ int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->trig);
-
-    /* a pass that removes from strings copies the rest */
-    if (p->source_handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     int32_t res = OK;
     CSNARR_RES pres = {0};
@@ -2171,8 +2155,9 @@ int32_t csnarray_remove_block_k(CSOUND *csound, CSN_TAKE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (remove_block_assign_value(csound, source_arr, p->handle, axis, index) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid remove iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    if (remove_block_assign_value(&w, source_arr, p->handle, axis, index) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid remove iterator layout");
         goto done;
     }
 
@@ -2209,7 +2194,7 @@ static int32_t concat_flat_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *s
     return OK;
 }
 
-static void concat_flat_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination) {
+static int32_t concat_flat_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *source_arr, const CSN_ARRAY *data_arr, CSN_ARRAY *destination) {
     ITEM_TYPE itype = destination->itype;
     for (size_t linear = 0; linear < destination->size; ++linear) {
         switch (itype) {
@@ -2229,14 +2214,14 @@ static void concat_flat_assign_value(CSOUND *csound, const CSN_ARRAY *source_arr
                 break;
             case CSN_STRING: {
                 const char *from = linear < source_arr->size
-                    ? source_arr->sdata[linear]
-                    : data_arr->sdata[linear - source_arr->size];
-                if (destination->sdata[linear] != NULL) csound->Free(csound, destination->sdata[linear]);
-                destination->sdata[linear] = csound->Strdup(csound, from);
+                    ? source_arr->sdata[linear].data
+                    : data_arr->sdata[linear - source_arr->size].data;
+                if (csn_str_write(w, &destination->sdata[linear], from) != OK) return w->err;
                 break;
             }
         }
     }
+    return OK;
 }
 
 int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
@@ -2261,7 +2246,9 @@ int32_t csnarray_concat_flat(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    concat_flat_assign_value(csound, source_arr, data_arr, p->handle);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = concat_flat_assign_value(&w, source_arr, data_arr, p->handle);
+    if (res != OK) goto done;
     SET_KDATA_BEGIN(p->k_data, reg, new_shape, 1U, p->handle->itype);
 
 done:
@@ -2272,11 +2259,6 @@ done:
 int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
-
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     CHECK_KTRIG(p->arg_a);
 
@@ -2298,7 +2280,9 @@ int32_t csnarray_concat_flat_k(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    concat_flat_assign_value(csound, source_arr, data_arr, p->handle);
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = concat_flat_assign_value(&w, source_arr, data_arr, p->handle);
+    if (res != OK) goto done;
     SET_KDATA_END(p->k_data, new_shape, 1U, source_arr->itype);
     PUBLISH_ELEMENTWISE(&p->k_data, source_arr, data_arr, p->handle, 0.0, 0.0);
 
@@ -2409,14 +2393,15 @@ int32_t csnarray_concat_block(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
     if (p->handle->itype == CSN_STRING) {
-        res = concat_block_string_assign_value(csound, source_arr, data_arr, p->handle, axis);
+        res = concat_block_string_assign_value(&w, source_arr, data_arr, p->handle, axis);
     } else {
         res = concat_block_assign_value(source_arr, data_arr, p->handle, axis);
     }
 
     if (res != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
 
@@ -2463,14 +2448,15 @@ int32_t csnarray_concat_block_k_init(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
     if (p->handle->itype == CSN_STRING) {
-        res = concat_block_string_assign_value(csound, source_arr, data_arr, p->handle, axis);
+        res = concat_block_string_assign_value(&w, source_arr, data_arr, p->handle, axis);
     } else {
         res = concat_block_assign_value(source_arr, data_arr, p->handle, axis);
     }
 
     if (res != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
 
@@ -2485,11 +2471,6 @@ done:
 int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     CSN_REGISTRY *reg = p->k_data.registry;
     CHECK_REGISTRY(csound, &p->h, reg);
-
-    if (p->source_handle->itype == CSN_STRING && p->handle != p->source_handle) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     CHECK_KTRIG(p->arg_a);
 
@@ -2512,14 +2493,15 @@ int32_t csnarray_concat_block_k(CSOUND *csound, CSN_CONCAT *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
     if (p->handle->itype == CSN_STRING) {
-        res = concat_block_string_assign_value(csound, source_arr, data_arr, p->handle, axis);
+        res = concat_block_string_assign_value(&w, source_arr, data_arr, p->handle, axis);
     } else {
         res = concat_block_assign_value(source_arr, data_arr, p->handle, axis);
     }
 
     if (res != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid concatenate iterator layout");
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid concatenate iterator layout");
         goto done;
     }
 
@@ -2665,14 +2647,15 @@ int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, CSN_ARR
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, out_arr);
     if (out_arr->itype != CSN_STRING) {
         res = pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before);
     } else {
-        res = pad_assign_string_value(csound, source_arr, out_arr, valuestring, axis, before);
+        res = pad_assign_string_value(&w, source_arr, out_arr, valuestring, axis, before);
     }
 
     if (res != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
@@ -2766,14 +2749,15 @@ int32_t csnarray_pad_k_init_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, out_arr);
     if (out_arr->itype != CSN_STRING) {
         res = pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before);
     } else {
-        res = pad_assign_string_value(csound, source_arr, out_arr, valuestring, axis, before);
+        res = pad_assign_string_value(&w, source_arr, out_arr, valuestring, axis, before);
     }
 
     if (res != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
@@ -2835,20 +2819,21 @@ int32_t csnarray_pad_k_helper(CSOUND *csound, OPDS *h, K_DATA *k_data, CSN_ARRAY
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, h, out_arr);
     if (out_arr->itype != CSN_STRING) {
         res = pad_assign_value(source_arr, out_arr, value, valuecomp, axis, before);
     } else {
-        res = pad_assign_string_value(csound, source_arr, out_arr, valuestring, axis, before);
+        res = pad_assign_string_value(&w, source_arr, out_arr, valuestring, axis, before);
     }
 
     if (res != OK) {
-        res = csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
     SET_KDATA_END(*k_data, new_shape, out_arr->ndim, out_arr->itype);
     if (out_arr->itype == CSN_STRING) {
-        PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, out_arr, valuestring->data, NULL);
+        PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, out_arr, valuestring->data, NULL, !out_arr->rt_locked);
     } else {
         PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, out_arr, fill_re, fill_im);
     }
@@ -2914,14 +2899,15 @@ int32_t csnarray_pad_in_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *source_arr, c
         goto done;
     }
 
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, temp);
     if (source_arr->itype == CSN_STRING) {
-        res = pad_assign_string_value(csound, source_arr, temp, valuestring, axis, before);
+        res = pad_assign_string_value(&w, source_arr, temp, valuestring, axis, before);
     } else {
         res = pad_assign_value(source_arr, temp, value, valuecomp, axis, before);
     }
 
     if (res != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid pad iterator layout");
         goto done;
     }
 
@@ -3026,9 +3012,10 @@ static int32_t pad_in_k_commit(CSOUND *csound, OPDS *h, CSN_ARRAY *temp, CSN_ARR
     res = ensure_mutation_capacity(csound, h, source_arr, temp->size, source_arr->rt_locked);
     if (res != OK) return res;
 
+    CSN_STR_WRITER w = csn_str_writer(csound, h, temp);
     if (source_arr->itype == CSN_STRING) {
-        if (pad_assign_string_value(csound, source_arr, temp, valuestring, axis, before) != OK) {
-            return csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
+        if (pad_assign_string_value(&w, source_arr, temp, valuestring, axis, before) != OK) {
+            return w.err != OK ? w.err : csn_locked_perf_error(csound, h, "[csnarray] Invalid pad iterator layout");
         }
         /* the scratch hands its strings over and is left with none */
         move_csnstrings(csound, source_arr, temp);
@@ -3079,7 +3066,7 @@ int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, CSN
     res = pad_in_k_commit(csound, h, scratch, source_arr, new_shape, value, valuecomp, valuestring, axis, before);
     if (res != OK) goto done;
     if (source_arr->itype == CSN_STRING) {
-        PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, NULL, valuestring->data, NULL);
+        PUBLISH_STRING_ELEMENTWISE(csound, k_data, source_arr, NULL, NULL, valuestring->data, NULL, !source_arr->rt_locked);
     } else {
         PUBLISH_ELEMENTWISE(k_data, source_arr, NULL, NULL, fill_re, fill_im);
     }

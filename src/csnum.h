@@ -409,8 +409,9 @@ typedef struct {
     ITEM_TYPE prev_itype;
     double prev_scalar_param;
     double prev_scalar_param_b;
-    char *prev_string;   // owned copies, see PUBLISH_STRING_ELEMENTWISE
-    char *prev_string_b;
+    CSN_STRDATA prev_string;   // owned copies, see PUBLISH_STRING_ELEMENTWISE
+    CSN_STRDATA prev_string_b;
+    bool prev_strings_stale;   // a copy could not be kept: never reuse
     ARRAY_VERSION prev_source_version;
     ARRAY_VERSION prev_source_version_b;
     ARRAY_VERSION prev_output_version;

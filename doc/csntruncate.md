@@ -22,7 +22,9 @@ leaves the source alone; the one without an output rewrites the source in place
 and returns nothing.
 
 A `:CsnStr;` is truncated the same way. The output form holds its own copies
-of the strings, so its k form is refused on a [real-time path](csnrtlock.md).
+of the strings; on a [real-time path](csnrtlock.md) its k form writes them into
+the room its slots already hold and stops with a performance error at the
+first string that does not fit.
 In place, the kept strings are only moved and the dropped ones stay with the
 array past its new end, so nothing is allocated or released and the k form is
 allowed there. See [string arrays](string-arrays.md).

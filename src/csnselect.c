@@ -1451,7 +1451,7 @@ static int32_t compress_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr
     return OK;
 }
 
-static int32_t compress_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
+static int32_t compress_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *arr, CSN_ARRAY *source_arr, size_t count_true, size_t dst_size, uint32_t *indexes, int32_t axis_out, uint32_t ndim, ITEM_TYPE itype) {
     if (axis_out == -1) {
         for (size_t i = 0; i < count_true; i++) {
             size_t index = indexes[i];
@@ -1466,8 +1466,7 @@ static int32_t compress_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *
                     }
                     break;
                 case CSN_STRING:
-                    if (arr->sdata[i] != NULL) csound->Free(csound, arr->sdata[i]);
-                    arr->sdata[i] = csound->Strdup(csound, source_arr->sdata[index]);
+                    if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[index].data) != OK) return w->err;
                     break;
             }
         }
@@ -1492,8 +1491,7 @@ static int32_t compress_assign_value(CSOUND *csound, CSN_ARRAY *arr, CSN_ARRAY *
                     }
                     break;
                 case CSN_STRING:
-                    if (arr->sdata[i] != NULL) csound->Free(csound, arr->sdata[i]);
-                    arr->sdata[i] = csound->Strdup(csound, source_arr->sdata[src_off]);
+                    if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[src_off].data) != OK) return w->err;
                     break;
             }
         }
@@ -1550,8 +1548,9 @@ int32_t csnarray_compress(CSOUND *csound, CSN_WHERE_HS *p) {
     pres.locked |= out.locked;
 
     size_t size = p->handle->size;
-    if (compress_assign_value(csound, p->handle, source_arr, count_true, size, indexes, axis_out, new_dim, itype) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid compress iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    if (compress_assign_value(&w, p->handle, source_arr, count_true, size, indexes, axis_out, new_dim, itype) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid compress iterator layout");
         goto done;
     }
 
@@ -1626,10 +1625,6 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
 
     CHECK_KTRIG(p->source_scalar_false);
-    if (p->source_handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
 
     const cs_float *axis_in = p->INOCOUNT > 3 ? p->trig : NULL;
     int32_t res = OK;
@@ -1678,8 +1673,9 @@ int32_t csnarray_compress_k(CSOUND *csound, CSN_WHERE_HS *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (compress_assign_value(csound, p->handle, source_arr, count_true, p->handle->size, indexes_temp, axis_out, new_dim, itype) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid compress iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    if (compress_assign_value(&w, p->handle, source_arr, count_true, p->handle->size, indexes_temp, axis_out, new_dim, itype) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid compress iterator layout");
         goto done;
     }
 
@@ -1707,7 +1703,7 @@ static int32_t select_body(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *source_arr, 
     return OK;
 }
 
-static void select_assign_value(CSOUND *csound, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, CSN_ARRAY *mask_arr) {
+static int32_t select_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, CSN_ARRAY *mask_arr) {
     for (size_t i = 0, j = 0; i < source_arr->size; i++) {
         if (mask_arr->data[i] != 0.0) {
             switch (source_arr->itype) {
@@ -1721,13 +1717,12 @@ static void select_assign_value(CSOUND *csound, CSN_ARRAY *out_arr, CSN_ARRAY *s
                     }
                     break;
                 case CSN_STRING:
-                    if (out_arr->sdata[j] != NULL) csound->Free(csound, out_arr->sdata[j]);
-                    out_arr->sdata[j] = csound->Strdup(csound, source_arr->sdata[i]);
+                    if (csn_str_write(w, &out_arr->sdata[j], source_arr->sdata[i].data) != OK) return w->err;
                     break;
             }
             j++;
         }
-    }
+    }    return OK;
 }
 
 int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p) {
@@ -1760,7 +1755,8 @@ int32_t csnarray_select(CSOUND *csound, CSN_ARGWHERE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    select_assign_value(csound, p->handle, source_arr, mask_arr);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = select_assign_value(&w, p->handle, source_arr, mask_arr);
 
 done:
     if (pres.locked) csn_unlock(csound, reg);
@@ -1813,11 +1809,6 @@ int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p) {
     CHECK_KTRIG(p->trig);
     int32_t res = OK;
 
-    if (p->source_handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
-
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle, p->data_handle }, 3);
 
@@ -1849,7 +1840,9 @@ int32_t csnarray_select_k(CSOUND *csound, CSN_ARGWHERE *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    select_assign_value(csound, p->handle, source_arr, mask_arr);
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = select_assign_value(&w, p->handle, source_arr, mask_arr);
+    if (res != OK) goto done;
 
     SET_KDATA_END(p->k_data, new_shape, new_dim, itype);
     set_array_version(&p->versions.prev_a_version, &source_arr->version);
@@ -1995,7 +1988,7 @@ static int32_t stack_check_types(CSOUND *csound, const CSN_ARRAY *out, CSN_ARRAY
     return OK;
 }
 
-static int32_t stack_assign_value(CSOUND *csound, CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *const *sources) {
+static int32_t stack_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *stacked, uint32_t axis, CSN_ARRAY *const *sources) {
     CSN_BROADCAST_ITER it;
     if (ND_ITER_INIT(&it, stacked->ndim, stacked->shape, stacked->size, NULL) != OK) return NOTOK;
     while (BROADCAST_ITER_NEXT(&it)) {
@@ -2016,8 +2009,7 @@ static int32_t stack_assign_value(CSOUND *csound, CSN_ARRAY *stacked, uint32_t a
                 }
                 break;
             case CSN_STRING:
-                if (stacked->sdata[linear] != NULL) csound->Free(csound, stacked->sdata[linear]);
-                stacked->sdata[linear] = csound->Strdup(csound, source->sdata[src_offset]);
+                if (csn_str_write(w, &stacked->sdata[linear], source->sdata[src_offset].data) != OK) return w->err;
                 break;
         }
     }
@@ -2072,8 +2064,9 @@ int32_t csnarray_stack(CSOUND *csound, CSN_STACK *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (stack_assign_value(csound, p->handle, axis, sources) != OK) {
-        res = csn_init_error(csound, "[csnarray] Invalid stack iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    if (stack_assign_value(&w, p->handle, axis, sources) != OK) {
+        res = w.err != OK ? w.err : csn_init_error(csound, "[csnarray] Invalid stack iterator layout");
         goto done;
     }
 
@@ -2152,12 +2145,6 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
 
     CHECK_KTRIG(p->trig);
 
-    /* the mark is decided at init, so it is read here: every pass that stacks
-       strings copies them */
-    if (p->handle->itype == CSN_STRING) {
-        int32_t res_rt = check_strings_not_rt(csound, &p->h, p->handle);
-        if (res_rt != OK) return res_rt;
-    }
     int32_t res = OK;
 
     CSN_ARRAY *const *sources = (CSN_ARRAY *const *) p->source_handles;
@@ -2209,8 +2196,9 @@ int32_t csnarray_stack_k(CSOUND *csound, CSN_STACK_K *p) {
     if (res != OK) goto done;
     pres.locked |= out.locked;
 
-    if (stack_assign_value(csound, p->handle, axis, sources) != OK) {
-        res = csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid stack iterator layout");
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    if (stack_assign_value(&w, p->handle, axis, sources) != OK) {
+        res = w.err != OK ? w.err : csn_locked_perf_error(csound, &p->h, "[csnarray] Invalid stack iterator layout");
         goto done;
     }
 

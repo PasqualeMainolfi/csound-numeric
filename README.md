@@ -314,13 +314,15 @@ opcodes (`csnreshape`, `csnflatten`, `csntranspose`, `csnflip`, `csnroll`,
 `csnreverse`), `csnconcat`, `csnstack` and `csnpad` with a string fill,
 `csnpush`, `csnpop`, `csninsert`, `csnremove`, `csntruncate`, `csnhead`,
 `csnresize`, `csncopy`, `csnshuffle`, the masks (`csnwhere`, `csnputmask`,
-`csncompress`, `csnselect`), the rate casts `csni` and `csnk`, and
-`csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
-string has no k form, so their k forms take an explicit trigger; and since
-writing a string allocates, a k pass that writes strings is refused on a
-[real-time path](#real-time-paths). See
-[String arrays](doc/string-arrays.md) for the list, the file formats and a
-runnable example.
+`csncompress`, `csnselect`), the elementwise `csnstradd`, `csnstrmul`,
+`csnstrupper`, `csnstrlower`, `csnstrcapitalize` and `csnstrswapcase`, the
+rate casts `csni` and `csnk`, and `csnsave` / `csnload` (`.npy` as `<U` or
+`|S`, `.csn`) take one today. A string has no k form, so their k forms take an
+explicit trigger. Each element keeps the buffer of its string, so on a
+[real-time path](#real-time-paths) a k pass writes into the room the init pass
+gave it and stops only at a string that does not fit. See
+[String arrays](doc/string-arrays.md) for the list, the file formats, the
+real-time rule and a runnable example.
 
 ### Printing arrays
 
@@ -792,16 +794,21 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csntranspose`, `csnflip`, `csnroll`, `csnreverse` | `np.transpose`, `np.flip`, `np.roll`, `a[::-1]` | A copy owns its strings; in place nothing is allocated. |
 | `csnconcat` | `np.concatenate` | Two `CsnStr`; flat without an axis. |
 | `csnstack` | `np.stack` | Two or more `CsnStr`, all of the same shape. |
-| `csnpad` | `np.pad(a, w, constant_values="s")` | The fill string is required; the k forms are refused on a real-time path, in place too. |
-| `csnpush`, `csninsert` | `np.append`, `np.insert` | In place, one `S` or a `CsnStr` block; the k forms are refused on a real-time path. |
+| `csnpad` | `np.pad(a, w, constant_values="s")` | The fill string is required; the k form in place is refused on a real-time path. |
+| `csnpush`, `csninsert` | `np.append`, `np.insert` | In place, one `S` or a `CsnStr` block; the block k form is refused on a real-time path. |
 | `csnpop`, `csnremove` | `a[-1]` + `np.delete`, `np.delete` | One element comes back as an `S`, allowed on a real-time path; a removed block is a new `CsnStr`. |
 | `csntruncate`, `csnhead` | `a[:n]` | In place the strings are only moved, so the k form is allowed on a real-time path. |
-| `csnresize` | `ndarray.resize` | What it adds is `""`; the k forms are refused on a real-time path, in place too. |
-| `csncopy`, `csni`, `csnk` | `np.copy` | Each copy owns its strings; a k pass that copies is refused on a real-time path. |
+| `csnresize` | `ndarray.resize` | What it adds is `""`. |
+| `csncopy`, `csni`, `csnk` | `np.copy` | Each copy owns its strings. |
 | `csnshuffle` | `np.random.shuffle` | The same permutation as a numeric array after the same `csnseed`; allowed on a real-time path. |
 | `csnwhere` | `np.where(mask, a, b)` | Real mask; `b` a `CsnStr` or one `S`. |
 | `csnputmask` | `np.putmask(dest, mask, values)` | Destination first, unlike the numeric form; unchanged elements are not rewritten. |
 | `csncompress`, `csnselect` | `np.compress`, `a[mask]` | Real mask; the kept strings are copies. |
+| `csnstradd` | `np.strings.add` | Two `CsnStr` with broadcasting, or one `S` before or after every element. |
+| `csnstrmul` | `np.strings.multiply` | One count or a real `CsnArr` of counts; whole numbers, below 0 gives `""`. |
+| `csnstrupper`, `csnstrlower` | `np.strings.upper`, `np.strings.lower` | ASCII letters only, as on a bytes (`S`) array: bytes from 0x80 up stay, so UTF-8 survives. Also in place. |
+| `csnstrcapitalize` | `np.strings.capitalize` | First character up, the rest down; ASCII only, as on a bytes (`S`) array. Also in place. |
+| `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
 | `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |
 
@@ -1172,6 +1179,18 @@ where an opcode publishes a result:
 - **Csound arrays.** The k-rate forms of `csntoarray` and `csnshape` reserve
   their output at init, so a marked source that moves within its capacity never
   makes Csound grow the output array.
+- **Strings.** Each element of a `CsnStr` keeps the buffer of its string, and a
+  k form writes its strings into those buffers. On a marked string array a
+  pass runs as long as every string fits the room its element already holds,
+  and the first string that does not fit stops it with a performance error
+  (`A string needs 22 bytes, its slot holds 4, ...`). The room is set at init:
+  a marked output gets room for the longest string its operands hold, and the
+  forms that make new strings (`csnstradd`, `csnstrmul`, a fill) size it from
+  what they compute there. Writes in place (`csnset`, `csnsetslice`,
+  `csnputmask`, a one-string `csnpush`) check every element first, so a pass
+  that stops changes nothing. `csnload` and the in-place `csnpad` and block
+  `csninsert` rebuild their strings on every pass and stay refused. See
+  [String arrays](doc/string-arrays.md#real-time-paths).
 
 Two things stay outside the guarantee. `csnsave`, `csnload` and `csnprint` do
 file or console I/O on the performance thread, which no mark can make real-time
@@ -1192,6 +1211,9 @@ another variable is Csound's to perform.
   init; one that has to vary further should start at init from the largest
   shape it will take. `csnempty` reserves a shape without publishing any
   element, which gives `csnpush` and an in-place resize room to grow into.
+- **Give strings their longest value at init.** A marked string array writes
+  into the room its elements took at init, so build it there with strings at
+  least as long as the ones its k forms will write.
 - **Unmark what does not go back out.** Frames harvested only for analysis do
   not need the guarantee: pass `irt = 0` at the audio source, or `csnrtunlock`
   the branch.
