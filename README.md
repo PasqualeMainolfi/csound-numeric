@@ -171,6 +171,13 @@ or change the target's layout, is refused. The corresponding named opcodes
 (`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`) remain available, including
 their trigger forms.
 
+On `CsnStr`, `+` joins elementwise, two arrays with broadcasting or an `S` on
+either side, and `*` repeats each string by a count on either side, as
+`csnstradd` and `csnstrmul` do; `+=` and `*=` update the left array. A string
+operand has no rate, so an operator on an i-rate array runs again at perf
+when its `S` changes, and `X += Sv` on an i-rate `X` appends once per change.
+See [string arrays](doc/string-arrays.md#operators).
+
 ### Indexing with `[]`
 
 `v[i][j]` reads and writes one element, one index per dimension, and
@@ -317,7 +324,7 @@ opcodes (`csnreshape`, `csnflatten`, `csntranspose`, `csnflip`, `csnroll`,
 `csncompress`, `csnselect`), the elementwise `csnstradd`, `csnstrmul`,
 `csnstrupper`, `csnstrlower`, `csnstrcapitalize`, `csnstrswapcase`,
 `csnstrtitle`, `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip`, `csnstrcenter`,
-`csnstrljust` and `csnstrrjust`, the rate
+`csnstrljust`, `csnstrrjust`, `csnstrreplace` and `csnstrsubstr`, the rate
 casts `csni` and `csnk`, and `csnsave` / `csnload` (`.npy` as `<U` or
 `|S`, `.csn`) take one today. A string has no k form, so their k forms take an
 explicit trigger. Each element keeps the buffer of its string, so on a
@@ -813,6 +820,8 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnstrtitle` | `np.strings.title` | As on a bytes (`S`) array: ASCII letters only, and digits and UTF-8 bytes are not letters (`"1st"` gives `"1St"`, `"Cafés"` gives `"CaféS"`). Also in place. |
 | `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip` | `np.strings.strip`, `lstrip`, `rstrip` | ASCII whitespace only, as on a bytes (`S`) array, so UTF-8 survives. `chars` is a set of bytes, as on a bytes array: a multibyte character stands for each of its bytes. Also in place. |
 | `csnstrcenter`, `csnstrljust`, `csnstrrjust` | `np.strings.center`, `ljust`, `rjust` | Width in bytes, as on a bytes (`S`) array; center splits an odd margin as CPython does. A negative width is refused rather than ignored; `fillchar` (here `fill`) must be one byte. Also in place. |
+| `csnstrreplace` | `np.strings.replace` | Bytes, as on a bytes (`S`) array; an empty `old` matches between bytes. `count` optional, any negative for all. Also in place. |
+| `csnstrsubstr` | `np.strings.slice` | Bytes, stop excluded, clamped to each string. Indices as `csngetslice`: whole, from 0, start no greater than stop, step at least 1; no negative indices or steps. Also in place. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
 | `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |

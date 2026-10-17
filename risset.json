@@ -97,6 +97,8 @@
         "csnstrcenter",
         "csnstrljust",
         "csnstrrjust",
+        "csnstrreplace",
+        "csnstrsubstr",
         "csnminimum",
         "csnmaximum",
         "csnatan2",

@@ -49,14 +49,40 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnstrlstrip](csnstrlstrip.md) and [csnstrrstrip](csnstrrstrip.md) remove
   ASCII whitespace at the ends, or the bytes of a `chars` string, and
   [csnstrcenter](csnstrcenter.md), [csnstrljust](csnstrljust.md) and
-  [csnstrrjust](csnstrrjust.md) pad with spaces to a width, as a copy or in
-  place.
+  [csnstrrjust](csnstrrjust.md) pad with spaces to a width, and
+  [csnstrreplace](csnstrreplace.md) replaces a substring and
+  [csnstrsubstr](csnstrsubstr.md) keeps one, as a copy or in place.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
   as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The other elementwise string operations (`replace`, `center`, `zfill`, ...),
-queries, conversions, sorting and sets are not there yet.
+The other elementwise string operations (`zfill`, ...), queries,
+conversions, sorting and sets are not there yet.
+
+## Operators
+
+`+` and `*` work on `:CsnStr;` as [csnstradd](csnstradd.md) and
+[csnstrmul](csnstrmul.md) do: `A + B` joins two arrays elementwise with
+broadcasting, `A + "x"` and `"x" + A` put a string after or before every
+element, and `A * 3` or `3 * A` repeats each string. `X += Y`, `X += "x"`
+and `X *= n` update `X`. The other arithmetic operators are not defined on
+strings, and an array of counts takes the named form, `csnstrmul(A, counts)`.
+
+```csound
+SNames[] fillarray "kick", "snare"
+names:CsnStr = csnfromarray(SNames)
+files:CsnStr = names + ".wav"     // ["kick.wav" "snare.wav"]
+marks:CsnStr = 2 * names          // ["kickkick" "snaresnare"]
+names += "_01"                    // ["kick_01" "snare_01"]
+```
+
+As with numbers, an operator follows its operands' rates: on i-rate arrays it
+runs at init, and with a k-rate array, or a k count, on every pass. An `S`
+operand has no rate, so the operator keeps a copy of it: on an i-rate array it
+runs again at perf whenever the string changes, and its output turns k-rate
+from then on. `X += Sv` on an i-rate `X` appends once at init and once more
+for each change of `Sv`; on a k-rate `X` it appends on every pass, as `kx +=
+1` adds.
 
 ## Rate
 
@@ -64,7 +90,7 @@ A string argument has no i and k forms, so an opcode whose only other
 arguments are strings cannot be told apart by rate: its k form takes an
 explicit trigger, `csnlike(src, "x", ktrig)`, `csnfromarray(Sarr, ktrig)`,
 `csnload(path, ktrig)`, `csnstradd(arr, "x", ktrig)`, and the call without one
-is the init-time form.
+is the init-time form. The operators take no trigger: see [Operators](#operators).
 
 ## Real-time paths
 
@@ -93,13 +119,14 @@ The room comes from the init pass:
   [csnstrcapitalize](csnstrcapitalize.md),
   [csnstrswapcase](csnstrswapcase.md), [csnstrtitle](csnstrtitle.md)) keep
   their length and the strips ([csnstrstrip](csnstrstrip.md) and its left and
-  right forms) only shorten, so their k forms run as
+  right forms) and [csnstrsubstr](csnstrsubstr.md) only shorten, so their k
+  forms run as
   long as the operands keep strings no longer than at init.
 - A form that makes new strings sizes its elements from what it computes at
   init: [csnstradd](csnstradd.md), [csnstrmul](csnstrmul.md) (with a k count,
   from its init value), the paddings ([csnstrcenter](csnstrcenter.md) and its
   left and right forms, with a k width from its init value; in place only
-  with a width known at init), [csnfull](csnfull.md) and [csnlike](csnlike.md) with
+  with a width known at init), [csnstrreplace](csnstrreplace.md), [csnfull](csnfull.md) and [csnlike](csnlike.md) with
   their fill, [csnpad](csnpad.md) with its fill and the source's longest
   string.
 - An element set at init, with [csnset](csnset.md), `v[i] = "x"` or

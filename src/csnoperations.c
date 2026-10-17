@@ -3,6 +3,7 @@
    family's (csn_binop_hh_* and csn_binop_hs_sh_* in csnmath.c); this file only
    decides when it runs. The public opcode inventory remains centralized in
    csnum.c. */
+#include "csnstrings.h"
 #include "csnum.h"
 #include "csnum_internal.h"
 #include "csnregistry.h"
@@ -231,4 +232,176 @@ int32_t csnop_assign_perf(CSOUND *csound, CSN_OP_ASSIGN *p) {
     CHECK_REGISTRY(csound, &p->h, reg);
     if (!is_krate(p->in)) return OK;
     return op_assign_run(csound, p, &p->h);
+}
+
+
+// --- strings ---
+
+/* The same rules on CsnStr, with the csnstradd and csnstrmul cores. An S has
+   no rate, so no overload says whether a string operand changes at perf: the
+   k_data keeps a copy of it from init on, and a perf pass on an i-rate array
+   runs only when the string moved, turning its output k-rate as an operand
+   changing at perf does. The copy is released at deinit. */
+
+static bool string_scalar_moved(const K_DATA *k_data, const STRINGDAT *s) {
+    if (s == NULL || s->data == NULL) return true;
+    if (k_data->prev_strings_stale || k_data->prev_string.data == NULL) return true;
+    return strcmp(k_data->prev_string.data, s->data) != 0;
+}
+
+/* addstring_hs_sh_init keeps the copy only for a k array; an i-rate one
+   needs it too, to see the string move. The rate is read first: for x += s,
+   a is the output, which prepare_output marks k-rate. */
+static int32_t opstr_add_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, STRINGDAT *s, K_DATA *k_data, bool is_left) {
+    bool a_krate = is_krate(a);
+    int32_t res = addstring_hs_sh_init(csound, h, out, a, s, k_data, a_krate, is_left);
+    if (res == OK && !a_krate) csn_kdata_keep_strings(csound, k_data, s->data, NULL, true);
+    return res;
+}
+
+int32_t opstr_add_hh_init(CSOUND *csound, CSN_OP_HH *p) {
+    int32_t res = string_binop_hh_init(csound, &p->h, p->out, p->a, p->b, &p->k_data, CSN_STR_ADD, is_krate(p->a) || is_krate(p->b));
+    if (res == OK) p->out->rate = rate_of(is_krate(p->a) || is_krate(p->b));
+    return res;
+}
+
+int32_t opstr_add_hh_perf(CSOUND *csound, CSN_OP_HH *p) {
+    if (!is_krate(p->a) && !is_krate(p->b)) return OK;
+    p->out->rate = CSN_RATE_K;
+    return string_binop_hh_perf(csound, &p->h, p->out, p->a, p->b, &p->k_data, CSN_STR_ADD);
+}
+
+int32_t opstr_add_hs_init(CSOUND *csound, CSN_OP_STRING_HS *p) {
+    int32_t res = opstr_add_init(csound, &p->h, p->out, p->a, p->s, &p->k_data, false);
+    if (res == OK) p->out->rate = rate_of(is_krate(p->a));
+    return res;
+}
+
+int32_t opstr_add_hs_perf(CSOUND *csound, CSN_OP_STRING_HS *p) {
+    if (!is_krate(p->a) && !string_scalar_moved(&p->k_data, p->s)) return OK;
+    p->out->rate = CSN_RATE_K;
+    return addstring_hs_sh_perf(csound, &p->h, p->out, p->a, p->s, &p->k_data, false);
+}
+
+int32_t opstr_add_hs_deinit(CSOUND *csound, CSN_OP_STRING_HS *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t opstr_add_sh_init(CSOUND *csound, CSN_OP_STRING_SH *p) {
+    int32_t res = opstr_add_init(csound, &p->h, p->out, p->a, p->s, &p->k_data, true);
+    if (res == OK) p->out->rate = rate_of(is_krate(p->a));
+    return res;
+}
+
+int32_t opstr_add_sh_perf(CSOUND *csound, CSN_OP_STRING_SH *p) {
+    if (!is_krate(p->a) && !string_scalar_moved(&p->k_data, p->s)) return OK;
+    p->out->rate = CSN_RATE_K;
+    return addstring_hs_sh_perf(csound, &p->h, p->out, p->a, p->s, &p->k_data, true);
+}
+
+int32_t opstr_add_sh_deinit(CSOUND *csound, CSN_OP_STRING_SH *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t opstr_mul_hsi_init(CSOUND *csound, CSN_OP_HS *p) {
+    p->scalar_k = false;
+    int32_t res = strmul_hs_init(csound, &p->h, p->out, p->a, p->s, &p->k_data, is_krate(p->a));
+    if (res == OK) p->out->rate = rate_of(is_krate(p->a));
+    return res;
+}
+
+int32_t opstr_mul_hsk_init(CSOUND *csound, CSN_OP_HS *p) {
+    p->scalar_k = true;
+    int32_t res = strmul_hs_init(csound, &p->h, p->out, p->a, p->s, &p->k_data, true);
+    if (res == OK) p->out->rate = CSN_RATE_K;
+    return res;
+}
+
+int32_t opstr_mul_hs_perf(CSOUND *csound, CSN_OP_HS *p) {
+    if (!is_krate(p->a) && !p->scalar_k) return OK;
+    p->out->rate = CSN_RATE_K;
+    return strmul_hs_perf(csound, &p->h, p->out, p->a, p->s, &p->k_data);
+}
+
+int32_t opstr_mul_shi_init(CSOUND *csound, CSN_OP_SH *p) {
+    p->scalar_k = false;
+    int32_t res = strmul_hs_init(csound, &p->h, p->out, p->a, p->s, &p->k_data, is_krate(p->a));
+    if (res == OK) p->out->rate = rate_of(is_krate(p->a));
+    return res;
+}
+
+int32_t opstr_mul_shk_init(CSOUND *csound, CSN_OP_SH *p) {
+    p->scalar_k = true;
+    int32_t res = strmul_hs_init(csound, &p->h, p->out, p->a, p->s, &p->k_data, true);
+    if (res == OK) p->out->rate = CSN_RATE_K;
+    return res;
+}
+
+int32_t opstr_mul_sh_perf(CSOUND *csound, CSN_OP_SH *p) {
+    if (!is_krate(p->a) && !p->scalar_k) return OK;
+    p->out->rate = CSN_RATE_K;
+    return strmul_hs_perf(csound, &p->h, p->out, p->a, p->s, &p->k_data);
+}
+
+/* x += y, x += s, x *= n, as their numeric forms: x keeps its own rate and
+   turns k-rate only when the right operand is, or, for a string, when it
+   moves at perf. X += "a" on an i-rate X appends once, and again only when
+   the string changes; on a k-rate X it appends on every pass, as kx += 1
+   adds. */
+
+int32_t opstr_addin_hh_init(CSOUND *csound, CSN_OP_IN_HH *p) {
+    uint8_t rate = p->x->rate;
+    int32_t res = string_binop_hh_init(csound, &p->h, p->x, p->x, p->y, &p->k_data, CSN_STR_ADD, is_krate(p->x) || is_krate(p->y));
+    p->x->rate = rate;
+    if (res == OK && is_krate(p->y)) csn_mark_krate(p->x);
+    return res;
+}
+
+int32_t opstr_addin_hh_perf(CSOUND *csound, CSN_OP_IN_HH *p) {
+    if (!is_krate(p->x) && !is_krate(p->y)) return OK;
+    csn_mark_krate(p->x);
+    return string_binop_hh_perf(csound, &p->h, p->x, p->x, p->y, &p->k_data, CSN_STR_ADD);
+}
+
+int32_t opstr_addin_hs_init(CSOUND *csound, CSN_OP_STRING_IN_HS *p) {
+    uint8_t rate = p->x->rate;
+    int32_t res = opstr_add_init(csound, &p->h, p->x, p->x, p->s, &p->k_data, false);
+    p->x->rate = rate;
+    return res;
+}
+
+int32_t opstr_addin_hs_perf(CSOUND *csound, CSN_OP_STRING_IN_HS *p) {
+    if (!is_krate(p->x) && !string_scalar_moved(&p->k_data, p->s)) return OK;
+    csn_mark_krate(p->x);
+    return addstring_hs_sh_perf(csound, &p->h, p->x, p->x, p->s, &p->k_data, false);
+}
+
+int32_t opstr_addin_hs_deinit(CSOUND *csound, CSN_OP_STRING_IN_HS *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+static int32_t opstr_mulin_init(CSOUND *csound, CSN_OP_IN_HS *p, bool scalar_k) {
+    p->scalar_k = scalar_k;
+    uint8_t rate = p->x->rate;
+    int32_t res = strmul_hs_init(csound, &p->h, p->x, p->x, p->s, &p->k_data, is_krate(p->x) || scalar_k);
+    p->x->rate = rate;
+    if (res == OK && scalar_k) csn_mark_krate(p->x);
+    return res;
+}
+
+int32_t opstr_mulin_hi_init(CSOUND *csound, CSN_OP_IN_HS *p) {
+    return opstr_mulin_init(csound, p, false);
+}
+
+int32_t opstr_mulin_hk_init(CSOUND *csound, CSN_OP_IN_HS *p) {
+    return opstr_mulin_init(csound, p, true);
+}
+
+int32_t opstr_mulin_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p) {
+    if (!is_krate(p->x) && !p->scalar_k) return OK;
+    csn_mark_krate(p->x);
+    return strmul_hs_perf(csound, &p->h, p->x, p->x, p->s, &p->k_data);
 }

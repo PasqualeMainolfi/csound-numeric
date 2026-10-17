@@ -7,6 +7,8 @@
 #include <stdint.h>
 
 
+typedef enum { CSN_STR_ADD, CSN_STR_MUL } CSN_STR_BINOP;
+
 typedef struct {
     OPDS h;
     // outputs
@@ -274,8 +276,75 @@ typedef struct {
     K_DATA k_data;
 } CSN_STRJUST_IN;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *old;
+    STRINGDAT *new;
+    cs_float *count; // always i-rate
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+} CSN_STRING_REPLACE;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *old;
+    STRINGDAT *new;
+    cs_float *count; // always i-rate
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+} CSN_STRING_REPLACE_IN;
+
+/* the range a substr pass last cut */
+typedef struct {
+    uint32_t start;
+    uint32_t stop;
+    uint32_t step;
+} CSN_SUBSTR_RANGE;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *start;
+    cs_float *stop; // excluded
+    cs_float *step;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+    CSN_SUBSTR_RANGE prev;
+} CSN_SUBSTRING;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    CSN_ARRAY *source_handle;
+    cs_float *start;
+    cs_float *stop; // excluded
+    cs_float *step;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+    CSN_SUBSTR_RANGE prev;
+} CSN_SUBSTRING_IN;
+
 
 int32_t ensure_string_capacity(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *slot, size_t bytes, bool rt_locked);
+int32_t string_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op, bool perf_redoes);
+int32_t string_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op);
+int32_t addstring_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool perf_redoes, bool is_left);
+int32_t addstring_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool is_left);
+int32_t strmul_hs_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data, bool perf_redoes);
+int32_t strmul_hs_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data);
 
 int32_t csn_str_write(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value);
 int32_t csn_str_check(CSN_STR_WRITER *w, const CSN_STRDATA *slot, const char *value);
@@ -479,5 +548,24 @@ int32_t csnstrings_rjust_fill_k(CSOUND *csound, CSN_STRJUST *p);
 int32_t csnstrings_rjust_fill_in(CSOUND *csound, CSN_STRJUST_IN *p);
 int32_t csnstrings_rjust_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p);
 int32_t csnstrings_rjust_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p);
+
+int32_t csnstrings_replace_deinit(CSOUND *csound, CSN_STRING_REPLACE *p);
+int32_t csnstrings_replace_in_deinit(CSOUND *csound, CSN_STRING_REPLACE_IN *p);
+int32_t csnstrings_replace(CSOUND *csound, CSN_STRING_REPLACE *p);
+int32_t csnstrings_replace_k_init(CSOUND *csound, CSN_STRING_REPLACE *p);
+int32_t csnstrings_replace_k(CSOUND *csound, CSN_STRING_REPLACE *p);
+int32_t csnstrings_replace_in(CSOUND *csound, CSN_STRING_REPLACE_IN *p);
+int32_t csnstrings_replace_in_k_init(CSOUND *csound, CSN_STRING_REPLACE_IN *p);
+int32_t csnstrings_replace_in_k(CSOUND *csound, CSN_STRING_REPLACE_IN *p);
+
+int32_t csnstrings_substring(CSOUND *csound, CSN_SUBSTRING *p);
+int32_t csnstrings_substring_k_init(CSOUND *csound, CSN_SUBSTRING *p);
+int32_t csnstrings_substring_k(CSOUND *csound, CSN_SUBSTRING *p);
+int32_t csnstrings_substring_in(CSOUND *csound, CSN_SUBSTRING_IN *p);
+int32_t csnstrings_substring_in_k_init(CSOUND *csound, CSN_SUBSTRING_IN *p);
+int32_t csnstrings_substring_in_k(CSOUND *csound, CSN_SUBSTRING_IN *p);
+
+
+
 
 #endif

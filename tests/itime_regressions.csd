@@ -1195,6 +1195,58 @@ instr 3
     iStrFillIn0Cmp = strcmp(SStrFillIn0, "=0ab.=")
     iStrFillIn1Cmp = strcmp(SStrFillIn1, "=007.=")
     assert(iStrFillIn0Cmp == 0 && iStrFillIn1Cmp == 0)
+
+    ; csnstrreplace replaces every occurrence, from the left and never
+    ; overlapping, or the first count; an empty old matches before every byte
+    ; and at the end (np.strings.replace on bytes)
+    SStrRepItems[] fillarray "a-b-c", "aaa"
+    iStrRepSrc:CsnStr = csnfromarray(SStrRepItems)
+    iStrRepAll:CsnStr = csnstrreplace(iStrRepSrc, "-", "+")
+    iStrRepOne:CsnStr = csnstrreplace(iStrRepSrc, "a", "b", 2)
+    iStrRepPair:CsnStr = csnstrreplace(iStrRepSrc, "aa", "x")
+    iStrRepEmpty:CsnStr = csnstrreplace(iStrRepSrc, "", "|")
+    SStrRepAll0 = iStrRepAll[0]
+    SStrRepOne1 = iStrRepOne[1]
+    SStrRepPair1 = iStrRepPair[1]
+    SStrRepEmpty1 = iStrRepEmpty[1]
+    iStrRepAll0Cmp = strcmp(SStrRepAll0, "a+b+c")
+    iStrRepOne1Cmp = strcmp(SStrRepOne1, "bba")
+    iStrRepPair1Cmp = strcmp(SStrRepPair1, "xa")
+    iStrRepEmpty1Cmp = strcmp(SStrRepEmpty1, "|a|a|a|")
+    assert(iStrRepAll0Cmp == 0 && iStrRepOne1Cmp == 0 && iStrRepPair1Cmp == 0 && iStrRepEmpty1Cmp == 0)
+    ; in place, longer and then shorter, each inside the string's own buffer
+    csnstrreplace(iStrRepSrc, "a", "AAA")
+    csnstrreplace(iStrRepSrc, "AA", "", 1)
+    SStrRepIn0 = iStrRepSrc[0]
+    SStrRepIn1 = iStrRepSrc[1]
+    iStrRepIn0Cmp = strcmp(SStrRepIn0, "A-b-c")
+    iStrRepIn1Cmp = strcmp(SStrRepIn1, "AAAAAAA")
+    assert(iStrRepIn0Cmp == 0 && iStrRepIn1Cmp == 0)
+
+    ; csnstrsubstr keeps the bytes from start up to stop, stop excluded, every
+    ; step-th, clamped to each string (np.strings.slice on bytes)
+    SStrSubItems[] fillarray "abcdef", "xy"
+    iStrSubSrc:CsnStr = csnfromarray(SStrSubItems)
+    iStrSub:CsnStr = csnstrsubstr(iStrSubSrc, 1, 4)
+    iStrSubStep:CsnStr = csnstrsubstr(iStrSubSrc, 0, 100, 2)
+    iStrSubAll:CsnStr = csnstrsubstr(iStrSubSrc, 0, 100)
+    SStrSub0 = iStrSub[0]
+    SStrSub1 = iStrSub[1]
+    SStrSubStep0 = iStrSubStep[0]
+    SStrSubAll1 = iStrSubAll[1]
+    iStrSub0Cmp = strcmp(SStrSub0, "bcd")
+    iStrSub1Cmp = strcmp(SStrSub1, "y")
+    iStrSubStep0Cmp = strcmp(SStrSubStep0, "ace")
+    iStrSubAll1Cmp = strcmp(SStrSubAll1, "xy")
+    assert(iStrSub0Cmp == 0 && iStrSub1Cmp == 0 && iStrSubStep0Cmp == 0 && iStrSubAll1Cmp == 0)
+    ; in place each cut applies to what the last one left
+    csnstrsubstr(iStrSubSrc, 1, 100)
+    csnstrsubstr(iStrSubSrc, 0, 4, 2)
+    SStrSubIn0 = iStrSubSrc[0]
+    SStrSubIn1 = iStrSubSrc[1]
+    iStrSubIn0Cmp = strcmp(SStrSubIn0, "bd")
+    iStrSubIn1Cmp = strcmp(SStrSubIn1, "y")
+    assert(iStrSubIn0Cmp == 0 && iStrSubIn1Cmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -5315,6 +5367,8 @@ e
 ; csnstrstrip.ch csnstrstrip.in.ch csnstrlstrip.ch csnstrlstrip.in.ch csnstrrstrip.ch csnstrrstrip.in.ch
 ; csnstrcenter csnstrcenter.in csnstrljust csnstrljust.in csnstrrjust csnstrrjust.in
 ; csnstrcenter.fill csnstrcenter.in.fill csnstrljust.fill csnstrljust.in.fill csnstrrjust.fill csnstrrjust.in.fill
+; csnstrreplace csnstrreplace.in
+; csnstrsubstr csnstrsubstr.in
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

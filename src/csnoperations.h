@@ -115,6 +115,40 @@ typedef struct {
     bool is_published;
 } CSN_OP_ASSIGN;
 
+/* out = a op s */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *out;
+    // inputs
+    CSN_ARRAY *a;
+    STRINGDAT *s;
+    // private
+    K_DATA k_data;
+} CSN_OP_STRING_HS;
+
+/* out = s op a */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *out;
+    // inputs
+    STRINGDAT *s;
+    CSN_ARRAY *a;
+    // private
+    K_DATA k_data;
+} CSN_OP_STRING_SH;
+
+typedef struct {
+    OPDS h;
+    // outputs (read as well: the left operand)
+    CSN_ARRAY *x;
+    // inputs
+    STRINGDAT *s;
+    // private
+    K_DATA k_data;
+} CSN_OP_STRING_IN_HS;
+
 #define CSN_OP_DECLARE(name)                                                   \
     int32_t csnop_##name##_hh_init(CSOUND *csound, CSN_OP_HH *p);              \
     int32_t csnop_##name##_hh_perf(CSOUND *csound, CSN_OP_HH *p);              \
@@ -155,5 +189,29 @@ int32_t csnop_assign_perf(CSOUND *csound, CSN_OP_ASSIGN *p);
 int32_t csnarray_cast_k_init(CSOUND *csound, CSN_OP_ASSIGN *p);
 int32_t csnarray_cast_k_perf(CSOUND *csound, CSN_OP_ASSIGN *p);
 int32_t csnarray_cast_i_init(CSOUND *csound, CSN_OP_ASSIGN *p);
+
+// strings
+int32_t opstr_add_hh_init(CSOUND *csound, CSN_OP_HH *p);
+int32_t opstr_add_hh_perf(CSOUND *csound, CSN_OP_HH *p);
+int32_t opstr_add_hs_init(CSOUND *csound, CSN_OP_STRING_HS *p);
+int32_t opstr_add_hs_perf(CSOUND *csound, CSN_OP_STRING_HS *p);
+int32_t opstr_add_sh_init(CSOUND *csound, CSN_OP_STRING_SH *p);
+int32_t opstr_add_sh_perf(CSOUND *csound, CSN_OP_STRING_SH *p);
+int32_t opstr_add_hs_deinit(CSOUND *csound, CSN_OP_STRING_HS *p);
+int32_t opstr_add_sh_deinit(CSOUND *csound, CSN_OP_STRING_SH *p);
+int32_t opstr_mul_hsi_init(CSOUND *csound, CSN_OP_HS *p);
+int32_t opstr_mul_hsk_init(CSOUND *csound, CSN_OP_HS *p);
+int32_t opstr_mul_hs_perf(CSOUND *csound, CSN_OP_HS *p);
+int32_t opstr_mul_shi_init(CSOUND *csound, CSN_OP_SH *p);
+int32_t opstr_mul_shk_init(CSOUND *csound, CSN_OP_SH *p);
+int32_t opstr_mul_sh_perf(CSOUND *csound, CSN_OP_SH *p);
+int32_t opstr_addin_hh_init(CSOUND *csound, CSN_OP_IN_HH *p);
+int32_t opstr_addin_hh_perf(CSOUND *csound, CSN_OP_IN_HH *p);
+int32_t opstr_addin_hs_init(CSOUND *csound, CSN_OP_STRING_IN_HS *p);
+int32_t opstr_addin_hs_perf(CSOUND *csound, CSN_OP_STRING_IN_HS *p);
+int32_t opstr_addin_hs_deinit(CSOUND *csound, CSN_OP_STRING_IN_HS *p);
+int32_t opstr_mulin_hi_init(CSOUND *csound, CSN_OP_IN_HS *p);
+int32_t opstr_mulin_hk_init(CSOUND *csound, CSN_OP_IN_HS *p);
+int32_t opstr_mulin_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p);
 
 #endif

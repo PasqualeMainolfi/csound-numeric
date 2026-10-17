@@ -1675,8 +1675,6 @@ static int32_t strmul_hs_assign_value(CSOUND *csound, OPDS *perf_h, const CSN_AR
 
 /* ---------- array-array forms (csnstradd hh, csnstrmul hh) ---------- */
 
-typedef enum { CSN_STR_ADD, CSN_STR_MUL } CSN_STR_BINOP;
-
 static int32_t string_binop_hh_body(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *b, CSN_STR_BINOP op) {
     return op == CSN_STR_MUL ? strmul_counts_body(csound, perf_h, b) : OK;
 }
@@ -1689,7 +1687,7 @@ static int32_t string_binop_hh_assign(CSOUND *csound, OPDS *perf_h, const CSN_BR
    perf pass of a k form, or X = csnstradd(X, Y) would apply twice in the
    first cycle. Computing here also reserves the slots' buffers, which is what
    lets a k pass on a real-time path run without allocating. */
-static int32_t string_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op, bool perf_redoes) {
+int32_t string_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op, bool perf_redoes) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1727,7 +1725,7 @@ done:
     return res;
 }
 
-static int32_t string_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op) {
+int32_t string_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -1795,7 +1793,7 @@ int32_t csnstrings_mul_hh_k(CSOUND *csound, CSN_BINOP_HH *p) {
 
 /* The k forms keep a copy of the string in k_data, released here and at the
    start of a k init, before a reinit takes the struct again. */
-static int32_t addstring_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool perf_redoes, bool is_left) {
+int32_t addstring_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool perf_redoes, bool is_left) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
     if (perf_redoes) csn_kdata_release_strings(csound, k_data);
@@ -1835,7 +1833,7 @@ done:
     return res;
 }
 
-static int32_t addstring_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool is_left) {
+int32_t addstring_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool is_left) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -1905,7 +1903,7 @@ int32_t csnstrings_add_sh_deinit(CSOUND *csound, CSN_BINOPSTRING_SH *p) {
 
 /* ---------- csnstrmul with one count (hs) ---------- */
 
-static int32_t strmul_hs_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data, bool perf_redoes) {
+int32_t strmul_hs_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data, bool perf_redoes) {
     CSN_REGISTRY *reg = get_registry(csound);
     CHECK_REGISTRY(csound, NULL, reg);
 
@@ -1942,7 +1940,7 @@ done:
     return res;
 }
 
-static int32_t strmul_hs_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data) {
+int32_t strmul_hs_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data) {
     CSN_REGISTRY *reg = k_data->registry;
     CHECK_REGISTRY(csound, h, reg);
 
@@ -2995,4 +2993,532 @@ int32_t csnstrings_rjust_fill_in_k_init(CSOUND *csound, CSN_STRJUST_IN *p) {
 
 int32_t csnstrings_rjust_fill_in_k(CSOUND *csound, CSN_STRJUST_IN *p) {
     return string_just_in_k_helper(csound, just_fill_in_args(p), CSN_STRING_RJUST);
+}
+
+/* ---------- replace ---------- */
+
+/* What a replace reads from its opcode struct: out is NULL in place, trig is
+   read by the k passes only. */
+typedef struct {
+    OPDS *h;
+    CSN_ARRAY *out;
+    CSN_ARRAY *src;
+    STRINGDAT *old;
+    STRINGDAT *new;
+    cs_float *count;
+    cs_float *trig;
+    K_DATA *k_data;
+} CSN_REPLACE_ARGS;
+
+static CSN_REPLACE_ARGS replace_args(CSN_STRING_REPLACE *p) {
+    return (CSN_REPLACE_ARGS) { &p->h, p->handle, p->source_handle, p->old, p->new, p->count, p->trig, &p->k_data };
+}
+
+static CSN_REPLACE_ARGS replace_in_args(CSN_STRING_REPLACE_IN *p) {
+    return (CSN_REPLACE_ARGS) { &p->h, NULL, p->source_handle, p->old, p->new, p->count, p->trig, &p->k_data };
+}
+
+static int32_t check_replace_strings(CSOUND *csound, OPDS *perf_h, CSN_REPLACE_ARGS a) {
+    if (IS_VALID_STRINGDAT(a.old) && IS_VALID_STRINGDAT(a.new)) return OK;
+    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+}
+
+/* The count is i-rate, so the init pass judges it once. Any negative count,
+   the default -1 included, replaces every occurrence, as in Python. */
+static int32_t check_replace_count(CSOUND *csound, double count) {
+    if (isfinite(count) && trunc(count) == count) return OK;
+    return csn_init_error(csound, "[csnarray] A replace count must be a whole number, got %g", count);
+}
+
+static size_t replace_limit(double count) {
+    if (count < 0.0 || count >= (double) SIZE_MAX) return SIZE_MAX;
+    return (size_t) count;
+}
+
+/* The occurrences of old a replace takes in s: from the left, never
+   overlapping, at most limit. An empty old matches before every byte and at
+   the end, as in Python, so "abc" holds 4. */
+static size_t replace_occurrences(const char *s, const char *old, size_t len_old, size_t limit) {
+    size_t n = 0;
+    if (len_old == 0) {
+        n = strlen(s) + 1;
+    } else {
+        for (const char *at = strstr(s, old); at != NULL && n < limit; at = strstr(at + len_old, old)) n++;
+    }
+    return n < limit ? n : limit;
+}
+
+/* Replaces the first n occurrences inside s, whose buffer already holds the
+   result. Each one moves the tail by the difference and the search goes on
+   after the text put in, which is never searched again; an empty old also
+   steps over one byte of the string after each insertion. */
+static void replace_in_buffer(char *s, const char *old, size_t len_old, const char *new, size_t len_new, size_t n) {
+    char *at = s;
+    for (size_t k = 0; k < n; k++) {
+        char *hit = len_old == 0 ? at : strstr(at, old);
+        if (hit == NULL) break;
+        memmove(hit + len_new, hit + len_old, strlen(hit + len_old) + 1);
+        memcpy(hit, new, len_new);
+        at = hit + len_new;
+        if (len_old == 0 && *at != '\0') at++;
+    }
+}
+
+/* np.strings.replace on bytes. out may be src: in place the slots are probed
+   first, so a real-time pass that stops leaves the array as it was. changed
+   says whether a string was rewritten. */
+static int32_t string_replace_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, const char *old, const char *new, size_t limit, bool *changed) {
+    bool in_place = out == src;
+    size_t len_old = strlen(old);
+    size_t len_new = strlen(new);
+    bool rewrites = strcmp(old, new) != 0;
+    *changed = false;
+
+    if (in_place && w->no_growth) {
+        for (size_t i = 0; i < src->size; i++) {
+            const CSN_STRDATA *slot = &src->sdata[i];
+            const char *s = slot_string(slot);
+            size_t n = replace_occurrences(s, old, len_old, limit);
+            size_t bytes = strlen(s) - n * len_old + n * len_new + 1;
+            if (n > 0 && bytes > slot->capacity) {
+                return w->err = refuse_string_growth(w->csound, w->perf_h, bytes, slot->capacity);
+            }
+        }
+    }
+
+    for (size_t i = 0; i < src->size; i++) {
+        const char *s = slot_string(&src->sdata[i]);
+        size_t n = replace_occurrences(s, old, len_old, limit);
+        size_t bytes = strlen(s) - n * len_old + n * len_new + 1;
+        if (!in_place && csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
+        if (n == 0 || !rewrites) continue;
+
+        int32_t res = ensure_string_capacity(w->csound, w->perf_h, &out->sdata[i], bytes, w->no_growth);
+        if (res != OK) return w->err = res;
+        replace_in_buffer(out->sdata[i].data, old, len_old, new, len_new, n);
+        *changed = true;
+    }
+
+    return OK;
+}
+
+/* A k init releases the copies of old and new a reinit leaves, then reserves
+   them, so a pass on a real-time path keeps them without allocating. Replace
+   is not idempotent ("a" to "aa" grows again), so an output that is its own
+   source is left to the perf pass, or the first cycle would replace twice,
+   and X = csnstrreplace(X, ..., k) replaces again on every pass. */
+static int32_t string_replace_helper(CSOUND *csound, CSN_REPLACE_ARGS a, bool perf_redoes) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    if (perf_redoes) csn_kdata_release_strings(csound, a.k_data);
+
+    int32_t res = check_replace_strings(csound, NULL, a);
+    if (res == OK) res = check_replace_count(csound, (double) *a.count);
+    if (res != OK) return res;
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, NULL, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    a.k_data->registry = reg;
+    if (perf_redoes) csn_kdata_keep_strings(csound, a.k_data, a.old->data, a.new->data, true);
+    if (perf_redoes && r.aliased) goto done;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.out);
+    res = string_replace_assign_value(&w, a.out, a.src, a.old->data, a.new->data, replace_limit((double) *a.count), &changed);
+    if (r.aliased && changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, a.out);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_replace_k_helper(CSOUND *csound, CSN_REPLACE_ARGS a) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    int32_t res = check_replace_strings(csound, a.h, a);
+    if (res != OK) return res;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    if (CAN_REUSE_STRING_ELEMENTWISE(a.k_data, a.src, NULL, a.out, a.old->data, a.new->data)) goto done;
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, a.h, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.out);
+    res = string_replace_assign_value(&w, a.out, a.src, a.old->data, a.new->data, replace_limit((double) *a.count), &changed);
+    if (r.aliased && changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_STRING_ELEMENTWISE(csound, a.k_data, a.src, NULL, a.out, a.old->data, a.new->data, !a.out->rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_replace_in_helper(CSOUND *csound, CSN_REPLACE_ARGS a, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    a.k_data->registry = reg;
+    if (is_k_init) csn_kdata_release_strings(csound, a.k_data);
+
+    int32_t res = check_replace_strings(csound, NULL, a);
+    if (res == OK) res = check_replace_count(csound, (double) *a.count);
+    if (res != OK) return res;
+
+    /* the target changes at perf: whatever reads it follows it there */
+    if (is_k_init) {
+        csn_mark_krate(a.src);
+        csn_kdata_keep_strings(csound, a.k_data, a.old->data, a.new->data, true);
+    }
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.src);
+    res = string_replace_assign_value(&w, a.src, a.src, a.old->data, a.new->data, replace_limit((double) *a.count), &changed);
+    if (changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, NULL);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* Runs once for each write by someone else or each new old or new, so a
+   replace is applied once per change, as csnreverse.in does. */
+static int32_t string_replace_in_k_helper(CSOUND *csound, CSN_REPLACE_ARGS a) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    int32_t res = check_replace_strings(csound, a.h, a);
+    if (res != OK) return res;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
+
+    if (CAN_REUSE_STRING_ELEMENTWISE(a.k_data, a.src, NULL, NULL, a.old->data, a.new->data)) goto done;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.src);
+    res = string_replace_assign_value(&w, a.src, a.src, a.old->data, a.new->data, replace_limit((double) *a.count), &changed);
+    if (changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_STRING_ELEMENTWISE(csound, a.k_data, a.src, NULL, NULL, a.old->data, a.new->data, !a.src->rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* The k forms keep copies of old and new in k_data. */
+int32_t csnstrings_replace_deinit(CSOUND *csound, CSN_STRING_REPLACE *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_replace_in_deinit(CSOUND *csound, CSN_STRING_REPLACE_IN *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_replace(CSOUND *csound, CSN_STRING_REPLACE *p) {
+    return string_replace_helper(csound, replace_args(p), false);
+}
+
+int32_t csnstrings_replace_k_init(CSOUND *csound, CSN_STRING_REPLACE *p) {
+    return string_replace_helper(csound, replace_args(p), true);
+}
+
+int32_t csnstrings_replace_k(CSOUND *csound, CSN_STRING_REPLACE *p) {
+    return string_replace_k_helper(csound, replace_args(p));
+}
+
+int32_t csnstrings_replace_in(CSOUND *csound, CSN_STRING_REPLACE_IN *p) {
+    return string_replace_in_helper(csound, replace_in_args(p), false);
+}
+
+int32_t csnstrings_replace_in_k_init(CSOUND *csound, CSN_STRING_REPLACE_IN *p) {
+    return string_replace_in_helper(csound, replace_in_args(p), true);
+}
+
+int32_t csnstrings_replace_in_k(CSOUND *csound, CSN_STRING_REPLACE_IN *p) {
+    return string_replace_in_k_helper(csound, replace_in_args(p));
+}
+
+/* ---------- substr ---------- */
+
+/* What a substr reads from its opcode struct: out is NULL in place, trig is
+   read by the k passes only, prev is the range the last pass cut. */
+typedef struct {
+    OPDS *h;
+    CSN_ARRAY *out;
+    CSN_ARRAY *src;
+    cs_float *start;
+    cs_float *stop;
+    cs_float *step;
+    cs_float *trig;
+    K_DATA *k_data;
+    CSN_SUBSTR_RANGE *prev;
+} CSN_SUBSTR_ARGS;
+
+static CSN_SUBSTR_ARGS substr_args(CSN_SUBSTRING *p) {
+    return (CSN_SUBSTR_ARGS) { &p->h, p->handle, p->source_handle, p->start, p->stop, p->step, p->trig, &p->k_data, &p->prev };
+}
+
+static CSN_SUBSTR_ARGS substr_in_args(CSN_SUBSTRING_IN *p) {
+    return (CSN_SUBSTR_ARGS) { &p->h, NULL, p->source_handle, p->start, p->stop, p->step, p->trig, &p->k_data, &p->prev };
+}
+
+/* The bytes from start up to stop, stop excluded, every step-th, as
+   csngetslice cuts an axis: whole numbers from 0 up, start no greater than
+   stop and a step of at least 1. Each string clamps them to its length. */
+static bool is_substr_range(double start, double stop, double step) {
+    return IS_VALID_INDEX(start) && IS_VALID_INDEX(stop) && IS_VALID_INDEX(step) && step >= 1.0 && start <= stop;
+}
+
+static int32_t check_substr_range(CSOUND *csound, OPDS *perf_h, double start, double stop, double step) {
+    if (!IS_VALID_INDEX(start) || !IS_VALID_INDEX(stop) || !IS_VALID_INDEX(step)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A substring start, stop and step must be whole numbers from 0 up, got %g, %g and %g", start, stop, step);
+    }
+    if (step < 1.0) return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A substring step must be at least 1");
+    if (start > stop) return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A substring start (%g) must not be greater than its stop (%g)", start, stop);
+    return OK;
+}
+
+static CSN_SUBSTR_RANGE substr_range(CSN_SUBSTR_ARGS a) {
+    return (CSN_SUBSTR_RANGE) { (uint32_t) *a.start, (uint32_t) *a.stop, (uint32_t) *a.step };
+}
+
+static bool is_same_substr_range(const CSN_SUBSTR_RANGE *x, CSN_SUBSTR_RANGE y) {
+    return x->start == y.start && x->stop == y.stop && x->step == y.step;
+}
+
+/* A substring is never longer than its string, so in place each one moves
+   left inside its own buffer, reading ahead of where it writes, and an
+   output holds the room prepare_output gave it for the longest source.
+   changed says whether a string was cut. */
+static int32_t substring_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, CSN_SUBSTR_RANGE range, bool *changed) {
+    bool in_place = out == src;
+    *changed = false;
+
+    for (size_t i = 0; i < src->size; i++) {
+        const char *s = slot_string(&src->sdata[i]);
+        size_t len = strlen(s);
+        size_t begin = range.start < len ? range.start : len;
+        size_t end = range.stop < len ? range.stop : len;
+        size_t sub_len = (end - begin + range.step - 1) / range.step;
+        /* the whole string: begin is 0, and the step 1 or the string short */
+        if (in_place && sub_len == len) continue;
+
+        if (!in_place) {
+            int32_t res = ensure_string_capacity(w->csound, w->perf_h, &out->sdata[i], sub_len + 1, w->no_growth);
+            if (res != OK) return w->err = res;
+        }
+        char *dest = out->sdata[i].data;
+        for (size_t j = 0; j < sub_len; j++) dest[j] = s[begin + j * range.step];
+        dest[sub_len] = '\0';
+        *changed = true;
+    }
+
+    return OK;
+}
+
+/* A k range is not known at init, but its init values still cut the strings
+   when they make a range, as csnstrmul does with a count; when they do not,
+   the first pass cuts, and the perf pass judges the range. A substring cut
+   again is shorter again, so an output that is its own source is left to the
+   perf pass at a k init, or the first cycle would cut twice, and
+   X = csnstrsubstr(X, 1, 100, 1, k) cuts again on every pass. */
+static int32_t substr_helper(CSOUND *csound, CSN_SUBSTR_ARGS a, bool perf_redoes) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    double start = (double) *a.start, stop = (double) *a.stop, step = (double) *a.step;
+    bool known = !perf_redoes || (csn_known_at_init(csound, a.start) && csn_known_at_init(csound, a.stop) && csn_known_at_init(csound, a.step));
+    int32_t res = OK;
+    if (known) {
+        res = check_substr_range(csound, NULL, start, stop, step);
+        if (res != OK) return res;
+    }
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, NULL, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    a.k_data->registry = reg;
+    if (!is_substr_range(start, stop, step) || (perf_redoes && r.aliased)) goto done;
+
+    bool changed = false;
+    CSN_SUBSTR_RANGE range = substr_range(a);
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.out);
+    res = substring_assign_value(&w, a.out, a.src, range, &changed);
+    if (r.aliased && changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, a.out);
+    *a.prev = range;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t substr_k_helper(CSOUND *csound, CSN_SUBSTR_ARGS a) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    int32_t res = check_substr_range(csound, a.h, (double) *a.start, (double) *a.stop, (double) *a.step);
+    if (res != OK) return res;
+    CSN_SUBSTR_RANGE range = substr_range(a);
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    if (is_same_substr_range(a.prev, range) && CAN_REUSE_LAST_RESULT(a.k_data, a.src, a.out)) goto done;
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, a.h, reg, a.out, a.src->ndim, a.src->shape, CSN_STRING, ops, 1, CSN_ALIAS_ELEMENTWISE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.out);
+    res = substring_assign_value(&w, a.out, a.src, range, &changed);
+    if (r.aliased && changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, a.out);
+    *a.prev = range;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* In place a cut cannot be undone, so a k range unknown at init is left to
+   the first pass rather than applied with its init values. */
+static int32_t substr_in_helper(CSOUND *csound, CSN_SUBSTR_ARGS a, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    a.k_data->registry = reg;
+
+    /* the target changes at perf: whatever reads it follows it there */
+    if (is_k_init) {
+        csn_mark_krate(a.src);
+        bool known = csn_known_at_init(csound, a.start) && csn_known_at_init(csound, a.stop) && csn_known_at_init(csound, a.step);
+        if (!known) return OK;
+    }
+
+    int32_t res = check_substr_range(csound, NULL, (double) *a.start, (double) *a.stop, (double) *a.step);
+    if (res != OK) return res;
+    CSN_SUBSTR_RANGE range = substr_range(a);
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, a.src);
+    res = substring_assign_value(&w, a.src, a.src, range, &changed);
+    if (changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, NULL);
+    *a.prev = range;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* Runs once for each write by someone else or each new range, so a cut is
+   applied once per change, as csnreverse.in does. */
+static int32_t substr_in_k_helper(CSOUND *csound, CSN_SUBSTR_ARGS a) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    int32_t res = check_substr_range(csound, a.h, (double) *a.start, (double) *a.stop, (double) *a.step);
+    if (res != OK) return res;
+    CSN_SUBSTR_RANGE range = substr_range(a);
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.src }, 1);
+
+    if (is_same_substr_range(a.prev, range) && CAN_REUSE_LAST_RESULT(a.k_data, a.src, NULL)) goto done;
+
+    bool changed = false;
+    CSN_STR_WRITER w = csn_str_writer(csound, a.h, a.src);
+    res = substring_assign_value(&w, a.src, a.src, range, &changed);
+    if (changed) update_array_data_version(&a.src->version);
+    if (res != OK) goto done;
+
+    PUBLISH_DERIVED_RESULT(a.k_data, a.src, NULL);
+    *a.prev = range;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_substring(CSOUND *csound, CSN_SUBSTRING *p) {
+    return substr_helper(csound, substr_args(p), false);
+}
+
+int32_t csnstrings_substring_k_init(CSOUND *csound, CSN_SUBSTRING *p) {
+    return substr_helper(csound, substr_args(p), true);
+}
+
+int32_t csnstrings_substring_k(CSOUND *csound, CSN_SUBSTRING *p) {
+    return substr_k_helper(csound, substr_args(p));
+}
+
+int32_t csnstrings_substring_in(CSOUND *csound, CSN_SUBSTRING_IN *p) {
+    return substr_in_helper(csound, substr_in_args(p), false);
+}
+
+int32_t csnstrings_substring_in_k_init(CSOUND *csound, CSN_SUBSTRING_IN *p) {
+    return substr_in_helper(csound, substr_in_args(p), true);
+}
+
+int32_t csnstrings_substring_in_k(CSOUND *csound, CSN_SUBSTRING_IN *p) {
+    return substr_in_k_helper(csound, substr_in_args(p));
 }

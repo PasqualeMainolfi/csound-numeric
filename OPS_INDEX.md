@@ -151,6 +151,8 @@ period.
 - **csnstrcenter** - pads each string with spaces, or a fill character, on both sides to a width in bytes, as a copy or in place (i, k — string)
 - **csnstrljust** - pads each string with spaces, or a fill character, on the right to a width in bytes, as a copy or in place (i, k — string)
 - **csnstrrjust** - pads each string with spaces, or a fill character, on the left to a width in bytes, as a copy or in place (i, k — string)
+- **csnstrreplace** - replaces the occurrences of a substring in each string, all or the first count, as a copy or in place (i, k — string)
+- **csnstrsubstr** - keeps the bytes of each string from start up to stop, every step-th, as a copy or in place (i, k — string)
 - **csnabs** - absolute value, or magnitude for a complex array (i, k — real, complex)
 - **csnsign** - -1, 0 or 1 by the sign of each element (i, k — real, complex)
 - **csnfloor** - rounds each element down (i, k — real only)

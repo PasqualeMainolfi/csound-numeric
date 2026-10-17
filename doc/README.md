@@ -145,6 +145,8 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrcenter](csnstrcenter.md) - pads each string with spaces on both sides to a width
 - [csnstrljust](csnstrljust.md) - pads each string with spaces on the right to a width
 - [csnstrrjust](csnstrrjust.md) - pads each string with spaces on the left to a width
+- [csnstrreplace](csnstrreplace.md) - replaces a substring in each string
+- [csnstrsubstr](csnstrsubstr.md) - keeps a range of bytes of each string
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

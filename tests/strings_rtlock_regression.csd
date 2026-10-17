@@ -37,6 +37,10 @@ GKeep@global:CsnStr = csnfromarray(gSKeep)
 gSPad[] fillarray "abcd", "a"
 GPad@global:CsnStr = csnfromarray(gSPad)
 
+; the same for a replace in place (instr 7)
+gSRepl[] fillarray "abcd", "a"
+GRepl@global:CsnStr = csnfromarray(gSRepl)
+
 instr 1
     kOne init 1
     kTwo init 2
@@ -134,6 +138,53 @@ instr 1
     SNine2[] fillarray "9", "99999"
     Nine2:CsnStr = csnfromarray(SNine2)
     csnstrljust(Nine2, 4, SFill, kOne)
+    ; old is Sx: a new one on a constant source makes the result again, as a
+    ; copy and in place
+    SRep[] fillarray "azaz"
+    Rep:CsnStr = csnfromarray(SRep)
+    RepOut:CsnStr = csnstrreplace(Rep, Sx, "-", -1, kOne)
+    SRep2[] fillarray "azaz"
+    Rep2:CsnStr = csnfromarray(SRep2)
+    csnstrreplace(Rep2, Sx, "-", -1, kOne)
+    ; replace is not idempotent: onto its own source it replaces again on
+    ; every pass, and the k init leaves it to the first pass, so 8 passes
+    ; move the "b" 8 places left
+    SSlide[] fillarray "aaaaaaaaaab"
+    Slide:CsnStr = csnfromarray(SSlide)
+    Slide = csnstrreplace(Slide, "ab", "ba", -1, kOne)
+    ; a k stop that changes on a constant source cuts again; onto its own
+    ; source a cut is cut again on every pass, and the k init leaves it to the
+    ; first pass, so 8 passes drop 8 bytes; in place a k range unknown at init
+    ; cuts on the first pass, and marks its target k-rate for the slice
+    kCutStop init 2
+    kCutStop = kc % 2 == 1 ? 3 : 2
+    SCut[] fillarray "abcdef"
+    Cut0:CsnStr = csnfromarray(SCut)
+    Cutted:CsnStr = csnstrsubstr(Cut0, 0, kCutStop, 1, kOne)
+    SShrink[] fillarray "abcdefghijk"
+    Shrink:CsnStr = csnfromarray(SShrink)
+    Shrink = csnstrsubstr(Shrink, 1, 100, 1, kOne)
+    SCutIn[] fillarray "abcdef", "uvwxyz"
+    CutIn:CsnStr = csnfromarray(SCutIn)
+    kCutInStart init 0
+    kCutInStart = 2
+    csnstrsubstr(CutIn, kCutInStart, 100, 1, kOne)
+    CutView:CsnStr = CutIn[0:1]
+    ; in place a new range cuts again what the last cut left, once per change:
+    ; start 1 on even passes drops one byte each time, 0 on odd ones none, and
+    ; the k init, which cannot know the start, cuts nothing
+    kTrimStart = kc % 2 == 0 ? 1 : 0
+    STrim[] fillarray "abcdefgh"
+    Trim:CsnStr = csnfromarray(STrim)
+    csnstrsubstr(Trim, kTrimStart, 100, 1, kOne)
+    ; the operators: an S on the left and a count on the left run at perf on
+    ; a k-rate operand, and an S that changes makes an i-rate operand's result
+    ; again, each inside the room the init pass gave it
+    OpPre:CsnStr = "<" + Src
+    OpTwice:CsnStr = 2 * Src
+    SOpFix[] fillarray "ab"
+    OpFix:CsnStr = csnfromarray(SOpFix)
+    OpFixPlus:CsnStr = OpFix + Sx
     ; swap undoes itself: onto its own source it swaps again on every pass,
     ; and the k init leaves it to the first pass, so 8 passes give it back
     SToggle[] fillarray "ab"
@@ -234,6 +285,26 @@ instr 1
         kBad += strcmpk(S37, "---9") != 0 ? 1 : 0
         S38 = Nine2[kI0]
         kBad += strcmpk(S38, "9...") != 0 ? 1 : 0
+        S39 = RepOut[kI0]
+        kBad += strcmpk(S39, "a-a-") != 0 ? 1 : 0
+        S40 = Rep2[kI0]
+        kBad += strcmpk(S40, "----") != 0 ? 1 : 0
+        S41 = Slide[kI0]
+        kBad += strcmpk(S41, "aabaaaaaaaa") != 0 ? 1 : 0
+        S42 = Cutted[kI0]
+        kBad += strcmpk(S42, "abc") != 0 ? 1 : 0
+        S43 = Shrink[kI0]
+        kBad += strcmpk(S43, "ijk") != 0 ? 1 : 0
+        S44 = CutView[kI0]
+        kBad += strcmpk(S44, "cdef") != 0 ? 1 : 0
+        S45 = Trim[kI0]
+        kBad += strcmpk(S45, "efgh") != 0 ? 1 : 0
+        S46 = OpPre[kI0]
+        kBad += strcmpk(S46, "<z") != 0 ? 1 : 0
+        S47 = OpTwice[kI0]
+        kBad += strcmpk(S47, "zz") != 0 ? 1 : 0
+        S48 = OpFixPlus[kI0]
+        kBad += strcmpk(S48, "abz") != 0 ? 1 : 0
         S32 = Wide[kI0]
         kBad += strcmpk(S32, "ab  ") != 0 ? 1 : 0
         S33 = Right[kI0]
@@ -282,7 +353,20 @@ instr 6
     ; shrink the first string inside its buffer before instr 5 runs
     iIdx[] fillarray 0
     csnset(GPad, iIdx, "ab")
+    csnset(GRepl, iIdx, "ab")
     turnoff
+endin
+
+instr 7
+    kOne init 1
+    ; the init pass runs both branches, the one matching nothing last; then
+    ; "a" turns "ab" into "xxb", which fits, and "a" into "xx", which does not
+    if timeinstk() > 0 then
+        SOld strcpyk "a"
+    else
+        SOld strcpyk "q"
+    endif
+    csnstrreplace(GRepl, SOld, "xx", -1, kOne)
 endin
 
 instr 3
@@ -293,6 +377,8 @@ instr 3
     iKept = strcmp(SKept, "keep")
     SPadKept = GPad[0]
     iKept += strcmp(SPadKept, "ab")
+    SReplKept = GRepl[0]
+    iKept += strcmp(SReplKept, "ab")
     if iDone > 0 && iBad == 0 && iKept == 0 then
         prints("csnum string writes stayed in their buffers\n")
     endif
@@ -306,6 +392,7 @@ i 2 0.2 0.01
 i 4 0.25 0.01
 i 6 0.26 0.01
 i 5 0.27 0.01
+i 7 0.28 0.01
 i 3 0.3 0.01
 </CsScore>
 </CsoundSynthesizer>
