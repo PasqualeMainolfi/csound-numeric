@@ -147,6 +147,22 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrrjust](csnstrrjust.md) - pads each string with spaces on the left to a width
 - [csnstrreplace](csnstrreplace.md) - replaces a substring in each string
 - [csnstrsubstr](csnstrsubstr.md) - keeps a range of bytes of each string
+- [csnstrlen](csnstrlen.md) - the length in bytes of each string
+- [csnstrfind](csnstrfind.md) - the lowest index of a substring in each string, or -1
+- [csnstrrfind](csnstrrfind.md) - the highest index of a substring in each string, or -1
+- [csnstrstartswith](csnstrstartswith.md) - 1 where a string begins with a prefix, otherwise 0
+- [csnstrendswith](csnstrendswith.md) - 1 where a string ends with a suffix, otherwise 0
+- [csnstrisalpha](csnstrisalpha.md) - 1 where a string holds ASCII letters only, otherwise 0
+- [csnstrisdigit](csnstrisdigit.md) - 1 where a string holds ASCII digits only, otherwise 0
+- [csnstrisalnum](csnstrisalnum.md) - 1 where a string holds ASCII letters and digits only, otherwise 0
+- [csnstrisspace](csnstrisspace.md) - 1 where a string holds ASCII whitespace only, otherwise 0
+- [csnstrtonum](csnstrtonum.md) - reads each string as a number, NaN where it is not one
+- [csnnumtostr](csnnumtostr.md) - writes each number as the shortest string that reads back to it
+- [csnstrjoin](csnstrjoin.md) - joins every string of an array into one string, with a separator
+- [csnstrsplit](csnstrsplit.md) - splits one string into an array of strings at a separator
+- [csnstrrsplit](csnstrrsplit.md) - splits one string into an array of strings at a separator, from the right
+- [csnstrpartition](csnstrpartition.md) - splits one string at the first separator into head, separator and tail
+- [csnstrrpartition](csnstrrpartition.md) - splits one string at the last separator into head, separator and tail
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

@@ -52,12 +52,27 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnstrrjust](csnstrrjust.md) pad with spaces to a width, and
   [csnstrreplace](csnstrreplace.md) replaces a substring and
   [csnstrsubstr](csnstrsubstr.md) keeps one, as a copy or in place.
+- String queries, to a real array in the shape of the source:
+  [csnstrlen](csnstrlen.md), [csnstrfind](csnstrfind.md),
+  [csnstrrfind](csnstrrfind.md), and the 0/1 masks
+  [csnstrstartswith](csnstrstartswith.md),
+  [csnstrendswith](csnstrendswith.md), [csnstrisalpha](csnstrisalpha.md),
+  [csnstrisdigit](csnstrisdigit.md), [csnstrisalnum](csnstrisalnum.md) and
+  [csnstrisspace](csnstrisspace.md), ready for the masks above.
+- Conversions: [csnstrtonum](csnstrtonum.md) reads strings as numbers and
+  [csnnumtostr](csnnumtostr.md) writes numbers as strings, and
+  [csnstrjoin](csnstrjoin.md) joins an array into one `S`.
+- From one `S` to an array: [csnstrsplit](csnstrsplit.md) and
+  [csnstrrsplit](csnstrrsplit.md) cut it at a separator,
+  [csnstrpartition](csnstrpartition.md) and
+  [csnstrrpartition](csnstrrpartition.md) into head, separator and tail.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
   as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
 
-The other elementwise string operations (`zfill`, ...), queries,
-conversions, sorting and sets are not there yet.
+The other elementwise string operations (`zfill`, ...), the other queries
+(`count`, comparisons), a format for the conversions, sorting and sets are
+not there yet.
 
 ## Operators
 
@@ -67,6 +82,12 @@ broadcasting, `A + "x"` and `"x" + A` put a string after or before every
 element, and `A * 3` or `3 * A` repeats each string. `X += Y`, `X += "x"`
 and `X *= n` update `X`. The other arithmetic operators are not defined on
 strings, and an array of counts takes the named form, `csnstrmul(A, counts)`.
+
+The same operators work on one `S`: `S1 + S2` joins, `S * 3` repeats, and
+`Sx += Sy`, `Sx *= n` update `Sx`, as [csnstradd](csnstradd.md) and
+[csnstrmul](csnstrmul.md) do on strings. Csound itself has no arithmetic on
+strings: these operators come with csnum and need it loaded. They run on
+every pass, as `strcatk` does.
 
 ```csound
 SNames[] fillarray "kick", "snare"
@@ -120,8 +141,16 @@ The room comes from the init pass:
   [csnstrswapcase](csnstrswapcase.md), [csnstrtitle](csnstrtitle.md)) keep
   their length and the strips ([csnstrstrip](csnstrstrip.md) and its left and
   right forms) and [csnstrsubstr](csnstrsubstr.md) only shorten, so their k
-  forms run as
-  long as the operands keep strings no longer than at init.
+  forms run as long as the operands keep strings no longer than at init.
+- The string queries ([csnstrlen](csnstrlen.md), [csnstrfind](csnstrfind.md)
+  and the others) write numbers into a real output in the shape of the
+  source, so their k forms run as long as the source keeps its shape, as
+  does [csnstrtonum](csnstrtonum.md); [csnnumtostr](csnnumtostr.md) gives
+  every element room for the longest number at init.
+- [csnstrjoin](csnstrjoin.md) joins at init too, and its k form runs while
+  the joined string is no longer than that one; the splits
+  ([csnstrsplit](csnstrsplit.md) and the others) split at init too, and their
+  k forms run while each piece fits the slot of its place at init.
 - A form that makes new strings sizes its elements from what it computes at
   init: [csnstradd](csnstradd.md), [csnstrmul](csnstrmul.md) (with a k count,
   from its init value), the paddings ([csnstrcenter](csnstrcenter.md) and its

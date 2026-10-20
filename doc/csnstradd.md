@@ -2,7 +2,8 @@
 
 ## Abstract
 
-Elementwise join of strings, as `np.strings.add`.
+Elementwise join of strings, as `np.strings.add`, or of two strings as
+Python's `a + b`.
 
 ## Description
 
@@ -28,6 +29,19 @@ long as every result fits that room; it checks every element first and stops
 with a performance error, before anything is written, when one does not. See
 [string arrays](string-arrays.md#real-time-paths).
 
+On two `S` it returns an `S`, `a` followed by `b`: `csnstradd("kick", ".wav")`
+gives `"kick.wav"`, and the output may be one of the operands,
+`Sname = csnstradd(Sname, ".wav")`. Its k form takes a trigger, joins again
+on every pass that runs, and computes at init too; like `strcpyk`, its output
+takes the room it needs at perf, also on a real-time path.
+
+The operators `+`, `+=`, `*` and `*=` also work on `S`: `S1 + S2`, `Sx +=
+Sy`, `S * n` and `Sx *= n` compute what the named forms compute. Csound has
+no arithmetic on strings, so these operators exist only while csnum is
+loaded; they add to the language rather than change it, and an orchestra
+that uses them needs csnum. Like the other operators they take no trigger and
+run on every pass, as `strcatk` does; `Sx += Sx` doubles `Sx`.
+
 ## Syntax
 
 ```csound
@@ -37,6 +51,10 @@ out:CsnStr = csnstradd(a:CsnStr, suffix:S)
 out:CsnStr = csnstradd(a:CsnStr, suffix:S, trig:k)
 out:CsnStr = csnstradd(prefix:S, a:CsnStr)
 out:CsnStr = csnstradd(prefix:S, a:CsnStr, trig:k)
+out:S = csnstradd(a:S, b:S)
+out:S = csnstradd(a:S, b:S, trig:k)
+out:S = a:S + b:S
+a:S += b:S
 ```
 
 ## Arguments
@@ -45,11 +63,13 @@ out:CsnStr = csnstradd(prefix:S, a:CsnStr, trig:k)
 * `b:CsnStr`: the strings joined after `a`'s; broadcast against `a`.
 * `suffix:S`: a string joined after every element of `a`.
 * `prefix:S`: a string joined before every element of `a`.
+* `a:S`, `b:S`: two strings, for the `S` form.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the joined strings, in the broadcast shape.
+* `out:S`: `a` followed by `b`, for the `S` form.
 
 ## Execution Time
 
@@ -88,6 +108,10 @@ instr 1
     sides:S[]     = fillarray("_L", "_R")
     stereo:CsnStr = csnstradd(rows, csnfromarray(sides))
     csnprint(stereo)
+
+    one:S         = "kit/" + "ride.wav"
+    one          += "!"
+    prints("%s\n", one)
     turnoff
 endin
 
@@ -105,6 +129,7 @@ CsnStr(shape=(3, 2), dtype=str)
 [['kick_L' 'kick_R']
  ['snare_L' 'snare_R']
  ['hat_L' 'hat_R']]
+kit/ride.wav!
 ```
 
 ## See also

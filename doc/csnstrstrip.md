@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Elementwise removal of whitespace at both ends of strings, as `np.strings.strip`.
+Elementwise removal of whitespace at both ends of strings, as `np.strings.strip`, or on one string as Python's `str.strip`.
 
 ## Description
 
@@ -43,6 +43,14 @@ output room for the source's longest string, and the k form stops with a
 performance error at the first string that does not fit. See [string
 arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`, as Python's `str.strip`, with the same rules for
+whitespace and `chars`: `csnstrstrip(Sname)` or `csnstrstrip(Sname, "-")`. It
+has no in-place form, as a string argument is an input (a literal among
+them): `Sname = csnstrstrip(Sname)` strips `Sname`. Its k form takes a
+trigger, strips again on every pass that runs, and computes at init too;
+like `strcpyk`, its output takes the room it needs at perf, also on a
+real-time path.
+
 ## Syntax
 
 ```csound
@@ -54,17 +62,22 @@ csnstrstrip(source:CsnStr)
 csnstrstrip(source:CsnStr, trig:k)
 csnstrstrip(source:CsnStr, chars:S)
 csnstrstrip(source:CsnStr, chars:S, trig:k)
+out:S = csnstrstrip(source:S)
+out:S = csnstrstrip(source:S, trig:k)
+out:S = csnstrstrip(source:S, chars:S)
+out:S = csnstrstrip(source:S, chars:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to strip.
+* `source:CsnStr`: the strings to strip; or `source:S`, one string.
 * `chars:S`: the bytes to remove in place of whitespace. Read on every pass by the k forms.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the stripped strings, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the stripped string, for an `S` source.
 
 ## Execution Time
 
@@ -84,7 +97,8 @@ csnstrstrip(source:CsnStr, chars:S, trig:k)
 ; csnstrstrip.csd
 ;
 ; Sample names read with stray spaces around them, cleaned as a copy and then
-; in place, and tags marked with dashes and underscores, cleaned with chars.
+; in place, and tags marked with dashes and underscores, cleaned with chars;
+; last, one name on its own.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -102,6 +116,8 @@ instr 1
     marked:CsnStr = csnfromarray(tags)
     bare:CsnStr   = csnstrstrip(marked, "-_")
     csnprint(bare)
+    one:S         = csnstrstrip("  ride ")
+    prints("[%s]\n", one)
     turnoff
 endin
 
@@ -119,6 +135,7 @@ CsnStr(shape=(3,), dtype=str)
 ['kick' 'snare' 'hat']
 CsnStr(shape=(3,), dtype=str)
 ['kick' 'snare' 'hat']
+[ride]
 ```
 
 ## See also

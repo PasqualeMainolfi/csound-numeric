@@ -545,6 +545,46 @@ if(BUILD_TESTING)
             PASS_REGULAR_EXPRESSION "csnum registry alive after every bincount validation error"
             TIMEOUT 60)
         add_test(
+            NAME csnum_strings_conversion_error
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_conversion_error.csd")
+        set_tests_properties(csnum_strings_conversion_error PROPERTIES
+            PASS_REGULAR_EXPRESSION "takes a real array[^\n]*\n(.|\n)*takes a real array[^\n]*\n(.|\n)*csnum conversions alive after every complex refusal"
+            TIMEOUT 60)
+        add_test(
+            NAME csnum_strings_split_error
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_split_error.csd")
+        set_tests_properties(csnum_strings_split_error PROPERTIES
+            PASS_REGULAR_EXPRESSION "INIT ERROR in instr 1 .*Empty separator.*PERF ERROR in instr 2 .*Empty separator.*INIT ERROR in instr 3 .*maxsplit must be a whole number.*csnum split alive after every refusal"
+            TIMEOUT 60)
+        add_test(
+            NAME csnum_strings_replace_s_error
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_replace_s_error.csd")
+        set_tests_properties(csnum_strings_replace_s_error PROPERTIES
+            PASS_REGULAR_EXPRESSION "INIT ERROR in instr 1 .*must be a whole number, got 1.5.*INIT ERROR in instr 2 .*must be a whole number, got 1.5.*csnum replace on S alive after every refusal"
+            TIMEOUT 60)
+        add_test(
+            NAME csnum_strings_addmul_s_error
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_addmul_s_error.csd")
+        set_tests_properties(csnum_strings_addmul_s_error PROPERTIES
+            PASS_REGULAR_EXPRESSION "INIT ERROR in instr 1 .*must be a whole number, got 2.5.*INIT ERROR in instr 2 .*must be a whole number, got 2.5.*INIT ERROR in instr 3 .*overflows the string size.*csnum add and mul on S alive after every refusal"
+            TIMEOUT 60)
+        add_test(
             NAME csnum_krate_file_reload_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests
@@ -632,7 +672,7 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_rtlock_regression.csd")
         set_tests_properties(csnum_strings_rtlock_regression PROPERTIES
-            PASS_REGULAR_EXPRESSION "A string needs 22 bytes, its slot holds 4.*csnum string writes stayed in their buffers"
+            PASS_REGULAR_EXPRESSION "A string needs 22 bytes, its slot holds 4.*opcode csnstrjoin.*A string needs 16 bytes, its slot holds 7.*opcode csnstrsplit.*A string needs 9 bytes, its slot holds 2.*csnum string writes stayed in their buffers"
             TIMEOUT 60)
         add_test(
             NAME csnum_rtlockall_growth_regression

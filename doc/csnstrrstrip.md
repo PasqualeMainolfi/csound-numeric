@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Elementwise removal of whitespace at the end of strings, as `np.strings.rstrip`.
+Elementwise removal of whitespace at the end of strings, as `np.strings.rstrip`, or on one string as Python's `str.rstrip`.
 
 ## Description
 
@@ -43,6 +43,14 @@ output room for the source's longest string, and the k form stops with a
 performance error at the first string that does not fit. See [string
 arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`, as Python's `str.rstrip`, with the same rules for
+whitespace and `chars`: `csnstrrstrip(Sname)` or `csnstrrstrip(Sname, "-")`. It
+has no in-place form, as a string argument is an input (a literal among
+them): `Sname = csnstrrstrip(Sname)` strips `Sname`. Its k form takes a
+trigger, strips again on every pass that runs, and computes at init too;
+like `strcpyk`, its output takes the room it needs at perf, also on a
+real-time path.
+
 ## Syntax
 
 ```csound
@@ -54,17 +62,22 @@ csnstrrstrip(source:CsnStr)
 csnstrrstrip(source:CsnStr, trig:k)
 csnstrrstrip(source:CsnStr, chars:S)
 csnstrrstrip(source:CsnStr, chars:S, trig:k)
+out:S = csnstrrstrip(source:S)
+out:S = csnstrrstrip(source:S, trig:k)
+out:S = csnstrrstrip(source:S, chars:S)
+out:S = csnstrrstrip(source:S, chars:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to strip.
+* `source:CsnStr`: the strings to strip; or `source:S`, one string.
 * `chars:S`: the bytes to remove in place of whitespace. Read on every pass by the k forms.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the stripped strings, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the stripped string, for an `S` source.
 
 ## Execution Time
 

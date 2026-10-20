@@ -1466,7 +1466,7 @@ static int32_t compress_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *arr, CSN_ARRA
                     }
                     break;
                 case CSN_STRING:
-                    if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[index].data) != OK) return w->err;
+                    if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[index].data, GET_STRINGDAT_LEN(source_arr->sdata[index].data)) != OK) return w->err;
                     break;
             }
         }
@@ -1491,7 +1491,7 @@ static int32_t compress_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *arr, CSN_ARRA
                     }
                     break;
                 case CSN_STRING:
-                    if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[src_off].data) != OK) return w->err;
+                    if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[src_off].data, GET_STRINGDAT_LEN(source_arr->sdata[src_off].data)) != OK) return w->err;
                     break;
             }
         }
@@ -1717,7 +1717,7 @@ static int32_t select_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out_arr, CSN_AR
                     }
                     break;
                 case CSN_STRING:
-                    if (csn_str_write(w, &out_arr->sdata[j], source_arr->sdata[i].data) != OK) return w->err;
+                    if (csn_str_write(w, &out_arr->sdata[j], source_arr->sdata[i].data, GET_STRINGDAT_LEN(source_arr->sdata[i].data)) != OK) return w->err;
                     break;
             }
             j++;
@@ -2009,7 +2009,7 @@ static int32_t stack_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *stacked, uint32_
                 }
                 break;
             case CSN_STRING:
-                if (csn_str_write(w, &stacked->sdata[linear], source->sdata[src_offset].data) != OK) return w->err;
+                if (csn_str_write(w, &stacked->sdata[linear], source->sdata[src_offset].data, GET_STRINGDAT_LEN(source->sdata[src_offset].data)) != OK) return w->err;
                 break;
         }
     }

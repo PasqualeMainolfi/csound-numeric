@@ -2,7 +2,8 @@
 
 ## Abstract
 
-Elementwise replacement of a substring, as `np.strings.replace`.
+Elementwise replacement of a substring, as `np.strings.replace`, or on one
+string as Python's `str.replace`.
 
 ## Description
 
@@ -22,6 +23,15 @@ multibyte one, as NumPy does.
 Two forms share the name. The one with an output writes a new `:CsnStr;`
 holding its own strings and leaves the source alone. The one without an
 output replaces in place and returns nothing.
+
+On one `S` it returns an `S`, as Python's `str.replace`:
+`csnstrreplace("a-b", "-", "+")` gives `"a+b"`, with the same rules for
+`count` and an empty `old`. It has no in-place form, as a string argument is
+an input (a literal among them): `Sx = csnstrreplace(Sx, "-", "+")` replaces
+in `Sx`. Its k form takes `count` and a trigger, replaces again on every pass
+that runs, and computes at init too. Like `strcpyk`, its output grows at perf
+as it needs, also on a [real-time path](csnrtlock.md): an `S` has no slot to
+reserve.
 
 The k forms take `count` and a trigger, which is optional (default `1`):
 `csnstrreplace(names, Sold, Snew, -1)` is the init-time form,
@@ -46,11 +56,13 @@ out:CsnStr = csnstrreplace(source:CsnStr, old:S, new:S [, count:i])
 out:CsnStr = csnstrreplace(source:CsnStr, old:S, new:S, count:i, trig:k)
 csnstrreplace(source:CsnStr, old:S, new:S [, count:i])
 csnstrreplace(source:CsnStr, old:S, new:S, count:i, trig:k)
+out:S = csnstrreplace(source:S, old:S, new:S [, count:i])
+out:S = csnstrreplace(source:S, old:S, new:S, count:i, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to search.
+* `source:CsnStr`: the strings to search; or `source:S`, one string.
 * `old:S`: the substring to replace; `""` matches between the bytes.
 * `new:S`: what each occurrence becomes.
 * `count:i`: how many occurrences to replace in each string, from the left; a whole number, negative for all (default `-1`).
@@ -59,6 +71,7 @@ csnstrreplace(source:CsnStr, old:S, new:S, count:i, trig:k)
 ## Output
 
 * `out:CsnStr`: the strings after the replacement, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the string after the replacement, for an `S` source.
 
 ## Execution Time
 
@@ -78,7 +91,7 @@ csnstrreplace(source:CsnStr, old:S, new:S, count:i, trig:k)
 ; csnstrreplace.csd
 ;
 ; Sample paths moved to another folder as a copy, then the separators changed
-; in place, the first one only.
+; in place, the first one only; last, the same on one path.
 ; -----------------------------------------------------------------------------
 
 sr = 44100
@@ -92,6 +105,8 @@ instr 1
     csnprint(moved)
     csnstrreplace(raw, "/", "_", 1)
     csnprint(raw)
+    one:S        = csnstrreplace("drums/kick.wav", "drums/", "kit/")
+    prints("%s\n", one)
     turnoff
 endin
 
@@ -107,6 +122,7 @@ CsnStr(shape=(3,), dtype=str)
 ['kit/kick.wav' 'kit/snare.wav' 'fx/rise.wav']
 CsnStr(shape=(3,), dtype=str)
 ['drums_kick.wav' 'drums_snare.wav' 'fx_rise.wav']
+kit/kick.wav
 ```
 
 ## See also

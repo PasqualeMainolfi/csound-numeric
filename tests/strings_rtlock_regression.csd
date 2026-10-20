@@ -185,6 +185,82 @@ instr 1
     SOpFix[] fillarray "ab"
     OpFix:CsnStr = csnfromarray(SOpFix)
     OpFixPlus:CsnStr = OpFix + Sx
+    ; the queries: an S or a range that changes on a constant source finds
+    ; again, and the numbers land in the result the init pass laid out; on a
+    ; constant source with no S nothing moves after init, so the k init
+    ; computes. A k form names its start and end before the trigger
+    QFind:CsnArr = csnstrfind(Rep, Sx, 0, -1, kOne)
+    QRfind:CsnArr = csnstrrfind(Rep, Sx, 0, -1, kOne)
+    QStarts:CsnArr = csnstrstartswith(Rep, Sx, 0, -1, kOne)
+    QEnds:CsnArr = csnstrendswith(Rep, Sx, 0, -1, kOne)
+    kQStart = kc % 2 == 1 ? 2 : 0
+    kQEnd = kc % 2 == 1 ? 2 : -1
+    QFrom:CsnArr = csnstrfind(Rep, Sx, kQStart, -1, kOne)
+    QUpTo:CsnArr = csnstrrfind(Rep, "a", 0, kQEnd, kOne)
+    QLen:CsnArr = csnstrlen(Joined2, kOne)
+    QAlpha:CsnArr = csnstrisalpha(Src, kOne)
+    QConst:CsnArr = csnstrlen(Rep, kOne)
+    ; the conversions: the k init sizes the slots of a number-to-string
+    ; result for the longest number, so a value that grows from "0.0" at init
+    ; to 17 bytes still fits; on a constant source the k init converts
+    kNumV[] init 2
+    kNumV[0] = kc + 1/3
+    kNumV[1] = 0.5
+    NumSrc:CsnArr = csnfromarray(kNumV)
+    NumStr:CsnStr = csnnumtostr(NumSrc, kOne)
+    NumBack:CsnArr = csnstrtonum(NumStr, kOne)
+    iNumConst[] fillarray 0.25, 2
+    NumConst:CsnArr = csnfromarray(iNumConst)
+    NumConstStr:CsnStr = csnnumtostr(NumConst, kOne)
+    SNumConst[] fillarray "1.5", "x"
+    StrConstSrc:CsnStr = csnfromarray(SNumConst)
+    StrConst:CsnArr = csnstrtonum(StrConstSrc, kOne)
+    ; the join: a source or a separator that changes joins again into the
+    ; buffer the k init sized, and a constant one is joined by the k init
+    SJoinSrc = csnstrjoin(Src, "+", kOne)
+    SJoinTwo[] fillarray "p", "q"
+    JoinTwo:CsnStr = csnfromarray(SJoinTwo)
+    SJoinSep = csnstrjoin(JoinTwo, Sx, kOne)
+    SJoinConst = csnstrjoin(JoinTwo, "-", kOne)
+    ; split and partition: a source that changes splits again into the slots
+    ; the k init sized, and a constant one is split by the k init
+    SSplitSrc strcatk Sx, ",bb=c"
+    SplitSrc:CsnStr = csnstrsplit(SSplitSrc, ",", -1, kOne)
+    RPartSrc:CsnStr = csnstrrpartition(SSplitSrc, "=", kOne)
+    SplitConst:CsnStr = csnstrrsplit("q,r,s", ",", 1, kOne)
+    SplitWhole:CsnStr = csnstrsplit(SSplitSrc, ",", 0, kOne)
+    SSplitJoined = csnstrjoin(SplitSrc, "|", kOne)
+    SRPartSrc = csnstrjoin(RPartSrc, "|", kOne)
+    SSplitConst = csnstrjoin(SplitConst, "|", kOne)
+    SSplitWhole = csnstrjoin(SplitWhole, "|", kOne)
+    ; a replace on one S: its output grows at perf as strcpyk's does, with
+    ; no slot to reserve, so a longer result runs on a real-time path too
+    SRepGrow = csnstrreplace(Sx, "z", "zzzz", -1, kOne)
+    ; a zero trigger keeps the string the init pass made from "a"
+    SRepHeld = csnstrreplace(Sx, "z", "y", -1, kZero)
+    ; the strips on one S, whitespace and chars, as k forms: the source pads
+    ; the letter, a zero trigger keeps the init result
+    SStripPad strcatk Sx, "-- "
+    SStripWs = csnstrrstrip(SStripPad, kOne)
+    SStripCh = csnstrrstrip(SStripPad, " -", kOne)
+    SStripHeld = csnstrstrip(SStripPad, " -", kZero)
+    SStripWsHeld = csnstrstrip(SStripPad, kZero)
+    ; add and mul on one S, named and as operators, which run on every pass;
+    ; a zero trigger keeps the init result, made from "a"
+    SAddK = csnstradd(Sx, "+", kOne)
+    SAddHeld = csnstradd(Sx, "+", kZero)
+    SMulK = csnstrmul(Sx, kTwo)
+    SMulHeld = csnstrmul(Sx, kTwo, kZero)
+    SOpAdd = Sx + "!"
+    SOpMul = Sx * kTwo
+    ; a shorter piece ends inside the buffer a longer one sized
+    if kc % 2 == 1 then
+        SPieceSrc strcpyk "a,b"
+    else
+        SPieceSrc strcpyk "abc,b"
+    endif
+    Pieces:CsnStr = csnstrsplit(SPieceSrc, ",", -1, kOne)
+    SPiecesJoined = csnstrjoin(Pieces, "|", kOne)
     ; swap undoes itself: onto its own source it swaps again on every pass,
     ; and the k init leaves it to the first pass, so 8 passes give it back
     SToggle[] fillarray "ab"
@@ -305,6 +381,45 @@ instr 1
         kBad += strcmpk(S47, "zz") != 0 ? 1 : 0
         S48 = OpFixPlus[kI0]
         kBad += strcmpk(S48, "abz") != 0 ? 1 : 0
+        kBad += QFind[kI0] != 1 ? 1 : 0
+        kBad += QRfind[kI0] != 3 ? 1 : 0
+        kBad += QStarts[kI0] != 0 ? 1 : 0
+        kBad += QEnds[kI0] != 1 ? 1 : 0
+        kBad += QLen[kI1] != 5 ? 1 : 0
+        kBad += QAlpha[kI0] != 1 ? 1 : 0
+        kBad += QConst[kI0] != 4 ? 1 : 0
+        kBad += QFrom[kI0] != 3 ? 1 : 0
+        kBad += QUpTo[kI0] != 0 ? 1 : 0
+        S49 = NumStr[kI0]
+        kBad += strcmpk(S49, "7.333333333333333") != 0 ? 1 : 0
+        S50 = NumStr[kI1]
+        kBad += strcmpk(S50, "0.5") != 0 ? 1 : 0
+        kBad += NumBack[kI0] != 7 + 1/3 ? 1 : 0
+        S51 = NumConstStr[kI1]
+        kBad += strcmpk(S51, "2.0") != 0 ? 1 : 0
+        kBad += StrConst[kI0] != 1.5 ? 1 : 0
+        kNaN = StrConst[kI1]
+        kBad += kNaN == kNaN ? 1 : 0
+        kBad += strcmpk(SJoinSrc, "z+bbbb+cc") != 0 ? 1 : 0
+        kBad += strcmpk(SJoinSep, "pzq") != 0 ? 1 : 0
+        kBad += strcmpk(SJoinConst, "p-q") != 0 ? 1 : 0
+        kBad += strcmpk(SSplitJoined, "z|bb=c") != 0 ? 1 : 0
+        kBad += strcmpk(SRPartSrc, "z,bb|=|c") != 0 ? 1 : 0
+        kBad += strcmpk(SSplitConst, "q,r|s") != 0 ? 1 : 0
+        kBad += strcmpk(SSplitWhole, "z,bb=c") != 0 ? 1 : 0
+        kBad += strcmpk(SPiecesJoined, "a|b") != 0 ? 1 : 0
+        kBad += strcmpk(SRepGrow, "zzzz") != 0 ? 1 : 0
+        kBad += strcmpk(SRepHeld, "a") != 0 ? 1 : 0
+        kBad += strcmpk(SStripWs, "z--") != 0 ? 1 : 0
+        kBad += strcmpk(SStripCh, "z") != 0 ? 1 : 0
+        kBad += strcmpk(SStripHeld, "a") != 0 ? 1 : 0
+        kBad += strcmpk(SStripWsHeld, "a--") != 0 ? 1 : 0
+        kBad += strcmpk(SAddK, "z+") != 0 ? 1 : 0
+        kBad += strcmpk(SAddHeld, "a+") != 0 ? 1 : 0
+        kBad += strcmpk(SMulK, "zz") != 0 ? 1 : 0
+        kBad += strcmpk(SMulHeld, "aa") != 0 ? 1 : 0
+        kBad += strcmpk(SOpAdd, "z!") != 0 ? 1 : 0
+        kBad += strcmpk(SOpMul, "zz") != 0 ? 1 : 0
         S32 = Wide[kI0]
         kBad += strcmpk(S32, "ab  ") != 0 ? 1 : 0
         S33 = Right[kI0]
@@ -369,6 +484,34 @@ instr 7
     csnstrreplace(GRepl, SOld, "xx", -1, kOne)
 endin
 
+; a join longer than the one the k init sized is refused: the separator
+; grows from "+" at init to 10 bytes on the first pass
+instr 8
+    kOne init 1
+    kc init 0
+    kc += 1
+    SJoinGrow[] fillarray "zzzz", "y"
+    JoinGrow:CsnStr = csnfromarray(SJoinGrow)
+    if kc == 1 then
+        SGrowSep strcpyk "<-------->"
+    else
+        SGrowSep strcpyk "+"
+    endif
+    SJoined = csnstrjoin(JoinGrow, SGrowSep, kOne)
+endin
+
+; a piece longer than its slot is refused: "a" at init, "abcdefgh" on the
+; first pass
+instr 9
+    kOne init 1
+    if timeinstk() > 0 then
+        SSplitGrow strcpyk "abcdefgh,b"
+    else
+        SSplitGrow strcpyk "a,b"
+    endif
+    SplitGrow:CsnStr = csnstrsplit(SSplitGrow, ",", -1, kOne)
+endin
+
 instr 3
     ; read at i-time: a k-rate if would let prints run at init either way
     iDone = i(gkDone)
@@ -393,6 +536,8 @@ i 4 0.25 0.01
 i 6 0.26 0.01
 i 5 0.27 0.01
 i 7 0.28 0.01
+i 8 0.29 0.01
+i 9 0.295 0.01
 i 3 0.3 0.01
 </CsScore>
 </CsoundSynthesizer>

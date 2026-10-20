@@ -1222,6 +1222,61 @@ instr 3
     iStrRepIn0Cmp = strcmp(SStrRepIn0, "A-b-c")
     iStrRepIn1Cmp = strcmp(SStrRepIn1, "AAAAAAA")
     assert(iStrRepIn0Cmp == 0 && iStrRepIn1Cmp == 0)
+    ; the same on one S: count optional, the result longer, shorter or the
+    ; string itself, an empty old between the bytes, and the output its own
+    ; source
+    SRepS1 = csnstrreplace("a-b-c", "-", "<=>")
+    SRepS2 = csnstrreplace("a--b--c", "--", "", 1)
+    SRepS3 = csnstrreplace("abc", "", "|")
+    SRepS4 = csnstrreplace("abc", "x", "y", -1)
+    SRepS5 = "aaa"
+    SRepS5 = csnstrreplace(SRepS5, "aa", "x", -1)
+    iRepSCmp = strcmp(SRepS1, "a<=>b<=>c") == 0 ? 0 : 1
+    iRepSCmp += strcmp(SRepS2, "ab--c") == 0 ? 0 : 1
+    iRepSCmp += strcmp(SRepS3, "|a|b|c|") == 0 ? 0 : 1
+    iRepSCmp += strcmp(SRepS4, "abc") == 0 ? 0 : 1
+    iRepSCmp += strcmp(SRepS5, "xa") == 0 ? 0 : 1
+    assert(iRepSCmp == 0)
+    ; strip, lstrip and rstrip on one S: ASCII whitespace without chars, a
+    ; set of bytes with them, "" drops nothing, and the output its own source
+    SStripS1 = csnstrstrip(" \tab \n")
+    SStripS2 = csnstrlstrip("  ab  ")
+    SStripS3 = csnstrrstrip("  ab  ")
+    SStripS4 = csnstrstrip("xyabyx", "yx")
+    SStripS5 = csnstrlstrip("--a--", "-")
+    SStripS6 = csnstrrstrip("--a--", "-")
+    SStripS7 = csnstrstrip("xax", "")
+    SStripS8 = "..ok.."
+    SStripS8 = csnstrstrip(SStripS8, ".")
+    iStripSCmp = strcmp(SStripS1, "ab") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS2, "ab  ") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS3, "  ab") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS4, "ab") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS5, "a--") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS6, "--a") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS7, "xax") == 0 ? 0 : 1
+    iStripSCmp += strcmp(SStripS8, "ok") == 0 ? 0 : 1
+    assert(iStripSCmp == 0)
+    ; add and mul on one S, as the opcodes and as the operators + += * *=:
+    ; a count of 0 or less gives "", as in Python, and Sx += Sx doubles Sx
+    SAddS1 = csnstradd("ab", "cd")
+    SAddS2 = "ab" + ""
+    SAddS3 = "x"
+    SAddS3 += "yz"
+    SAddS3 += SAddS3
+    SMulS1 = csnstrmul("ab", 3)
+    SMulS2 = "ab" * 0
+    SMulS3 = csnstrmul("ab", -2)
+    SMulS4 = "-"
+    SMulS4 *= 4
+    iAddMulSCmp = strcmp(SAddS1, "abcd") == 0 ? 0 : 1
+    iAddMulSCmp += strcmp(SAddS2, "ab") == 0 ? 0 : 1
+    iAddMulSCmp += strcmp(SAddS3, "xyzxyz") == 0 ? 0 : 1
+    iAddMulSCmp += strcmp(SMulS1, "ababab") == 0 ? 0 : 1
+    iAddMulSCmp += strcmp(SMulS2, "") == 0 ? 0 : 1
+    iAddMulSCmp += strcmp(SMulS3, "") == 0 ? 0 : 1
+    iAddMulSCmp += strcmp(SMulS4, "----") == 0 ? 0 : 1
+    assert(iAddMulSCmp == 0)
 
     ; csnstrsubstr keeps the bytes from start up to stop, stop excluded, every
     ; step-th, clamped to each string (np.strings.slice on bytes)
@@ -1247,6 +1302,182 @@ instr 3
     iStrSubIn0Cmp = strcmp(SStrSubIn0, "bd")
     iStrSubIn1Cmp = strcmp(SStrSubIn1, "y")
     assert(iStrSubIn0Cmp == 0 && iStrSubIn1Cmp == 0)
+
+    ; the queries give one number per string, shaped as the source: bytes, ASCII
+    ; only, as np.char on bytes; rfind finds the last match, overlapping ones
+    ; included, an empty string matches at the end, and an empty string is
+    ; never alpha, digit, alnum or space
+    SStrQItems[] fillarray "abcabc", "", "aaa", "12", " \t", "ab1"
+    iStrQ:CsnStr = csnfromarray(SStrQItems)
+    iStrQLen:CsnArr = csnstrlen(iStrQ)
+    iStrQFind:CsnArr = csnstrfind(iStrQ, "bc")
+    iStrQRfind:CsnArr = csnstrrfind(iStrQ, "bc")
+    iStrQRfindAa:CsnArr = csnstrrfind(iStrQ, "aa")
+    iStrQRfindEmpty:CsnArr = csnstrrfind(iStrQ, "")
+    iStrQStarts:CsnArr = csnstrstartswith(iStrQ, "ab")
+    iStrQEnds:CsnArr = csnstrendswith(iStrQ, "bc")
+    iStrQAlpha:CsnArr = csnstrisalpha(iStrQ)
+    iStrQDigit:CsnArr = csnstrisdigit(iStrQ)
+    iStrQAlnum:CsnArr = csnstrisalnum(iStrQ)
+    iStrQSpace:CsnArr = csnstrisspace(iStrQ)
+    iStrQLenV[] = csntoarray(iStrQLen)
+    iStrQFindV[] = csntoarray(iStrQFind)
+    iStrQRfindV[] = csntoarray(iStrQRfind)
+    iStrQRfindAaV[] = csntoarray(iStrQRfindAa)
+    iStrQRfindEmptyV[] = csntoarray(iStrQRfindEmpty)
+    iStrQStartsV[] = csntoarray(iStrQStarts)
+    iStrQEndsV[] = csntoarray(iStrQEnds)
+    iStrQAlphaV[] = csntoarray(iStrQAlpha)
+    iStrQDigitV[] = csntoarray(iStrQDigit)
+    iStrQAlnumV[] = csntoarray(iStrQAlnum)
+    iStrQSpaceV[] = csntoarray(iStrQSpace)
+    assert(iStrQLenV[0] == 6 && iStrQLenV[1] == 0 && iStrQLenV[4] == 2)
+    assert(iStrQFindV[0] == 1 && iStrQFindV[1] == -1 && iStrQFindV[2] == -1)
+    assert(iStrQRfindV[0] == 4 && iStrQRfindV[1] == -1 && iStrQRfindAaV[2] == 1 && iStrQRfindAaV[0] == -1)
+    assert(iStrQRfindEmptyV[0] == 6 && iStrQRfindEmptyV[1] == 0)
+    assert(iStrQStartsV[0] == 1 && iStrQStartsV[1] == 0 && iStrQStartsV[5] == 1 && iStrQStartsV[2] == 0)
+    assert(iStrQEndsV[0] == 1 && iStrQEndsV[1] == 0 && iStrQEndsV[5] == 0)
+    assert(iStrQAlphaV[0] == 1 && iStrQAlphaV[1] == 0 && iStrQAlphaV[5] == 0)
+    assert(iStrQDigitV[3] == 1 && iStrQDigitV[1] == 0 && iStrQDigitV[5] == 0)
+    assert(iStrQAlnumV[5] == 1 && iStrQAlnumV[1] == 0 && iStrQAlnumV[4] == 0)
+    assert(iStrQSpaceV[4] == 1 && iStrQSpaceV[1] == 0 && iStrQSpaceV[0] == 0)
+    ; the searches look at s[start:end], end excluded and clamped to each
+    ; string, -1 for its end; a start past the end matches nothing, not even ""
+    iStrQFrom:CsnArr = csnstrfind(iStrQ, "bc", 2)
+    iStrQUpTo:CsnArr = csnstrrfind(iStrQ, "bc", 0, 5)
+    iStrQPast:CsnArr = csnstrfind(iStrQ, "", 4)
+    iStrQStartsAt:CsnArr = csnstrstartswith(iStrQ, "ca", 2, 100)
+    iStrQEndsBy:CsnArr = csnstrendswith(iStrQ, "ab", 0, 2)
+    iStrQShort:CsnArr = csnstrstartswith(iStrQ, "abc", 0, 2)
+    iStrQBetween:CsnArr = csnstrrfind(iStrQ, "bc", 2, 4)
+    iStrQFromV[] = csntoarray(iStrQFrom)
+    iStrQUpToV[] = csntoarray(iStrQUpTo)
+    iStrQPastV[] = csntoarray(iStrQPast)
+    iStrQStartsAtV[] = csntoarray(iStrQStartsAt)
+    iStrQEndsByV[] = csntoarray(iStrQEndsBy)
+    iStrQShortV[] = csntoarray(iStrQShort)
+    iStrQBetweenV[] = csntoarray(iStrQBetween)
+    assert(iStrQFromV[0] == 4 && iStrQUpToV[0] == 1 && iStrQPastV[0] == 4 && iStrQPastV[3] == -1)
+    assert(iStrQStartsAtV[0] == 1 && iStrQStartsAtV[2] == 0 && iStrQEndsByV[0] == 1 && iStrQEndsByV[5] == 1)
+    assert(iStrQShortV[0] == 0 && iStrQShortV[5] == 0 && iStrQBetweenV[0] == -1)
+    ; strings to numbers as float() reads them, blanks around allowed; a
+    ; partial number, hex or a comma is NaN, as is ""
+    SStrNumItems[] fillarray "1.5", " -2e3\n", "inf", "12abc", "", "0x10", "1,5", "nan"
+    iStrNumSrc:CsnStr = csnfromarray(SStrNumItems)
+    iStrNum:CsnArr = csnstrtonum(iStrNumSrc)
+    iStrNumV[] = csntoarray(iStrNum)
+    assert(iStrNumV[0] == 1.5 && iStrNumV[1] == -2000 && iStrNumV[2] > 1e308)
+    assert(iStrNumV[3] != iStrNumV[3] && iStrNumV[4] != iStrNumV[4] && iStrNumV[5] != iStrNumV[5])
+    assert(iStrNumV[6] != iStrNumV[6] && iStrNumV[7] != iStrNumV[7])
+    ; numbers to strings as astype(str): the shortest digits that read back,
+    ; ".0" on whole numbers, an exponent below 1e-4 and from 1e16; 2^-24 is a
+    ; tie whose nearest 16 digits read back to another double
+    iNumStrItems[] fillarray 0.1, 1, 1e16, 1e15, 1e-5, 0.0001, 2^-24, 123.25, 1.5e300, -2.5
+    iNumStrSrc:CsnArr = csnfromarray(iNumStrItems)
+    iNumStr:CsnStr = csnnumtostr(iNumStrSrc)
+    SNumStrGot[] = csntoarray(iNumStr)
+    SNumStrWant[] fillarray "0.1", "1.0", "1e+16", "1000000000000000.0", "1e-05", "0.0001", "5.960464477539063e-08", "123.25", "1.5e+300", "-2.5"
+    iNumStrBad = 0
+    iNumStrN = 0
+    while iNumStrN < lenarray(SNumStrWant) do
+        SNumStrA = SNumStrGot[iNumStrN]
+        SNumStrB = SNumStrWant[iNumStrN]
+        iNumStrCmp = strcmp(SNumStrA, SNumStrB)
+        iNumStrBad += iNumStrCmp == 0 ? 0 : 1
+        iNumStrN += 1
+    od
+    assert(iNumStrBad == 0)
+    ; nan and inf write as NumPy writes them
+    SNumStrSpecial[] fillarray "nan", "-inf"
+    iNumStrSpecialSrc:CsnStr = csnfromarray(SNumStrSpecial)
+    iNumStrSpecial:CsnArr = csnstrtonum(iNumStrSpecialSrc)
+    iNumStrSpecialStr:CsnStr = csnnumtostr(iNumStrSpecial)
+    SNumStrSpecialV[] = csntoarray(iNumStrSpecialStr)
+    SNumStrNaN = SNumStrSpecialV[0]
+    SNumStrInf = SNumStrSpecialV[1]
+    iNumStrNaNCmp = strcmp(SNumStrNaN, "nan")
+    iNumStrInfCmp = strcmp(SNumStrInf, "-inf")
+    assert(iNumStrNaNCmp == 0 && iNumStrInfCmp == 0)
+    ; the join, as Python's sep.join: an empty string keeps its place, any
+    ; rank joins in row-major order, one string gives itself, none gives ""
+    SJoinItems[] fillarray "a", "", "ccc", "d"
+    iJoinSrc:CsnStr = csnfromarray(SJoinItems)
+    SJoined = csnstrjoin(iJoinSrc, ", ")
+    iJoinCmp = strcmp(SJoined, "a, , ccc, d")
+    SJoinedTight = csnstrjoin(iJoinSrc, "")
+    iJoinCmp += strcmp(SJoinedTight, "acccd") == 0 ? 0 : 1
+    iJoinShape[] = fillarray(2, 2)
+    iJoinGrid:CsnStr = csnreshape(iJoinSrc, iJoinShape)
+    SJoinedGrid = csnstrjoin(iJoinGrid, "|")
+    iJoinCmp += strcmp(SJoinedGrid, "a||ccc|d") == 0 ? 0 : 1
+    SJoinOne[] fillarray "solo"
+    iJoinOne:CsnStr = csnfromarray(SJoinOne)
+    SJoinedOne = csnstrjoin(iJoinOne, ", ")
+    iJoinCmp += strcmp(SJoinedOne, "solo") == 0 ? 0 : 1
+    iJoinNoShape[] = fillarray(0)
+    iJoinNone:CsnStr = csnempty(iJoinNoShape)
+    SJoinedNone = csnstrjoin(iJoinNone, ", ")
+    iJoinCmp += strcmp(SJoinedNone, "") == 0 ? 0 : 1
+    assert(iJoinCmp == 0)
+    ; split, rsplit, partition and rpartition, as Python's str methods: cuts
+    ; never overlap, split finds them from the left and rsplit from the right,
+    ; maxsplit limits them (negative for none), a separator longer than the
+    ; string leaves it whole, and a partition missing its separator puts the
+    ; string first (partition) or last (rpartition)
+    iSplitCmp = 0
+    iSplit0:CsnStr = csnstrsplit("a,,b", ",")
+    SSplit0 = csnstrjoin(iSplit0, "|")
+    iSplitN0 = csnsize(iSplit0)
+    iSplitCmp += strcmp(SSplit0, "a||b") == 0 && iSplitN0 == 3 ? 0 : 1
+    iSplit1:CsnStr = csnstrsplit("aaa", "aa", -1)
+    SSplit1 = csnstrjoin(iSplit1, "|")
+    iSplitN1 = csnsize(iSplit1)
+    iSplitCmp += strcmp(SSplit1, "|a") == 0 && iSplitN1 == 2 ? 0 : 1
+    iSplit2:CsnStr = csnstrrsplit("aaa", "aa")
+    SSplit2 = csnstrjoin(iSplit2, "|")
+    iSplitN2 = csnsize(iSplit2)
+    iSplitCmp += strcmp(SSplit2, "a|") == 0 && iSplitN2 == 2 ? 0 : 1
+    iSplit3:CsnStr = csnstrsplit("a,b,c", ",", 1)
+    SSplit3 = csnstrjoin(iSplit3, "|")
+    iSplitN3 = csnsize(iSplit3)
+    iSplitCmp += strcmp(SSplit3, "a|b,c") == 0 && iSplitN3 == 2 ? 0 : 1
+    iSplit4:CsnStr = csnstrrsplit("a,b,c", ",", 1)
+    SSplit4 = csnstrjoin(iSplit4, "|")
+    iSplitN4 = csnsize(iSplit4)
+    iSplitCmp += strcmp(SSplit4, "a,b|c") == 0 && iSplitN4 == 2 ? 0 : 1
+    iSplit5:CsnStr = csnstrsplit("a,b", ",", 0)
+    SSplit5 = csnstrjoin(iSplit5, "|")
+    iSplitN5 = csnsize(iSplit5)
+    iSplitCmp += strcmp(SSplit5, "a,b") == 0 && iSplitN5 == 1 ? 0 : 1
+    iSplit6:CsnStr = csnstrrsplit("a--b--c", "--", -5)
+    SSplit6 = csnstrjoin(iSplit6, "|")
+    iSplitN6 = csnsize(iSplit6)
+    iSplitCmp += strcmp(SSplit6, "a|b|c") == 0 && iSplitN6 == 3 ? 0 : 1
+    iSplit7:CsnStr = csnstrsplit("ab", "abc", -1)
+    SSplit7 = csnstrjoin(iSplit7, "|")
+    iSplitN7 = csnsize(iSplit7)
+    iSplitCmp += strcmp(SSplit7, "ab") == 0 && iSplitN7 == 1 ? 0 : 1
+    iSplit8:CsnStr = csnstrsplit("", ",", -1)
+    SSplit8 = csnstrjoin(iSplit8, "|")
+    iSplitN8 = csnsize(iSplit8)
+    iSplitCmp += strcmp(SSplit8, "") == 0 && iSplitN8 == 1 ? 0 : 1
+    iSplit9:CsnStr = csnstrpartition("a=b=c", "=")
+    SSplit9 = csnstrjoin(iSplit9, "|")
+    iSplitN9 = csnsize(iSplit9)
+    iSplitCmp += strcmp(SSplit9, "a|=|b=c") == 0 && iSplitN9 == 3 ? 0 : 1
+    iSplit10:CsnStr = csnstrrpartition("a=b=c", "=")
+    SSplit10 = csnstrjoin(iSplit10, "|")
+    iSplitN10 = csnsize(iSplit10)
+    iSplitCmp += strcmp(SSplit10, "a=b|=|c") == 0 && iSplitN10 == 3 ? 0 : 1
+    iSplit11:CsnStr = csnstrpartition("abc", "=")
+    SSplit11 = csnstrjoin(iSplit11, "|")
+    iSplitN11 = csnsize(iSplit11)
+    iSplitCmp += strcmp(SSplit11, "abc||") == 0 && iSplitN11 == 3 ? 0 : 1
+    iSplit12:CsnStr = csnstrrpartition("abc", "=")
+    SSplit12 = csnstrjoin(iSplit12, "|")
+    iSplitN12 = csnsize(iSplit12)
+    iSplitCmp += strcmp(SSplit12, "||abc") == 0 && iSplitN12 == 3 ? 0 : 1
+    assert(iSplitCmp == 0)
     csnrtlock(iStrFlat)
     csnrtunlock(iStrFlat)
     csni(iStrFlat)
@@ -5358,17 +5589,22 @@ e
 ; csntruncate.s csntruncate.s.in csnhead.s csnresize.s csnresize.s.in
 ; csncopy.s csni.s csnk.s csnshuffle.s
 ; csnwhere.s.hh csnwhere.s.hs csnputmask.s.hh csnputmask.s.hs csncompress.s csnselect.s
-; csnstradd csnstradd.hs csnstradd.sh csnstrmul csnstrmul.hs
+; csnstradd csnstradd.hs csnstradd.sh csnstrmul csnstrmul.hs csnstradd.ss csnstrmul.ss
 ; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
 ; csnstrcapitalize csnstrcapitalize.in
 ; csnstrswapcase csnstrswapcase.in
 ; csnstrtitle csnstrtitle.in
 ; csnstrstrip csnstrstrip.in csnstrlstrip csnstrlstrip.in csnstrrstrip csnstrrstrip.in
 ; csnstrstrip.ch csnstrstrip.in.ch csnstrlstrip.ch csnstrlstrip.in.ch csnstrrstrip.ch csnstrrstrip.in.ch
+; csnstrstrip.ss csnstrstrip.ss.ch csnstrlstrip.ss csnstrlstrip.ss.ch csnstrrstrip.ss csnstrrstrip.ss.ch
 ; csnstrcenter csnstrcenter.in csnstrljust csnstrljust.in csnstrrjust csnstrrjust.in
 ; csnstrcenter.fill csnstrcenter.in.fill csnstrljust.fill csnstrljust.in.fill csnstrrjust.fill csnstrrjust.in.fill
-; csnstrreplace csnstrreplace.in
+; csnstrreplace csnstrreplace.in csnstrreplace.ss
 ; csnstrsubstr csnstrsubstr.in
+; csnstrlen csnstrfind csnstrrfind csnstrstartswith csnstrendswith
+; csnstrisalpha csnstrisdigit csnstrisalnum csnstrisspace
+; csnstrtonum csnnumtostr csnstrjoin
+; csnstrsplit csnstrrsplit csnstrpartition csnstrrpartition
 ; csnpad.ax.c csnpad.in.c csnpad.ax.in.c csnsum csnprod csnsub csnmean csnall
 ; csnany csnstd csnvar csnsum.c csnprod.c csnsub.c csnmean.c csnsum.ax
 ; csnprod.ax csnsub.ax csnmean.ax csnany.ax csnall.ax csnstd.ax csnvar.ax csnadd

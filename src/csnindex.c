@@ -624,8 +624,10 @@ static int32_t take_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *source, CSN_ARRAY
                     destination->data[linear] = source->data[src_index];
                 }
                 break;
-            case CSN_STRING:
-                if (csn_str_write(w, &destination->sdata[linear], source->sdata[src_index].data) != OK) return w->err;
+            case CSN_STRING: {
+                    const char *s = source->sdata[src_index].data;
+                    if (csn_str_write(w, &destination->sdata[linear], s, GET_STRINGDAT_LEN(s)) != OK) return w->err;
+                }
                 break;
         }
     }
@@ -857,7 +859,7 @@ static int32_t slice_get_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *source
         }
         if (source->itype == CSN_STRING) {
             const char *item = source->sdata[source_index].data;
-            if (csn_str_write(w, &destination->sdata[linear], item) != OK) return w->err;
+            if (csn_str_write(w, &destination->sdata[linear], item, GET_STRINGDAT_LEN(item)) != OK) return w->err;
         } else if (source->itype == CSN_COMPLEX) {
             destination->data[linear * 2] = source->data[source_index * 2];
             destination->data[linear * 2 + 1] = source->data[source_index * 2 + 1];
@@ -901,7 +903,7 @@ static int32_t slice_set_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *data, 
                 const char *stored = destination->sdata[destination_index].data;
                 if (stored != NULL && strcmp(stored, value) == 0) break;
                 CSN_STRDATA *slot = &destination->sdata[destination_index];
-                if ((probe ? csn_str_check(w, slot, value) : csn_str_write(w, slot, value)) != OK) return w->err;
+                if ((probe ? csn_str_check(w, slot, value) : csn_str_write(w, slot, value, GET_STRINGDAT_LEN(value))) != OK) return w->err;
                 break;
             }
         }
@@ -1755,7 +1757,7 @@ static int32_t insert_block_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *temp, CSN
                     }
                     break;
                 case CSN_STRING:
-                    if (csn_str_write(w, &temp->sdata[linear], data_arr->sdata[block_off].data) != OK) return w->err;
+                    if (csn_str_write(w, &temp->sdata[linear], data_arr->sdata[block_off].data, GET_STRINGDAT_LEN(data_arr->sdata[block_off].data)) != OK) return w->err;
                     break;
             }
         } else {
@@ -1775,7 +1777,7 @@ static int32_t insert_block_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *temp, CSN
                     }
                     break;
                 case CSN_STRING:
-                    if (csn_str_write(w, &temp->sdata[linear], source_arr->sdata[source_off].data) != OK) return w->err;
+                    if (csn_str_write(w, &temp->sdata[linear], source_arr->sdata[source_off].data, GET_STRINGDAT_LEN(source_arr->sdata[source_off].data)) != OK) return w->err;
                     break;
             }
         }
@@ -2060,7 +2062,7 @@ static int32_t remove_block_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *source_ar
                 }
                 break;
             case CSN_STRING:
-                if (csn_str_write(w, &destination->sdata[linear], source_arr->sdata[source_off].data) != OK) return w->err;
+                if (csn_str_write(w, &destination->sdata[linear], source_arr->sdata[source_off].data, GET_STRINGDAT_LEN(source_arr->sdata[source_off].data)) != OK) return w->err;
                 break;
         }
     }
@@ -2216,7 +2218,7 @@ static int32_t concat_flat_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *sour
                 const char *from = linear < source_arr->size
                     ? source_arr->sdata[linear].data
                     : data_arr->sdata[linear - source_arr->size].data;
-                if (csn_str_write(w, &destination->sdata[linear], from) != OK) return w->err;
+                if (csn_str_write(w, &destination->sdata[linear], from, GET_STRINGDAT_LEN(from)) != OK) return w->err;
                 break;
             }
         }

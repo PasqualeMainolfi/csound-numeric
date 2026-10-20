@@ -176,7 +176,9 @@ either side, and `*` repeats each string by a count on either side, as
 `csnstradd` and `csnstrmul` do; `+=` and `*=` update the left array. A string
 operand has no rate, so an operator on an i-rate array runs again at perf
 when its `S` changes, and `X += Sv` on an i-rate `X` appends once per change.
-See [string arrays](doc/string-arrays.md#operators).
+On one `S`, `+` and `*` join and repeat strings (`S1 + S2`, `S * 3`, `Sx +=
+Sy`, `Sx *= n`); Csound has no arithmetic on strings, so these operators exist
+only with csnum loaded. See [string arrays](doc/string-arrays.md#operators).
 
 ### Indexing with `[]`
 
@@ -324,14 +326,19 @@ opcodes (`csnreshape`, `csnflatten`, `csntranspose`, `csnflip`, `csnroll`,
 `csncompress`, `csnselect`), the elementwise `csnstradd`, `csnstrmul`,
 `csnstrupper`, `csnstrlower`, `csnstrcapitalize`, `csnstrswapcase`,
 `csnstrtitle`, `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip`, `csnstrcenter`,
-`csnstrljust`, `csnstrrjust`, `csnstrreplace` and `csnstrsubstr`, the rate
-casts `csni` and `csnk`, and `csnsave` / `csnload` (`.npy` as `<U` or
-`|S`, `.csn`) take one today. A string has no k form, so their k forms take an
-explicit trigger. Each element keeps the buffer of its string, so on a
-[real-time path](#real-time-paths) a k pass writes into the room the init pass
-gave it and stops only at a string that does not fit. See
-[String arrays](doc/string-arrays.md) for the list, the file formats, the
-real-time rule and a runnable example.
+`csnstrljust`, `csnstrrjust`, `csnstrreplace` and `csnstrsubstr`, the string
+queries `csnstrlen`, `csnstrfind`, `csnstrrfind`, `csnstrstartswith`,
+`csnstrendswith`, `csnstrisalpha`, `csnstrisdigit`, `csnstrisalnum` and
+`csnstrisspace` (to a real array), the conversions `csnstrtonum` and
+`csnnumtostr`, the join `csnstrjoin` (to one `S`), the splits `csnstrsplit`,
+`csnstrrsplit`, `csnstrpartition` and `csnstrrpartition` (from one `S`), the
+rate casts `csni` and `csnk`, and
+`csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
+string has no k form, so their k forms take an explicit trigger. Each element
+keeps the buffer of its string, so on a [real-time path](#real-time-paths) a k
+pass writes into the room the init pass gave it and stops only at a string
+that does not fit. See [String arrays](doc/string-arrays.md) for the list, the
+file formats, the real-time rule and a runnable example.
 
 ### Printing arrays
 
@@ -818,10 +825,19 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnstrupper`, `csnstrlower` | `np.strings.upper`, `np.strings.lower` | ASCII letters only, as on a bytes (`S`) array: bytes from 0x80 up stay, so UTF-8 survives. Also in place. |
 | `csnstrcapitalize` | `np.strings.capitalize` | First character up, the rest down; ASCII only, as on a bytes (`S`) array. Also in place. |
 | `csnstrtitle` | `np.strings.title` | As on a bytes (`S`) array: ASCII letters only, and digits and UTF-8 bytes are not letters (`"1st"` gives `"1St"`, `"Cafés"` gives `"CaféS"`). Also in place. |
-| `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip` | `np.strings.strip`, `lstrip`, `rstrip` | ASCII whitespace only, as on a bytes (`S`) array, so UTF-8 survives. `chars` is a set of bytes, as on a bytes array: a multibyte character stands for each of its bytes. Also in place. |
+| `csnstrstrip`, `csnstrlstrip`, `csnstrrstrip` | `np.strings.strip`, `lstrip`, `rstrip` | ASCII whitespace only, as on a bytes (`S`) array, so UTF-8 survives. `chars` is a set of bytes, as on a bytes array: a multibyte character stands for each of its bytes. Also in place. Also on one `S` (Python's `str.strip`, `lstrip`, `rstrip`, no in-place form). |
 | `csnstrcenter`, `csnstrljust`, `csnstrrjust` | `np.strings.center`, `ljust`, `rjust` | Width in bytes, as on a bytes (`S`) array; center splits an odd margin as CPython does. A negative width is refused rather than ignored; `fillchar` (here `fill`) must be one byte. Also in place. |
-| `csnstrreplace` | `np.strings.replace` | Bytes, as on a bytes (`S`) array; an empty `old` matches between bytes. `count` optional, any negative for all. Also in place. |
+| `csnstrreplace` | `np.strings.replace` | Bytes, as on a bytes (`S`) array; an empty `old` matches between bytes. `count` optional, any negative for all. Also in place, and on one `S` (Python's `str.replace`, no in-place form). |
 | `csnstrsubstr` | `np.strings.slice` | Bytes, stop excluded, clamped to each string. Indices as `csngetslice`: whole, from 0, start no greater than stop, step at least 1; no negative indices or steps. Also in place. |
+| `csnstrlen` | `np.strings.str_len` | Bytes, as on a bytes (`S`) array: a UTF-8 character counts each of its bytes. |
+| `csnstrfind`, `csnstrrfind` | `np.strings.find`, `rfind` | Bytes; `-1` where missing; rfind counts overlapping matches, an empty `sub` is found at the start of the range by find and at its end by rfind. `start`, `end` as `s[start:end]`, `end` `-1` (default) for the end of the string; whole, from 0, start no greater than end, no negative indices. |
+| `csnstrstartswith`, `csnstrendswith` | `np.strings.startswith`, `endswith` | Bytes; 0/1 mask; the empty prefix or suffix matches any range that starts inside the string. `start`, `end` as for `csnstrfind`. |
+| `csnstrisalpha`, `csnstrisdigit`, `csnstrisalnum`, `csnstrisspace` | `np.strings.isalpha`, `isdigit`, `isalnum`, `isspace` | ASCII only, as on a bytes (`S`) array, whatever the locale; 0/1 mask; an empty string gives 0. |
+| `csnstrtonum` | `a.astype(float)` | As Python's `float()`, the point `.` whatever the locale; a string that is not a number gives `NaN` where NumPy raises, and digit underscores (`"1_000"`) are not a number. |
+| `csnstrjoin` | `sep.join(a.flat)` | No NumPy join over an array: Python's `str.join` on the elements in row-major order; one `S` out. |
+| `csnstrsplit`, `csnstrrsplit` | `s.split(sep, maxsplit)`, `s.rsplit(sep, maxsplit)` | Python's `str` methods on one `S`, to a 1-D `CsnStr` (NumPy's `np.strings.split` gives lists in an object array). `sep` required and not empty; no split on runs of whitespace. |
+| `csnstrpartition`, `csnstrrpartition` | `s.partition(sep)`, `s.rpartition(sep)` | On one `S`, to a `CsnStr` of 3 where NumPy gives three arrays. `sep` not empty. |
+| `csnnumtostr` | `a.astype(str)` | Python's `repr`: the shortest digits that read back, `"1.0"`, `"1e-05"`, `"1e+16"`; the point `.` whatever the locale. Real arrays only. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |
 | `csnsave` / `csnload` | `np.save` / `np.load` | `.npy` as `<U` (UTF-8 decoded to code points), loads `<U` and `\|S`; `.csn` dtype `3`. |

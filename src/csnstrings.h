@@ -4,8 +4,10 @@
 #include "csdl.h"
 #include "csnregistry.h"
 #include "csnum.h"
+#include <stddef.h>
 #include <stdint.h>
 
+#define GET_STRINGDAT_LEN(str) (str) == NULL ? 0 : strlen((str))
 
 typedef enum { CSN_STR_ADD, CSN_STR_MUL } CSN_STR_BINOP;
 
@@ -337,6 +339,155 @@ typedef struct {
     CSN_SUBSTR_RANGE prev;
 } CSN_SUBSTRING_IN;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *value;
+    cs_float *start;
+    cs_float *end; // excluded, -1 for the end of the string
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+    CSN_SUBSTR_RANGE prev; // the range a k pass last searched
+} CSN_STRQUERY_STRUCT;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *value;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+    CSN_STRDATA buffer;
+} CSN_REDUCTION_STRING_S;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *handle;
+    // inputs
+    STRINGDAT *string_in;
+    STRINGDAT *value;
+    cs_float *arg_a; // trig in partition
+                     // maxsplit in split e rsplit (i-time)
+    cs_float *arg_b; // trig in split e rsplit
+    // private
+    K_DATA k_data;
+} CSN_REDUCTION_STRING_H;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    STRINGDAT *string_in;
+    STRINGDAT *old;
+    STRINGDAT *new;
+    cs_float *limit;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_REPLACE_S;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    STRINGDAT *string_in;
+    STRINGDAT *value;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_STRIP_S;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    STRINGDAT *string_in;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_STRIP_WS_S;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    STRINGDAT *a;
+    STRINGDAT *b;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_STRADD_S;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    STRINGDAT *string_in;
+    cs_float *count;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_STRMUL_S;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    STRINGDAT *string_in;
+    STRINGDAT *value;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_STRIP_S_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    cs_float *index;
+    // inputs
+    STRINGDAT *string_in;
+    STRINGDAT *prefix;
+    cs_float *start;
+    cs_float *end;
+} CSN_STRING_QUERY_SF;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    STRINGDAT *string_in;
+    cs_float *start;
+    cs_float *stop; // excluded
+    cs_float *step;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_SUBSTRING_S;
+
+typedef struct {
+    OPDS h;
+    // inputs
+    STRINGDAT *string_in;
+    cs_float *start;
+    cs_float *stop; // excluded
+    cs_float *step;
+    cs_float *trig;
+    // private
+    CSN_STRDATA buffer;
+} CSN_SUBSTRING_S_IN;
 
 int32_t ensure_string_capacity(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *slot, size_t bytes, bool rt_locked);
 int32_t string_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op, bool perf_redoes);
@@ -346,7 +497,9 @@ int32_t addstring_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
 int32_t strmul_hs_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data, bool perf_redoes);
 int32_t strmul_hs_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data);
 
-int32_t csn_str_write(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value);
+int32_t string_addmul_ss_helper(CSOUND *csound, OPDS *h, bool is_perf, CSN_STRDATA *buffer, STRINGDAT *out, const STRINGDAT *a, const STRINGDAT *b, const cs_float *count, bool is_add);
+
+int32_t csn_str_write(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value, size_t len);
 int32_t csn_str_check(CSN_STR_WRITER *w, const CSN_STRDATA *slot, const char *value);
 
 int32_t create_empty_csnstrings(CSOUND *csound, CSN_STR_EMPTY *p);
@@ -565,7 +718,130 @@ int32_t csnstrings_substring_in(CSOUND *csound, CSN_SUBSTRING_IN *p);
 int32_t csnstrings_substring_in_k_init(CSOUND *csound, CSN_SUBSTRING_IN *p);
 int32_t csnstrings_substring_in_k(CSOUND *csound, CSN_SUBSTRING_IN *p);
 
+int32_t csnstrings_len(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_len_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_len_k(CSOUND *csound, CSN_UNARYOP *p);
 
+int32_t csnstrings_find(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_find_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_find_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_rfind(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_rfind_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_rfind_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_startswith(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_startswith_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_startswith_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_endswith(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_endswith_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+int32_t csnstrings_endswith_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+
+int32_t csnstrings_isalpha(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isalpha_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isalpha_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isdigit(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isdigit_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isdigit_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isalnum(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isalnum_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isalnum_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isspace(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isspace_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_isspace_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_query_deinit(CSOUND *csound, CSN_STRQUERY_STRUCT *p);
+
+int32_t csnstrings_strtonum(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_strtonum_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_strtonum_k(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_numtostr(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_numtostr_k_init(CSOUND *csound, CSN_UNARYOP *p);
+int32_t csnstrings_numtostr_k(CSOUND *csound, CSN_UNARYOP *p);
+
+int32_t csnstrings_reduction_s_deinit(CSOUND *csound, CSN_REDUCTION_STRING_S *p);
+int32_t csnstrings_strjoin(CSOUND *csound, CSN_REDUCTION_STRING_S *p);
+int32_t csnstrings_strjoin_k_init(CSOUND *csound, CSN_REDUCTION_STRING_S *p);
+int32_t csnstrings_strjoin_k(CSOUND *csound, CSN_REDUCTION_STRING_S *p);
+
+int32_t csnstrings_reduction_h_deinit(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strsplit(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strsplit_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strsplit_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strrsplit(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strrsplit_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strrsplit_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strpartition(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strpartition_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strpartition_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strrpartition(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strrpartition_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+int32_t csnstrings_strrpartition_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p);
+
+// STRING-STRING
+int32_t csnstrings_replace_ss_deinit(CSOUND *csound, CSN_REPLACE_S *p);
+int32_t csnstrings_replace_ss(CSOUND *csound, CSN_REPLACE_S *p);
+int32_t csnstrings_replace_ss_k(CSOUND *csound, CSN_REPLACE_S *p);
+
+int32_t csnstrings_strip_ss_deinit(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_strip_ss_ws_deinit(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_strip_ss_ws(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_strip_ss_ws_k(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_lstrip_ss_ws(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_lstrip_ss_ws_k(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_rstrip_ss_ws(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_rstrip_ss_ws_k(CSOUND *csound, CSN_STRIP_WS_S *p);
+int32_t csnstrings_strip_ss(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_strip_ss_k(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_lstrip_ss(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_lstrip_ss_k(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_rstrip_ss(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_rstrip_ss_k(CSOUND *csound, CSN_STRIP_S *p);
+
+int32_t csnstrings_substr_ss(CSOUND *csound, CSN_SUBSTRING_S *p);
+int32_t csnstrings_substr_ss_k_init(CSOUND *csound, CSN_SUBSTRING_S *p);
+int32_t csnstrings_substr_ss_k(CSOUND *csound, CSN_SUBSTRING_S *p);
+int32_t csnstrings_substr_in_ss(CSOUND *csound, CSN_SUBSTRING_S_IN *p);
+int32_t csnstrings_substr_in_ss_k_init(CSOUND *csound, CSN_SUBSTRING_S_IN *p);
+int32_t csnstrings_substr_in_ss_k(CSOUND *csound, CSN_SUBSTRING_S_IN *p);
+
+int32_t csnstrings_find_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_find_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_find_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_rfind_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_rfind_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_rfind_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+
+
+int32_t csnstrings_mul_ss_deinit(CSOUND *csound, CSN_STRMUL_S *p);
+int32_t csnstrings_mul_ss(CSOUND *csound, CSN_STRMUL_S *p);
+int32_t csnstrings_mul_ss_k(CSOUND *csound, CSN_STRMUL_S *p);
+int32_t csnstrings_add_ss_deinit(CSOUND *csound, CSN_STRADD_S *p);
+int32_t csnstrings_add_ss(CSOUND *csound, CSN_STRADD_S *p);
+int32_t csnstrings_add_ss_k(CSOUND *csound, CSN_STRADD_S *p);
+
+int32_t csnstrings_isalpha_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isalpha_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isalpha_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isdigit_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isdigit_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isdigit_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isalnum_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isalnum_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isalnum_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isspace_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isspace_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+int32_t csnstrings_isspace_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p);
+
+int32_t csnstrings_lower_ss(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_lower_ss_k_init(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_lower_ss_k(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_lower_ss_in(CSOUND *csound, CSN_STRIP_S_IN *p);
+int32_t csnstrings_lower_ss_in_k_init(CSOUND *csound, CSN_STRIP_S_IN *p);
+int32_t csnstrings_lower_ss_in_k(CSOUND *csound, CSN_STRIP_S_IN *p);
+int32_t csnstrings_upper_ss(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_upper_ss_k_init(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_upper_ss_k(CSOUND *csound, CSN_STRIP_S *p);
+int32_t csnstrings_upper_ss_in(CSOUND *csound, CSN_STRIP_S_IN *p);
+int32_t csnstrings_upper_ss_in_k_init(CSOUND *csound, CSN_STRIP_S_IN *p);
+int32_t csnstrings_upper_ss_in_k(CSOUND *csound, CSN_STRIP_S_IN *p);
 
 
 #endif

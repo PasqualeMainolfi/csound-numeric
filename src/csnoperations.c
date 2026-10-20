@@ -405,3 +405,55 @@ int32_t opstr_mulin_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p) {
     csn_mark_krate(p->x);
     return strmul_hs_perf(csound, &p->h, p->x, p->x, p->s, &p->k_data);
 }
+
+int32_t opstr_add_ss_deinit(CSOUND *csound, CSN_OP_STRADD_SS *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t opstr_addin_ss_deinit(CSOUND *csound, CSN_OP_STRADD_SS_IN *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t opstr_mul_ss_deinit(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t opstr_mulin_ss_deinit(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t opstr_add_ss_init(CSOUND *csound, CSN_OP_STRADD_SS *p) {
+    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->out, p->a, p->b, NULL, true);
+}
+
+int32_t opstr_add_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS *p) {
+    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->out, p->a, p->b, NULL, true);
+}
+
+int32_t opstr_addin_ss_init(CSOUND *csound, CSN_OP_STRADD_SS_IN *p) {
+    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->a, p->a, p->b, NULL, true);
+}
+
+int32_t opstr_addin_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS_IN *p) {
+    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->a, p->a, p->b, NULL, true);
+}
+
+int32_t opstr_mul_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
+    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->out, p->a, NULL, p->value, false);
+}
+
+int32_t opstr_mul_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
+    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->out, p->a, NULL, p->value, false);
+}
+
+int32_t opstr_mulin_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
+    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->a, p->a, NULL, p->value, false);
+}
+
+int32_t opstr_mulin_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
+    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->a, p->a, NULL, p->value, false);
+}

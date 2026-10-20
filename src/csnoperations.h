@@ -149,6 +149,48 @@ typedef struct {
     K_DATA k_data;
 } CSN_OP_STRING_IN_HS;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *out;
+    // inputs
+    STRINGDAT *a;
+    STRINGDAT *b;
+    // private
+    CSN_STRDATA buffer;
+} CSN_OP_STRADD_SS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *a;
+    // inputs
+    STRINGDAT *b;
+    // private
+    CSN_STRDATA buffer;
+} CSN_OP_STRADD_SS_IN;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *out;
+    // inputs
+    STRINGDAT *a;
+    cs_float *value;
+    // private
+    CSN_STRDATA buffer;
+} CSN_OP_STRMUL_SS;
+
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *a;
+    // inputs
+    cs_float *value;
+    // private
+    CSN_STRDATA buffer;
+} CSN_OP_STRMUL_SS_IN;
+
 #define CSN_OP_DECLARE(name)                                                   \
     int32_t csnop_##name##_hh_init(CSOUND *csound, CSN_OP_HH *p);              \
     int32_t csnop_##name##_hh_perf(CSOUND *csound, CSN_OP_HH *p);              \
@@ -213,5 +255,19 @@ int32_t opstr_addin_hs_deinit(CSOUND *csound, CSN_OP_STRING_IN_HS *p);
 int32_t opstr_mulin_hi_init(CSOUND *csound, CSN_OP_IN_HS *p);
 int32_t opstr_mulin_hk_init(CSOUND *csound, CSN_OP_IN_HS *p);
 int32_t opstr_mulin_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p);
+
+int32_t opstr_add_ss_deinit(CSOUND *csound, CSN_OP_STRADD_SS *p);
+int32_t opstr_addin_ss_deinit(CSOUND *csound, CSN_OP_STRADD_SS_IN *p);
+int32_t opstr_mul_ss_deinit(CSOUND *csound, CSN_OP_STRMUL_SS *p);
+int32_t opstr_mulin_ss_deinit(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p);
+
+int32_t opstr_add_ss_init(CSOUND *csound, CSN_OP_STRADD_SS *p);
+int32_t opstr_add_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS *p);
+int32_t opstr_addin_ss_init(CSOUND *csound, CSN_OP_STRADD_SS_IN *p);
+int32_t opstr_addin_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS_IN *p);
+int32_t opstr_mul_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS *p);
+int32_t opstr_mul_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS *p);
+int32_t opstr_mulin_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p);
+int32_t opstr_mulin_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p);
 
 #endif

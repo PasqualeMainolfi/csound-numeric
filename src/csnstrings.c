@@ -5,8 +5,11 @@
 #include "csnfile.h"
 #include <ctype.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "arrays.h"
 
@@ -34,10 +37,13 @@ int32_t ensure_string_capacity(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *slot, 
 
 /* Copies value into the slot through w; value may be the slot's own string,
    and NULL stores "". */
-int32_t csn_str_write(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value) {
-    if (value == NULL) value = "";
+int32_t csn_str_write(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value, size_t len) {
+    if (value == NULL) {
+        value = "";
+        len = 0;
+    }
     if (value == slot->data) return OK;
-    size_t bytes = strlen(value) + 1;
+    size_t bytes = len + 1;
     int32_t res = ensure_string_capacity(w->csound, w->perf_h, slot, bytes, w->no_growth);
     if (res != OK) return w->err = res;
     memmove(slot->data, value, bytes);
@@ -69,7 +75,7 @@ static int32_t fill_csnstrings(CSN_STR_WRITER *w, CSN_ARRAY *array, const char *
         }
     }
     for (size_t i = 0; i < array->size; i++) {
-        int32_t res = csn_str_write(w, &array->sdata[i], value);
+        int32_t res = csn_str_write(w, &array->sdata[i], value, GET_STRINGDAT_LEN(value));
         if (res != OK) return res;
     }
     return OK;
@@ -322,7 +328,7 @@ static int32_t csnstrings_set_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *so
     /* The string goes into the slot's buffer: on a real-time path one that
        does not fit is refused, before anything changes. */
     CSN_STR_WRITER w = csn_str_writer(csound, perf_h, source_arr);
-    res = csn_str_write(&w, &source_arr->sdata[offset], value);
+    res = csn_str_write(&w, &source_arr->sdata[offset], value, GET_STRINGDAT_LEN(value));
     if (res != OK) return res;
     update_array_data_version(&source_arr->version);
     return OK;
@@ -527,7 +533,7 @@ int32_t from_array_to_csnstrings_k(CSOUND *csound, CSN_FROM_ARRAY *p) {
     const STRINGDAT *items = (const STRINGDAT *) p->source->data;
     CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
     for (size_t i = 0; i < requested_size && res == OK; i++) {
-        res = csn_str_write(&w, &p->handle->sdata[i], items[i].data);
+        res = csn_str_write(&w, &p->handle->sdata[i], items[i].data, GET_STRINGDAT_LEN(items[i].data));
     }
 
 done:
@@ -770,7 +776,7 @@ int32_t transpose_stringdata_assign(CSN_STR_WRITER *w, CSN_STRDATA *source, CSN_
         if (in_place) {
             destination[linear] = source[src_index];
         } else {
-            int32_t res = csn_str_write(w, &destination[linear], source[src_index].data);
+            int32_t res = csn_str_write(w, &destination[linear], source[src_index].data, GET_STRINGDAT_LEN(source[src_index].data));
             if (res != OK) return res;
         }
     }
@@ -837,7 +843,7 @@ int32_t concat_block_string_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *sou
             }
             from = data_arr->sdata[block_off].data;
         }
-        int32_t res = csn_str_write(w, &destination->sdata[linear], from);
+        int32_t res = csn_str_write(w, &destination->sdata[linear], from, GET_STRINGDAT_LEN(from));
         if (res != OK) return res;
     }
 
@@ -866,7 +872,8 @@ int32_t pad_assign_string_value(CSN_STR_WRITER *w, const CSN_ARRAY *source_arr, 
             }
         }
 
-        int32_t res = csn_str_write(w, &destination->sdata[linear], is_inside ? source_arr->sdata[source_off].data : value->data);
+        const char *s = is_inside ? source_arr->sdata[source_off].data : value->data;
+        int32_t res = csn_str_write(w, &destination->sdata[linear], s, GET_STRINGDAT_LEN(s));
         if (res != OK) return res;
     }
 
@@ -1031,7 +1038,7 @@ static int32_t insertstring_at(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *arr, siz
     CSN_STRDATA spare = arr->sdata[arr->size];
     memmove(arr->sdata + index + 1, arr->sdata + index, sizeof(*arr->sdata) * (arr->size - index));
     arr->sdata[index] = spare;
-    res = csn_str_write(&w, &arr->sdata[index], value);
+    res = csn_str_write(&w, &arr->sdata[index], value, GET_STRINGDAT_LEN(value));
     if (res != OK) return res;
 
     arr->size = new_size;
@@ -1269,7 +1276,7 @@ static int32_t where_body_string(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *
 static int32_t where_string_assign(CSN_STR_WRITER *w, CSN_ARRAY *out_arr, const CSN_ARRAY *mask_arr, const CSN_ARRAY *true_arr, const CSN_ARRAY *false_arr, const STRINGDAT *false_string) {
     for (size_t i = 0; i < out_arr->size; i++) {
         const char *item = mask_arr->data[i] != 0.0 ? true_arr->sdata[i].data : false_arr != NULL ? false_arr->sdata[i].data : false_string->data;
-        int32_t res = csn_str_write(w, &out_arr->sdata[i], item);
+        int32_t res = csn_str_write(w, &out_arr->sdata[i], item, GET_STRINGDAT_LEN(item));
         if (res != OK) return res;
     }
     return OK;
@@ -1459,7 +1466,7 @@ static int32_t putmask_string_locked(CSOUND *csound, OPDS *perf_h, CSN_ARRAY *de
             if (item == NULL) item = "";
             const char *stored = dest->sdata[i].data;
             if (stored != NULL && strcmp(stored, item) == 0) continue;
-            res = pass == 0 ? csn_str_check(&w, &dest->sdata[i], item) : csn_str_write(&w, &dest->sdata[i], item);
+            res = pass == 0 ? csn_str_check(&w, &dest->sdata[i], item) : csn_str_write(&w, &dest->sdata[i], item, GET_STRINGDAT_LEN(item));
             if (res != OK) break;
             written |= pass == 1;
         }
@@ -2149,7 +2156,7 @@ static bool is_same_chars(const K_DATA *k_data, const char *chars) {
 static int32_t string_map_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const CSN_ARRAY *src, CSN_STR_OP op) {
     const char *chars = op_chars(op);
     for (size_t i = 0; i < src->size; i++) {
-        if (csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
+        if (csn_str_write(w, &out->sdata[i], src->sdata[i].data, GET_STRINGDAT_LEN(src->sdata[i].data)) != OK) return w->err;
         op.fn(out->sdata[i].data, op.mode, chars);
     }
 
@@ -2659,7 +2666,7 @@ static int32_t string_just_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const
     for (size_t i = 0; i < src->size; i++) {
         size_t len = strlen(slot_string(&src->sdata[i]));
         if (len >= width) {
-            if (!in_place && csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
+            if (!in_place && csn_str_write(w, &out->sdata[i], src->sdata[i].data, GET_STRINGDAT_LEN(src->sdata[i].data)) != OK) return w->err;
             continue;
         }
 
@@ -3064,6 +3071,22 @@ static void replace_in_buffer(char *s, const char *old, size_t len_old, const ch
     }
 }
 
+
+static int32_t replace_string_mono(CSN_STR_WRITER *w, CSN_STRDATA *out, CSN_STRDATA *src, const char *old, const char *new, size_t len_new, size_t len_old, size_t limit) {
+    bool rewrites = strcmp(old, new) != 0;
+    const char *s = slot_string(src);
+    size_t n = replace_occurrences(s, old, len_old, limit);
+    size_t bytes = strlen(s) - n * len_old + n * len_new + 1;
+    if (csn_str_write(w, out, src->data, GET_STRINGDAT_LEN(src->data)) != OK) return w->err;
+    if (n == 0 || !rewrites) return OK;
+
+    int32_t res = ensure_string_capacity(w->csound, w->perf_h, out, bytes, w->no_growth);
+    if (res != OK) return w->err = res;
+    replace_in_buffer(out->data, old, len_old, new, len_new, n);
+    return OK;
+}
+
+
 /* np.strings.replace on bytes. out may be src: in place the slots are probed
    first, so a real-time pass that stops leaves the array as it was. changed
    says whether a string was rewritten. */
@@ -3071,8 +3094,7 @@ static int32_t string_replace_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, co
     bool in_place = out == src;
     size_t len_old = strlen(old);
     size_t len_new = strlen(new);
-    bool rewrites = strcmp(old, new) != 0;
-    *changed = false;
+    if (changed != NULL) *changed = false;
 
     if (in_place && w->no_growth) {
         for (size_t i = 0; i < src->size; i++) {
@@ -3087,16 +3109,9 @@ static int32_t string_replace_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, co
     }
 
     for (size_t i = 0; i < src->size; i++) {
-        const char *s = slot_string(&src->sdata[i]);
-        size_t n = replace_occurrences(s, old, len_old, limit);
-        size_t bytes = strlen(s) - n * len_old + n * len_new + 1;
-        if (!in_place && csn_str_write(w, &out->sdata[i], src->sdata[i].data) != OK) return w->err;
-        if (n == 0 || !rewrites) continue;
-
-        int32_t res = ensure_string_capacity(w->csound, w->perf_h, &out->sdata[i], bytes, w->no_growth);
-        if (res != OK) return w->err = res;
-        replace_in_buffer(out->sdata[i].data, old, len_old, new, len_new, n);
-        *changed = true;
+        int32_t res = replace_string_mono(w, &out->sdata[i], &src->sdata[i], old, new, len_new, len_old, limit);
+        if (res != OK) return res;
+        if (changed != NULL) *changed = true;
     }
 
     return OK;
@@ -3521,4 +3536,1161 @@ int32_t csnstrings_substring_in_k_init(CSOUND *csound, CSN_SUBSTRING_IN *p) {
 
 int32_t csnstrings_substring_in_k(CSOUND *csound, CSN_SUBSTRING_IN *p) {
     return substr_in_k_helper(csound, substr_in_args(p));
+}
+
+/* Queries: one number per string (len, find, rfind, startswith, endswith, the
+   is* predicates), into a CsnArr shaped as the source. Bytes, ASCII only,
+   whatever the locale, as NumPy on S arrays. A slot never written reads as "".
+   arg is the S parameter, NULL for the queries without one. The searches look
+   at the bytes from start up to end, end excluded, as s[start:end] in Python:
+   end is clamped to each string and -1 stands for its end; begin and end
+   reach a query clamped that way, and a begin past the end matches nothing,
+   not even "". */
+typedef double (*CSN_STR_QUERY)(const char *s, size_t begin, size_t end, const char *arg);
+
+typedef struct {
+    OPDS *h;
+    CSN_ARRAY *out;
+    CSN_ARRAY *src;
+    const STRINGDAT *value; // NULL when the query takes no S
+    cs_float *start;        // NULL when the query takes no range
+    cs_float *end;
+    cs_float *trig;
+    K_DATA *k_data;
+    CSN_SUBSTR_RANGE *prev; // the range a k pass last searched
+} CSN_STR_QUERY_ARGS;
+
+static CSN_STR_QUERY_ARGS query_args(CSN_UNARYOP *p) {
+    return (CSN_STR_QUERY_ARGS) { &p->h, p->handle, p->source_handle, NULL, NULL, NULL, p->trig, &p->k_data, NULL };
+}
+
+static CSN_STR_QUERY_ARGS query_range_args(CSN_STRQUERY_STRUCT *p) {
+    return (CSN_STR_QUERY_ARGS) { &p->h, p->handle, p->source_handle, p->value, p->start, p->end, p->trig, &p->k_data, &p->prev };
+}
+
+static double query_len(const char *s, size_t begin, size_t end, const char *arg) {
+    (void) s;
+    (void) arg;
+    return (double) (end - begin);
+}
+
+static double query_find(const char *s, size_t begin, size_t end, const char *arg) {
+    size_t len_arg = strlen(arg);
+    if (begin > end || end - begin < len_arg) return -1.0;
+    for (size_t i = begin; i + len_arg <= end; i++) {
+        if (memcmp(s + i, arg, len_arg) == 0) return (double) i;
+    }
+    return -1.0;
+}
+
+/* The last match, overlapping ones included; an empty arg matches at the end. */
+static double query_rfind(const char *s, size_t begin, size_t end, const char *arg) {
+    size_t len_arg = strlen(arg);
+    if (begin > end || end - begin < len_arg) return -1.0;
+    for (size_t i = end - len_arg + 1; i-- > begin;) {
+        if (memcmp(s + i, arg, len_arg) == 0) return (double) i;
+    }
+    return -1.0;
+}
+
+static double query_startswith(const char *s, size_t begin, size_t end, const char *arg) {
+    size_t len_arg = strlen(arg);
+    if (begin > end || end - begin < len_arg) return 0.0;
+    return memcmp(s + begin, arg, len_arg) == 0 ? 1.0 : 0.0;
+}
+
+static double query_endswith(const char *s, size_t begin, size_t end, const char *arg) {
+    size_t len_arg = strlen(arg);
+    if (begin > end || end - begin < len_arg) return 0.0;
+    return memcmp(s + end - len_arg, arg, len_arg) == 0 ? 1.0 : 0.0;
+}
+
+static bool ascii_is_digit(unsigned char c) { return c >= '0' && c <= '9'; }
+static bool ascii_is_alnum(unsigned char c) { return ascii_is_letter(c) || ascii_is_digit(c); }
+
+/* Python's bytes predicates: true when every byte passes and there is one. */
+static double all_bytes(const char *s, bool (*pass)(unsigned char)) {
+    if (*s == '\0') return 0.0;
+    for (; *s != '\0'; s++) {
+        if (!pass((unsigned char) *s)) return 0.0;
+    }
+    return 1.0;
+}
+
+static double query_isalpha(const char *s, size_t begin, size_t end, const char *arg) {
+    (void) begin;
+    (void) end;
+    (void) arg;
+    return all_bytes(s, ascii_is_letter);
+}
+
+static double query_isdigit(const char *s, size_t begin, size_t end, const char *arg) {
+    (void) begin;
+    (void) end;
+    (void) arg;
+    return all_bytes(s, ascii_is_digit);
+}
+
+static double query_isalnum(const char *s, size_t begin, size_t end, const char *arg) {
+    (void) begin;
+    (void) end;
+    (void) arg;
+    return all_bytes(s, ascii_is_alnum);
+}
+
+static double query_isspace(const char *s, size_t begin, size_t end, const char *arg) {
+    (void) begin;
+    (void) end;
+    (void) arg;
+    return all_bytes(s, ascii_is_space);
+}
+
+static int32_t check_query_value(CSOUND *csound, OPDS *perf_h, const STRINGDAT *value) {
+    if (value != NULL && !IS_VALID_STRINGDAT(value)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid string");
+    }
+    return OK;
+}
+
+static bool is_query_range(double start, double end) {
+    return IS_VALID_INDEX(start) && (end == -1.0 || (IS_VALID_INDEX(end) && start <= end));
+}
+
+static int32_t check_query_range(CSOUND *csound, OPDS *perf_h, double start, double end) {
+    if (!IS_VALID_INDEX(start) || (end != -1.0 && !IS_VALID_INDEX(end))) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A search start must be a whole number from 0 up, and its end one too or -1 for the end of the string, got %g and %g", start, end);
+    }
+    if (end != -1.0 && start > end) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] A search start (%g) must not be greater than its end (%g)", start, end);
+    }
+    return OK;
+}
+
+/* The whole string for the queries without a range; an end of -1 reads as
+   UINT32_MAX, which every string is shorter than. Only for a checked range. */
+static CSN_SUBSTR_RANGE query_range(const CSN_STR_QUERY_ARGS a) {
+    if (a.start == NULL) return (CSN_SUBSTR_RANGE) { 0U, UINT32_MAX, 0U };
+    double end = (double) *a.end;
+    return (CSN_SUBSTR_RANGE) { (uint32_t) *a.start, end == -1.0 ? UINT32_MAX : (uint32_t) end, 0U };
+}
+
+static const char *query_arg(const CSN_STR_QUERY_ARGS a) {
+    return a.value != NULL ? a.value->data : NULL;
+}
+
+static void string_query_assign_value(CSN_ARRAY *out, const CSN_ARRAY *src, CSN_STR_QUERY fn, const char *arg, CSN_SUBSTR_RANGE range) {
+    for (size_t i = 0; i < src->size; i++) {
+        const char *s = slot_string(&src->sdata[i]);
+        size_t len = strlen(s);
+        size_t end = range.stop < len ? range.stop : len;
+        out->data[i] = fn(s, range.start, end, arg);
+    }
+}
+
+/* An S is always known at init, and a k range is searched with its init
+   values when they make one, as csnstrsubstr cuts; when they do not, the
+   first pass searches, and the perf pass judges the range. A k init also
+   keeps the copy of the S the perf pass compares against, so a pass on a
+   real-time path keeps it without allocating; it releases the old one first,
+   before a reinit takes the struct again. An i form keeps none. */
+static int32_t string_query_helper(CSOUND *csound, CSN_STR_QUERY_ARGS a, CSN_STR_QUERY fn, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    if (is_k_init) csn_kdata_release_strings(csound, a.k_data);
+
+    int32_t res = check_query_value(csound, NULL, a.value);
+    if (res != OK) return res;
+
+    bool has_range = a.start != NULL;
+    double start = has_range ? (double) *a.start : 0.0;
+    double end = has_range ? (double) *a.end : -1.0;
+    bool known = !is_k_init || !has_range || (csn_known_at_init(csound, a.start) && csn_known_at_init(csound, a.end));
+    if (known) {
+        res = check_query_range(csound, NULL, start, end);
+        if (res != OK) return res;
+    }
+
+    stamp_globals(csound, a.h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, NULL, reg, a.out, a.src->ndim, a.src->shape, CSN_REAL, ops, 1, CSN_ALIAS_REFUSE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    a.k_data->registry = reg;
+    if (is_k_init) csn_kdata_keep_strings(csound, a.k_data, query_arg(a), NULL, true);
+    if (!is_query_range(start, end)) goto done;
+
+    CSN_SUBSTR_RANGE range = query_range(a);
+    string_query_assign_value(a.out, a.src, fn, query_arg(a), range);
+    if (is_k_init) {
+        PUBLISH_STRING_ELEMENTWISE(csound, a.k_data, a.src, NULL, a.out, query_arg(a), NULL, true);
+        if (a.prev != NULL) *a.prev = range;
+    }
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_query_k_helper(CSOUND *csound, CSN_STR_QUERY_ARGS a, CSN_STR_QUERY fn) {
+    CSN_REGISTRY *reg = a.k_data->registry;
+    CHECK_REGISTRY(csound, a.h, reg);
+
+    CHECK_KTRIG(a.trig);
+
+    int32_t res = check_query_value(csound, a.h, a.value);
+    if (res != OK) return res;
+    if (a.start != NULL) {
+        res = check_query_range(csound, a.h, (double) *a.start, (double) *a.end);
+        if (res != OK) return res;
+    }
+    const char *arg = query_arg(a);
+    CSN_SUBSTR_RANGE range = query_range(a);
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { a.out, a.src }, 2);
+
+    bool same_range = a.prev == NULL || is_same_substr_range(a.prev, range);
+    if (same_range && CAN_REUSE_STRING_ELEMENTWISE(a.k_data, a.src, NULL, a.out, arg, NULL)) goto done;
+
+    const CSN_ARRAY *ops[1] = { a.src };
+    CSNARR_RES r = prepare_output(csound, a.h, a.h, reg, a.out, a.src->ndim, a.src->shape, CSN_REAL, ops, 1, CSN_ALIAS_REFUSE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    string_query_assign_value(a.out, a.src, fn, arg, range);
+    PUBLISH_STRING_ELEMENTWISE(csound, a.k_data, a.src, NULL, a.out, arg, NULL, !a.out->rt_locked);
+    if (a.prev != NULL) *a.prev = range;
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_query_deinit(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_len(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_len, false);
+}
+
+int32_t csnstrings_len_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_len, true);
+}
+
+int32_t csnstrings_len_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_k_helper(csound, query_args(p), query_len);
+}
+
+int32_t csnstrings_find(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_find, false);
+}
+
+int32_t csnstrings_find_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_find, true);
+}
+
+int32_t csnstrings_find_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_k_helper(csound, query_range_args(p), query_find);
+}
+
+int32_t csnstrings_rfind(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_rfind, false);
+}
+
+int32_t csnstrings_rfind_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_rfind, true);
+}
+
+int32_t csnstrings_rfind_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_k_helper(csound, query_range_args(p), query_rfind);
+}
+
+int32_t csnstrings_startswith(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_startswith, false);
+}
+
+int32_t csnstrings_startswith_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_startswith, true);
+}
+
+int32_t csnstrings_startswith_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_k_helper(csound, query_range_args(p), query_startswith);
+}
+
+int32_t csnstrings_endswith(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_endswith, false);
+}
+
+int32_t csnstrings_endswith_k_init(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_helper(csound, query_range_args(p), query_endswith, true);
+}
+
+int32_t csnstrings_endswith_k(CSOUND *csound, CSN_STRQUERY_STRUCT *p) {
+    return string_query_k_helper(csound, query_range_args(p), query_endswith);
+}
+
+int32_t csnstrings_isalpha(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isalpha, false);
+}
+
+int32_t csnstrings_isalpha_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isalpha, true);
+}
+
+int32_t csnstrings_isalpha_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_k_helper(csound, query_args(p), query_isalpha);
+}
+
+int32_t csnstrings_isdigit(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isdigit, false);
+}
+
+int32_t csnstrings_isdigit_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isdigit, true);
+}
+
+int32_t csnstrings_isdigit_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_k_helper(csound, query_args(p), query_isdigit);
+}
+
+int32_t csnstrings_isalnum(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isalnum, false);
+}
+
+int32_t csnstrings_isalnum_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isalnum, true);
+}
+
+int32_t csnstrings_isalnum_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_k_helper(csound, query_args(p), query_isalnum);
+}
+
+int32_t csnstrings_isspace(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isspace, false);
+}
+
+int32_t csnstrings_isspace_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_helper(csound, query_args(p), query_isspace, true);
+}
+
+int32_t csnstrings_isspace_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_query_k_helper(csound, query_args(p), query_isspace);
+}
+
+
+/* ---------- conversions: strtonum, numtostr ---------- */
+
+/* the longest string a double writes, "-1.2345678901234567e-308", and its NUL */
+#define CSN_NUMBER_STRING_BYTES 25
+
+/* the length of word at the start of s in any case, 0 when it is not there */
+static size_t match_word(const char *s, const char *word) {
+    size_t n = 0;
+    for (; word[n] != '\0'; n++) {
+        if (((unsigned char) s[n] | 0x20) != (unsigned char) word[n]) return 0;
+    }
+    return n;
+}
+
+/* A string reads as Python's float() reads it: blanks around, a sign, then
+   digits with an optional point and exponent, or inf or infinity in any
+   case. Anything else, a hex number, a decimal comma, digit underscores or a
+   number with more text after it, is not a number and gives NaN, as "nan"
+   does. strtod in the C locale makes the value, whatever locale the host
+   set. */
+static double string_to_number(CSOUND *csound, const char *s) {
+    while (ascii_is_space((unsigned char) *s)) s++;
+    const char *p = s;
+    if (*p == '+' || *p == '-') p++;
+    size_t word = match_word(p, "infinity");
+    if (word == 0) word = match_word(p, "inf");
+    if (word > 0) {
+        p += word;
+    } else {
+        size_t digits = 0;
+        for (; ascii_is_digit((unsigned char) *p); p++) digits++;
+        if (*p == '.') {
+            for (p++; ascii_is_digit((unsigned char) *p); p++) digits++;
+        }
+        if (digits == 0) return NAN;
+        if (*p == 'e' || *p == 'E') {
+            p++;
+            if (*p == '+' || *p == '-') p++;
+            if (!ascii_is_digit((unsigned char) *p)) return NAN;
+            while (ascii_is_digit((unsigned char) *p)) p++;
+        }
+    }
+    const char *end = p;
+    while (ascii_is_space((unsigned char) *p)) p++;
+    if (*p != '\0') return NAN;
+    char *parsed = NULL;
+    double value = csound->Strtod((char *) s, &parsed);
+    return parsed == end ? value : NAN;
+}
+
+/* the double that digits d1d2...dn times 10^exponent reads back to, with
+   d1 the units digit */
+static double read_digits(CSOUND *csound, bool negative, const char *digits, size_t n, int32_t exponent) {
+    char str[48];
+    csound->Sprintf(str, "%s0.%.*se%d", negative ? "-" : "", (int) n, digits, exponent + 1);
+    return csound->Strtod(str, NULL);
+}
+
+/* the next n-digit decimal up from digits: 999 + 1 is 100 one place up */
+static void increment_digits(char *digits, size_t n, int32_t *exponent) {
+    size_t i = n;
+    while (i > 0 && digits[i - 1] == '9') digits[--i] = '0';
+    if (i == 0) {
+        digits[0] = '1';
+        (*exponent)++;
+        return;
+    }
+    digits[i - 1]++;
+}
+
+/* A number writes as NumPy's astype(str), Python's repr: the fewest digits
+   that read back to the same double, the closest to it when several do,
+   positional from 1e-4 up to below 1e16 with at least one decimal ("1.0"),
+   with an exponent of two digits or more outside it ("1e+16", "1e-05"). out
+   holds CSN_NUMBER_STRING_BYTES. */
+static void number_to_string(CSOUND *csound, double x, char *out) {
+    if (isnan(x)) {
+        strcpy(out, "nan");
+        return;
+    }
+    if (isinf(x)) {
+        strcpy(out, x < 0.0 ? "-inf" : "inf");
+        return;
+    }
+    bool negative = signbit(x) != 0;
+    char digits[17];
+    size_t n = 0;
+    int32_t exponent = 0;
+    for (size_t want = 1; want <= 17; want++) {
+        /* the n-digit decimal nearest x, as [-]d[.ddd]e(+|-)xx */
+        char sci[32];
+        csound->Sprintf(sci, "%.*e", (int) want - 1, x);
+        const char *p = sci + (negative ? 1 : 0);
+        for (n = 0; *p != 'e'; p++) {
+            if (*p != '.') digits[n++] = *p;
+        }
+        exponent = atoi(p + 1);
+        double back = read_digits(csound, negative, digits, n, exponent);
+        if (back == x) break;
+        /* the nearest misses only at a power of two, where the doubles below
+           sit twice as close as those above: it fell below, and the decimal
+           one step up may still read back */
+        increment_digits(digits, n, &exponent);
+        if (read_digits(csound, negative, digits, n, exponent) == x) break;
+    }
+    while (n > 1 && digits[n - 1] == '0') n--;
+
+    char *o = out;
+    if (negative) *o++ = '-';
+    if (exponent < -4 || exponent >= 16) {
+        *o++ = digits[0];
+        if (n > 1) {
+            *o++ = '.';
+            memcpy(o, digits + 1, n - 1);
+            o += n - 1;
+        }
+        csound->Sprintf(o, "e%c%02d", exponent < 0 ? '-' : '+', abs(exponent));
+    } else if (exponent < 0) {
+        *o++ = '0';
+        *o++ = '.';
+        for (int32_t i = -1; i > exponent; i--) *o++ = '0';
+        memcpy(o, digits, n);
+        o[n] = '\0';
+    } else {
+        size_t whole = (size_t) exponent + 1;
+        for (size_t i = 0; i < whole; i++) *o++ = i < n ? digits[i] : '0';
+        *o++ = '.';
+        if (n > whole) {
+            memcpy(o, digits + whole, n - whole);
+            o += n - whole;
+        } else {
+            *o++ = '0';
+        }
+        *o = '\0';
+    }
+}
+
+static int32_t check_conversion_source(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *src, bool is_to_str) {
+    if (!is_to_str || src->itype == CSN_REAL) return OK;
+    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnnumtostr takes a real array: write a complex one as two, through csnreal and csnimag");
+}
+
+static int32_t string_conversion_assign_value(CSOUND *csound, CSN_STR_WRITER *w, CSN_ARRAY *out_arr, const CSN_ARRAY *source_arr, bool is_to_str) {
+    char str[CSN_NUMBER_STRING_BYTES];
+    for (size_t i = 0; i < source_arr->size; i++) {
+        if (!is_to_str) {
+            out_arr->data[i] = string_to_number(csound, slot_string(&source_arr->sdata[i]));
+            continue;
+        }
+        number_to_string(csound, source_arr->data[i], str);
+        int32_t res = csn_str_write(w, &out_arr->sdata[i], str, GET_STRINGDAT_LEN(str));
+        if (res != OK) return res;
+    }
+
+    return OK;
+}
+
+static int32_t string_conversion_helper(CSOUND *csound, CSN_UNARYOP *p, bool is_to_str, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+
+    int32_t res = check_conversion_source(csound, NULL, p->source_handle, is_to_str);
+    if (res != OK) return res;
+
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    ITEM_TYPE itype = is_to_str ? CSN_STRING : CSN_REAL;
+    CSNARR_RES r = prepare_output(csound, &p->h, NULL, reg, p->handle, p->source_handle->ndim, p->source_handle->shape, itype, ops, 1, CSN_ALIAS_REFUSE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+    p->k_data.registry = reg;
+
+    /* prepare_output sizes string slots from string operands only: a k pass
+       on a real-time path writes numbers into them, so they take room for
+       the longest one */
+    if (is_to_str && is_k_init && p->handle->rt_locked && csn_str_reserve_slots(csound, p->handle, CSN_NUMBER_STRING_BYTES) != OK) {
+        res = csn_init_error(csound, "[csnarray] Out of memory: reserving the string slots of '%s' failed", get_out_name(&p->h));
+        goto done;
+    }
+
+    /* every argument is known at init, so the k init computes too: a result
+       published empty would be reused, never recomputed, while the source
+       stays */
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = string_conversion_assign_value(csound, &w, p->handle, p->source_handle, is_to_str);
+    if (res != OK) goto done;
+    if (is_k_init) PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_conversion_k_helper(CSOUND *csound, CSN_UNARYOP *p, bool is_to_str) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    CHECK_KTRIG(p->trig);
+
+    int32_t res = check_conversion_source(csound, &p->h, p->source_handle, is_to_str);
+    if (res != OK) return res;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle, p->source_handle }, 2);
+
+    if (CAN_REUSE_LAST_RESULT(&p->k_data, p->source_handle, p->handle)) goto done;
+
+    ITEM_TYPE itype = is_to_str ? CSN_STRING : CSN_REAL;
+    const CSN_ARRAY *ops[1] = { p->source_handle };
+    CSNARR_RES r = prepare_output(csound, &p->h, &p->h, reg, p->handle, p->source_handle->ndim, p->source_handle->shape, itype, ops, 1, CSN_ALIAS_REFUSE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = string_conversion_assign_value(csound, &w, p->handle, p->source_handle, is_to_str);
+    if (res != OK) goto done;
+    PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, p->handle);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+
+int32_t csnstrings_strtonum(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_conversion_helper(csound, p, false, false);
+}
+
+int32_t csnstrings_strtonum_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_conversion_helper(csound, p, false, true);
+}
+
+int32_t csnstrings_strtonum_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_conversion_k_helper(csound, p, false);
+}
+
+int32_t csnstrings_numtostr(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_conversion_helper(csound, p, true, false);
+}
+
+int32_t csnstrings_numtostr_k_init(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_conversion_helper(csound, p, true, true);
+}
+
+int32_t csnstrings_numtostr_k(CSOUND *csound, CSN_UNARYOP *p) {
+    return string_conversion_k_helper(csound, p, true);
+}
+
+
+/* ---------- join ---------- */
+
+static int32_t check_join_value(CSOUND *csound, OPDS *perf_h, const STRINGDAT *sep) {
+    if (IS_VALID_STRINGDAT(sep)) return OK;
+    return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL separator");
+}
+
+/* Joins every string of the array, in row-major order whatever its rank, with
+   sep between two of them, into buffer, as Python's sep.join: no string
+   gives "", one gives itself. The buffer grows at init and on a pass off a
+   real-time path; on one, a joined string longer than the buffer the init
+   pass sized is refused. The S output took its size from the same string at
+   init and never shrinks, so a string that fits the buffer fits it too, and
+   the S type's copy allocates nothing. */
+static int32_t join_strings(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *source_arr, CSN_STRDATA *buffer, const char *sep, bool rt_locked) {
+    size_t sep_len = strlen(sep);
+    size_t total = 0;
+    for (size_t i = 0; i < source_arr->size; i++) {
+        total += strlen(slot_string(&source_arr->sdata[i]));
+        if (i > 0) total += sep_len;
+    }
+    int32_t res = ensure_string_capacity(csound, perf_h, buffer, total + 1, rt_locked);
+    if (res != OK) return res;
+
+    char *o = buffer->data;
+    for (size_t i = 0; i < source_arr->size; i++) {
+        if (i > 0) {
+            memcpy(o, sep, sep_len);
+            o += sep_len;
+        }
+        const char *item = slot_string(&source_arr->sdata[i]);
+        size_t item_len = strlen(item);
+        memcpy(o, item, item_len);
+        o += item_len;
+    }
+    *o = '\0';
+    return OK;
+}
+
+static int32_t string_join_helper(CSOUND *csound, CSN_REDUCTION_STRING_S *p, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    if (is_k_init) {
+        csn_kdata_release_strings(csound, &p->k_data);
+        csn_str_release(csound, &p->buffer);
+    }
+
+    int32_t res = check_join_value(csound, NULL, p->value);
+    if (res != OK) return res;
+
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    p->k_data.registry = reg;
+
+    /* the i form joins through a buffer of its own; the k form keeps its
+       buffer, sized here, for the passes that follow */
+    CSN_STRDATA local = {0};
+    CSN_STRDATA *buffer = is_k_init ? &p->buffer : &local;
+    res = join_strings(csound, NULL, p->source_handle, buffer, p->value->data, false);
+    if (res == OK) COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, buffer->data);
+    if (res == OK && is_k_init) {
+        csn_kdata_keep_strings(csound, &p->k_data, p->value->data, NULL, true);
+        PUBLISH_STRING_ELEMENTWISE(csound, &p->k_data, p->source_handle, NULL, NULL, p->value->data, NULL, true);
+    }
+    csn_str_release(csound, &local);
+
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_join_k_helper(CSOUND *csound, CSN_REDUCTION_STRING_S *p) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+
+    CHECK_KTRIG(p->trig);
+
+    int32_t res = check_join_value(csound, &p->h, p->value);
+    if (res != OK) return res;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    if (CAN_REUSE_STRING_ELEMENTWISE(&p->k_data, p->source_handle, NULL, NULL, p->value->data, NULL)) goto done;
+
+    bool rt_locked = p->source_handle->rt_locked;
+    res = join_strings(csound, &p->h, p->source_handle, &p->buffer, p->value->data, rt_locked);
+    if (res != OK) goto done;
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
+    PUBLISH_STRING_ELEMENTWISE(csound, &p->k_data, p->source_handle, NULL, NULL, p->value->data, NULL, !rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_reduction_s_deinit(CSOUND *csound, CSN_REDUCTION_STRING_S *p) {
+    csn_str_release(csound, &p->buffer);
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_strjoin(CSOUND *csound, CSN_REDUCTION_STRING_S *p) {
+    return string_join_helper(csound, p, false);
+}
+
+int32_t csnstrings_strjoin_k_init(CSOUND *csound, CSN_REDUCTION_STRING_S *p) {
+    return string_join_helper(csound, p, true);
+}
+
+int32_t csnstrings_strjoin_k(CSOUND *csound, CSN_REDUCTION_STRING_S *p) {
+    return string_join_k_helper(csound, p);
+}
+
+/* ---------- split, rsplit, partition, rpartition ---------- */
+
+/* Python's str.split, str.rsplit, str.partition and str.rpartition on one S
+   string. A cut is a non-overlapping occurrence of the separator, found from
+   the left (split, partition) or from the right (rsplit, rpartition), so
+   "aaa" splits on "aa" into ["", "a"] and rsplits into ["a", ""]. An empty
+   separator is an error, as in Python. */
+typedef enum { CSN_STRSPLIT, CSN_STRRSPLIT, CSN_STRPARTITION, CSN_STRRPARTITION } CSN_REDUCTION_H_MODE;
+
+static bool is_partition_mode(CSN_REDUCTION_H_MODE mode) {
+    return mode == CSN_STRPARTITION || mode == CSN_STRRPARTITION;
+}
+
+static bool is_right_mode(CSN_REDUCTION_H_MODE mode) {
+    return mode == CSN_STRRSPLIT || mode == CSN_STRRPARTITION;
+}
+
+/* The last occurrence of sep that ends at or before s + end. */
+static const char *find_last_occurrence(const char *s, size_t end, const char *sep, size_t sep_len) {
+    if (end < sep_len) return NULL;
+    for (size_t pos = end - sep_len + 1; pos-- > 0;) {
+        if (memcmp(s + pos, sep, sep_len) == 0) return s + pos;
+    }
+    return NULL;
+}
+
+/* The cuts a split makes: every occurrence, or maxsplit at most when it is
+   not negative. */
+static size_t count_cuts(const char *s, const char *sep, int32_t maxsplit, bool from_right) {
+    size_t sep_len = strlen(sep);
+    size_t limit = maxsplit < 0 ? SIZE_MAX : (size_t) maxsplit;
+    size_t cuts = 0;
+    if (from_right) {
+        size_t end = strlen(s);
+        const char *hit;
+        while (cuts < limit && (hit = find_last_occurrence(s, end, sep, sep_len)) != NULL) {
+            end = (size_t) (hit - s);
+            cuts++;
+        }
+    } else {
+        const char *from = s;
+        const char *hit;
+        while (cuts < limit && (hit = strstr(from, sep)) != NULL) {
+            from = hit + sep_len;
+            cuts++;
+        }
+    }
+    return cuts;
+}
+
+/* Writes the len bytes at value into the slot as a string of their own:
+   csn_str_write takes a whole string, a piece ends inside its source. */
+static int32_t write_piece(CSN_STR_WRITER *w, CSN_STRDATA *slot, const char *value, size_t len) {
+    int32_t res = ensure_string_capacity(w->csound, w->perf_h, slot, len + 1, w->no_growth);
+    if (res != OK) return w->err = res;
+    memmove(slot->data, value, len);
+    slot->data[len] = '\0';
+    return OK;
+}
+
+/* The pieces a mode gives: one more than the cuts for a split, three for a
+   partition. */
+static size_t count_pieces(const char *s, const char *sep, int32_t maxsplit, CSN_REDUCTION_H_MODE mode) {
+    if (is_partition_mode(mode)) return 3;
+    return count_cuts(s, sep, maxsplit, is_right_mode(mode)) + 1;
+}
+
+/* Fills out_arr, already shaped by count_pieces with the same arguments. */
+static int32_t split_string(CSN_STR_WRITER *w, CSN_ARRAY *out_arr, const char *s, const char *sep, CSN_REDUCTION_H_MODE mode) {
+    CSN_STRDATA *out = out_arr->sdata;
+    size_t sep_len = strlen(sep);
+    size_t len = strlen(s);
+    int32_t res = OK;
+    if (is_partition_mode(mode)) {
+        const char *hit = mode == CSN_STRPARTITION ? strstr(s, sep) : find_last_occurrence(s, len, sep, sep_len);
+        if (hit == NULL) {
+            size_t whole = mode == CSN_STRPARTITION ? 0 : 2;
+            for (size_t i = 0; i < 3 && res == OK; i++) {
+                res = write_piece(w, &out[i], s, i == whole ? len : 0);
+            }
+            return res;
+        }
+        size_t head = (size_t) (hit - s);
+        res = write_piece(w, &out[0], s, head);
+        if (res == OK) res = write_piece(w, &out[1], sep, sep_len);
+        if (res == OK) res = write_piece(w, &out[2], hit + sep_len, len - head - sep_len);
+        return res;
+    }
+
+    size_t cuts = out_arr->size - 1;
+    if (mode == CSN_STRSPLIT) {
+        const char *from = s;
+        for (size_t i = 0; i < cuts; i++) {
+            const char *hit = strstr(from, sep);
+            res = write_piece(w, &out[i], from, (size_t) (hit - from));
+            if (res != OK) return res;
+            from = hit + sep_len;
+        }
+        return write_piece(w, &out[cuts], from, len - (size_t) (from - s));
+    }
+
+    size_t end = len;
+    for (size_t i = cuts; i > 0; i--) {
+        const char *hit = find_last_occurrence(s, end, sep, sep_len);
+        size_t start = (size_t) (hit - s) + sep_len;
+        res = write_piece(w, &out[i], s + start, end - start);
+        if (res != OK) return res;
+        end = (size_t) (hit - s);
+    }
+    return write_piece(w, &out[0], s, end);
+}
+
+static int32_t check_split_strings(CSOUND *csound, OPDS *perf_h, const STRINGDAT *string_in, const STRINGDAT *sep) {
+    if (!IS_VALID_STRINGDAT(string_in) || !IS_VALID_STRINGDAT(sep)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    if (sep->data[0] == '\0') {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Empty separator");
+    }
+    return OK;
+}
+
+/* A split derives from its two strings alone: a pass reuses the result while
+   both match the copies k_data kept and nothing rewrote the output. */
+static bool can_reuse_split(const K_DATA *k_data, const CSN_ARRAY *out_arr, const char *s, const char *sep) {
+    if (k_data->prev_strings_stale || out_arr->sdata == NULL) return false;
+    if (k_data->prev_string.data == NULL || strcmp(k_data->prev_string.data, s) != 0) return false;
+    if (k_data->prev_string_b.data == NULL || strcmp(k_data->prev_string_b.data, sep) != 0) return false;
+    return is_same_array_version(&out_arr->version, &k_data->prev_output_version);
+}
+
+static void publish_split(CSOUND *csound, K_DATA *k_data, const CSN_ARRAY *out_arr, const char *s, const char *sep, bool may_grow) {
+    csn_kdata_keep_strings(csound, k_data, s, sep, may_grow);
+    set_array_version(&k_data->prev_output_version, &out_arr->version);
+}
+
+static int32_t string_reduction_h_helper(CSOUND *csound, CSN_REDUCTION_STRING_H *p, CSN_REDUCTION_H_MODE mode, bool is_k_init) {
+    CSN_REGISTRY *reg = get_registry(csound);
+    CHECK_REGISTRY(csound, NULL, reg);
+    if (is_k_init) csn_kdata_release_strings(csound, &p->k_data);
+
+    int32_t res = check_split_strings(csound, NULL, p->string_in, p->value);
+    if (res != OK) return res;
+
+    int32_t maxsplit = 0;
+    if (!is_partition_mode(mode)) {
+        if (!IS_VALID_VALUE_INT32((double) *p->arg_a)) {
+            return csn_init_error(csound, "[csnarray] maxsplit must be a whole number (negative for no limit)");
+        }
+        maxsplit = (int32_t) *p->arg_a;
+    }
+
+    stamp_globals(csound, &p->h);
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
+    p->k_data.registry = reg;
+
+    const char *s = p->string_in->data;
+    const char *sep = p->value->data;
+    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) count_pieces(s, sep, maxsplit, mode) };
+    CSNARR_RES r = prepare_output(csound, &p->h, NULL, reg, p->handle, 1U, shape, CSN_STRING, NULL, 0, CSN_ALIAS_REFUSE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, NULL, p->handle);
+    res = split_string(&w, p->handle, s, sep, mode);
+    if (res == OK && is_k_init) publish_split(csound, &p->k_data, p->handle, s, sep, true);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+static int32_t string_reduction_h_k_helper(CSOUND *csound, CSN_REDUCTION_STRING_H *p, CSN_REDUCTION_H_MODE mode) {
+    CSN_REGISTRY *reg = p->k_data.registry;
+    CHECK_REGISTRY(csound, &p->h, reg);
+    CHECK_KTRIG(is_partition_mode(mode) ? p->arg_a : p->arg_b);
+
+    int32_t res = check_split_strings(csound, &p->h, p->string_in, p->value);
+    if (res != OK) return res;
+
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
+
+    const char *s = p->string_in->data;
+    const char *sep = p->value->data;
+    if (can_reuse_split(&p->k_data, p->handle, s, sep)) goto done;
+
+    int32_t maxsplit = is_partition_mode(mode) ? 0 : (int32_t) *p->arg_a;
+    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) count_pieces(s, sep, maxsplit, mode) };
+    CSNARR_RES r = prepare_output(csound, &p->h, &p->h, reg, p->handle, 1U, shape, CSN_STRING, NULL, 0, CSN_ALIAS_REFUSE);
+    res = r.err;
+    if (res != OK) goto done;
+    pres.locked |= r.locked;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, &p->h, p->handle);
+    res = split_string(&w, p->handle, s, sep, mode);
+    if (res == OK) publish_split(csound, &p->k_data, p->handle, s, sep, !p->handle->rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_reduction_h_deinit(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_strsplit(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRSPLIT, false);
+}
+
+int32_t csnstrings_strsplit_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRSPLIT, true);
+}
+
+int32_t csnstrings_strsplit_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_k_helper(csound, p, CSN_STRSPLIT);
+}
+
+int32_t csnstrings_strrsplit(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRRSPLIT, false);
+}
+
+int32_t csnstrings_strrsplit_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRRSPLIT, true);
+}
+
+int32_t csnstrings_strrsplit_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_k_helper(csound, p, CSN_STRRSPLIT);
+}
+
+int32_t csnstrings_strpartition(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRPARTITION, false);
+}
+
+int32_t csnstrings_strpartition_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRPARTITION, true);
+}
+
+int32_t csnstrings_strpartition_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_k_helper(csound, p, CSN_STRPARTITION);
+}
+
+int32_t csnstrings_strrpartition(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRRPARTITION, false);
+}
+
+int32_t csnstrings_strrpartition_k_init(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_helper(csound, p, CSN_STRRPARTITION, true);
+}
+
+int32_t csnstrings_strrpartition_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
+    return string_reduction_h_k_helper(csound, p, CSN_STRRPARTITION);
+}
+
+// STRING - STRING
+
+/* One S through the per-string kernel of the array form. The source is
+   copied into the buffer the opcode keeps, the kernel works there, and the
+   result goes to the S output through its copyValue, so the output may be
+   the source (Sx = csnstrreplace(Sx, ...)). There is no in-place form: an S
+   argument is an input, a literal among them, and writing it would change
+   every use of that literal. Like strcpyk, an S output grows at perf as it
+   needs: there is no slot to reserve. room is the most the kernel holds at
+   once, terminator included. */
+static int32_t load_s_buffer(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *buffer, const char *s, size_t room) {
+    int32_t res = ensure_string_capacity(csound, perf_h, buffer, room, false);
+    if (res != OK) return res;
+    memcpy(buffer->data, s, strlen(s) + 1);
+    return OK;
+}
+
+/* Python's str.replace: the buffer holds the longer of the source and the
+   result, the room replace_in_buffer works in. */
+static int32_t replace_ss_helper(CSOUND *csound, CSN_REPLACE_S *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    if (!IS_VALID_STRINGDAT(p->string_in) || !IS_VALID_STRINGDAT(p->old) || !IS_VALID_STRINGDAT(p->new)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    /* the count is i-rate: the init pass judges it once */
+    if (!is_perf && check_replace_count(csound, (double) *p->limit) != OK) return NOTOK;
+
+    const char *s = p->string_in->data;
+    const char *old = p->old->data;
+    const char *new = p->new->data;
+    size_t len_source = strlen(s);
+    size_t len_old = strlen(old);
+    size_t len_new = strlen(new);
+    size_t n = replace_occurrences(s, old, len_old, replace_limit((double) *p->limit));
+    size_t len_out = len_source - n * len_old + n * len_new;
+
+    int32_t res = load_s_buffer(csound, perf_h, &p->buffer, s, (len_out > len_source ? len_out : len_source) + 1);
+    if (res != OK) return res;
+    replace_in_buffer(p->buffer.data, old, len_old, new, len_new, n);
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
+    return OK;
+}
+
+/* Python's str.strip, lstrip and rstrip: chars is a set of bytes, NULL for
+   ASCII whitespace, as in the array forms. A strip never grows the string. */
+static int32_t strip_ss_helper(CSOUND *csound, OPDS *h, CSN_STRDATA *buffer, STRINGDAT *out, const STRINGDAT *in, const STRINGDAT *chars, CSN_STRIP_MODE mode, bool is_perf) {
+    OPDS *perf_h = is_perf ? h : NULL;
+    if (!IS_VALID_STRINGDAT(in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    if (chars != NULL && !IS_VALID_STRINGDAT(chars)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL strip chars");
+    }
+    int32_t res = load_s_buffer(csound, perf_h, buffer, in->data, strlen(in->data) + 1);
+    if (res != OK) return res;
+    strip_mode(buffer->data, (int32_t) mode, chars != NULL ? chars->data : NULL);
+    COPY_STRING_TO_STRINGDAT(csound, h, out, buffer->data);
+    return OK;
+}
+
+int32_t csnstrings_replace_ss_deinit(CSOUND *csound, CSN_REPLACE_S *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnstrings_replace_ss(CSOUND *csound, CSN_REPLACE_S *p) {
+    return replace_ss_helper(csound, p, false);
+}
+
+int32_t csnstrings_replace_ss_k(CSOUND *csound, CSN_REPLACE_S *p) {
+    CHECK_KTRIG(p->trig);
+    return replace_ss_helper(csound, p, true);
+}
+
+int32_t csnstrings_strip_ss_deinit(CSOUND *csound, CSN_STRIP_S *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnstrings_strip_ss_ws_deinit(CSOUND *csound, CSN_STRIP_WS_S *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+#define STRIP_SS_WRAPPERS(name, mode)                                                                          \
+    int32_t csnstrings_##name##_ss(CSOUND *csound, CSN_STRIP_S *p) {                                           \
+        return strip_ss_helper(csound, &p->h, &p->buffer, p->string_out, p->string_in, p->value, mode, false); \
+    }                                                                                                          \
+    int32_t csnstrings_##name##_ss_k(CSOUND *csound, CSN_STRIP_S *p) {                                         \
+        CHECK_KTRIG(p->trig);                                                                                  \
+        return strip_ss_helper(csound, &p->h, &p->buffer, p->string_out, p->string_in, p->value, mode, true);  \
+    }                                                                                                          \
+    int32_t csnstrings_##name##_ss_ws(CSOUND *csound, CSN_STRIP_WS_S *p) {                                     \
+        return strip_ss_helper(csound, &p->h, &p->buffer, p->string_out, p->string_in, NULL, mode, false);     \
+    }                                                                                                          \
+    int32_t csnstrings_##name##_ss_ws_k(CSOUND *csound, CSN_STRIP_WS_S *p) {                                   \
+        CHECK_KTRIG(p->trig);                                                                                  \
+        return strip_ss_helper(csound, &p->h, &p->buffer, p->string_out, p->string_in, NULL, mode, true);      \
+    }
+
+STRIP_SS_WRAPPERS(strip, CSN_STRIP)
+STRIP_SS_WRAPPERS(lstrip, CSN_LSTRIP)
+STRIP_SS_WRAPPERS(rstrip, CSN_RSTRIP)
+
+/* a + b, or a repeated count times, on one S: csnstradd and csnstrmul, and
+   the operators S + S, S += S, S * n and S *= n. The result is built in the
+   buffer the opcode keeps and goes to out through its copyValue, so out may be
+   a or b (Sx += Sx). A count is a whole number, and one of 0 or less gives "",
+   as in Python. */
+int32_t string_addmul_ss_helper(CSOUND *csound, OPDS *h, bool is_perf, CSN_STRDATA *buffer, STRINGDAT *out, const STRINGDAT *a, const STRINGDAT *b, const cs_float *count, bool is_add) {
+    OPDS *perf_h = is_perf ? h : NULL;
+    if (!IS_VALID_STRINGDAT(a) || (is_add && !IS_VALID_STRINGDAT(b))) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+
+    size_t len_a = strlen(a->data);
+    size_t len_b = 0;
+    size_t reps = 0;
+    size_t len = 0;
+    if (is_add) {
+        len_b = strlen(b->data);
+        len = len_a + len_b;
+    } else {
+        double n = (double) *count;
+        int32_t res = check_repeat_count(csound, perf_h, n);
+        if (res != OK) return res;
+        /* past 2^63 any non-empty string overflows below; the cap keeps the
+           conversion defined */
+        reps = n > 0.0 && len_a > 0 ? (size_t) fmin(n, 0x1p63) : 0;
+        if (reps > 0 && len_a > (SIZE_MAX - 1) / reps) {
+            return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Repeating a %zu-byte string %g times overflows the string size", len_a, n);
+        }
+        len = len_a * reps;
+    }
+
+    int32_t res = ensure_string_capacity(csound, perf_h, buffer, len + 1, false);
+    if (res != OK) return res;
+    if (is_add) {
+        memcpy(buffer->data, a->data, len_a);
+        memcpy(buffer->data + len_a, b->data, len_b);
+    } else {
+        /* the first copy goes in, then each step doubles what is there */
+        if (len > 0) memcpy(buffer->data, a->data, len_a);
+        for (size_t done = len_a; done < len;) {
+            size_t chunk = done < len - done ? done : len - done;
+            memcpy(buffer->data + done, buffer->data, chunk);
+            done += chunk;
+        }
+    }
+    buffer->data[len] = '\0';
+
+    COPY_STRING_TO_STRINGDAT(csound, h, out, buffer->data);
+    return OK;
+}
+
+int32_t csnstrings_mul_ss_deinit(CSOUND *csound, CSN_STRMUL_S *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnstrings_mul_ss(CSOUND *csound, CSN_STRMUL_S *p) {
+    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->string_out, p->string_in, NULL, p->count, false);
+}
+
+int32_t csnstrings_mul_ss_k(CSOUND *csound, CSN_STRMUL_S *p) {
+    CHECK_KTRIG(p->trig);
+    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->string_out, p->string_in, NULL, p->count, false);
+}
+
+int32_t csnstrings_add_ss_deinit(CSOUND *csound, CSN_STRADD_S *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnstrings_add_ss(CSOUND *csound, CSN_STRADD_S *p) {
+    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->string_out, p->a, p->b, NULL, true);
+}
+
+int32_t csnstrings_add_ss_k(CSOUND *csound, CSN_STRADD_S *p) {
+    CHECK_KTRIG(p->trig);
+    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->string_out, p->a, p->b, NULL, true);
 }

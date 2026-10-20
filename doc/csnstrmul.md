@@ -2,7 +2,8 @@
 
 ## Abstract
 
-Elementwise repetition of strings, as `np.strings.multiply`.
+Elementwise repetition of strings, as `np.strings.multiply`, or of one string
+as Python's `s * n`.
 
 ## Description
 
@@ -28,6 +29,21 @@ larger than the one at init, on strings no longer. It checks every element
 first and stops with a performance error, before anything is written, when one
 does not fit. See [string arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`: `csnstrmul("ab", 3)` gives `"ababab"`, with the
+same rules for the count, 0 or below giving `""`. A count whose result would
+not fit a string size is refused before anything is allocated; one that fits
+but is larger than the memory available stops Csound, as for the array form.
+With a k count it runs on every pass, its trigger optional (default `1`), and
+computes at init with the count's init value; like `strcpyk`, its output
+takes the room it needs at perf, also on a real-time path.
+
+The operators `+`, `+=`, `*` and `*=` also work on `S`: `S1 + S2`, `Sx +=
+Sy`, `S * n` and `Sx *= n` compute what the named forms compute. Csound has
+no arithmetic on strings, so these operators exist only while csnum is
+loaded; they add to the language rather than change it, and an orchestra
+that uses them needs csnum. Like the other operators they take no trigger and
+run on every pass, as `strcatk` does; `Sx += Sx` doubles `Sx`.
+
 ## Syntax
 
 ```csound
@@ -36,11 +52,15 @@ out:CsnStr = csnstrmul(a:CsnStr, counts:CsnArr, trig:k)
 out:CsnStr = csnstrmul(a:CsnStr, count:i)
 out:CsnStr = csnstrmul(a:CsnStr, count:k)
 out:CsnStr = csnstrmul(a:CsnStr, count:k, trig:k)
+out:S = csnstrmul(a:S, count:i)
+out:S = csnstrmul(a:S, count:k [, trig:k])
+out:S = a:S * count
+a:S *= count
 ```
 
 ## Arguments
 
-* `a:CsnStr`: the strings repeated.
+* `a:CsnStr`: the strings repeated; or `a:S`, one string.
 * `counts:CsnArr`: real whole numbers, one per element after broadcasting against `a`.
 * `count:i / count:k`: one whole number for every element.
 * `trig:k`: k-rate trigger; required in the array form, where it selects the k form, and optional (default `1`) with a k count. A zero trigger republishes the previous result.
@@ -48,6 +68,7 @@ out:CsnStr = csnstrmul(a:CsnStr, count:k, trig:k)
 ## Output
 
 * `out:CsnStr`: the repeated strings, in the broadcast shape.
+* `out:S`: the repeated string, for an `S` source.
 
 ## Execution Time
 
@@ -83,6 +104,9 @@ instr 1
 
     twice:CsnStr   = csnstrmul(steps, 2)
     csnprint(twice)
+
+    bar:S          = "x-" * 4
+    prints("%s\n", bar)
     turnoff
 endin
 
@@ -98,6 +122,7 @@ CsnStr(shape=(4,), dtype=str)
 ['xxx' '-' '' 'oo']
 CsnStr(shape=(4,), dtype=str)
 ['xx' '--' 'xx' 'oo']
+x-x-x-x-
 ```
 
 ## See also

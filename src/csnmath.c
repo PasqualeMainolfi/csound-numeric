@@ -2251,7 +2251,7 @@ static int32_t copy_assign_value(CSN_STR_WRITER *w, const CSN_ARRAY *source_arr,
                 break;
             }
             case CSN_STRING:
-                if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[mirror].data) != OK) return w->err;
+                if (csn_str_write(w, &arr->sdata[i], source_arr->sdata[mirror].data, GET_STRINGDAT_LEN(source_arr->sdata[mirror].data)) != OK) return w->err;
                 break;
         }
     }
