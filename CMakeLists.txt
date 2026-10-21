@@ -585,6 +585,26 @@ if(BUILD_TESTING)
             PASS_REGULAR_EXPRESSION "INIT ERROR in instr 1 .*must be a whole number, got 2.5.*INIT ERROR in instr 2 .*must be a whole number, got 2.5.*INIT ERROR in instr 3 .*overflows the string size.*csnum add and mul on S alive after every refusal"
             TIMEOUT 60)
         add_test(
+            NAME csnum_strings_s_operator_rate
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_s_operator_rate.csd")
+        set_tests_properties(csnum_strings_s_operator_rate PROPERTIES
+            PASS_REGULAR_EXPRESSION "csnum S operators follow their operands"
+            TIMEOUT 60)
+        add_test(
+            NAME csnum_strings_s_query_error
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_s_query_error.csd")
+        set_tests_properties(csnum_strings_s_query_error PROPERTIES
+            PASS_REGULAR_EXPRESSION "instr 1 .*from 1 to 127, got 0.*instr 2 .*from 1 to 127, got 65.5.*instr 3 .*one byte, got 2 bytes.*instr 4 .*got 200 at index 1.*instr 5 .*takes a real array.*instr 6 .*must not be greater than its end.*csnum S queries alive after every refusal"
+            TIMEOUT 60)
+        add_test(
             NAME csnum_krate_file_reload_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

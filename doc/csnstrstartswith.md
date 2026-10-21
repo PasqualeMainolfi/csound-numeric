@@ -30,16 +30,25 @@ its numbers into the elements the init pass laid out and allocates nothing
 while the source keeps its shape: it may run on a [real-time
 path](csnrtlock.md).
 
+On one `S` it returns a number: `csnstrstartswith("kick.wav", "kick")` gives
+1, with the same range rules, an `end` past the string reading to its end. The
+`i` output takes the init-time form; a `k` output takes the k form, whose
+`start` and `end` are k values: `csnstrstartswith(Sname, "x", 0, -1, kTrig)`.
+An `S` has no rate, so the k form takes a trigger, and computes at init too,
+when its range is known there.
+
 ## Syntax
 
 ```csound
 out:CsnArr = csnstrstartswith(source:CsnStr, prefix:S [, start:i [, end:i]])
 out:CsnArr = csnstrstartswith(source:CsnStr, prefix:S, start:k [, end:k [, trig:k]])
+out:i = csnstrstartswith(source:S, prefix:S [, start:i [, end:i]])
+out:k = csnstrstartswith(source:S, prefix:S [, start:k [, end:k [, trig:k]]])
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to query.
+* `source:CsnStr`: the strings to query; or `source:S`, one string.
 * `prefix:S`: the bytes each string should begin with.
 * `start:i / start:k`: the first byte looked at, from 0 (default `0`).
 * `end:i / end:k`: the byte the search stops before, clamped to each string; `-1` (default) for the end of the string; any other end no smaller than `start`.
@@ -48,6 +57,7 @@ out:CsnArr = csnstrstartswith(source:CsnStr, prefix:S, start:k [, end:k [, trig:
 ## Output
 
 * `out:CsnArr`: a 0/1 mask in the shape of `source`.
+* `out:i`, `out:k`: the result for one string, for an `S` source.
 
 ## Execution Time
 

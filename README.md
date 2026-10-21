@@ -178,7 +178,8 @@ operand has no rate, so an operator on an i-rate array runs again at perf
 when its `S` changes, and `X += Sv` on an i-rate `X` appends once per change.
 On one `S`, `+` and `*` join and repeat strings (`S1 + S2`, `S * 3`, `Sx +=
 Sy`, `Sx *= n`); Csound has no arithmetic on strings, so these operators exist
-only with csnum loaded. See [string arrays](doc/string-arrays.md#operators).
+only with csnum loaded. An `S` has no rate, so they compute at init and at perf
+again only when an operand changed. See [string arrays](doc/string-arrays.md#operators).
 
 ### Indexing with `[]`
 
@@ -332,7 +333,8 @@ queries `csnstrlen`, `csnstrfind`, `csnstrrfind`, `csnstrstartswith`,
 `csnstrisspace` (to a real array), the conversions `csnstrtonum` and
 `csnnumtostr`, the join `csnstrjoin` (to one `S`), the splits `csnstrsplit`,
 `csnstrrsplit`, `csnstrpartition` and `csnstrrpartition` (from one `S`), the
-rate casts `csni` and `csnk`, and
+byte conversions `csnstrchr`, `csnstrord`, `csnstrtoascii` and
+`csnstrfromascii`, the rate casts `csni` and `csnk`, and
 `csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
 string has no k form, so their k forms take an explicit trigger. Each element
 keeps the buffer of its string, so on a [real-time path](#real-time-paths) a k
@@ -837,6 +839,8 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnstrjoin` | `sep.join(a.flat)` | No NumPy join over an array: Python's `str.join` on the elements in row-major order; one `S` out. |
 | `csnstrsplit`, `csnstrrsplit` | `s.split(sep, maxsplit)`, `s.rsplit(sep, maxsplit)` | Python's `str` methods on one `S`, to a 1-D `CsnStr` (NumPy's `np.strings.split` gives lists in an object array). `sep` required and not empty; no split on runs of whitespace. |
 | `csnstrpartition`, `csnstrrpartition` | `s.partition(sep)`, `s.rpartition(sep)` | On one `S`, to a `CsnStr` of 3 where NumPy gives three arrays. `sep` not empty. |
+| `csnstrchr`, `csnstrord` | `chr(n)`, `ord(c)` | On one `S`: chr takes ASCII codes 1 to 127 only, ord a one-byte string, 0 to 255. |
+| `csnstrtoascii`, `csnstrfromascii` | `list(s.encode())`, `bytes(codes).decode()` | One `S` to its bytes as a real array (0 to 255) and back from ASCII codes (1 to 127). |
 | `csnnumtostr` | `a.astype(str)` | Python's `repr`: the shortest digits that read back, `"1.0"`, `"1e-05"`, `"1e+16"`; the point `.` whatever the locale. Real arrays only. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |

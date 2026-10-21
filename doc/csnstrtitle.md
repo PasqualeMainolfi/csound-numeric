@@ -36,6 +36,11 @@ output room for the source's longest string, and the k form stops with a
 performance error at the first string that does not fit. See [string
 arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`: `csnstrtitle("bass-drop")` gives "Bass-Drop". It
+has no in-place form, as a string argument is an input: `Sx = csnstrtitle(Sx)`
+converts `Sx`. An `S` has no rate, so the k form takes a trigger, and computes
+at init too. Like `strcpyk`, its output takes the room it needs at perf.
+
 ## Syntax
 
 ```csound
@@ -43,16 +48,19 @@ out:CsnStr = csnstrtitle(source:CsnStr)
 out:CsnStr = csnstrtitle(source:CsnStr, trig:k)
 csnstrtitle(source:CsnStr)
 csnstrtitle(source:CsnStr, trig:k)
+out:S = csnstrtitle(source:S)
+out:S = csnstrtitle(source:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to put in title case.
+* `source:CsnStr`: the strings to put in title case; or `source:S`, one string.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the strings in title case, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the converted string, for an `S` source.
 
 ## Execution Time
 

@@ -163,6 +163,10 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrrsplit](csnstrrsplit.md) - splits one string into an array of strings at a separator, from the right
 - [csnstrpartition](csnstrpartition.md) - splits one string at the first separator into head, separator and tail
 - [csnstrrpartition](csnstrrpartition.md) - splits one string at the last separator into head, separator and tail
+- [csnstrchr](csnstrchr.md) - the one-character string of an ASCII code
+- [csnstrord](csnstrord.md) - the byte of a one-byte string
+- [csnstrtoascii](csnstrtoascii.md) - the bytes of a string as a real array
+- [csnstrfromascii](csnstrfromascii.md) - a string from an array of ASCII codes
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

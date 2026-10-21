@@ -30,6 +30,11 @@ output room for the source's longest string, and the k form stops with a
 performance error at the first string that does not fit. See [string
 arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`: `csnstrupper("Kick 1")` gives "KICK 1". It has
+no in-place form, as a string argument is an input: `Sx = csnstrupper(Sx)`
+converts `Sx`. An `S` has no rate, so the k form takes a trigger, and computes
+at init too. Like `strcpyk`, its output takes the room it needs at perf.
+
 ## Syntax
 
 ```csound
@@ -37,16 +42,19 @@ out:CsnStr = csnstrupper(source:CsnStr)
 out:CsnStr = csnstrupper(source:CsnStr, trig:k)
 csnstrupper(source:CsnStr)
 csnstrupper(source:CsnStr, trig:k)
+out:S = csnstrupper(source:S)
+out:S = csnstrupper(source:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to convert.
+* `source:CsnStr`: the strings to convert; or `source:S`, one string.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the converted strings, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the converted string, for an `S` source.
 
 ## Execution Time
 

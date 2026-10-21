@@ -37,6 +37,13 @@ output room for the source's longest string, and the k form stops with a
 performance error at the first string that does not fit. See [string
 arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`: `csnstrswapcase("aB")` gives "Ab". It has no
+in-place form, as a string argument is an input: `Sx = csnstrswapcase(Sx)`
+converts `Sx`. An `S` has no rate, so the k form takes a trigger, and computes
+at init too. Swapping undoes itself, so `Sx = csnstrswapcase(Sx, kTrig)` swaps
+again on every pass that runs. Like `strcpyk`, its output takes the room it
+needs at perf.
+
 ## Syntax
 
 ```csound
@@ -44,16 +51,19 @@ out:CsnStr = csnstrswapcase(source:CsnStr)
 out:CsnStr = csnstrswapcase(source:CsnStr, trig:k)
 csnstrswapcase(source:CsnStr)
 csnstrswapcase(source:CsnStr, trig:k)
+out:S = csnstrswapcase(source:S)
+out:S = csnstrswapcase(source:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings whose case is swapped.
+* `source:CsnStr`: the strings whose case is swapped; or `source:S`, one string.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the swapped strings, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the converted string, for an `S` source.
 
 ## Execution Time
 

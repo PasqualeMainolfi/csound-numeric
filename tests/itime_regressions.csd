@@ -1277,6 +1277,49 @@ instr 3
     iAddMulSCmp += strcmp(SMulS3, "") == 0 ? 0 : 1
     iAddMulSCmp += strcmp(SMulS4, "----") == 0 ? 0 : 1
     assert(iAddMulSCmp == 0)
+    ; queries, substr, case maps, chr, ord and the byte arrays on one S, as
+    ; the array forms and Python's str: ASCII predicates, "" giving 0, the
+    ; searches over s[start:end] with end -1 for the end and clamped to it
+    iQS = csnstrisalpha("abC") == 1 ? 0 : 1
+    iQS += csnstrisdigit("") == 0 ? 0 : 1
+    iQS += csnstrisalnum("a1") == 1 ? 0 : 1
+    iQS += csnstrisspace(" \t") == 1 ? 0 : 1
+    iQS += csnstrlen("hello") == 5 ? 0 : 1
+    iQS += csnstrstartswith("abc", "a") == 1 ? 0 : 1
+    iQS += csnstrendswith("abc", "b", 0, 2) == 1 ? 0 : 1
+    iQS += csnstrfind("abcabc", "c", 3) == 5 ? 0 : 1
+    iQS += csnstrfind("abc", "c", 0, 10) == 2 ? 0 : 1
+    iQS += csnstrendswith("abc", "c", 0, 10) == 1 ? 0 : 1
+    iQS += csnstrrfind("abcabc", "b") == 4 ? 0 : 1
+    iQS += csnstrrfind("abc", "x") == -1 ? 0 : 1
+    SQS1 = csnstrsubstr("abcdef", 1, 4)
+    SQS2 = csnstrsubstr("abcdef", 0, 9, 2)
+    SQS3 = csnstrupper("abC1")
+    SQS4 = csnstrlower("abC1")
+    SQS5 = csnstrcapitalize("hELLO")
+    SQS6 = csnstrswapcase("aB")
+    SQS7 = csnstrtitle("bass-drop")
+    SQS8 = csnstrchr(72)
+    iQS += strcmp(SQS1, "bcd") == 0 ? 0 : 1
+    iQS += strcmp(SQS2, "ace") == 0 ? 0 : 1
+    iQS += strcmp(SQS3, "ABC1") == 0 ? 0 : 1
+    iQS += strcmp(SQS4, "abc1") == 0 ? 0 : 1
+    iQS += strcmp(SQS5, "Hello") == 0 ? 0 : 1
+    iQS += strcmp(SQS6, "Ab") == 0 ? 0 : 1
+    iQS += strcmp(SQS7, "Bass-Drop") == 0 ? 0 : 1
+    iQS += strcmp(SQS8, "H") == 0 ? 0 : 1
+    iQS += csnstrord("z") == 122 ? 0 : 1
+    iQSBytes:CsnArr = csnstrtoascii("Hi")
+    iQS += csnsum(iQSBytes) == 177 ? 0 : 1
+    SQS9 = csnstrfromascii(iQSBytes)
+    ; bytes from 0x80 up count from 0 to 255: "é" is 0xC3 0xA9
+    iQSHigh:CsnArr = csnstrtoascii("é")
+    iQS += csnsum(iQSHigh) == 364 ? 0 : 1
+    iQS += strcmp(SQS9, "Hi") == 0 ? 0 : 1
+    iQSNone:CsnArr = csnstrtoascii("")
+    SQS10 = csnstrfromascii(iQSNone)
+    iQS += strcmp(SQS10, "") == 0 ? 0 : 1
+    assert(iQS == 0)
 
     ; csnstrsubstr keeps the bytes from start up to stop, stop excluded, every
     ; step-th, clamped to each string (np.strings.slice on bytes)
@@ -5590,6 +5633,10 @@ e
 ; csncopy.s csni.s csnk.s csnshuffle.s
 ; csnwhere.s.hh csnwhere.s.hs csnputmask.s.hh csnputmask.s.hs csncompress.s csnselect.s
 ; csnstradd csnstradd.hs csnstradd.sh csnstrmul csnstrmul.hs csnstradd.ss csnstrmul.ss
+; csnstrisalpha.ss csnstrisdigit.ss csnstrisalnum.ss csnstrisspace.ss csnstrlen.ss
+; csnstrstartswith.ss csnstrendswith.ss csnstrfind.ss csnstrrfind.ss csnstrsubstr.ss
+; csnstrupper.ss csnstrlower.ss csnstrcapitalize.ss csnstrswapcase.ss csnstrtitle.ss
+; csnstrchr.ss csnstrord.ss csnstrtoascii.ss csnstrfromascii.ss
 ; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
 ; csnstrcapitalize csnstrcapitalize.in
 ; csnstrswapcase csnstrswapcase.in

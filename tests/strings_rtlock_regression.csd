@@ -253,6 +253,20 @@ instr 1
     SMulHeld = csnstrmul(Sx, kTwo, kZero)
     SOpAdd = Sx + "!"
     SOpMul = Sx * kTwo
+    ; queries, substr, case maps, chr, ord and the byte arrays on one S, as k
+    ; forms: they follow the letter; a zero trigger keeps the init result
+    SUpK = csnstrupper(Sx, kOne)
+    kFindK = csnstrfind(SSplitSrc, "b", 0, -1, kOne)
+    kOrdK = csnstrord(Sx, kOne)
+    kOrdHeld = csnstrord(Sx, kZero)
+    SSubK = csnstrsubstr(SSplitSrc, 0, 1, 1, kOne)
+    kCode init 0
+    kCode = 90
+    SChrK = csnstrchr(kCode)
+    ; ord of an S a k opcode writes, still empty at init
+    kOrdChr = csnstrord(SChrK, kOne)
+    BytesK:CsnArr = csnstrtoascii(Sx, kOne)
+    SBackK = csnstrfromascii(BytesK, kOne)
     ; a shorter piece ends inside the buffer a longer one sized
     if kc % 2 == 1 then
         SPieceSrc strcpyk "a,b"
@@ -420,6 +434,14 @@ instr 1
         kBad += strcmpk(SMulHeld, "aa") != 0 ? 1 : 0
         kBad += strcmpk(SOpAdd, "z!") != 0 ? 1 : 0
         kBad += strcmpk(SOpMul, "zz") != 0 ? 1 : 0
+        kBad += strcmpk(SUpK, "Z") != 0 ? 1 : 0
+        kBad += kFindK != 2 ? 1 : 0
+        kBad += kOrdK != 122 ? 1 : 0
+        kBad += kOrdHeld != 97 ? 1 : 0
+        kBad += strcmpk(SSubK, "z") != 0 ? 1 : 0
+        kBad += strcmpk(SChrK, "Z") != 0 ? 1 : 0
+        kBad += kOrdChr != 90 ? 1 : 0
+        kBad += strcmpk(SBackK, "z") != 0 ? 1 : 0
         S32 = Wide[kI0]
         kBad += strcmpk(S32, "ab  ") != 0 ? 1 : 0
         S33 = Right[kI0]

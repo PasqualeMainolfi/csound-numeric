@@ -3336,6 +3336,13 @@ static bool is_same_substr_range(const CSN_SUBSTR_RANGE *x, CSN_SUBSTR_RANGE y) 
     return x->start == y.start && x->stop == y.stop && x->step == y.step;
 }
 
+static size_t size_from_range(CSN_SUBSTR_RANGE *range, size_t len_s) {
+    size_t begin = range->start < len_s ? range->start : len_s;
+    size_t end = range->stop < len_s ? range->stop : len_s;
+    size_t sub_len = (end - begin + range->step - 1) / range->step;
+    return sub_len;
+}
+
 /* A substring is never longer than its string, so in place each one moves
    left inside its own buffer, reading ahead of where it writes, and an
    output holds the room prepare_output gave it for the longest source.
@@ -3348,8 +3355,7 @@ static int32_t substring_assign_value(CSN_STR_WRITER *w, CSN_ARRAY *out, const C
         const char *s = slot_string(&src->sdata[i]);
         size_t len = strlen(s);
         size_t begin = range.start < len ? range.start : len;
-        size_t end = range.stop < len ? range.stop : len;
-        size_t sub_len = (end - begin + range.step - 1) / range.step;
+        size_t sub_len = size_from_range(&range, len);
         /* the whole string: begin is 0, and the step 1 or the string short */
         if (in_place && sub_len == len) continue;
 
@@ -4667,6 +4673,29 @@ int32_t string_addmul_ss_helper(CSOUND *csound, OPDS *h, bool is_perf, CSN_STRDA
     return OK;
 }
 
+/* The operators on S: an S has no rate, so S1 + S2, Sx += Sy, S * n and
+   Sx *= n compute at init and, at perf, again only when an operand changed
+   since, written by strcpyk, sprintfk or another perf-time writer; the rule
+   the CsnStr operators follow for an S operand. The copies are taken after
+   the write, so an output that is also an operand (Sx += "b") matches them
+   and is left alone, as Sx = Sx + "b" would be by a plain =. A k count gives
+   the operator a rate: every_pass then runs it on every pass, as kx *= 2. */
+static bool same_kept(const CSN_STRDATA *kept, const STRINGDAT *value) {
+    if (value == NULL) return kept->data == NULL;
+    return IS_VALID_STRINGDAT(value) && kept->data != NULL && strcmp(kept->data, value->data) == 0;
+}
+
+int32_t string_addmul_ss_op(CSOUND *csound, OPDS *h, bool is_perf, bool every_pass, K_DATA *k_data, CSN_STRDATA *buffer, STRINGDAT *out, const STRINGDAT *a, const STRINGDAT *b, const cs_float *count, bool is_add) {
+    if (!is_perf) {
+        csn_kdata_release_strings(csound, k_data);
+    } else if (!every_pass && !k_data->prev_strings_stale && same_kept(&k_data->prev_string, a) && same_kept(&k_data->prev_string_b, b)) {
+        return OK;
+    }
+    int32_t res = string_addmul_ss_helper(csound, h, is_perf, buffer, out, a, b, count, is_add);
+    if (res == OK && !every_pass) csn_kdata_keep_strings(csound, k_data, a->data, b != NULL ? b->data : NULL, true);
+    return res;
+}
+
 int32_t csnstrings_mul_ss_deinit(CSOUND *csound, CSN_STRMUL_S *p) {
     csn_str_release(csound, &p->buffer);
     return OK;
@@ -4693,4 +4722,330 @@ int32_t csnstrings_add_ss(CSOUND *csound, CSN_STRADD_S *p) {
 int32_t csnstrings_add_ss_k(CSOUND *csound, CSN_STRADD_S *p) {
     CHECK_KTRIG(p->trig);
     return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->string_out, p->a, p->b, NULL, true);
+}
+
+/* The queries on one S give a number, through the predicates and searches
+   of the array forms: ASCII predicates, an empty string giving 0, the length
+   in bytes, and the searches over s[start:end] with end -1 for the end of the
+   string, clamped to it. An S has no rate, so the k forms take a trigger and
+   compute at init too, a k range only when its values are known there. */
+typedef enum { CSN_SQ_ISALPHA, CSN_SQ_ISDIGIT, CSN_SQ_ISALNUM, CSN_SQ_ISSPACE, CSN_SQ_LEN } CSN_STRING_QUERY_FS_MODE;
+
+static int32_t string_query_fs(CSOUND *csound, CSN_STRING_QUERY_FS *p, bool is_perf, CSN_STRING_QUERY_FS_MODE mode) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    if (!IS_VALID_STRINGDAT(p->string_in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    const char *s = p->string_in->data;
+    double ans = 0.0;
+    switch (mode) {
+        case CSN_SQ_ISALPHA: ans = all_bytes(s, ascii_is_letter); break;
+        case CSN_SQ_ISDIGIT: ans = all_bytes(s, ascii_is_digit); break;
+        case CSN_SQ_ISALNUM: ans = all_bytes(s, ascii_is_alnum); break;
+        case CSN_SQ_ISSPACE: ans = all_bytes(s, ascii_is_space); break;
+        case CSN_SQ_LEN: ans = (double) strlen(s); break;
+    }
+    *p->value = (cs_float) ans;
+    return OK;
+}
+
+#define QUERY_FS_WRAPPERS(name, mode)                                         \
+    int32_t csnstrings_##name##_ss(CSOUND *csound, CSN_STRING_QUERY_FS *p) {   \
+        return string_query_fs(csound, p, false, mode);                       \
+    }                                                                         \
+    int32_t csnstrings_##name##_ss_k(CSOUND *csound, CSN_STRING_QUERY_FS *p) { \
+        CHECK_KTRIG(p->trig);                                                 \
+        return string_query_fs(csound, p, true, mode);                        \
+    }
+
+QUERY_FS_WRAPPERS(isalpha, CSN_SQ_ISALPHA)
+QUERY_FS_WRAPPERS(isdigit, CSN_SQ_ISDIGIT)
+QUERY_FS_WRAPPERS(isalnum, CSN_SQ_ISALNUM)
+QUERY_FS_WRAPPERS(isspace, CSN_SQ_ISSPACE)
+QUERY_FS_WRAPPERS(strlen, CSN_SQ_LEN)
+
+static int32_t string_query_sf(CSOUND *csound, CSN_STRING_QUERY_SF *p, bool is_perf, CSN_STR_QUERY fn) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    if (!IS_VALID_STRINGDAT(p->string_in) || !IS_VALID_STRINGDAT(p->prefix)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    double start = (double) *p->start;
+    double end = (double) *p->end;
+    int32_t res = check_query_range(csound, perf_h, start, end);
+    if (res != OK) return res;
+
+    const char *s = p->string_in->data;
+    size_t len = strlen(s);
+    size_t stop = end == -1.0 || end > (double) len ? len : (size_t) end;
+    *p->index = (cs_float) fn(s, (size_t) start, stop, p->prefix->data);
+    return OK;
+}
+
+#define QUERY_SF_WRAPPERS(name, fn)                                                                    \
+    int32_t csnstrings_##name##_ss(CSOUND *csound, CSN_STRING_QUERY_SF *p) {                            \
+        return string_query_sf(csound, p, false, fn);                                                  \
+    }                                                                                                  \
+    int32_t csnstrings_##name##_ss_k_init(CSOUND *csound, CSN_STRING_QUERY_SF *p) {                     \
+        if (!csn_known_at_init(csound, p->start) || !csn_known_at_init(csound, p->end)) return OK;      \
+        return string_query_sf(csound, p, false, fn);                                                  \
+    }                                                                                                  \
+    int32_t csnstrings_##name##_ss_k(CSOUND *csound, CSN_STRING_QUERY_SF *p) {                          \
+        CHECK_KTRIG(p->trig);                                                                          \
+        return string_query_sf(csound, p, true, fn);                                                   \
+    }
+
+QUERY_SF_WRAPPERS(startswith, query_startswith)
+QUERY_SF_WRAPPERS(endswith, query_endswith)
+QUERY_SF_WRAPPERS(find, query_find)
+QUERY_SF_WRAPPERS(rfind, query_rfind)
+
+/* csnstrsubstr on one S: the bytes from start up to stop, every step-th,
+   by the rules of the array form, written into the buffer the opcode keeps. */
+static int32_t string_substr_ss(CSOUND *csound, CSN_SUBSTRING_S *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    if (!IS_VALID_STRINGDAT(p->string_in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    double start = (double) *p->start;
+    double stop = (double) *p->stop;
+    double step = (double) *p->step;
+    int32_t res = check_substr_range(csound, perf_h, start, stop, step);
+    if (res != OK) return res;
+
+    CSN_SUBSTR_RANGE range = { (uint32_t) start, (uint32_t) stop, (uint32_t) step };
+    const char *s = p->string_in->data;
+    size_t sub_len = size_from_range(&range, strlen(s));
+    res = ensure_string_capacity(csound, perf_h, &p->buffer, sub_len + 1, false);
+    if (res != OK) return res;
+    size_t begin = range.start < strlen(s) ? range.start : strlen(s);
+    for (size_t j = 0; j < sub_len; j++) p->buffer.data[j] = s[begin + j * range.step];
+    p->buffer.data[sub_len] = '\0';
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
+    return OK;
+}
+
+int32_t csnstrings_substr_ss_deinit(CSOUND *csound, CSN_SUBSTRING_S *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnstrings_substr_ss(CSOUND *csound, CSN_SUBSTRING_S *p) {
+    return string_substr_ss(csound, p, false);
+}
+
+int32_t csnstrings_substr_ss_k_init(CSOUND *csound, CSN_SUBSTRING_S *p) {
+    if (!csn_known_at_init(csound, p->start) || !csn_known_at_init(csound, p->stop) || !csn_known_at_init(csound, p->step)) return OK;
+    return string_substr_ss(csound, p, false);
+}
+
+int32_t csnstrings_substr_ss_k(CSOUND *csound, CSN_SUBSTRING_S *p) {
+    CHECK_KTRIG(p->trig);
+    return string_substr_ss(csound, p, true);
+}
+
+/* The case maps of the array forms on one S, ASCII only. Swapping case undoes
+   itself, so Sx = csnstrswapcase(Sx, kTrig) swaps again on every pass that
+   runs, as the array form does. */
+static int32_t string_case_ss(CSOUND *csound, CSN_STRIP_WS_S *p, CSN_CASE mode, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    if (!IS_VALID_STRINGDAT(p->string_in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    int32_t res = load_s_buffer(csound, perf_h, &p->buffer, p->string_in->data, strlen(p->string_in->data) + 1);
+    if (res != OK) return res;
+    map_case(p->buffer.data, (int32_t) mode, NULL);
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
+    return OK;
+}
+
+#define CASE_SS_WRAPPERS(name, mode)                                                \
+    int32_t csnstrings_##name##_ss(CSOUND *csound, CSN_STRIP_WS_S *p) {             \
+        return string_case_ss(csound, p, mode, false);                              \
+    }                                                                               \
+    int32_t csnstrings_##name##_ss_k_init(CSOUND *csound, CSN_STRIP_WS_S *p) {      \
+        return string_case_ss(csound, p, mode, false);                              \
+    }                                                                               \
+    int32_t csnstrings_##name##_ss_k(CSOUND *csound, CSN_STRIP_WS_S *p) {           \
+        CHECK_KTRIG(p->trig);                                                       \
+        return string_case_ss(csound, p, mode, true);                               \
+    }
+
+CASE_SS_WRAPPERS(upper, CSN_CASE_UPPER)
+CASE_SS_WRAPPERS(lower, CSN_CASE_LOWER)
+CASE_SS_WRAPPERS(capitalize, CSN_CASE_CAPITALIZE)
+CASE_SS_WRAPPERS(swapcase, CSN_CASE_SWAP)
+CASE_SS_WRAPPERS(title, CSN_CASE_TITLE)
+
+/* chr and ord. csnstrchr takes an ASCII code, 1 to 127 (0 would end the
+   string at once); csnstrord gives the byte of a one-byte string, 0 to 255. */
+static bool is_ascii_code(double value) {
+    return isfinite(value) && trunc(value) == value && value >= 1.0 && value <= 127.0;
+}
+
+static int32_t string_chr_ss(CSOUND *csound, CSN_STRINGCHR *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    double value = (double) *p->value;
+    if (!is_ascii_code(value)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnstrchr takes an ASCII code, a whole number from 1 to 127, got %g", value);
+    }
+    char dest[2] = { (char) value, '\0' };
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, dest);
+    return OK;
+}
+
+static int32_t string_ord_ss(CSOUND *csound, CSN_STRINGORD *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    if (!IS_VALID_STRINGDAT(p->string_in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    size_t len = strlen(p->string_in->data);
+    if (len != 1) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnstrord takes a string of one byte, got %zu bytes", len);
+    }
+    *p->value = (cs_float) (unsigned char) p->string_in->data[0];
+    return OK;
+}
+
+int32_t csnstrings_chr(CSOUND *csound, CSN_STRINGCHR *p) {
+    return string_chr_ss(csound, p, false);
+}
+
+int32_t csnstrings_chr_k_init(CSOUND *csound, CSN_STRINGCHR *p) {
+    if (!csn_known_at_init(csound, p->value)) return OK;
+    return string_chr_ss(csound, p, false);
+}
+
+int32_t csnstrings_chr_k(CSOUND *csound, CSN_STRINGCHR *p) {
+    CHECK_KTRIG(p->trig);
+    return string_chr_ss(csound, p, true);
+}
+
+int32_t csnstrings_ord(CSOUND *csound, CSN_STRINGORD *p) {
+    return string_ord_ss(csound, p, false);
+}
+
+/* An S has no rate, but the one a k opcode writes may still be empty at init
+   (sprintfk, a csnstrchr with a k code): a k init reads only a one-byte
+   string, and leaves anything else to the first pass to judge. */
+int32_t csnstrings_ord_k_init(CSOUND *csound, CSN_STRINGORD *p) {
+    if (!IS_VALID_STRINGDAT(p->string_in) || strlen(p->string_in->data) != 1) return OK;
+    return string_ord_ss(csound, p, false);
+}
+
+int32_t csnstrings_ord_k(CSOUND *csound, CSN_STRINGORD *p) {
+    CHECK_KTRIG(p->trig);
+    return string_ord_ss(csound, p, true);
+}
+
+/* csnstrtoascii: the bytes of one S as a real 1-D array, 0 to 255. The S has
+   no version to compare, so a k pass that runs writes them again. */
+static int32_t toascii_fill(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_TOASCII_SS *p, CSNARR_RES *pres) {
+    const char *s = p->string_in->data;
+    size_t len = strlen(s);
+    if (len > UINT32_MAX) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] A string of %zu bytes is longer than an array axis", len);
+    }
+    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) len };
+    CSNARR_RES r = prepare_output(csound, &p->h, perf_h, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
+    pres->locked |= r.locked;
+    if (r.err != OK) return r.err;
+    for (size_t i = 0; i < len; i++) p->handle->data[i] = (double) (unsigned char) s[i];
+    return OK;
+}
+
+static int32_t toascii_helper(CSOUND *csound, CSN_TOASCII_SS *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
+    CHECK_REGISTRY(csound, perf_h, reg);
+    if (is_perf) CHECK_KTRIG(p->trig);
+    if (!IS_VALID_STRINGDAT(p->string_in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    if (!is_perf) {
+        stamp_globals(csound, &p->h);
+        p->k_data.registry = reg;
+    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
+    int32_t res = toascii_fill(csound, perf_h, reg, p, &pres);
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_toascii_deinit(CSOUND *csound, CSN_TOASCII_SS *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_toascii_ss(CSOUND *csound, CSN_TOASCII_SS *p) {
+    return toascii_helper(csound, p, false);
+}
+
+int32_t csnstrings_toascii_ss_k_init(CSOUND *csound, CSN_TOASCII_SS *p) {
+    return toascii_helper(csound, p, false);
+}
+
+int32_t csnstrings_toascii_ss_k(CSOUND *csound, CSN_TOASCII_SS *p) {
+    return toascii_helper(csound, p, true);
+}
+
+/* csnstrfromascii: a real 1-D array of ASCII codes, as csnstrchr takes them,
+   as one S; an empty array gives "". The k form writes again when the array
+   changed. */
+static int32_t fromascii_into(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *src, CSN_STRDATA *buffer) {
+    if (src->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnstrfromascii takes a real array of ASCII codes");
+    }
+    if (src->ndim > 1U) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnstrfromascii takes a 1-D array, got %u dimensions", src->ndim);
+    }
+    for (size_t i = 0; i < src->size; i++) {
+        if (!is_ascii_code(src->data[i])) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnstrfromascii takes ASCII codes, whole numbers from 1 to 127, got %g at index %zu", src->data[i], i);
+        }
+    }
+    int32_t res = ensure_string_capacity(csound, perf_h, buffer, src->size + 1, false);
+    if (res != OK) return res;
+    for (size_t i = 0; i < src->size; i++) buffer->data[i] = (char) src->data[i];
+    buffer->data[src->size] = '\0';
+    return OK;
+}
+
+static int32_t fromascii_helper(CSOUND *csound, CSN_FROMASCII_SS *p, bool is_perf, bool is_k_init) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
+    CHECK_REGISTRY(csound, perf_h, reg);
+    if (is_perf) CHECK_KTRIG(p->trig);
+    if (!is_perf) {
+        stamp_globals(csound, &p->h);
+        p->k_data.registry = reg;
+    }
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+    int32_t res = OK;
+    if (is_perf && CAN_REUSE_LAST_RESULT(&p->k_data, p->source_handle, NULL)) goto done;
+    res = fromascii_into(csound, perf_h, p->source_handle, &p->buffer);
+    if (res != OK) goto done;
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
+    if (is_perf || is_k_init) PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, NULL);
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_fromascii_deinit(CSOUND *csound, CSN_FROMASCII_SS *p) {
+    csn_str_release(csound, &p->buffer);
+    return OK;
+}
+
+int32_t csnstrings_fromascii_ss(CSOUND *csound, CSN_FROMASCII_SS *p) {
+    return fromascii_helper(csound, p, false, false);
+}
+
+int32_t csnstrings_fromascii_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p) {
+    return fromascii_helper(csound, p, false, true);
+}
+
+int32_t csnstrings_fromascii_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p) {
+    return fromascii_helper(csound, p, true, false);
 }

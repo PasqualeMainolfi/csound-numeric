@@ -408,52 +408,67 @@ int32_t opstr_mulin_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p) {
 
 int32_t opstr_add_ss_deinit(CSOUND *csound, CSN_OP_STRADD_SS *p) {
     csn_str_release(csound, &p->buffer);
+    csn_kdata_release_strings(csound, &p->k_data);
     return OK;
 }
 
 int32_t opstr_addin_ss_deinit(CSOUND *csound, CSN_OP_STRADD_SS_IN *p) {
     csn_str_release(csound, &p->buffer);
+    csn_kdata_release_strings(csound, &p->k_data);
     return OK;
 }
 
 int32_t opstr_mul_ss_deinit(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
     csn_str_release(csound, &p->buffer);
+    csn_kdata_release_strings(csound, &p->k_data);
     return OK;
 }
 
 int32_t opstr_mulin_ss_deinit(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
     csn_str_release(csound, &p->buffer);
+    csn_kdata_release_strings(csound, &p->k_data);
     return OK;
 }
 
+/* S1 + S2 and Sx += Sy: at init, then at perf when an operand changed. */
 int32_t opstr_add_ss_init(CSOUND *csound, CSN_OP_STRADD_SS *p) {
-    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->out, p->a, p->b, NULL, true);
+    return string_addmul_ss_op(csound, &p->h, false, false, &p->k_data, &p->buffer, p->out, p->a, p->b, NULL, true);
 }
 
 int32_t opstr_add_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS *p) {
-    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->out, p->a, p->b, NULL, true);
+    return string_addmul_ss_op(csound, &p->h, true, false, &p->k_data, &p->buffer, p->out, p->a, p->b, NULL, true);
 }
 
 int32_t opstr_addin_ss_init(CSOUND *csound, CSN_OP_STRADD_SS_IN *p) {
-    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->a, p->a, p->b, NULL, true);
+    return string_addmul_ss_op(csound, &p->h, false, false, &p->k_data, &p->buffer, p->a, p->a, p->b, NULL, true);
 }
 
 int32_t opstr_addin_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS_IN *p) {
-    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->a, p->a, p->b, NULL, true);
+    return string_addmul_ss_op(csound, &p->h, true, false, &p->k_data, &p->buffer, p->a, p->a, p->b, NULL, true);
 }
 
+/* S * n and Sx *= n: an i count follows the string's changes, a k count
+   runs on every pass. */
 int32_t opstr_mul_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
-    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->out, p->a, NULL, p->value, false);
+    return string_addmul_ss_op(csound, &p->h, false, false, &p->k_data, &p->buffer, p->out, p->a, NULL, p->value, false);
 }
 
 int32_t opstr_mul_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
-    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->out, p->a, NULL, p->value, false);
+    return string_addmul_ss_op(csound, &p->h, true, false, &p->k_data, &p->buffer, p->out, p->a, NULL, p->value, false);
+}
+
+int32_t opstr_mul_ssk_perf(CSOUND *csound, CSN_OP_STRMUL_SS *p) {
+    return string_addmul_ss_op(csound, &p->h, true, true, &p->k_data, &p->buffer, p->out, p->a, NULL, p->value, false);
 }
 
 int32_t opstr_mulin_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
-    return string_addmul_ss_helper(csound, &p->h, false, &p->buffer, p->a, p->a, NULL, p->value, false);
+    return string_addmul_ss_op(csound, &p->h, false, false, &p->k_data, &p->buffer, p->a, p->a, NULL, p->value, false);
 }
 
 int32_t opstr_mulin_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
-    return string_addmul_ss_helper(csound, &p->h, true, &p->buffer, p->a, p->a, NULL, p->value, false);
+    return string_addmul_ss_op(csound, &p->h, true, false, &p->k_data, &p->buffer, p->a, p->a, NULL, p->value, false);
+}
+
+int32_t opstr_mulin_ssk_perf(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p) {
+    return string_addmul_ss_op(csound, &p->h, true, true, &p->k_data, &p->buffer, p->a, p->a, NULL, p->value, false);
 }

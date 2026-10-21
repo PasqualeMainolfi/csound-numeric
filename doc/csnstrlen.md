@@ -19,21 +19,28 @@ its numbers into the elements the init pass laid out and allocates nothing
 while the source keeps its shape: it may run on a [real-time
 path](csnrtlock.md).
 
+On one `S` it returns its length in bytes: `csnstrlen("kick")` gives 4. The
+`i` output takes the init-time form, a `k` output the k form. An `S` has no
+rate, so the k form takes a trigger, and computes at init too.
+
 ## Syntax
 
 ```csound
 out:CsnArr = csnstrlen(source:CsnStr)
 out:CsnArr = csnstrlen(source:CsnStr, trig:k)
+out:i = csnstrlen(source:S)
+out:k = csnstrlen(source:S [, trig:k])
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to query.
+* `source:CsnStr`: the strings to query; or `source:S`, one string.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnArr`: the lengths in bytes, in the shape of `source`.
+* `out:i`, `out:k`: the length in bytes, for an `S` source.
 
 ## Execution Time
 

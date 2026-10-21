@@ -36,6 +36,12 @@ output room for the source's longest string, and the k form stops with a
 performance error at the first string that does not fit. See [string
 arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`: `csnstrcapitalize("hELLO")` gives "Hello". It
+has no in-place form, as a string argument is an input: `Sx =
+csnstrcapitalize(Sx)` converts `Sx`. An `S` has no rate, so the k form takes a
+trigger, and computes at init too. Like `strcpyk`, its output takes the room
+it needs at perf.
+
 ## Syntax
 
 ```csound
@@ -43,16 +49,19 @@ out:CsnStr = csnstrcapitalize(source:CsnStr)
 out:CsnStr = csnstrcapitalize(source:CsnStr, trig:k)
 csnstrcapitalize(source:CsnStr)
 csnstrcapitalize(source:CsnStr, trig:k)
+out:S = csnstrcapitalize(source:S)
+out:S = csnstrcapitalize(source:S, trig:k)
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to capitalize.
+* `source:CsnStr`: the strings to capitalize; or `source:S`, one string.
 * `trig:k`: k-rate trigger, which selects the k form. A zero trigger republishes the previous result.
 
 ## Output
 
 * `out:CsnStr`: the capitalized strings, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the converted string, for an `S` source.
 
 ## Execution Time
 

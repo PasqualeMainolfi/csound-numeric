@@ -37,12 +37,17 @@ With a k count it runs on every pass, its trigger optional (default `1`), and
 computes at init with the count's init value; like `strcpyk`, its output
 takes the room it needs at perf, also on a real-time path.
 
-The operators `+`, `+=`, `*` and `*=` also work on `S`: `S1 + S2`, `Sx +=
-Sy`, `S * n` and `Sx *= n` compute what the named forms compute. Csound has
-no arithmetic on strings, so these operators exist only while csnum is
-loaded; they add to the language rather than change it, and an orchestra
-that uses them needs csnum. Like the other operators they take no trigger and
-run on every pass, as `strcatk` does; `Sx += Sx` doubles `Sx`.
+The operators `+`, `+=`, `*` and `*=` also work on `S`: `S1 + S2`, `Sx += Sy`,
+`S * n` and `Sx *= n` compute what the named forms compute. Csound has no
+arithmetic on strings, so these operators exist only while csnum is loaded;
+they add to the language rather than change it, and an orchestra that uses
+them needs csnum. An `S` has no rate, so like the other operators they take no
+trigger, and they compute at init and, at perf, again only when an operand
+changed, written by `strcpyk`, `sprintfk` or another opcode that runs at perf:
+`Sx += "b"` appends once, `S1 = Sw + ".wav"` follows `Sw` on every pass that
+changes it, and an edit made at init after `S1 = S2 + S3` stays. A k count
+gives `*` a rate, so `Sx *= kN` repeats again on every pass, as `kx *= 2`
+multiplies.
 
 ## Syntax
 

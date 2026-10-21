@@ -158,6 +158,7 @@ typedef struct {
     STRINGDAT *b;
     // private
     CSN_STRDATA buffer;
+    K_DATA k_data; // the operands, kept to tell when one changed
 } CSN_OP_STRADD_SS;
 
 typedef struct {
@@ -168,6 +169,7 @@ typedef struct {
     STRINGDAT *b;
     // private
     CSN_STRDATA buffer;
+    K_DATA k_data; // the operands, kept to tell when one changed
 } CSN_OP_STRADD_SS_IN;
 
 typedef struct {
@@ -179,6 +181,7 @@ typedef struct {
     cs_float *value;
     // private
     CSN_STRDATA buffer;
+    K_DATA k_data; // the operands, kept to tell when one changed
 } CSN_OP_STRMUL_SS;
 
 typedef struct {
@@ -189,6 +192,7 @@ typedef struct {
     cs_float *value;
     // private
     CSN_STRDATA buffer;
+    K_DATA k_data; // the operands, kept to tell when one changed
 } CSN_OP_STRMUL_SS_IN;
 
 #define CSN_OP_DECLARE(name)                                                   \
@@ -267,7 +271,9 @@ int32_t opstr_addin_ss_init(CSOUND *csound, CSN_OP_STRADD_SS_IN *p);
 int32_t opstr_addin_ss_perf(CSOUND *csound, CSN_OP_STRADD_SS_IN *p);
 int32_t opstr_mul_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS *p);
 int32_t opstr_mul_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS *p);
+int32_t opstr_mul_ssk_perf(CSOUND *csound, CSN_OP_STRMUL_SS *p);
 int32_t opstr_mulin_ss_init(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p);
 int32_t opstr_mulin_ss_perf(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p);
+int32_t opstr_mulin_ssk_perf(CSOUND *csound, CSN_OP_STRMUL_SS_IN *p);
 
 #endif

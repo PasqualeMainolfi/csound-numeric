@@ -38,6 +38,12 @@ path](csnrtlock.md). In place, a cut cannot be undone, so the init pass cuts
 only with a range it knows, constants or i values, and leaves a k range to
 the first pass. See [string arrays](string-arrays.md#real-time-paths).
 
+On one `S` it returns an `S`, cut by the same rules: `csnstrsubstr("abcdef",
+1, 4)` gives `"bcd"`. It has no in-place form, as a string argument is an
+input: `Sx = csnstrsubstr(Sx, 1, 4)` cuts `Sx`. An `S` has no rate, so the k
+form takes a trigger, and computes at init too, when its range is known there.
+Like `strcpyk`, its output takes the room it needs at perf.
+
 ## Syntax
 
 ```csound
@@ -45,11 +51,13 @@ out:CsnStr = csnstrsubstr(source:CsnStr, start:i, stop:i [, step:i])
 out:CsnStr = csnstrsubstr(source:CsnStr, start:k, stop:k [, step:k [, trig:k]])
 csnstrsubstr(source:CsnStr, start:i, stop:i [, step:i])
 csnstrsubstr(source:CsnStr, start:k, stop:k [, step:k [, trig:k]])
+out:S = csnstrsubstr(source:S, start:i, stop:i [, step:i])
+out:S = csnstrsubstr(source:S, start:k, stop:k [, step:k [, trig:k]])
 ```
 
 ## Arguments
 
-* `source:CsnStr`: the strings to cut.
+* `source:CsnStr`: the strings to cut; or `source:S`, one string.
 * `start:i / start:k`: the first byte kept, from 0.
 * `stop:i / stop:k`: the byte the substring stops before; no smaller than `start`.
 * `step:i / step:k`: keep every `step`-th byte, at least 1 (default `1`).
@@ -58,6 +66,7 @@ csnstrsubstr(source:CsnStr, start:k, stop:k [, step:k [, trig:k]])
 ## Output
 
 * `out:CsnStr`: the substrings, in the shape of `source`. Omit it for the in-place form.
+* `out:S`: the substring, for an `S` source.
 
 ## Execution Time
 

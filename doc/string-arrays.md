@@ -66,6 +66,12 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnstrrsplit](csnstrrsplit.md) cut it at a separator,
   [csnstrpartition](csnstrpartition.md) and
   [csnstrrpartition](csnstrrpartition.md) into head, separator and tail.
+- Bytes of one `S`: [csnstrchr](csnstrchr.md) and [csnstrord](csnstrord.md)
+  for one character, [csnstrtoascii](csnstrtoascii.md) and
+  [csnstrfromascii](csnstrfromascii.md) for a whole string.
+- On one `S`, the queries, [csnstrsubstr](csnstrsubstr.md) and the case maps
+  give a number or an `S`, as on Python's `str`; an `S` has no rate, so their
+  k forms take a trigger and compute at init too.
 - Rate and real-time marks: [csnk](csnk.md) and [csni](csni.md), in place or
   as a copy, [csnrtlock](csnrtlock.md), [csnrtunlock](csnrtunlock.md).
 - Files: [csnsave](csnsave.md), [csnload](csnload.md).
@@ -86,8 +92,12 @@ strings, and an array of counts takes the named form, `csnstrmul(A, counts)`.
 The same operators work on one `S`: `S1 + S2` joins, `S * 3` repeats, and
 `Sx += Sy`, `Sx *= n` update `Sx`, as [csnstradd](csnstradd.md) and
 [csnstrmul](csnstrmul.md) do on strings. Csound itself has no arithmetic on
-strings: these operators come with csnum and need it loaded. They run on
-every pass, as `strcatk` does.
+strings: these operators come with csnum and need it loaded. An `S` has no rate, so like the other operators they take no trigger, and
+they compute at init and, at perf, again only when an operand changed, written
+by `strcpyk`, `sprintfk` or another opcode that runs at perf: `Sx += "b"`
+appends once, `S1 = Sw + ".wav"` follows `Sw` on every pass that changes it,
+and an edit made at init after `S1 = S2 + S3` stays. A k count gives `*` a
+rate, so `Sx *= kN` repeats again on every pass, as `kx *= 2` multiplies.
 
 ```csound
 SNames[] fillarray "kick", "snare"
