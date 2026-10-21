@@ -11,7 +11,10 @@ The bytes of a string as a real array, as Python's `list(s.encode())`.
 empty string an empty array. Every byte counts, so a character that UTF-8
 writes in two bytes gives two numbers (`"é"` gives `[195 169]`).
 
-[csnstrfromascii](csnstrfromascii.md) goes back, for ASCII codes.
+[csnstrfromascii](csnstrfromascii.md) goes back, for ASCII codes. The bytes
+are not checked: [csnstrencode](csnstrencode.md) gives the same numbers for a
+UTF-8 string and refuses one that is not, and
+[csnstrtocodepoints](csnstrtocodepoints.md) gives its characters.
 
 An `S` has no rate, so the k form takes a trigger, and computes at init too.
 The string has no version to compare, so every pass that runs writes the bytes
@@ -80,6 +83,7 @@ CsnArr(shape=(3,), dtype=float64)
 ## See also
 
 * [csnstrfromascii](csnstrfromascii.md)
+* [csnstrencode](csnstrencode.md)
 * [csnstrord](csnstrord.md)
 * [string arrays](string-arrays.md)
 

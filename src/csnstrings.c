@@ -4937,23 +4937,118 @@ int32_t csnstrings_ord_k(CSOUND *csound, CSN_STRINGORD *p) {
     return string_ord_ss(csound, p, true);
 }
 
-/* csnstrtoascii: the bytes of one S as a real 1-D array, 0 to 255. The S has
-   no version to compare, so a k pass that runs writes them again. */
-static int32_t toascii_fill(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_TOASCII_SS *p, CSNARR_RES *pres) {
+/* One S and a real 1-D array, both ways: its raw bytes (csnstrtoascii), its
+   UTF-8 bytes (csnstrencode, the S checked as UTF-8 first) or its code points
+   (csnstrtocodepoints); and back from ASCII codes (csnstrfromascii), UTF-8
+   bytes (csnstrdecode) or code points (csnstrfromcodepoints). UTF-8 is read
+   as Python's strict decoder reads it: no overlong forms, no surrogates,
+   nothing past U+10FFFF. A NUL would end the string at once, so no form
+   writes one. */
+typedef enum { CSN_SBYTES_RAW, CSN_SBYTES_UTF8, CSN_SBYTES_CODEPOINTS } CSN_SBYTES_MODE;
+
+/* The length of the UTF-8 sequence at s, avail bytes at most, its code point
+   in cp; 0 when the bytes there are not one. */
+static size_t utf8_sequence(const unsigned char *s, size_t avail, uint32_t *cp) {
+    unsigned char b0 = s[0];
+    if (b0 < 0x80) {
+        *cp = b0;
+        return 1;
+    }
+    size_t n;
+    uint32_t lo = 0x80, hi = 0xBF;
+    if (b0 >= 0xC2 && b0 <= 0xDF) {
+        n = 2;
+        *cp = b0 & 0x1F;
+    } else if (b0 >= 0xE0 && b0 <= 0xEF) {
+        n = 3;
+        *cp = b0 & 0x0F;
+        if (b0 == 0xE0) lo = 0xA0;      /* no overlong form */
+        if (b0 == 0xED) hi = 0x9F;      /* no surrogate */
+    } else if (b0 >= 0xF0 && b0 <= 0xF4) {
+        n = 4;
+        *cp = b0 & 0x07;
+        if (b0 == 0xF0) lo = 0x90;      /* no overlong form */
+        if (b0 == 0xF4) hi = 0x8F;      /* nothing past U+10FFFF */
+    } else {
+        return 0;
+    }
+    if (avail < n) return 0;
+    for (size_t k = 1; k < n; k++) {
+        unsigned char b = s[k];
+        if (b < (k == 1 ? lo : 0x80) || b > (k == 1 ? hi : 0xBF)) return 0;
+        *cp = (*cp << 6) | (b & 0x3F);
+    }
+    return n;
+}
+
+static size_t utf8_length(uint32_t cp) {
+    return cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+}
+
+static size_t utf8_write(char *dest, uint32_t cp) {
+    size_t n = utf8_length(cp);
+    if (n == 1) {
+        dest[0] = (char) cp;
+    } else {
+        static const unsigned char lead[] = { 0, 0, 0xC0, 0xE0, 0xF0 };
+        for (size_t k = n - 1; k > 0; k--) {
+            dest[k] = (char) (0x80 | (cp & 0x3F));
+            cp >>= 6;
+        }
+        dest[0] = (char) (lead[n] | cp);
+    }
+    return n;
+}
+
+/* The code points of s, checked as UTF-8: their count, or the byte at which
+   s stops being UTF-8 in bad (and SIZE_MAX returned). */
+static size_t utf8_count(const char *s, size_t len, size_t *bad) {
+    size_t count = 0;
+    uint32_t cp;
+    for (size_t i = 0; i < len; count++) {
+        size_t n = utf8_sequence((const unsigned char *) s + i, len - i, &cp);
+        if (n == 0) {
+            *bad = i;
+            return SIZE_MAX;
+        }
+        i += n;
+    }
+    return count;
+}
+
+static int32_t sbytes_fill(CSOUND *csound, OPDS *perf_h, CSN_REGISTRY *reg, CSN_TOASCII_SS *p, CSNARR_RES *pres, CSN_SBYTES_MODE mode, const char *name) {
     const char *s = p->string_in->data;
     size_t len = strlen(s);
-    if (len > UINT32_MAX) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] A string of %zu bytes is longer than an array axis", len);
+    size_t out_len = len;
+    if (mode != CSN_SBYTES_RAW) {
+        size_t bad = 0;
+        size_t count = utf8_count(s, len, &bad);
+        if (count == SIZE_MAX) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s: the string is not UTF-8 at byte %zu (0x%02X)", name, bad, (unsigned) (unsigned char) s[bad]);
+        }
+        if (mode == CSN_SBYTES_CODEPOINTS) out_len = count;
     }
-    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) len };
+    if (out_len > UINT32_MAX) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s: a string of %zu bytes is longer than an array axis", name, len);
+    }
+    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) out_len };
     CSNARR_RES r = prepare_output(csound, &p->h, perf_h, reg, p->handle, 1U, shape, CSN_REAL, NULL, 0, CSN_ALIAS_REFUSE);
     pres->locked |= r.locked;
     if (r.err != OK) return r.err;
-    for (size_t i = 0; i < len; i++) p->handle->data[i] = (double) (unsigned char) s[i];
+    if (mode == CSN_SBYTES_CODEPOINTS) {
+        uint32_t cp;
+        size_t i = 0;
+        for (size_t j = 0; j < out_len; j++) {
+            i += utf8_sequence((const unsigned char *) s + i, len - i, &cp);
+            p->handle->data[j] = (double) cp;
+        }
+    } else {
+        for (size_t i = 0; i < len; i++) p->handle->data[i] = (double) (unsigned char) s[i];
+    }
     return OK;
 }
 
-static int32_t toascii_helper(CSOUND *csound, CSN_TOASCII_SS *p, bool is_perf) {
+static int32_t sbytes_helper(CSOUND *csound, CSN_TOASCII_SS *p, bool is_perf, CSN_SBYTES_MODE mode, const char *name) {
     OPDS *perf_h = is_perf ? &p->h : NULL;
     CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
     CHECK_REGISTRY(csound, perf_h, reg);
@@ -4967,7 +5062,7 @@ static int32_t toascii_helper(CSOUND *csound, CSN_TOASCII_SS *p, bool is_perf) {
     }
     CSNARR_RES pres = {0};
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
-    int32_t res = toascii_fill(csound, perf_h, reg, p, &pres);
+    int32_t res = sbytes_fill(csound, perf_h, reg, p, &pres, mode, name);
     if (pres.locked) csn_unlock(csound, reg);
     return res;
 }
@@ -4977,41 +5072,65 @@ int32_t csnstrings_toascii_deinit(CSOUND *csound, CSN_TOASCII_SS *p) {
     return OK;
 }
 
-int32_t csnstrings_toascii_ss(CSOUND *csound, CSN_TOASCII_SS *p) {
-    return toascii_helper(csound, p, false);
+#define SBYTES_WRAPPERS(name, mode, label)                                        \
+    int32_t csnstrings_##name##_ss(CSOUND *csound, CSN_TOASCII_SS *p) {           \
+        return sbytes_helper(csound, p, false, mode, label);                      \
+    }                                                                             \
+    int32_t csnstrings_##name##_ss_k_init(CSOUND *csound, CSN_TOASCII_SS *p) {    \
+        return sbytes_helper(csound, p, false, mode, label);                      \
+    }                                                                             \
+    int32_t csnstrings_##name##_ss_k(CSOUND *csound, CSN_TOASCII_SS *p) {         \
+        return sbytes_helper(csound, p, true, mode, label);                       \
+    }
+
+SBYTES_WRAPPERS(toascii, CSN_SBYTES_RAW, "csnstrtoascii")
+SBYTES_WRAPPERS(encode, CSN_SBYTES_UTF8, "csnstrencode")
+SBYTES_WRAPPERS(tocodepoints, CSN_SBYTES_CODEPOINTS, "csnstrtocodepoints")
+
+/* The way back, from a real 1-D array: ASCII codes 1 to 127, UTF-8 bytes 1
+   to 255 that make UTF-8, or code points 1 to U+10FFFF but the surrogates.
+   An empty array gives "". A bad value is named with its index. */
+static bool is_whole_in(double v, double lo, double hi) {
+    return isfinite(v) && trunc(v) == v && v >= lo && v <= hi;
 }
 
-int32_t csnstrings_toascii_ss_k_init(CSOUND *csound, CSN_TOASCII_SS *p) {
-    return toascii_helper(csound, p, false);
-}
-
-int32_t csnstrings_toascii_ss_k(CSOUND *csound, CSN_TOASCII_SS *p) {
-    return toascii_helper(csound, p, true);
-}
-
-/* csnstrfromascii: a real 1-D array of ASCII codes, as csnstrchr takes them,
-   as one S; an empty array gives "". The k form writes again when the array
-   changed. */
-static int32_t fromascii_into(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *src, CSN_STRDATA *buffer) {
+static int32_t sbytes_into(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *src, CSN_STRDATA *buffer, CSN_SBYTES_MODE mode, const char *name) {
+    static const char *what[] = { "ASCII codes, whole numbers from 1 to 127", "UTF-8 bytes, whole numbers from 1 to 255", "code points, whole numbers from 1 to 1114111 but the surrogates 55296 to 57343" };
     if (src->itype != CSN_REAL) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnstrfromascii takes a real array of ASCII codes");
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s takes a real array of %s", name, what[mode]);
     }
     if (src->ndim > 1U) {
-        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnstrfromascii takes a 1-D array, got %u dimensions", src->ndim);
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s takes a 1-D array, got %u dimensions", name, src->ndim);
     }
+    size_t total = 0;
     for (size_t i = 0; i < src->size; i++) {
-        if (!is_ascii_code(src->data[i])) {
-            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnstrfromascii takes ASCII codes, whole numbers from 1 to 127, got %g at index %zu", src->data[i], i);
+        double v = src->data[i];
+        bool ok = mode == CSN_SBYTES_RAW ? is_ascii_code(v)
+                : mode == CSN_SBYTES_UTF8 ? is_whole_in(v, 1.0, 255.0)
+                : is_whole_in(v, 1.0, 1114111.0) && !(v >= 55296.0 && v <= 57343.0);
+        if (!ok) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s takes %s, got %.15g at index %zu", name, what[mode], v, i);
+        }
+        total += mode == CSN_SBYTES_CODEPOINTS ? utf8_length((uint32_t) v) : 1;
+    }
+    int32_t res = ensure_string_capacity(csound, perf_h, buffer, total + 1, false);
+    if (res != OK) return res;
+    size_t o = 0;
+    for (size_t i = 0; i < src->size; i++) {
+        if (mode == CSN_SBYTES_CODEPOINTS) o += utf8_write(buffer->data + o, (uint32_t) src->data[i]);
+        else buffer->data[o++] = (char) (unsigned char) src->data[i];
+    }
+    buffer->data[o] = '\0';
+    if (mode == CSN_SBYTES_UTF8) {
+        size_t bad = 0;
+        if (utf8_count(buffer->data, o, &bad) == SIZE_MAX) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s: the bytes are not UTF-8 at index %zu (0x%02X)", name, bad, (unsigned) (unsigned char) buffer->data[bad]);
         }
     }
-    int32_t res = ensure_string_capacity(csound, perf_h, buffer, src->size + 1, false);
-    if (res != OK) return res;
-    for (size_t i = 0; i < src->size; i++) buffer->data[i] = (char) src->data[i];
-    buffer->data[src->size] = '\0';
     return OK;
 }
 
-static int32_t fromascii_helper(CSOUND *csound, CSN_FROMASCII_SS *p, bool is_perf, bool is_k_init) {
+static int32_t sbytes_back_helper(CSOUND *csound, CSN_FROMASCII_SS *p, bool is_perf, bool is_k_init, CSN_SBYTES_MODE mode, const char *name) {
     OPDS *perf_h = is_perf ? &p->h : NULL;
     CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
     CHECK_REGISTRY(csound, perf_h, reg);
@@ -5024,7 +5143,7 @@ static int32_t fromascii_helper(CSOUND *csound, CSN_FROMASCII_SS *p, bool is_per
     pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
     int32_t res = OK;
     if (is_perf && CAN_REUSE_LAST_RESULT(&p->k_data, p->source_handle, NULL)) goto done;
-    res = fromascii_into(csound, perf_h, p->source_handle, &p->buffer);
+    res = sbytes_into(csound, perf_h, p->source_handle, &p->buffer, mode, name);
     if (res != OK) goto done;
     COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
     if (is_perf || is_k_init) PUBLISH_DERIVED_RESULT(&p->k_data, p->source_handle, NULL);
@@ -5038,14 +5157,17 @@ int32_t csnstrings_fromascii_deinit(CSOUND *csound, CSN_FROMASCII_SS *p) {
     return OK;
 }
 
-int32_t csnstrings_fromascii_ss(CSOUND *csound, CSN_FROMASCII_SS *p) {
-    return fromascii_helper(csound, p, false, false);
-}
+#define SBYTES_BACK_WRAPPERS(name, mode, label)                                     \
+    int32_t csnstrings_##name##_ss(CSOUND *csound, CSN_FROMASCII_SS *p) {           \
+        return sbytes_back_helper(csound, p, false, false, mode, label);            \
+    }                                                                               \
+    int32_t csnstrings_##name##_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p) {    \
+        return sbytes_back_helper(csound, p, false, true, mode, label);             \
+    }                                                                               \
+    int32_t csnstrings_##name##_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p) {         \
+        return sbytes_back_helper(csound, p, true, false, mode, label);             \
+    }
 
-int32_t csnstrings_fromascii_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p) {
-    return fromascii_helper(csound, p, false, true);
-}
-
-int32_t csnstrings_fromascii_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p) {
-    return fromascii_helper(csound, p, true, false);
-}
+SBYTES_BACK_WRAPPERS(fromascii, CSN_SBYTES_RAW, "csnstrfromascii")
+SBYTES_BACK_WRAPPERS(decode, CSN_SBYTES_UTF8, "csnstrdecode")
+SBYTES_BACK_WRAPPERS(fromcodepoints, CSN_SBYTES_CODEPOINTS, "csnstrfromcodepoints")

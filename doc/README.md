@@ -167,6 +167,10 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrord](csnstrord.md) - the byte of a one-byte string
 - [csnstrtoascii](csnstrtoascii.md) - the bytes of a string as a real array
 - [csnstrfromascii](csnstrfromascii.md) - a string from an array of ASCII codes
+- [csnstrencode](csnstrencode.md) - the UTF-8 bytes of a string as a real array
+- [csnstrdecode](csnstrdecode.md) - a string from an array of UTF-8 bytes
+- [csnstrtocodepoints](csnstrtocodepoints.md) - the code points of a UTF-8 string as a real array
+- [csnstrfromcodepoints](csnstrfromcodepoints.md) - a UTF-8 string from an array of code points
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

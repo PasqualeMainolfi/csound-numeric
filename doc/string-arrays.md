@@ -68,7 +68,10 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnstrrpartition](csnstrrpartition.md) into head, separator and tail.
 - Bytes of one `S`: [csnstrchr](csnstrchr.md) and [csnstrord](csnstrord.md)
   for one character, [csnstrtoascii](csnstrtoascii.md) and
-  [csnstrfromascii](csnstrfromascii.md) for a whole string.
+  [csnstrfromascii](csnstrfromascii.md) for a whole string; UTF-8 with
+  [csnstrencode](csnstrencode.md) and [csnstrdecode](csnstrdecode.md), and
+  characters with [csnstrtocodepoints](csnstrtocodepoints.md) and
+  [csnstrfromcodepoints](csnstrfromcodepoints.md).
 - On one `S`, the queries, [csnstrsubstr](csnstrsubstr.md) and the case maps
   give a number or an `S`, as on Python's `str`; an `S` has no rate, so their
   k forms take a trigger and compute at init too.

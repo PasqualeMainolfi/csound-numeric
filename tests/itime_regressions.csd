@@ -1316,6 +1316,19 @@ instr 3
     iQSHigh:CsnArr = csnstrtoascii("é")
     iQS += csnsum(iQSHigh) == 364 ? 0 : 1
     iQS += strcmp(SQS9, "Hi") == 0 ? 0 : 1
+    ; UTF-8 both ways, as Python's encode and decode, and the code points:
+    ; "é€𝄞" holds 2, 3 and 4 bytes, U+00E9, U+20AC and U+1D11E
+    iQSUtf:CsnArr = csnstrencode("é€𝄞")
+    iQS += csnsize(iQSUtf) == 9 && csnsum(iQSUtf) == 1579 ? 0 : 1
+    iQSCp:CsnArr = csnstrtocodepoints("é€𝄞")
+    iQS += csnsize(iQSCp) == 3 && csnsum(iQSCp) == 127667 ? 0 : 1
+    SQSUtf = csnstrdecode(iQSUtf)
+    SQSCp = csnstrfromcodepoints(iQSCp)
+    iQS += strcmp(SQSUtf, "é€𝄞") == 0 && strcmp(SQSCp, "é€𝄞") == 0 ? 0 : 1
+    iQSEdges:CsnArr = csnfromarray(array(127, 128, 2047, 2048, 65535, 65536, 1114111))
+    SQSEdges = csnstrfromcodepoints(iQSEdges)
+    iQSEdgeBytes:CsnArr = csnstrencode(SQSEdges)
+    iQS += csnsize(iQSEdgeBytes) == 19 ? 0 : 1
     iQSNone:CsnArr = csnstrtoascii("")
     SQS10 = csnstrfromascii(iQSNone)
     iQS += strcmp(SQS10, "") == 0 ? 0 : 1
@@ -5637,6 +5650,7 @@ e
 ; csnstrstartswith.ss csnstrendswith.ss csnstrfind.ss csnstrrfind.ss csnstrsubstr.ss
 ; csnstrupper.ss csnstrlower.ss csnstrcapitalize.ss csnstrswapcase.ss csnstrtitle.ss
 ; csnstrchr.ss csnstrord.ss csnstrtoascii.ss csnstrfromascii.ss
+; csnstrencode.ss csnstrdecode.ss csnstrtocodepoints.ss csnstrfromcodepoints.ss
 ; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
 ; csnstrcapitalize csnstrcapitalize.in
 ; csnstrswapcase csnstrswapcase.in

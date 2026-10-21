@@ -334,7 +334,8 @@ queries `csnstrlen`, `csnstrfind`, `csnstrrfind`, `csnstrstartswith`,
 `csnnumtostr`, the join `csnstrjoin` (to one `S`), the splits `csnstrsplit`,
 `csnstrrsplit`, `csnstrpartition` and `csnstrrpartition` (from one `S`), the
 byte conversions `csnstrchr`, `csnstrord`, `csnstrtoascii` and
-`csnstrfromascii`, the rate casts `csni` and `csnk`, and
+`csnstrfromascii`, the UTF-8 ones `csnstrencode`, `csnstrdecode`,
+`csnstrtocodepoints` and `csnstrfromcodepoints`, the rate casts `csni` and `csnk`, and
 `csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
 string has no k form, so their k forms take an explicit trigger. Each element
 keeps the buffer of its string, so on a [real-time path](#real-time-paths) a k
@@ -841,6 +842,8 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnstrpartition`, `csnstrrpartition` | `s.partition(sep)`, `s.rpartition(sep)` | On one `S`, to a `CsnStr` of 3 where NumPy gives three arrays. `sep` not empty. |
 | `csnstrchr`, `csnstrord` | `chr(n)`, `ord(c)` | On one `S`: chr takes ASCII codes 1 to 127 only, ord a one-byte string, 0 to 255. |
 | `csnstrtoascii`, `csnstrfromascii` | `list(s.encode())`, `bytes(codes).decode()` | One `S` to its bytes as a real array (0 to 255) and back from ASCII codes (1 to 127). |
+| `csnstrencode`, `csnstrdecode` | `s.encode()`, `bytes(b).decode()` | UTF-8 only, Python's strict rules (no overlong forms, no surrogates, U+10FFFF at most); the first bad byte is named. No NUL. |
+| `csnstrtocodepoints`, `csnstrfromcodepoints` | `[ord(c) for c in s]`, `''.join(map(chr, p))` | Code points of a UTF-8 `S`, 1 to U+10FFFF, no surrogates. |
 | `csnnumtostr` | `a.astype(str)` | Python's `repr`: the shortest digits that read back, `"1.0"`, `"1e-05"`, `"1e+16"`; the point `.` whatever the locale. Real arrays only. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |

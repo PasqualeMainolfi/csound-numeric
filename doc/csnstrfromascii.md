@@ -13,7 +13,9 @@ as [csnstrchr](csnstrchr.md) takes them; a code out of that range, a complex
 array or one of more dimensions is refused, the message naming the first bad
 code and its index.
 
-[csnstrtoascii](csnstrtoascii.md) goes the other way.
+[csnstrtoascii](csnstrtoascii.md) goes the other way. For the bytes of any
+UTF-8 string take [csnstrdecode](csnstrdecode.md), for code points
+[csnstrfromcodepoints](csnstrfromcodepoints.md).
 
 The k form takes a trigger and writes the string again when the array changed;
 like `strcpyk`, its output takes the room it needs at perf.
@@ -80,6 +82,7 @@ IBM
 ## See also
 
 * [csnstrtoascii](csnstrtoascii.md)
+* [csnstrdecode](csnstrdecode.md)
 * [csnstrchr](csnstrchr.md)
 * [string arrays](string-arrays.md)
 

@@ -602,7 +602,7 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_s_query_error.csd")
         set_tests_properties(csnum_strings_s_query_error PROPERTIES
-            PASS_REGULAR_EXPRESSION "instr 1 .*from 1 to 127, got 0.*instr 2 .*from 1 to 127, got 65.5.*instr 3 .*one byte, got 2 bytes.*instr 4 .*got 200 at index 1.*instr 5 .*takes a real array.*instr 6 .*must not be greater than its end.*csnum S queries alive after every refusal"
+            PASS_REGULAR_EXPRESSION "instr 1 .*from 1 to 127, got 0.*instr 2 .*from 1 to 127, got 65.5.*instr 3 .*one byte, got 2 bytes.*instr 4 .*got 200 at index 1.*instr 5 .*takes a real array.*instr 6 .*must not be greater than its end.*instr 7 .*not UTF-8 at index 1.*instr 8 .*got 55296 at index 0.*instr 9 .*not UTF-8 at byte 0.*instr 10 .*not UTF-8 at index 0.*instr 11 .*not UTF-8 at index 0.*instr 12 .*not UTF-8 at index 0.*instr 13 .*not UTF-8 at index 1.*instr 14 .*csnstrencode: the string is not UTF-8 at byte 1.*instr 15 .*not UTF-8 at index 0.*csnum S queries alive after every refusal"
             TIMEOUT 60)
         add_test(
             NAME csnum_krate_file_reload_regression

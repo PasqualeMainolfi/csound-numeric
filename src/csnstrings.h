@@ -895,5 +895,17 @@ int32_t csnstrings_fromascii_deinit(CSOUND *csound, CSN_FROMASCII_SS *p);
 int32_t csnstrings_fromascii_ss(CSOUND *csound, CSN_FROMASCII_SS *p);
 int32_t csnstrings_fromascii_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p);
 int32_t csnstrings_fromascii_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p);
+int32_t csnstrings_encode_ss(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_encode_ss_k_init(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_encode_ss_k(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_tocodepoints_ss(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_tocodepoints_ss_k_init(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_tocodepoints_ss_k(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_decode_ss(CSOUND *csound, CSN_FROMASCII_SS *p);
+int32_t csnstrings_decode_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p);
+int32_t csnstrings_decode_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p);
+int32_t csnstrings_fromcodepoints_ss(CSOUND *csound, CSN_FROMASCII_SS *p);
+int32_t csnstrings_fromcodepoints_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p);
+int32_t csnstrings_fromcodepoints_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p);
 
 #endif

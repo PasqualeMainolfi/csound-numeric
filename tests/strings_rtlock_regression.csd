@@ -267,6 +267,10 @@ instr 1
     kOrdChr = csnstrord(SChrK, kOne)
     BytesK:CsnArr = csnstrtoascii(Sx, kOne)
     SBackK = csnstrfromascii(BytesK, kOne)
+    UtfK:CsnArr = csnstrencode(Sx, kOne)
+    SUtfK = csnstrdecode(UtfK, kOne)
+    CpK:CsnArr = csnstrtocodepoints(Sx, kOne)
+    SCpK = csnstrfromcodepoints(CpK, kOne)
     ; a shorter piece ends inside the buffer a longer one sized
     if kc % 2 == 1 then
         SPieceSrc strcpyk "a,b"
@@ -442,6 +446,8 @@ instr 1
         kBad += strcmpk(SChrK, "Z") != 0 ? 1 : 0
         kBad += kOrdChr != 90 ? 1 : 0
         kBad += strcmpk(SBackK, "z") != 0 ? 1 : 0
+        kBad += strcmpk(SUtfK, "z") != 0 ? 1 : 0
+        kBad += strcmpk(SCpK, "z") != 0 ? 1 : 0
         S32 = Wide[kI0]
         kBad += strcmpk(S32, "ab  ") != 0 ? 1 : 0
         S33 = Right[kI0]
