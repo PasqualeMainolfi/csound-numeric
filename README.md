@@ -335,7 +335,12 @@ queries `csnstrlen`, `csnstrfind`, `csnstrrfind`, `csnstrstartswith`,
 `csnstrrsplit`, `csnstrpartition` and `csnstrrpartition` (from one `S`), the
 byte conversions `csnstrchr`, `csnstrord`, `csnstrtoascii` and
 `csnstrfromascii`, the UTF-8 ones `csnstrencode`, `csnstrdecode`,
-`csnstrtocodepoints` and `csnstrfromcodepoints`, the rate casts `csni` and `csnk`, and
+`csnstrtocodepoints` and `csnstrfromcodepoints`, the lists `csnstraslist`
+and `csnlistasstr`, the number bases
+`csntobinary`, `csnfrombinary`, `csntohex`, `csnfromhex`, `csnbinstrtoarr`
+and `csnhexstrtoarr`, the base64
+`csntobase64` and `csnfrombase64`, the rate casts
+`csni` and `csnk`, and
 `csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
 string has no k form, so their k forms take an explicit trigger. Each element
 keeps the buffer of its string, so on a [real-time path](#real-time-paths) a k
@@ -844,6 +849,11 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnstrtoascii`, `csnstrfromascii` | `list(s.encode())`, `bytes(codes).decode()` | One `S` to its bytes as a real array (0 to 255) and back from ASCII codes (1 to 127). |
 | `csnstrencode`, `csnstrdecode` | `s.encode()`, `bytes(b).decode()` | UTF-8 only, Python's strict rules (no overlong forms, no surrogates, U+10FFFF at most); the first bad byte is named. No NUL. |
 | `csnstrtocodepoints`, `csnstrfromcodepoints` | `[ord(c) for c in s]`, `''.join(map(chr, p))` | Code points of a UTF-8 `S`, 1 to U+10FFFF, no surrogates. |
+| `csnstraslist`, `csnlistasstr` | `np.array(list(s))`, `sep.join(map(str, a.tolist()))` | One UTF-8 `S` split by code point, text that is not UTF-8 refused; a real 1-D array written as `csnnumtostr` writes each number (`"1.0"`, `"0.1"`) and joined by `sep`. `""` and an empty array give an empty result. |
+| `csntobinary`, `csntohex` | `np.binary_repr(n, width)`, `np.base_repr(n, 16).zfill(width)` | `width` optional. Whole numbers from 0 to 2^64 excluded: a negative one is refused, where `binary_repr` writes `-101`, or two's complement with a width. Hex upper case, no prefix; a width shorter than the digits keeps them all, where `binary_repr` raises. A `CsnArr` goes elementwise to a `CsnStr`. |
+| `csnfrombinary`, `csnfromhex` | `int(s, 2)`, `int(s, 16)` | An optional `0b` / `0x` prefix, then digits only: no sign, blank or `_`. Below 2^64, above 2^53 to the nearest double. A `CsnStr` goes elementwise to a real `CsnArr`. |
+| `csnbinstrtoarr`, `csnhexstrtoarr` | `np.array(list(s.removeprefix('0b')), float)`, `np.array(list(s.removeprefix('0x')))` | One `S` split into its digits, an optional `0b` / `0x` prefix skipped (`0B` / `0X` too); binary to a real array of 0 and 1, hex to a `CsnStr` keeping each digit's case. `""` gives an empty array; a non-digit is refused. |
+| `csntobase64`, `csnfrombase64` | `base64.b64encode(a.astype(np.uint8).tobytes())`, `np.frombuffer(base64.b64decode(s), np.uint8)` | One `S` or a real 1-D array of bytes (0 to 255) to padded RFC 4648 text, and back to an `S` (no zero byte) or an array. Decoding is strict: no blank, `=` only at the end, the unused bits zero (`b64decode` takes `"TWF="`); no URL-safe alphabet. |
 | `csnnumtostr` | `a.astype(str)` | Python's `repr`: the shortest digits that read back, `"1.0"`, `"1e-05"`, `"1e+16"`; the point `.` whatever the locale. Real arrays only. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |

@@ -518,7 +518,22 @@ typedef struct {
     cs_float *trig;
 } CSN_STRINGORD;
 
+typedef struct {
+    OPDS h;
+    // outputs
+    STRINGDAT *string_out;
+    // inputs
+    CSN_ARRAY *source_handle;
+    STRINGDAT *sep;
+    cs_float *trig;
+    // private
+    K_DATA k_data;
+    CSN_STRDATA buffer;
+} CSN_LISTASSTRING;
 
+
+void COPY_STRING_TO_STRINGDAT(CSOUND *csound, OPDS *h, STRINGDAT *dest, char *source);
+bool IS_VALID_STRINGDAT(const STRINGDAT *value);
 int32_t ensure_string_capacity(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *slot, size_t bytes, bool rt_locked);
 int32_t string_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op, bool perf_redoes);
 int32_t string_binop_hh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a, CSN_ARRAY *b, K_DATA *k_data, CSN_STR_BINOP op);
@@ -526,6 +541,8 @@ int32_t addstring_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
 int32_t addstring_hs_sh_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, STRINGDAT *value, K_DATA *k_data, bool is_left);
 int32_t strmul_hs_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data, bool perf_redoes);
 int32_t strmul_hs_perf(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *source_arr, cs_float *count, K_DATA *k_data);
+int32_t load_s_buffer(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *buffer, const char *s, size_t room);
+const char *slot_string(const CSN_STRDATA *slot);
 
 int32_t string_addmul_ss_helper(CSOUND *csound, OPDS *h, bool is_perf, CSN_STRDATA *buffer, STRINGDAT *out, const STRINGDAT *a, const STRINGDAT *b, const cs_float *count, bool is_add);
 int32_t string_addmul_ss_op(CSOUND *csound, OPDS *h, bool is_perf, bool every_pass, K_DATA *k_data, CSN_STRDATA *buffer, STRINGDAT *out, const STRINGDAT *a, const STRINGDAT *b, const cs_float *count, bool is_add);
@@ -907,5 +924,11 @@ int32_t csnstrings_decode_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p);
 int32_t csnstrings_fromcodepoints_ss(CSOUND *csound, CSN_FROMASCII_SS *p);
 int32_t csnstrings_fromcodepoints_ss_k_init(CSOUND *csound, CSN_FROMASCII_SS *p);
 int32_t csnstrings_fromcodepoints_ss_k(CSOUND *csound, CSN_FROMASCII_SS *p);
+
+int32_t csnstrings_straslist(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_straslist_k(CSOUND *csound, CSN_TOASCII_SS *p);
+int32_t csnstrings_listasstr_deinit(CSOUND *csound, CSN_LISTASSTRING *p);
+int32_t csnstrings_listasstr(CSOUND *csound, CSN_LISTASSTRING *p);
+int32_t csnstrings_listasstr_k(CSOUND *csound, CSN_LISTASSTRING *p);
 
 #endif

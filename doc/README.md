@@ -171,6 +171,16 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnstrdecode](csnstrdecode.md) - a string from an array of UTF-8 bytes
 - [csnstrtocodepoints](csnstrtocodepoints.md) - the code points of a UTF-8 string as a real array
 - [csnstrfromcodepoints](csnstrfromcodepoints.md) - a UTF-8 string from an array of code points
+- [csnstraslist](csnstraslist.md) - the characters of a string as a string array
+- [csnlistasstr](csnlistasstr.md) - the numbers of an array as one string
+- [csntobinary](csntobinary.md) - the binary digits of a whole number
+- [csnfrombinary](csnfrombinary.md) - the number of a string of binary digits
+- [csntohex](csntohex.md) - the hex digits of a whole number
+- [csnfromhex](csnfromhex.md) - the number of a string of hex digits
+- [csnbinstrtoarr](csnbinstrtoarr.md) - the binary digits of a string as an array of 0 and 1
+- [csnhexstrtoarr](csnhexstrtoarr.md) - the hex digits of a string as a string array
+- [csntobase64](csntobase64.md) - bytes to base64 text
+- [csnfrombase64](csnfrombase64.md) - base64 text to bytes
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

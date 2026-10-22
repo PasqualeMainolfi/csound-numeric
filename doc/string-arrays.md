@@ -72,6 +72,16 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnstrencode](csnstrencode.md) and [csnstrdecode](csnstrdecode.md), and
   characters with [csnstrtocodepoints](csnstrtocodepoints.md) and
   [csnstrfromcodepoints](csnstrfromcodepoints.md).
+- Lists: [csnstraslist](csnstraslist.md) splits one `S` into its characters,
+  [csnlistasstr](csnlistasstr.md) writes the numbers of a real array as one
+  `S`, joined by a separator.
+- Number bases: [csntobinary](csntobinary.md) and [csntohex](csntohex.md)
+  write whole numbers as digits, [csnfrombinary](csnfrombinary.md) and
+  [csnfromhex](csnfromhex.md) read them back, on one value or elementwise;
+  [csnbinstrtoarr](csnbinstrtoarr.md) and [csnhexstrtoarr](csnhexstrtoarr.md)
+  split one `S` into its digits.
+- base64: [csntobase64](csntobase64.md) writes the bytes of one `S` or of an
+  array as text, [csnfrombase64](csnfrombase64.md) reads them back.
 - On one `S`, the queries, [csnstrsubstr](csnstrsubstr.md) and the case maps
   give a number or an `S`, as on Python's `str`; an `S` has no rate, so their
   k forms take a trigger and compute at init too.

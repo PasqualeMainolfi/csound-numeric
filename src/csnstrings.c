@@ -60,7 +60,7 @@ int32_t csn_str_check(CSN_STR_WRITER *w, const CSN_STRDATA *slot, const char *va
     return w->err = refuse_string_growth(w->csound, w->perf_h, bytes, slot->capacity);
 }
 
-static bool IS_VALID_STRINGDAT(const STRINGDAT *value) {
+bool IS_VALID_STRINGDAT(const STRINGDAT *value) {
     return value != NULL && value->data != NULL;
 }
 
@@ -287,7 +287,7 @@ done:
 
 // GET AND SET
 
-static void COPY_STRING_TO_STRINGDAT(CSOUND *csound, OPDS *h, STRINGDAT *dest, char *source) {
+void COPY_STRING_TO_STRINGDAT(CSOUND *csound, OPDS *h, STRINGDAT *dest, char *source) {
     char empty[1] = "";
     char *item = source != NULL ? source : empty;
     STRINGDAT view = { item, strlen(item) + 1, -1 };
@@ -2641,7 +2641,7 @@ static int32_t read_fill(CSOUND *csound, OPDS *perf_h, const STRINGDAT *fill, ch
     return OK;
 }
 
-static const char *slot_string(const CSN_STRDATA *slot) {
+const char *slot_string(const CSN_STRDATA *slot) {
     return slot->data != NULL ? slot->data : "";
 }
 
@@ -4528,7 +4528,7 @@ int32_t csnstrings_strrpartition_k(CSOUND *csound, CSN_REDUCTION_STRING_H *p) {
    every use of that literal. Like strcpyk, an S output grows at perf as it
    needs: there is no slot to reserve. room is the most the kernel holds at
    once, terminator included. */
-static int32_t load_s_buffer(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *buffer, const char *s, size_t room) {
+int32_t load_s_buffer(CSOUND *csound, OPDS *perf_h, CSN_STRDATA *buffer, const char *s, size_t room) {
     int32_t res = ensure_string_capacity(csound, perf_h, buffer, room, false);
     if (res != OK) return res;
     memcpy(buffer->data, s, strlen(s) + 1);
@@ -5171,3 +5171,153 @@ int32_t csnstrings_fromascii_deinit(CSOUND *csound, CSN_FROMASCII_SS *p) {
 SBYTES_BACK_WRAPPERS(fromascii, CSN_SBYTES_RAW, "csnstrfromascii")
 SBYTES_BACK_WRAPPERS(decode, CSN_SBYTES_UTF8, "csnstrdecode")
 SBYTES_BACK_WRAPPERS(fromcodepoints, CSN_SBYTES_CODEPOINTS, "csnstrfromcodepoints")
+
+
+/* One S to a CsnStr of its characters, as Python's list(s): UTF-8 is split
+   by code point, and text that is not UTF-8 is refused at the byte where it
+   stops being so. A string carries no version, so the k form compares it
+   with the copy k_data keeps and recomputes only when it changed or
+   something else wrote into the output. */
+static int32_t stringaslist(CSOUND *csound, CSN_TOASCII_SS *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
+    CHECK_REGISTRY(csound, perf_h, reg);
+    if (is_perf) CHECK_KTRIG(p->trig);
+    if (!IS_VALID_STRINGDAT(p->string_in)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+
+    const char *s = p->string_in->data;
+    size_t len = strlen(s);
+    size_t bad = 0;
+    size_t count = utf8_count(s, len, &bad);
+    if (count == SIZE_MAX) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnstraslist: the string is not UTF-8 at byte %zu (0x%02X)", bad, (unsigned) (unsigned char) s[bad]);
+    }
+    if (count > UINT32_MAX) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] csnstraslist: %zu characters are more than an array axis holds", count);
+    }
+
+    if (!is_perf) {
+        stamp_globals(csound, &p->h);
+        p->k_data.registry = reg;
+    }
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->handle }, 1);
+
+    /* The output stands in for the source: its version moves when anything
+       else writes into it. */
+    if (is_perf && CAN_REUSE_STRING_ELEMENTWISE(&p->k_data, p->handle, NULL, NULL, s, NULL)) goto done;
+
+    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) count };
+    CSNARR_RES r = prepare_output(csound, &p->h, perf_h, reg, p->handle, 1U, shape, CSN_STRING, NULL, 0, CSN_ALIAS_REFUSE);
+    pres.locked |= r.locked;
+    res = r.err;
+    if (res != OK) goto done;
+
+    CSN_STR_WRITER w = csn_str_writer(csound, perf_h, p->handle);
+    uint32_t cp;
+    for (size_t i = 0, o = 0; i < count; i++) {
+        size_t n = utf8_sequence((const unsigned char *) s + o, len - o, &cp);
+        char ch[5];
+        memcpy(ch, s + o, n);
+        ch[n] = '\0';
+        res = csn_str_write(&w, &p->handle->sdata[i], ch, n);
+        if (res != OK) goto done;
+        o += n;
+    }
+
+    PUBLISH_STRING_ELEMENTWISE(csound, &p->k_data, p->handle, NULL, NULL, s, NULL, !p->handle->rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+/* A real 1-D array to one S, its numbers joined by sep, as Python's
+   sep.join(map(str, a)): each number as csnnumtostr writes it ("1.0",
+   "0.1", "1e+16"). The S takes the room it needs, at perf too, as strcpyk
+   does. The k form computes again only when the array or sep changed. */
+static int32_t listasstring(CSOUND *csound, CSN_LISTASSTRING *p, bool is_perf) {
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
+    CHECK_REGISTRY(csound, perf_h, reg);
+    if (is_perf) CHECK_KTRIG(p->trig);
+    if (!IS_VALID_STRINGDAT(p->sep)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string (separator)");
+    }
+    if (!is_perf) {
+        stamp_globals(csound, &p->h);
+        p->k_data.registry = reg;
+    }
+
+    const char *sep = p->sep->data;
+    size_t len_sep = strlen(sep);
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle }, 1);
+
+    const CSN_ARRAY *src = p->source_handle;
+    if (src->itype != CSN_REAL) {
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnlistasstr takes a real array: write a complex one as two, through csnreal and csnimag");
+        goto done;
+    }
+    if (src->ndim > 1U) {
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnlistasstr takes a 1-D array, got %u dimensions", src->ndim);
+        goto done;
+    }
+
+    if (is_perf && CAN_REUSE_STRING_ELEMENTWISE(&p->k_data, src, NULL, NULL, sep, NULL)) goto done;
+
+    /* room for the longest number in every element, so one pass writes */
+    size_t per_item = (CSN_NUMBER_STRING_BYTES - 1) + len_sep;
+    if (len_sep > SIZE_MAX - CSN_NUMBER_STRING_BYTES || (src->size > 0 && src->size > (SIZE_MAX - 1) / per_item)) {
+        res = CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnlistasstr: %zu numbers give a text longer than a string can hold", src->size);
+        goto done;
+    }
+    res = ensure_string_capacity(csound, perf_h, &p->buffer, src->size * per_item + 1, false);
+    if (res != OK) goto done;
+
+    size_t o = 0;
+    for (size_t i = 0; i < src->size; i++) {
+        if (i > 0) {
+            memcpy(p->buffer.data + o, sep, len_sep);
+            o += len_sep;
+        }
+        char str[CSN_NUMBER_STRING_BYTES];
+        number_to_string(csound, src->data[i], str);
+        size_t n = strlen(str);
+        memcpy(p->buffer.data + o, str, n);
+        o += n;
+    }
+    p->buffer.data[o] = '\0';
+    COPY_STRING_TO_STRINGDAT(csound, &p->h, p->string_out, p->buffer.data);
+    PUBLISH_STRING_ELEMENTWISE(csound, &p->k_data, src, NULL, NULL, sep, NULL, !src->rt_locked);
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnstrings_straslist(CSOUND *csound, CSN_TOASCII_SS *p) {
+    return stringaslist(csound, p, false);
+}
+
+int32_t csnstrings_straslist_k(CSOUND *csound, CSN_TOASCII_SS *p) {
+    return stringaslist(csound, p, true);
+}
+
+int32_t csnstrings_listasstr_deinit(CSOUND *csound, CSN_LISTASSTRING *p) {
+    csn_str_release(csound, &p->buffer);
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnstrings_listasstr(CSOUND *csound, CSN_LISTASSTRING *p) {
+    return listasstring(csound, p, false);
+}
+
+int32_t csnstrings_listasstr_k(CSOUND *csound, CSN_LISTASSTRING *p) {
+    return listasstring(csound, p, true);
+}
