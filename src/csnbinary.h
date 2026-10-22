@@ -4,21 +4,25 @@
 #include "csnregistry.h"
 #include "csnum.h"
 #include <csdl.h>
-#include <stddef.h>
 #include <stdint.h>
 
 
 typedef enum {
-    CSN_UINT8,
+    CSN_UINT8 = 0,
     CSN_INT8,
-    CSN_UINT16,
-    CSN_INT16,
-    CSN_UINT32,
-    CSN_INT32,
-    CSN_FLOAT32,
-    CSN_FLOAT64
+    CSN_UINT16LE,
+    CSN_UINT16BE,
+    CSN_INT16LE,
+    CSN_INT16BE,
+    CSN_UINT32LE,
+    CSN_UINT32BE,
+    CSN_INT32LE,
+    CSN_INT32BE,
+    CSN_FLOAT32LE,
+    CSN_FLOAT32BE,
+    CSN_FLOAT64LE,
+    CSN_FLOAT64BE
 } CSN_BINDTYPE;
-
 
 typedef struct {
     OPDS h;
@@ -151,11 +155,11 @@ int32_t csnbinary_frombase64_ss(CSOUND *csound, CSN_BASE64CONV_STR *p);
 int32_t csnbinary_frombase64_ss_k_init(CSOUND *csound, CSN_BASE64CONV_STR *p);
 int32_t csnbinary_frombase64_ss_k(CSOUND *csound, CSN_BASE64CONV_STR *p);
 
+int32_t csnbinary_tobuffer_deinit(CSOUND *csound, CSN_BYTEBUFFER *p);
 int32_t csnbinary_tobuffer(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_tobuffer_k_init(CSOUND *csound, CSN_BYTEBUFFER *p);
 int32_t csnbinary_tobuffer_k(CSOUND *csound, CSN_BYTEBUFFER *p);
+int32_t csnbinary_frombuffer_deinit(CSOUND *csound, CSN_BYTEBUFFER *p);
 int32_t csnbinary_frombuffer(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_frombuffer_k_init(CSOUND *csound, CSN_BYTEBUFFER *p);
 int32_t csnbinary_frombuffer_k(CSOUND *csound, CSN_BYTEBUFFER *p);
 
 int32_t csnbinary_strtoarr_deinit(CSOUND *csound, CSN_STRTOARR *p);

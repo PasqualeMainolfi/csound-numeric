@@ -5,6 +5,7 @@
 #include "csnum_internal.h"
 #include <ctype.h>
 #include <errno.h>
+#include <float.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -709,12 +710,298 @@ int32_t csnbinary_frombase64_ss_k(CSOUND *csound, CSN_BASE64CONV_STR *p) {
 }
 
 
-int32_t csnbinary_tobuffer(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_tobuffer_k_init(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_tobuffer_k(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_frombuffer(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_frombuffer_k_init(CSOUND *csound, CSN_BYTEBUFFER *p);
-int32_t csnbinary_frombuffer_k(CSOUND *csound, CSN_BYTEBUFFER *p);
+/* The numpy dtype strings, in CSN_BINDTYPE order. */
+static const char *const CSN_DTYPELIST[] = {
+    "|u1", "|i1",
+    "<u2", ">u2",
+    "<i2", ">i2",
+    "<u4", ">u4",
+    "<i4", ">i4",
+    "<f4", ">f4",
+    "<f8", ">f8"
+};
+
+#define CSN_DTYPE_COUNT (sizeof(CSN_DTYPELIST) / sizeof(CSN_DTYPELIST[0]))
+#define CSN_DTYPE_NAMES "|u1 |i1 <u2 >u2 <i2 >i2 <u4 >u4 <i4 >i4 <f4 >f4 <f8 >f8"
+
+static int32_t find_dtype(CSN_BINDTYPE *mode, const char *dtype) {
+    for (uint32_t i = 0; i < CSN_DTYPE_COUNT; i++) {
+        if (strcmp(CSN_DTYPELIST[i], dtype) == 0) {
+            *mode = (CSN_BINDTYPE) i;
+            return OK;
+        }
+    }
+
+    return NOTOK;
+}
+
+static size_t dtype_width(CSN_BINDTYPE mode) {
+    switch (mode) {
+        case CSN_UINT8:
+        case CSN_INT8:
+            return 1;
+        case CSN_UINT16LE:
+        case CSN_UINT16BE:
+        case CSN_INT16LE:
+        case CSN_INT16BE:
+            return 2;
+        case CSN_UINT32LE:
+        case CSN_UINT32BE:
+        case CSN_INT32LE:
+        case CSN_INT32BE:
+        case CSN_FLOAT32LE:
+        case CSN_FLOAT32BE:
+            return 4;
+        case CSN_FLOAT64LE:
+        case CSN_FLOAT64BE:
+            return 8;
+    }
+    return 1;
+}
+
+static bool dtype_is_big_endian(CSN_BINDTYPE mode) {
+    return CSN_DTYPELIST[mode][0] == '>';
+}
+
+static bool is_whole_in(double value, double lo, double hi) {
+    return trunc(value) == value && value >= lo && value <= hi;
+}
+
+/* The bits value takes in the dtype, or false when the dtype cannot hold it:
+   an integer dtype takes whole numbers in its range, f4 finite values up to
+   FLT_MAX. Nothing is wrapped, rounded or truncated as numpy's astype would. */
+static bool dtype_bits(double value, CSN_BINDTYPE mode, uint64_t *bits) {
+    if (!IS_VALID_VALUE(value)) return false;
+    switch (mode) {
+        case CSN_UINT8:
+            if (!is_whole_in(value, 0.0, UINT8_MAX)) return false;
+            *bits = (uint8_t) value;
+            return true;
+        case CSN_INT8:
+            if (!is_whole_in(value, INT8_MIN, INT8_MAX)) return false;
+            *bits = (uint8_t) (int8_t) value;
+            return true;
+        case CSN_UINT16LE:
+        case CSN_UINT16BE:
+            if (!is_whole_in(value, 0.0, UINT16_MAX)) return false;
+            *bits = (uint16_t) value;
+            return true;
+        case CSN_INT16LE:
+        case CSN_INT16BE:
+            if (!is_whole_in(value, INT16_MIN, INT16_MAX)) return false;
+            *bits = (uint16_t) (int16_t) value;
+            return true;
+        case CSN_UINT32LE:
+        case CSN_UINT32BE:
+            if (!is_whole_in(value, 0.0, UINT32_MAX)) return false;
+            *bits = (uint32_t) value;
+            return true;
+        case CSN_INT32LE:
+        case CSN_INT32BE:
+            if (!is_whole_in(value, INT32_MIN, INT32_MAX)) return false;
+            *bits = (uint32_t) (int32_t) value;
+            return true;
+        case CSN_FLOAT32LE:
+        case CSN_FLOAT32BE: {
+            if (fabs(value) > FLT_MAX) return false;
+            float f = (float) value;
+            uint32_t u;
+            memcpy(&u, &f, sizeof(u));
+            *bits = u;
+            return true;
+        }
+        case CSN_FLOAT64LE:
+        case CSN_FLOAT64BE:
+            memcpy(bits, &value, sizeof(*bits));
+            return true;
+    }
+    return false;
+}
+
+/* The value the bits of one dtype element stand for. A float element is
+   read as it is, NaN and infinities included. */
+static double dtype_value(uint64_t bits, CSN_BINDTYPE mode) {
+    switch (mode) {
+        case CSN_UINT8:
+        case CSN_UINT16LE:
+        case CSN_UINT16BE:
+        case CSN_UINT32LE:
+        case CSN_UINT32BE:
+            return (double) bits;
+        case CSN_INT8:
+            return (double) (int8_t) (uint8_t) bits;
+        case CSN_INT16LE:
+        case CSN_INT16BE:
+            return (double) (int16_t) (uint16_t) bits;
+        case CSN_INT32LE:
+        case CSN_INT32BE:
+            return (double) (int32_t) (uint32_t) bits;
+        case CSN_FLOAT32LE:
+        case CSN_FLOAT32BE: {
+            uint32_t u = (uint32_t) bits;
+            float f;
+            memcpy(&f, &u, sizeof(f));
+            return (double) f;
+        }
+        case CSN_FLOAT64LE:
+        case CSN_FLOAT64BE: {
+            double d;
+            memcpy(&d, &bits, sizeof(d));
+            return d;
+        }
+    }
+    return 0.0;
+}
+
+static void write_bytes(double *dest, uint64_t bits, size_t width, bool big_endian) {
+    for (size_t k = 0; k < width; k++) {
+        size_t shift = 8 * (big_endian ? width - 1 - k : k);
+        dest[k] = (double) (uint8_t) (bits >> shift);
+    }
+}
+
+static uint64_t read_bytes(const double *src, size_t width, bool big_endian) {
+    uint64_t bits = 0;
+    for (size_t k = 0; k < width; k++) {
+        size_t shift = 8 * (big_endian ? width - 1 - k : k);
+        bits |= (uint64_t) (uint8_t) src[k] << shift;
+    }
+    return bits;
+}
+
+/* The length of the buffer of src, or of the array a buffer src decodes to,
+   checked whole before the output is touched, so a refused source leaves it
+   as it was. Runs with the registry mutex held. */
+static int32_t buffer_check(CSOUND *csound, OPDS *perf_h, const CSN_ARRAY *src, CSN_BINDTYPE mode, bool is_to, size_t *size) {
+    const char *name = is_to ? "csntobuffer" : "csnfrombuffer";
+    size_t width = dtype_width(mode);
+    if (src->itype != CSN_REAL) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] %s takes a real array", name);
+    }
+
+    if (is_to) {
+        for (size_t i = 0; i < src->size; i++) {
+            uint64_t bits;
+            if (!dtype_bits(src->data[i], mode, &bits)) {
+                return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csntobuffer: %.15g at index %zu does not fit %s", src->data[i], i, CSN_DTYPELIST[mode]);
+            }
+        }
+        if (src->size > UINT32_MAX / width) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csntobuffer: %zu values give more bytes than an array axis holds", src->size);
+        }
+        *size = src->size * width;
+        return OK;
+    }
+
+    if (src->ndim > 1U) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnfrombuffer takes a 1-D array, got %u dimensions", src->ndim);
+    }
+    for (size_t i = 0; i < src->size; i++) {
+        if (!is_byte(src->data[i])) {
+            return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnfrombuffer takes bytes, whole numbers from 0 to 255, got %.15g at index %zu", src->data[i], i);
+        }
+    }
+    if (src->size % width != 0) {
+        return CSN_ACCESSOR_ERROR_LOCKED(csound, perf_h, "[csnarray] csnfrombuffer: %zu bytes are not a whole number of %s elements of %zu bytes", src->size, CSN_DTYPELIST[mode], width);
+    }
+    *size = src->size / width;
+    return OK;
+}
+
+/* csntobuffer gives the bytes of a real array, flattened in row-major order,
+   as the dtype stores them (numpy's astype(dtype).tobytes()): a real 1-D
+   array of whole numbers from 0 to 255. csnfrombuffer reads such an array
+   back into a 1-D array of the values (numpy's frombuffer). The dtype is an
+   S, which carries no version, so the k forms compare it with the copy k_data
+   keeps and recompute only when it, the source or the output moved. */
+static int32_t buffer_helper(CSOUND *csound, CSN_BYTEBUFFER *p, bool is_perf, bool is_to) {
+    const char *name = is_to ? "csntobuffer" : "csnfrombuffer";
+    OPDS *perf_h = is_perf ? &p->h : NULL;
+    CSN_REGISTRY *reg = is_perf ? p->k_data.registry : get_registry(csound);
+    CHECK_REGISTRY(csound, perf_h, reg);
+    if (is_perf) CHECK_KTRIG(p->trig);
+
+    if (!IS_VALID_STRINGDAT(p->dtype)) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] Invalid/NULL string");
+    }
+    CSN_BINDTYPE mode;
+    if (find_dtype(&mode, p->dtype->data) != OK) {
+        return CSN_ACCESSOR_ERROR(csound, perf_h, "[csnarray] %s: '%s' is not a dtype, use one of " CSN_DTYPE_NAMES, name, p->dtype->data);
+    }
+
+    if (!is_perf) {
+        stamp_globals(csound, &p->h);
+        p->k_data.registry = reg;
+    }
+    int32_t res = OK;
+    CSNARR_RES pres = {0};
+    pres.locked = csn_lock_if_shared(csound, reg, (CSN_CONARR) { p->source_handle, p->handle }, 2);
+
+    CSN_ARRAY *source_arr = p->source_handle;
+    if (is_perf && CAN_REUSE_STRING_ELEMENTWISE(&p->k_data, source_arr, NULL, p->handle, p->dtype->data, NULL)) goto done;
+
+    size_t size = 0;
+    res = buffer_check(csound, perf_h, source_arr, mode, is_to, &size);
+    if (res != OK) goto done;
+
+    uint32_t shape[CSN_MAX_DIMS] = { (uint32_t) size };
+    const CSN_ARRAY *ops[1] = { source_arr };
+    CSNARR_RES r = prepare_output(csound, &p->h, perf_h, reg, p->handle, 1U, shape, CSN_REAL, ops, 1, CSN_ALIAS_REFUSE);
+    pres.locked |= r.locked;
+    res = r.err;
+    if (res != OK) goto done;
+
+    size_t width = dtype_width(mode);
+    bool big_endian = dtype_is_big_endian(mode);
+    double *out = p->handle->data;
+    if (is_to) {
+        for (size_t i = 0; i < source_arr->size; i++) {
+            uint64_t bits = 0;
+            dtype_bits(source_arr->data[i], mode, &bits);
+            write_bytes(out + i * width, bits, width, big_endian);
+        }
+    } else {
+        for (size_t i = 0; i < p->handle->size; i++) {
+            out[i] = dtype_value(read_bytes(source_arr->data + i * width, width, big_endian), mode);
+        }
+    }
+
+    /* the k init reserves the copy the perf pass compares against, so a pass
+       on a real-time path keeps it without allocating */
+    if (csn_is_k_form(&p->h)) {
+        PUBLISH_STRING_ELEMENTWISE(csound, &p->k_data, source_arr, NULL, p->handle, p->dtype->data, NULL, !is_perf || !p->handle->rt_locked);
+    }
+
+done:
+    if (pres.locked) csn_unlock(csound, reg);
+    return res;
+}
+
+int32_t csnbinary_tobuffer_deinit(CSOUND *csound, CSN_BYTEBUFFER *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnbinary_tobuffer(CSOUND *csound, CSN_BYTEBUFFER *p) {
+    return buffer_helper(csound, p, false, true);
+}
+
+int32_t csnbinary_tobuffer_k(CSOUND *csound, CSN_BYTEBUFFER *p) {
+    return buffer_helper(csound, p, true, true);
+}
+
+int32_t csnbinary_frombuffer_deinit(CSOUND *csound, CSN_BYTEBUFFER *p) {
+    csn_kdata_release_strings(csound, &p->k_data);
+    return OK;
+}
+
+int32_t csnbinary_frombuffer(CSOUND *csound, CSN_BYTEBUFFER *p) {
+    return buffer_helper(csound, p, false, false);
+}
+
+int32_t csnbinary_frombuffer_k(CSOUND *csound, CSN_BYTEBUFFER *p) {
+    return buffer_helper(csound, p, true, false);
+}
 
 
 

@@ -15,7 +15,7 @@ env:
   # headers this plugin was built and verified against (also the runtime Csound).
   # A develop commit, not a tag: [] on CsnArr needs csound PR #3363, merged
   # after 7.0.0-beta.18. Move back to a tag once one contains it.
-  CSOUND_REF: 3d4e795bf86825c0b87f6496b63e411f29b150d9
+  CSOUND_REF: Csound7
 
 jobs:
   build:

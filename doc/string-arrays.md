@@ -82,6 +82,9 @@ overload, and [csntype](csntype.md) reports `2` for one.
   split one `S` into its digits.
 - base64: [csntobase64](csntobase64.md) writes the bytes of one `S` or of an
   array as text, [csnfrombase64](csnfrombase64.md) reads them back.
+- Byte buffers: [csntobuffer](csntobuffer.md) writes the values of a real
+  array as the bytes of a dtype named by an `S` (`"<i2"`, `">f4"`),
+  [csnfrombuffer](csnfrombuffer.md) reads them back.
 - On one `S`, the queries, [csnstrsubstr](csnstrsubstr.md) and the case maps
   give a number or an `S`, as on Python's `str`; an `S` has no rate, so their
   k forms take a trigger and compute at init too.

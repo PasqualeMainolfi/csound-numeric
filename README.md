@@ -339,7 +339,8 @@ byte conversions `csnstrchr`, `csnstrord`, `csnstrtoascii` and
 and `csnlistasstr`, the number bases
 `csntobinary`, `csnfrombinary`, `csntohex`, `csnfromhex`, `csnbinstrtoarr`
 and `csnhexstrtoarr`, the base64
-`csntobase64` and `csnfrombase64`, the rate casts
+`csntobase64` and `csnfrombase64`, the byte buffers `csntobuffer` and
+`csnfrombuffer` (a dtype `S`), the rate casts
 `csni` and `csnk`, and
 `csnsave` / `csnload` (`.npy` as `<U` or `|S`, `.csn`) take one today. A
 string has no k form, so their k forms take an explicit trigger. Each element
@@ -854,6 +855,7 @@ overloads that take one; the numeric opcodes refuse it at compile time.
 | `csnfrombinary`, `csnfromhex` | `int(s, 2)`, `int(s, 16)` | An optional `0b` / `0x` prefix, then digits only: no sign, blank or `_`. Below 2^64, above 2^53 to the nearest double. A `CsnStr` goes elementwise to a real `CsnArr`. |
 | `csnbinstrtoarr`, `csnhexstrtoarr` | `np.array(list(s.removeprefix('0b')), float)`, `np.array(list(s.removeprefix('0x')))` | One `S` split into its digits, an optional `0b` / `0x` prefix skipped (`0B` / `0X` too); binary to a real array of 0 and 1, hex to a `CsnStr` keeping each digit's case. `""` gives an empty array; a non-digit is refused. |
 | `csntobase64`, `csnfrombase64` | `base64.b64encode(a.astype(np.uint8).tobytes())`, `np.frombuffer(base64.b64decode(s), np.uint8)` | One `S` or a real 1-D array of bytes (0 to 255) to padded RFC 4648 text, and back to an `S` (no zero byte) or an array. Decoding is strict: no blank, `=` only at the end, the unused bits zero (`b64decode` takes `"TWF="`); no URL-safe alphabet. |
+| `csntobuffer`, `csnfrombuffer` | `a.astype(dtype).tobytes()`, `np.frombuffer(b, dtype)` | The bytes as a real 1-D array of 0 to 255, a source of any shape flattened in row-major order. `dtype` one of `\|u1`, `\|i1`, then `<` or `>` before `u2`, `i2`, `u4`, `i4`, `f4`, `f8`: no native `=`, no shorthand without byte order, no `i8` or complex. A value the dtype cannot hold is refused where `astype` wraps or truncates (`300` to `\|u1`, `3.5` to `<i2`), NaN and infinities too; `f4` rounds to the nearest float. frombuffer takes a 1-D array, its length a multiple of the dtype's width; floats come back with NaN and infinities as they are. |
 | `csnnumtostr` | `a.astype(str)` | Python's `repr`: the shortest digits that read back, `"1.0"`, `"1e-05"`, `"1e+16"`; the point `.` whatever the locale. Real arrays only. |
 | `csnstrswapcase` | `np.strings.swapcase` | ASCII letters only, as on a bytes (`S`) array. Also in place; `X = csnstrswapcase(X, k)` swaps again on every pass. |
 | `csnprint` | `print(a)` | `CsnStr(shape=..., dtype=str)`, elements quoted. |

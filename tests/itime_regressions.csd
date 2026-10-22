@@ -1334,6 +1334,53 @@ instr 3
     iQS += strcmp(SQS10, "") == 0 ? 0 : 1
     assert(iQS == 0)
 
+    ; The lists, the number bases, base64 and the byte buffers, i forms: as
+    ; Python's list(s), sep.join, format(n, 'b' / 'X'), int(s, 2 / 16),
+    ; base64.b64encode / b64decode and numpy's tobytes / frombuffer
+    iBin = 0
+    iBinList:CsnStr = csnstraslist("aé")
+    SBinList0 = iBinList[0]
+    SBinList1 = iBinList[1]
+    iBin += csnsize(iBinList) == 2 && strcmp(SBinList0, "a") == 0 && strcmp(SBinList1, "é") == 0 ? 0 : 1
+    iBinNums:CsnArr = csnfromarray(array(1, 0.5, 5))
+    SBinJoin = csnlistasstr(iBinNums, ", ")
+    iBin += strcmp(SBinJoin, "1.0, 0.5, 5.0") == 0 ? 0 : 1
+    SBin1 = csntobinary(5)
+    SBin2 = csntobinary(5, 8)
+    SBin3 = csntohex(255)
+    SBin4 = csntohex(10, 4)
+    iBin += strcmp(SBin1, "101") == 0 && strcmp(SBin2, "00000101") == 0 ? 0 : 1
+    iBin += strcmp(SBin3, "FF") == 0 && strcmp(SBin4, "000A") == 0 ? 0 : 1
+    iBin += csnfrombinary("0b101") == 5 && csnfromhex("0xff") == 255 ? 0 : 1
+    iBinVals:CsnArr = csnfromarray(array(2, 255))
+    iBinDigits:CsnStr = csntobinary(iBinVals, 4)
+    iHexDigits:CsnStr = csntohex(iBinVals)
+    SBinD0 = iBinDigits[0]
+    SBinD1 = iBinDigits[1]
+    SHexD1 = iHexDigits[1]
+    iBin += strcmp(SBinD0, "0010") == 0 && strcmp(SBinD1, "11111111") == 0 && strcmp(SHexD1, "FF") == 0 ? 0 : 1
+    iBinBack:CsnArr = csnfrombinary(iBinDigits)
+    iHexBack:CsnArr = csnfromhex(iHexDigits)
+    iBin += csnsum(iBinBack) == 257 && csnsum(iHexBack) == 257 ? 0 : 1
+    iBinSplit:CsnArr = csnbinstrtoarr("0b1101")
+    iBin += csnsize(iBinSplit) == 4 && csnsum(iBinSplit) == 3 ? 0 : 1
+    iHexSplit:CsnStr = csnhexstrtoarr("0xAf")
+    SHexS1 = iHexSplit[1]
+    iBin += csnsize(iHexSplit) == 2 && strcmp(SHexS1, "f") == 0 ? 0 : 1
+    SB64a = csntobase64("Man")
+    SB64b = csnfrombase64("TWE=")
+    iB64Src:CsnArr = csnfromarray(array(0, 255))
+    SB64c = csntobase64(iB64Src)
+    iB64Back:CsnArr = csnfrombase64(SB64c)
+    iBin += strcmp(SB64a, "TWFu") == 0 && strcmp(SB64b, "Ma") == 0 && strcmp(SB64c, "AP8=") == 0 ? 0 : 1
+    iBin += csnsize(iB64Back) == 2 && csnsum(iB64Back) == 255 ? 0 : 1
+    ; -2 as >i2 is 0xFF 0xFE
+    iBufSrc:CsnArr = csnfromarray(array(-2, 258))
+    iBuf:CsnArr = csntobuffer(iBufSrc, ">i2")
+    iBufBack:CsnArr = csnfrombuffer(iBuf, ">i2")
+    iBin += csnsize(iBuf) == 4 && csnsum(iBuf) == 512 && csnsum(iBufBack) == 256 ? 0 : 1
+    assert(iBin == 0)
+
     ; csnstrsubstr keeps the bytes from start up to stop, stop excluded, every
     ; step-th, clamped to each string (np.strings.slice on bytes)
     SStrSubItems[] fillarray "abcdef", "xy"
@@ -5651,6 +5698,11 @@ e
 ; csnstrupper.ss csnstrlower.ss csnstrcapitalize.ss csnstrswapcase.ss csnstrtitle.ss
 ; csnstrchr.ss csnstrord.ss csnstrtoascii.ss csnstrfromascii.ss
 ; csnstrencode.ss csnstrdecode.ss csnstrtocodepoints.ss csnstrfromcodepoints.ss
+; csnstraslist csnlistasstr
+; csntobinary csntobinary.r csnfrombinary csnfrombinary.r csntohex csntohex.r csnfromhex csnfromhex.r
+; csnbinstrtoarr csnhexstrtoarr
+; csntobase64 csntobase64.ss csnfrombase64 csnfrombase64.ss
+; csntobuffer csnfrombuffer
 ; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
 ; csnstrcapitalize csnstrcapitalize.in
 ; csnstrswapcase csnstrswapcase.in

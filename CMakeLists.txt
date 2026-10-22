@@ -57,7 +57,7 @@ if(NOT EXISTS "${CSOUND_INCLUDE_DIR}/version.h")
     find_file(CSOUND_VERSION_H version.h
         PATHS "${CSOUND_INCLUDE_DIR}/.."
         # A source checkout ships one, prebuilt, for Android: moved under
-        # platform/ in 7.0.0-beta.18
+        # platform/ in 7.0.0
         PATH_SUFFIXES platform/android/CsoundAndroid/jni Android/CsoundAndroid/jni
         NO_DEFAULT_PATH)
     if(CSOUND_VERSION_H)
@@ -304,6 +304,16 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_creation_regression.csd")
         set_tests_properties(csnum_strings_creation_regression PROPERTIES
             PASS_REGULAR_EXPRESSION "strings creation ok"
+            FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
+        add_test(
+            NAME csnum_buffer_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/buffer_regression.csd")
+        set_tests_properties(csnum_buffer_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "buffer ok"
             FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
         add_test(
             NAME csnum_krate_creation_regression

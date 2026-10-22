@@ -181,6 +181,8 @@ slice, end included; see [Indexing and slicing with `[]`](indexing.md).
 - [csnhexstrtoarr](csnhexstrtoarr.md) - the hex digits of a string as a string array
 - [csntobase64](csntobase64.md) - bytes to base64 text
 - [csnfrombase64](csnfrombase64.md) - base64 text to bytes
+- [csntobuffer](csntobuffer.md) - the bytes of a real array in a binary dtype
+- [csnfrombuffer](csnfrombuffer.md) - a real array from its bytes in a binary dtype
 - [csnabs](csnabs.md) - absolute value, or magnitude for a complex array
 - [csnsign](csnsign.md) - -1, 0 or 1 by the sign of each element
 - [csnfloor](csnfloor.md) - rounds each element down

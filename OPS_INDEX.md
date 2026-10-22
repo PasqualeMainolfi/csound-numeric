@@ -187,6 +187,8 @@ period.
 - **csnhexstrtoarr** - the hex digits of one S as a 1-D CsnStr, one digit each, optional 0x prefix (i, k — string)
 - **csntobase64** - the padded base64 text of the bytes of one S or of a real 1-D array of bytes, as Python's base64.b64encode (i, k — string)
 - **csnfrombase64** - the bytes of canonical base64 text, as one S or a real 1-D array, as Python's base64.b64decode (i, k — string)
+- **csntobuffer** - the bytes of a real array, flattened, in a NumPy dtype with explicit byte order (|u1 to <f8), as a real 1-D array of 0 to 255, as NumPy's a.astype(dtype).tobytes() (i, k — real only)
+- **csnfrombuffer** - a real 1-D array from bytes, a real 1-D array of 0 to 255, read in a NumPy dtype, as NumPy's np.frombuffer(b, dtype) (i, k — real only)
 - **csnabs** - absolute value, or magnitude for a complex array (i, k — real, complex)
 - **csnsign** - -1, 0 or 1 by the sign of each element (i, k — real, complex)
 - **csnfloor** - rounds each element down (i, k — real only)
