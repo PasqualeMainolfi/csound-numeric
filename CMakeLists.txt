@@ -562,7 +562,7 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/strings_conversion_error.csd")
         set_tests_properties(csnum_strings_conversion_error PROPERTIES
-            PASS_REGULAR_EXPRESSION "takes a real array[^\n]*\n(.|\n)*takes a real array[^\n]*\n(.|\n)*csnum conversions alive after every complex refusal"
+            PASS_REGULAR_EXPRESSION "takes a real array.*takes a real array.*csnum conversions alive after every complex refusal"
             TIMEOUT 60)
         add_test(
             NAME csnum_strings_split_error

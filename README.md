@@ -35,9 +35,9 @@ library. The plugin builds from C11 sources against the Csound plugin headers.
 
 - **Csound 7** (API 7.0). The plugin is not built for Csound 6: the opcodes rely
   on Csound 7 user-defined types for `CsnArr` and complex arguments.
-- `[]` on `CsnArr` (`v[i][j]`, `v[start:end]`) needs a Csound 7 build that lets
-  a plugin type provide it: csound PR #3363, merged after 7.0.0-beta.18. Before
-  it, `csnget`, `csnset` and `csngetslice` do the same work.
+- `[]` on `CsnArr` (`v[i][j]`, `v[start:end]`) needs Csound 7.0, which lets a
+  plugin type provide it (csound PR #3363). On an earlier 7.0.0 beta,
+  `csnget`, `csnset` and `csngetslice` do the same work.
 - A C11 compiler and CMake ≥ 3.16.
 
 ## Building
@@ -197,8 +197,8 @@ Cols:CsnArr = M[1:2, 1, 1]   // [[1, 2], [4, 5]]
 ```
 
 A write with only i arguments runs once, at init; a k value or index makes it
-run on every control period, and the array k-rate. `[]` needs a Csound 7 build
-that lets a plugin type provide it (csound PR #3363, after 7.0.0-beta.18). See
+run on every control period, and the array k-rate. `[]` needs Csound 7.0,
+which lets a plugin type provide it (csound PR #3363). See
 [Indexing and slicing with `[]`](doc/indexing.md) for the rules, including
 what the slice syntax cannot express.
 
