@@ -28,6 +28,7 @@ int32_t csnarray_from_audio_init(CSOUND *csound, CSN_FROM_AUDIO *p) {
 
     bool is_locked = (*p->rt_lock != 0.0);
     p->handle->rt_locked = is_locked;
+    p->handle->pending = true;
     SET_KDATA_BEGIN(p->k_data, reg, shape, 1U, CSN_REAL);
     if (pres.locked) csn_unlock(csound, reg);
     return OK;
@@ -61,6 +62,7 @@ int32_t csnarray_from_audio(CSOUND *csound, CSN_FROM_AUDIO *p) {
         buffer->data[i] = (double) p->source_sig[i];
     }
 
+    buffer->pending = false;
     update_array_data_version(&buffer->version);
     SET_KDATA_END(p->k_data, buffer->shape, 1U, CSN_REAL);
     if (locked) csn_unlock(csound, reg);
@@ -127,6 +129,7 @@ int32_t csnarray_pack_audio_init(CSOUND *csound, CSN_PACK_AUDIO *p) {
 
     bool is_locked = (*p->rt_lock != 0.0);
     p->handle->rt_locked = is_locked;
+    p->handle->pending = true;
     p->prev_nchnls = nchnls;
     p->registry = reg;
     if (pres.locked) csn_unlock(csound, reg);
@@ -164,6 +167,7 @@ int32_t csnarray_pack_audio(CSOUND *csound, CSN_PACK_AUDIO *p) {
         }
     }
 
+    buffer->pending = false;
     update_array_data_version(&buffer->version);
     if (locked) csn_unlock(csound, reg);
     return OK;

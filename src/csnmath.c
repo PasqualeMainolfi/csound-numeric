@@ -233,16 +233,20 @@ int32_t csn_binop_hh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY *a,
     res = binop_hh_layout(csound, NULL, a, b, mode, &new_ndim, new_shape, &it, &itype);
     if (res != OK) goto done;
 
+    /* read before prepare_output, which sets the flag on an aliased operand */
+    bool known = !a->pending && !b->pending;
     const CSN_ARRAY *sources[2] = { a, b };
     CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, new_ndim, new_shape, itype, sources, 2, CSN_ALIAS_ELEMENTWISE);
     res = r.err;
     if (res != OK) goto done;
     pres.locked |= r.locked;
 
-    /* When the perf pass computes again, the init only does so if that cannot
-       repeat it: an output that is its own operand is left to the perf pass,
-       or X = X + Y would add twice in the first cycle. */
-    bool compute = !perf_redoes || !r.aliased;
+    /* When the perf pass computes again, the init only does so where it can:
+       the operands must hold their values now (an audio block does not:
+       nothing has computed the signal yet), and an output that is its own
+       operand is left to the perf pass, or X = X + Y would add twice in the
+       first cycle. */
+    bool compute = !perf_redoes || (known && !r.aliased);
     if (compute) {
         res = binop_hh_assign_value(csound, NULL, &it, a, b, out, itype, mode);
         if (res != OK) goto done;
@@ -550,6 +554,8 @@ int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
     res = binop_hs_sh_body(csound, NULL, source_arr, complex_arg, mode);
     if (res != OK) goto done;
 
+    /* read before prepare_output, which sets the flag on an aliased operand */
+    bool known = complex_arg == NULL && csn_known_at_init(csound, scalar_arg) && !source_arr->pending;
     const CSN_ARRAY *ops[1] = { source_arr };
     CSNARR_RES r = prepare_output(csound, h, NULL, reg, out, source_arr->ndim, source_arr->shape, source_arr->itype, ops, 1, CSN_ALIAS_ELEMENTWISE);
     res = r.err;
@@ -558,9 +564,9 @@ int32_t csn_binop_hs_sh_init(CSOUND *csound, OPDS *h, CSN_ARRAY *out, CSN_ARRAY 
 
     /* When the perf pass computes again, the init only does so where it can:
        the scalar must be known now (a k variable is not, and the rate of a
-       Complex cannot be told), and an output that is its own operand is left
-       to the perf pass, which would otherwise apply it twice. */
-    bool known = complex_arg == NULL && csn_known_at_init(csound, scalar_arg);
+       Complex cannot be told), the array must hold its values, and an output
+       that is its own operand is left to the perf pass, which would otherwise
+       apply it twice. */
     bool compute = !perf_redoes || (known && !r.aliased);
     if (compute) {
         res = binop_hs_sh_assign_value(csound, NULL, scalar_arg, complex_arg, source_arr, out, mode);

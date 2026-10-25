@@ -679,6 +679,18 @@ CSNARR_RES prepare_output(CSOUND *csound, OPDS *h, OPDS *perf_h, CSN_REGISTRY *r
        an i-rate one also writes it. */
     if (perf_h == NULL && csn_is_k_form(h)) out->rate = CSN_RATE_K;
 
+    /* What is derived at init from an array whose values wait for a perf pass
+       (an audio block: nothing has computed the signal yet) waits too, so a k
+       form leaves it to its first pass instead of computing from placeholder
+       zeros; a perf pass has the values. */
+    if (perf_h == NULL) {
+        bool pending = false;
+        for (size_t i = 0; i < n_operands; i++) pending |= operands[i]->pending;
+        out->pending = pending;
+    } else {
+        out->pending = false;
+    }
+
     /* Decided once per note: recomputing it at perf would undo an explicit
        csnrtunlock on the next pass. */
     if (perf_h == NULL) {
@@ -2022,6 +2034,8 @@ static OENTRY localops[] = {
     { "##add.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_add_kh_init,                    (SUBR) csnop_add_sh_perf,               NULL,                                    NULL, 0 },
     { "##add.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_add_hc_init,                    (SUBR) csnop_add_hc_perf,               NULL,                                    NULL, 0 },
     { "##add.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_add_ch_init,                    (SUBR) csnop_add_ch_perf,               NULL,                                    NULL, 0 },
+    { "##add.Ha",                S(CSN_OP_HA),                    0, ":CsnArr;",                ":CsnArr;a",                     (SUBR) csnop_add_ha_init,                    (SUBR) csnop_add_ha_perf,               (SUBR) csnop_ha_deinit,                  NULL, 0 },
+    { "##add.aH",                S(CSN_OP_AH),                    0, ":CsnArr;",                "a:CsnArr;",                     (SUBR) csnop_add_ah_init,                    (SUBR) csnop_add_ah_perf,               (SUBR) csnop_ah_deinit,                  NULL, 0 },
     { "##add.SS",                S(CSN_OP_STRADD_SS),             0, "S",                       "SS",                            (SUBR) opstr_add_ss_init,                    (SUBR) opstr_add_ss_perf,               (SUBR) opstr_add_ss_deinit,              NULL, 0 },
     { "##sub.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_sub_hh_init,                    (SUBR) csnop_sub_hh_perf,               NULL,                                    NULL, 0 },
     { "##sub.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_sub_hi_init,                    (SUBR) csnop_sub_hs_perf,               NULL,                                    NULL, 0 },
@@ -2030,6 +2044,8 @@ static OENTRY localops[] = {
     { "##sub.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_sub_kh_init,                    (SUBR) csnop_sub_sh_perf,               NULL,                                    NULL, 0 },
     { "##sub.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_sub_hc_init,                    (SUBR) csnop_sub_hc_perf,               NULL,                                    NULL, 0 },
     { "##sub.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_sub_ch_init,                    (SUBR) csnop_sub_ch_perf,               NULL,                                    NULL, 0 },
+    { "##sub.Ha",                S(CSN_OP_HA),                    0, ":CsnArr;",                ":CsnArr;a",                     (SUBR) csnop_sub_ha_init,                    (SUBR) csnop_sub_ha_perf,               (SUBR) csnop_ha_deinit,                  NULL, 0 },
+    { "##sub.aH",                S(CSN_OP_AH),                    0, ":CsnArr;",                "a:CsnArr;",                     (SUBR) csnop_sub_ah_init,                    (SUBR) csnop_sub_ah_perf,               (SUBR) csnop_ah_deinit,                  NULL, 0 },
     { "##mul.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_mul_hh_init,                    (SUBR) csnop_mul_hh_perf,               NULL,                                    NULL, 0 },
     { "##mul.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_mul_hi_init,                    (SUBR) csnop_mul_hs_perf,               NULL,                                    NULL, 0 },
     { "##mul.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_mul_hk_init,                    (SUBR) csnop_mul_hs_perf,               NULL,                                    NULL, 0 },
@@ -2041,6 +2057,8 @@ static OENTRY localops[] = {
     { "##mul.s.kH",              S(CSN_OP_SH),                    0, ":CsnStr;",                "k:CsnStr;",                     (SUBR) opstr_mul_shk_init,                   (SUBR) opstr_mul_sh_perf,               NULL,                                    NULL, 0 },
     { "##mul.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_mul_hc_init,                    (SUBR) csnop_mul_hc_perf,               NULL,                                    NULL, 0 },
     { "##mul.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_mul_ch_init,                    (SUBR) csnop_mul_ch_perf,               NULL,                                    NULL, 0 },
+    { "##mul.Ha",                S(CSN_OP_HA),                    0, ":CsnArr;",                ":CsnArr;a",                     (SUBR) csnop_mul_ha_init,                    (SUBR) csnop_mul_ha_perf,               (SUBR) csnop_ha_deinit,                  NULL, 0 },
+    { "##mul.aH",                S(CSN_OP_AH),                    0, ":CsnArr;",                "a:CsnArr;",                     (SUBR) csnop_mul_ah_init,                    (SUBR) csnop_mul_ah_perf,               (SUBR) csnop_ah_deinit,                  NULL, 0 },
     { "##mul.SS",                S(CSN_OP_STRMUL_SS),             0, "S",                       "Si",                            (SUBR) opstr_mul_ss_init,                    (SUBR) opstr_mul_ss_perf,               (SUBR) opstr_mul_ss_deinit,              NULL, 0 },
     { "##mul.SS.k",              S(CSN_OP_STRMUL_SS),             0, "S",                       "Sk",                            (SUBR) opstr_mul_ss_init,                    (SUBR) opstr_mul_ssk_perf,              (SUBR) opstr_mul_ss_deinit,              NULL, 0 },
     { "##div.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_div_hh_init,                    (SUBR) csnop_div_hh_perf,               NULL,                                    NULL, 0 },
@@ -2050,6 +2068,8 @@ static OENTRY localops[] = {
     { "##div.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_div_kh_init,                    (SUBR) csnop_div_sh_perf,               NULL,                                    NULL, 0 },
     { "##div.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_div_hc_init,                    (SUBR) csnop_div_hc_perf,               NULL,                                    NULL, 0 },
     { "##div.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_div_ch_init,                    (SUBR) csnop_div_ch_perf,               NULL,                                    NULL, 0 },
+    { "##div.Ha",                S(CSN_OP_HA),                    0, ":CsnArr;",                ":CsnArr;a",                     (SUBR) csnop_div_ha_init,                    (SUBR) csnop_div_ha_perf,               (SUBR) csnop_ha_deinit,                  NULL, 0 },
+    { "##div.aH",                S(CSN_OP_AH),                    0, ":CsnArr;",                "a:CsnArr;",                     (SUBR) csnop_div_ah_init,                    (SUBR) csnop_div_ah_perf,               (SUBR) csnop_ah_deinit,                  NULL, 0 },
     { "##pow.HH",                S(CSN_OP_HH),                    0, ":CsnArr;",                ":CsnArr;:CsnArr;",              (SUBR) csnop_pow_hh_init,                    (SUBR) csnop_pow_hh_perf,               NULL,                                    NULL, 0 },
     { "##pow.Hi",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;i",                     (SUBR) csnop_pow_hi_init,                    (SUBR) csnop_pow_hs_perf,               NULL,                                    NULL, 0 },
     { "##pow.Hk",                S(CSN_OP_HS),                    0, ":CsnArr;",                ":CsnArr;k",                     (SUBR) csnop_pow_hk_init,                    (SUBR) csnop_pow_hs_perf,               NULL,                                    NULL, 0 },
@@ -2057,6 +2077,8 @@ static OENTRY localops[] = {
     { "##pow.kH",                S(CSN_OP_SH),                    0, ":CsnArr;",                "k:CsnArr;",                     (SUBR) csnop_pow_kh_init,                    (SUBR) csnop_pow_sh_perf,               NULL,                                    NULL, 0 },
     { "##pow.Hc",                S(CSN_OP_HC),                    0, ":CsnArr;",                ":CsnArr;:Complex;",             (SUBR) csnop_pow_hc_init,                    (SUBR) csnop_pow_hc_perf,               NULL,                                    NULL, 0 },
     { "##pow.cH",                S(CSN_OP_CH),                    0, ":CsnArr;",                ":Complex;:CsnArr;",             (SUBR) csnop_pow_ch_init,                    (SUBR) csnop_pow_ch_perf,               NULL,                                    NULL, 0 },
+    { "##pow.Ha",                S(CSN_OP_HA),                    0, ":CsnArr;",                ":CsnArr;a",                     (SUBR) csnop_pow_ha_init,                    (SUBR) csnop_pow_ha_perf,               (SUBR) csnop_ha_deinit,                  NULL, 0 },
+    { "##pow.aH",                S(CSN_OP_AH),                    0, ":CsnArr;",                "a:CsnArr;",                     (SUBR) csnop_pow_ah_init,                    (SUBR) csnop_pow_ah_perf,               (SUBR) csnop_ah_deinit,                  NULL, 0 },
     { "##addin.HH",              S(CSN_OP_IN_HH),                 0, ":CsnArr;",                ":CsnArr;",                      (SUBR) csnop_addin_hh_init,                  (SUBR) csnop_addin_hh_perf,             NULL,                                    NULL, 0 },
     { "##addin.Hi",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "i",                             (SUBR) csnop_addin_hi_init,                  (SUBR) csnop_addin_hs_perf,             NULL,                                    NULL, 0 },
     { "##addin.Hk",              S(CSN_OP_IN_HS),                 0, ":CsnArr;",                "k",                             (SUBR) csnop_addin_hk_init,                  (SUBR) csnop_addin_hs_perf,             NULL,                                    NULL, 0 },

@@ -101,6 +101,81 @@ static int32_t op_ch_perf(CSOUND *csound, CSN_OP_CH *p, CSN_BINOP_MODE mode) {
     return csn_binop_hs_sh_perf(csound, &p->h, p->out, p->a, NULL, p->z, &p->k_data, mode);
 }
 
+/* out = a op sig, out = sig op a: the audio block is a k-rate operand of shape
+   (ksmps,), so a (2, 1) array times a signal gives (2, ksmps), one row per
+   channel, ready for csnunpack. The block is marked as a real-time path, as
+   csnfromaudio marks its output by default, and the mark travels to out. The
+   samples outside the note's active window read as zero. Nothing has computed
+   the signal during the init pass, so the init only lays the output out and
+   the first pass computes. */
+
+static void audio_block_fill(const OPDS *h, CSN_ARRAY *block, const cs_float *sig) {
+    uint32_t nsamples = h->insdshead->ksmps;
+    uint32_t offset = h->insdshead->ksmps_offset;
+    uint32_t early = h->insdshead->ksmps_no_end;
+
+    if (offset) memset(block->data, 0, sizeof(double) * offset);
+    if (early) {
+        nsamples -= early;
+        memset(block->data + nsamples, 0, sizeof(double) * early);
+    }
+    for (uint32_t i = offset; i < nsamples; i++) block->data[i] = (double) sig[i];
+    block->pending = false;
+    update_array_data_version(&block->version);
+}
+
+/* Freed first, so a reinit does not leak the block of the previous init. */
+static int32_t audio_block_init(CSOUND *csound, OPDS *h, CSN_ARRAY *block) {
+    FREE_CSNARRDATA(csound, block);
+    uint32_t shape[CSN_MAX_DIMS] = {0};
+    shape[0] = h->insdshead->ksmps;
+    if (allocate_array(csound, block, 1U, shape, CSN_REAL) != OK) {
+        return csn_init_error(csound, "[csnarray] Out of memory: allocating the audio block of '%s' failed", get_out_name(h));
+    }
+    block->rate = CSN_RATE_K;
+    block->rt_locked = true;
+    block->pending = true;
+    return OK;
+}
+
+static int32_t op_ha_init(CSOUND *csound, CSN_OP_HA *p, CSN_BINOP_MODE mode) {
+    int32_t res = audio_block_init(csound, &p->h, &p->block);
+    if (res != OK) return res;
+    res = csn_binop_hh_init(csound, &p->h, p->out, p->a, &p->block, &p->k_data, mode, true);
+    if (res == OK) p->out->rate = CSN_RATE_K;
+    return res;
+}
+
+static int32_t op_ha_perf(CSOUND *csound, CSN_OP_HA *p, CSN_BINOP_MODE mode) {
+    audio_block_fill(&p->h, &p->block, p->sig);
+    p->out->rate = CSN_RATE_K;
+    return csn_binop_hh_perf(csound, &p->h, p->out, p->a, &p->block, &p->k_data, mode);
+}
+
+static int32_t op_ah_init(CSOUND *csound, CSN_OP_AH *p, CSN_BINOP_MODE mode) {
+    int32_t res = audio_block_init(csound, &p->h, &p->block);
+    if (res != OK) return res;
+    res = csn_binop_hh_init(csound, &p->h, p->out, &p->block, p->a, &p->k_data, mode, true);
+    if (res == OK) p->out->rate = CSN_RATE_K;
+    return res;
+}
+
+static int32_t op_ah_perf(CSOUND *csound, CSN_OP_AH *p, CSN_BINOP_MODE mode) {
+    audio_block_fill(&p->h, &p->block, p->sig);
+    p->out->rate = CSN_RATE_K;
+    return csn_binop_hh_perf(csound, &p->h, p->out, &p->block, p->a, &p->k_data, mode);
+}
+
+int32_t csnop_ha_deinit(CSOUND *csound, CSN_OP_HA *p) {
+    FREE_CSNARRDATA(csound, &p->block);
+    return OK;
+}
+
+int32_t csnop_ah_deinit(CSOUND *csound, CSN_OP_AH *p) {
+    FREE_CSNARRDATA(csound, &p->block);
+    return OK;
+}
+
 /* x op= y, x op= s. x is the left operand and the output at once, which
    CSN_ALIAS_ELEMENTWISE lets the core compute in place (and refuses when y
    would broadcast x to a larger shape). x keeps its own rate and turns k-rate
@@ -136,8 +211,9 @@ static int32_t op_in_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p, CSN_BINOP_MODE mod
     return csn_binop_hs_sh_perf(csound, &p->h, p->x, p->x, p->s, NULL, &p->k_data, mode);
 }
 
-/* One family per operator. The array-scalar forms reuse the hs/sh modes, and
-   the complex-scalar forms the same ones with a :Complex; operand. */
+/* One family per operator. The array-scalar forms reuse the hs/sh modes, the
+   complex-scalar forms the same ones with a :Complex; operand, and the audio
+   forms the hh mode, the block being an array. */
 #define CSN_OP_DEFINE(name, HH, HS, SH)                                                                                      \
     int32_t csnop_##name##_hh_init(CSOUND *csound, CSN_OP_HH *p) { return op_hh_init(csound, p, HH); }                       \
     int32_t csnop_##name##_hh_perf(CSOUND *csound, CSN_OP_HH *p) { return op_hh_perf(csound, p, HH); }                       \
@@ -150,7 +226,11 @@ static int32_t op_in_hs_perf(CSOUND *csound, CSN_OP_IN_HS *p, CSN_BINOP_MODE mod
     int32_t csnop_##name##_hc_init(CSOUND *csound, CSN_OP_HC *p) { return op_hc_init(csound, p, HS); }                       \
     int32_t csnop_##name##_hc_perf(CSOUND *csound, CSN_OP_HC *p) { return op_hc_perf(csound, p, HS); }                       \
     int32_t csnop_##name##_ch_init(CSOUND *csound, CSN_OP_CH *p) { return op_ch_init(csound, p, SH); }                       \
-    int32_t csnop_##name##_ch_perf(CSOUND *csound, CSN_OP_CH *p) { return op_ch_perf(csound, p, SH); }
+    int32_t csnop_##name##_ch_perf(CSOUND *csound, CSN_OP_CH *p) { return op_ch_perf(csound, p, SH); }                       \
+    int32_t csnop_##name##_ha_init(CSOUND *csound, CSN_OP_HA *p) { return op_ha_init(csound, p, HH); }                       \
+    int32_t csnop_##name##_ha_perf(CSOUND *csound, CSN_OP_HA *p) { return op_ha_perf(csound, p, HH); }                       \
+    int32_t csnop_##name##_ah_init(CSOUND *csound, CSN_OP_AH *p) { return op_ah_init(csound, p, HH); }                       \
+    int32_t csnop_##name##_ah_perf(CSOUND *csound, CSN_OP_AH *p) { return op_ah_perf(csound, p, HH); }
 
 #define CSN_OP_IN_DEFINE(name, HH, HS)                                                                                       \
     int32_t csnop_##name##in_hh_init(CSOUND *csound, CSN_OP_IN_HH *p) { return op_in_hh_init(csound, p, HH); }               \

@@ -84,6 +84,7 @@ typedef struct {
     bool rt_locked;
     bool shared;
     uint8_t rate; // CSN_RATE: who produces or writes it
+    bool pending; // during the init pass: its values wait for a perf pass (an audio block, or derived from one)
 #ifdef CSN_VERSION_CROSSCHECK
     double *shadow;
     size_t shadow_capacity;

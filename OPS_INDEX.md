@@ -125,7 +125,8 @@ or an array and a real or `:Complex;` scalar on either side, the compound `+=`,
 `-=`, `*=` and `/=`, and unary minus. They are the named opcodes below without a
 trigger, and follow the rates of their operands: with i-rate operands they run
 once, at init; `csnk` makes an operand k-rate so that they run on every control
-period.
+period. An audio signal on either side of `+`, `-`, `*`, `/` and `^` takes part
+as its block of `ksmps` samples, shape `(ksmps,)`; the result is k-rate.
 
 - **csnadd** - addition, array with array or with a scalar (i, k — real, complex)
 - **csnsubtract** - subtraction, array with array or with a scalar (i, k — real, complex)

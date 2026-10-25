@@ -663,6 +663,13 @@ if(BUILD_TESTING)
                 -n -d
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_bridge_regression.csd")
         add_test(
+            NAME csnum_audio_operators_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_operators_regression.csd")
+        add_test(
             NAME csnum_audio_frame_ola_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

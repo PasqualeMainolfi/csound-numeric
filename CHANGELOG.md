@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.1] - 2026-10-25
+
+- Add the operators between a `CsnArr` and an audio signal, on either side of `+`, `-`, `*`, `/` and `^`. The signal takes part as its block of `ksmps` samples, an array of shape `(ksmps,)` as *csnfromaudio* would give, broadcast against the array: `x + mat * (ap * g)` with `mat` of shape `(2, 1)` gives `(2, ksmps)`, one row per channel for *csnunpack*, sample for sample at any `ksmps`. The result is k-rate and marked as a real-time path; the init pass only lays it out, since nothing has computed the signal yet, and the first pass computes
+- Fix the k forms of the arithmetic on an array that *csnfromaudio* or *csnpack* fills, or one derived from it at init: the init pass computed from the placeholder zeros, so `K / csnfromaudio(aSig)` stopped the note on a division by zero before any sample arrived. Such an array now waits for its first pass, and so does what is derived from it at init
+
 ## [1.0.0] - 2026-10-23
 
 - Add `CsnStr`, an array of strings with the layout of a `CsnArr`: up to 8 dimensions, a shape and C-order strides, a value that `B = A` copies and that is released with its variable. Every element owns its string, so a copy, a slice or a reload never shares one with its source. It is a type of its own rather than a third element type: the numeric opcodes are declared on `:CsnArr;`, so a `CsnStr` handed to one is refused when the orchestra is compiled instead of reaching code that reads numbers

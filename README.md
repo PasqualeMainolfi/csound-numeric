@@ -171,6 +171,23 @@ or change the target's layout, is refused. The corresponding named opcodes
 (`csnadd`, `csnsubtract`, `csnmul`, `csndiv`, `csnpow`) remain available, including
 their trigger forms.
 
+An audio signal can be an operand too, on either side of `+`, `-`, `*`, `/` and
+`^`: it takes part as its block of `ksmps` samples, an array of shape `(ksmps,)`,
+as `csnfromaudio` would give, and the result is k-rate and marked as a
+real-time path. A matrix of shape `(channels, 1)` therefore broadcasts a signal
+into one row per channel, which `csnunpack` turns back into signals, sample
+for sample at any `ksmps`:
+
+```csound
+mat:CsnArr = csnfromarray([1, -1])
+csnreshape(mat, [2, 1])
+y:CsnArr = x + mat * (ap * g)    // (2, ksmps): x + ap*g and x - ap*g
+ys:a[]   = csnunpack(y)
+```
+
+The signal is computed only during performance, so the init pass lays the
+result out and the first pass computes it.
+
 On `CsnStr`, `+` joins elementwise, two arrays with broadcasting or an `S` on
 either side, and `*` repeats each string by a count on either side, as
 `csnstradd` and `csnstrmul` do; `+=` and `*=` update the left array. A string

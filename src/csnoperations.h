@@ -51,6 +51,34 @@ typedef struct {
     bool scalar_k;
 } CSN_OP_SH;
 
+/* out = a op sig, with sig an audio signal: its ksmps samples are copied into
+   block on every pass, and block takes part as an operand of shape (ksmps,),
+   as csnfromaudio(sig) would. */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *out;
+    // inputs
+    CSN_ARRAY *a;
+    cs_float *sig;
+    // private
+    CSN_ARRAY block;
+    K_DATA k_data;
+} CSN_OP_HA;
+
+/* out = sig op a */
+typedef struct {
+    OPDS h;
+    // outputs
+    CSN_ARRAY *out;
+    // inputs
+    cs_float *sig;
+    CSN_ARRAY *a;
+    // private
+    CSN_ARRAY block;
+    K_DATA k_data;
+} CSN_OP_AH;
+
 /* out = a op z, with a :Complex; scalar. Complex carries no rate either, so
    these run at perf when the scalar has changed since the last pass. */
 typedef struct {
@@ -207,9 +235,16 @@ typedef struct {
     int32_t csnop_##name##_hc_init(CSOUND *csound, CSN_OP_HC *p);              \
     int32_t csnop_##name##_hc_perf(CSOUND *csound, CSN_OP_HC *p);              \
     int32_t csnop_##name##_ch_init(CSOUND *csound, CSN_OP_CH *p);              \
-    int32_t csnop_##name##_ch_perf(CSOUND *csound, CSN_OP_CH *p);
+    int32_t csnop_##name##_ch_perf(CSOUND *csound, CSN_OP_CH *p);              \
+    int32_t csnop_##name##_ha_init(CSOUND *csound, CSN_OP_HA *p);              \
+    int32_t csnop_##name##_ha_perf(CSOUND *csound, CSN_OP_HA *p);              \
+    int32_t csnop_##name##_ah_init(CSOUND *csound, CSN_OP_AH *p);              \
+    int32_t csnop_##name##_ah_perf(CSOUND *csound, CSN_OP_AH *p);
 
-#define CSN_OP_IN_DECLARE(name)                                                \
+int32_t csnop_ha_deinit(CSOUND *csound, CSN_OP_HA *p);
+int32_t csnop_ah_deinit(CSOUND *csound, CSN_OP_AH *p);
+
+#define CSN_OP_IN_DECLARE(name)                                              \
     int32_t csnop_##name##in_hh_init(CSOUND *csound, CSN_OP_IN_HH *p);         \
     int32_t csnop_##name##in_hh_perf(CSOUND *csound, CSN_OP_IN_HH *p);         \
     int32_t csnop_##name##in_hi_init(CSOUND *csound, CSN_OP_IN_HS *p);         \
