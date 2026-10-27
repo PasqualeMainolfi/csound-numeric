@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.2] - 2026-10-27
 
 - Add *csnframe*, after NumPy's `sliding_window_view(x, frame, axis)[..., ::hop, ...]`: it cuts an axis into frames of `frame` elements, one every `hop`, and puts the frame index and the position inside the frame in that axis's place, so `(..., n, ...)` gives `(..., 1 + (n - frame) // hop, frame, ...)` and each row of a matrix is framed on its own. The result is a copy; the tail that does not fill a frame is dropped, and a frame longer than the source is refused. Real, complex and string arrays, a string copied into every frame that holds it. The k form takes a trigger and then the axis, which it requires so that four arguments always mean the i-time form, frames again when the source changes and keeps its shape, since `frame` and `hop` are i-rate; a source still empty at init starts it empty, and the first pass frames
 - Add *csnzcr*, after `librosa.feature.zero_crossing_rate` with its defaults: the sign changes over the length, a value of magnitude at most `1e-10` counting as `0` and `0` as positive, the first element never a crossing. A 1-D source gives a number, to an `i` or `k` variable; a source of two or more dimensions gives one rate per position of the other axes along an axis, so the frames of *csnframe* give one per frame, as `zero_crossing_rate(y, frame_length, hop_length, center=False)[0]`. Real only; an empty source gives `0`. The k forms take a trigger, and the array one then the axis, which it requires as *csnframe*'s does
