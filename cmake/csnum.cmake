@@ -30,6 +30,7 @@ if(BUILD_CSNUM_OPCODES)
         src/csntypesystem.c
         src/csnstrings.c
         src/csnbinary.c
+        src/csnframe.c
         src/dr_libs.c)
 
     make_plugin(csnum "${CSNUM_SOURCES}")

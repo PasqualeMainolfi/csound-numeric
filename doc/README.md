@@ -90,6 +90,7 @@ that also take one are listed, with the rate, real-time and file rules, in
 - [csnresize](csnresize.md) - reshapes to any size, zero-filling what it grows
 - [csnconcat](csnconcat.md) - joins two arrays, flat or along an axis
 - [csnstack](csnstack.md) - inserts a new axis and stacks two or more equal-shaped arrays
+- [csnframe](csnframe.md) - cuts an axis into overlapping frames of a length every hop
 - [csninsert](csninsert.md) - inserts elements or a block at a position
 - [csnremove](csnremove.md) - removes elements or a block at a position
 - [csnpush](csnpush.md) - appends one element at the end
@@ -273,6 +274,7 @@ operations do not. Use `csnlikeset` again after a generic modification. See
 [Set arrays and their invariant](set-arrays.md).
 
 - [csnshuffle](csnshuffle.md) - randomly permutes the flat element order in place
+- [csnperm](csnperm.md) - every permutation of a 1-D array, or the first few, one per row
 - [csnsort](csnsort.md) - sorts, over everything or along an axis
 - [csnargsort](csnargsort.md) - the coordinates that would sort the array
 - [csnunique](csnunique.md) - the distinct values, in order
@@ -356,6 +358,11 @@ opcode's own page rather than as separate entries here.
 - [csnmfcc](csnmfcc.md) - mel-frequency cepstral coefficients of a signal
 - [csnmfbank](csnmfbank.md) - triangular mel filterbank matrix
 - [csnmlogfbank](csnmlogfbank.md) - the same matrix in logarithmic scale
+
+## Audio features
+
+- [csnzcr](csnzcr.md) - zero crossing rate, of a 1-D signal or along an axis
+- [csnamdf](csnamdf.md) - average magnitude difference function up to a lag, along an axis
 
 ## Convolution and correlation
 

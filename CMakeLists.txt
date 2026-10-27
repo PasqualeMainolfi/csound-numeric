@@ -316,6 +316,36 @@ if(BUILD_TESTING)
             PASS_REGULAR_EXPRESSION "buffer ok"
             FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
         add_test(
+            NAME csnum_frame_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/frame_regression.csd")
+        set_tests_properties(csnum_frame_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "frame ok"
+            FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
+        add_test(
+            NAME csnum_features_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/features_regression.csd")
+        set_tests_properties(csnum_features_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "features ok"
+            FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
+        add_test(
+            NAME csnum_perm_regression
+            COMMAND "${CSOUND_EXECUTABLE}"
+                --run-unit-tests
+                --opcode-dir=$<TARGET_FILE_DIR:csnum>
+                -n -d
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/perm_regression.csd")
+        set_tests_properties(csnum_perm_regression PROPERTIES
+            PASS_REGULAR_EXPRESSION "perm ok"
+            FAIL_REGULAR_EXPRESSION "PERF ERROR|INIT ERROR|error:|TESTS FAILED")
+        add_test(
             NAME csnum_krate_creation_regression
             COMMAND "${CSOUND_EXECUTABLE}"
                 --run-unit-tests

@@ -26,7 +26,9 @@ overload, and [csntype](csntype.md) reports `2` for one.
   [csnshape](csnshape.md), [csnisempty](csnisempty.md), [csntype](csntype.md).
 - Layout, as a copy or in place: [csnreshape](csnreshape.md),
   [csnflatten](csnflatten.md), [csntranspose](csntranspose.md),
-  [csnflip](csnflip.md), [csnroll](csnroll.md), [csnreverse](csnreverse.md).
+  [csnflip](csnflip.md), [csnroll](csnroll.md), [csnreverse](csnreverse.md);
+  [csnframe](csnframe.md) as a copy, each string copied into every frame that
+  holds it.
 - Joining and growing: [csnconcat](csnconcat.md) of two `CsnStr`,
   [csnstack](csnstack.md) of two or more, [csnpad](csnpad.md) with a string
   fill value, as a copy or in place.

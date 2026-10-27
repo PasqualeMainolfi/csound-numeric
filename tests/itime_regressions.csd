@@ -1381,6 +1381,37 @@ instr 3
     iBin += csnsize(iBuf) == 4 && csnsum(iBuf) == 512 && csnsum(iBufBack) == 256 ? 0 : 1
     assert(iBin == 0)
 
+    ; csnframe, i forms: numpy's sliding_window_view(x, 3)[::2], and the same on
+    ; a CsnStr
+    iFrameSrc:CsnArr = csnarange(0, 7, 1)
+    iFramed:CsnArr = csnframe(iFrameSrc, 3, 2)
+    iFrameStr:CsnStr = csnstrsplit("a b c d e", " ")
+    iFramedStr:CsnStr = csnframe(iFrameStr, 2, 2)
+    SFramed = csnstrjoin(iFramedStr, "")
+    iFrame = csnsize(iFramed) == 9 && csnsum(iFramed) == 27 ? 0 : 1
+    iFrame += strcmp(SFramed, "abcd") == 0 ? 0 : 1
+    assert(iFrame == 0)
+
+    ; csnzcr and csnamdf, i forms: librosa's zero crossing rate, as a number
+    ; and per frame, and the AMDF curve, which dips to 0 at the period
+    iZcrSrc:CsnArr = csnfromarray(fillarray(1, -1, 1, -1))
+    iZcr = csnzcr(iZcrSrc)
+    iZcrFrames:CsnArr = csnzcr(csnframe(iZcrSrc, 2, 2))
+    iAmdfSrc:CsnArr = csnfromarray(fillarray(0, 1, 0, -1, 0, 1, 0, -1))
+    iAmdf:CsnArr = csnamdf(iAmdfSrc, 4)
+    iAmdf4 = iAmdf[4]
+    iFeat = iZcr == 0.75 ? 0 : 1
+    iFeat += csnsum(iZcrFrames) == 1 ? 0 : 1
+    iFeat += csnsize(iAmdf) == 5 && csnsum(iAmdf) == 3 && iAmdf4 == 0 ? 0 : 1
+    assert(iFeat == 0)
+
+    ; csnperm, i form: every permutation of three in Heap's order, (6, 3)
+    iPermSrc:CsnArr = csnfromarray(fillarray(1, 2, 3))
+    iPerm:CsnArr = csnperm(iPermSrc)
+    iPerm21 = iPerm[2][1]
+    iPermOk = csnsize(iPerm) == 18 && csnsum(iPerm) == 36 && iPerm21 == 1 ? 0 : 1
+    assert(iPermOk == 0)
+
     ; csnstrsubstr keeps the bytes from start up to stop, stop excluded, every
     ; step-th, clamped to each string (np.strings.slice on bytes)
     SStrSubItems[] fillarray "abcdef", "xy"
@@ -5703,6 +5734,9 @@ e
 ; csnbinstrtoarr csnhexstrtoarr
 ; csntobase64 csntobase64.ss csnfrombase64 csnfrombase64.ss
 ; csntobuffer csnfrombuffer
+; csnframe csnframe.s
+; csnzcr csnzcr.sc csnamdf
+; csnperm
 ; csnstrupper csnstrlower csnstrupper.in csnstrlower.in
 ; csnstrcapitalize csnstrcapitalize.in
 ; csnstrswapcase csnstrswapcase.in

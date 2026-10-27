@@ -2076,6 +2076,7 @@ int32_t csnarray_pad_in_k_scratch_init(CSOUND *csound, OPDS *h, CSN_ARRAY *sourc
 int32_t csnarray_pad_in_k_helper(CSOUND *csound, OPDS *h, CSN_REGISTRY *reg, CSN_ARRAY *scratch, K_DATA *k_data, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in, const cs_float *trig);
 int32_t csnarray_pad_helper(CSOUND *csound, OPDS *h, CSN_ARRAY *out_arr, CSN_ARRAY *source_arr, const cs_float *in_before, const cs_float *in_after, double value, COMPLEXDAT *valuecomp, STRINGDAT *valuestring, ITEM_TYPE expected_itype, const cs_float *axis_in);
 void free_private_array(CSOUND *csound, CSN_ARRAY **arr);
+size_t csn_factorial(size_t n);
 
 // audio file
 int32_t csnfile_load_audiofile(CSOUND *csound, CSN_LOAD_AUDIO_FILE *p);

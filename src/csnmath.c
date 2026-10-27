@@ -13,6 +13,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* n!, or SIZE_MAX when it does not fit in a size_t (from 21! on). */
+size_t csn_factorial(size_t n) {
+    size_t y = 1;
+    for (size_t i = 2; i <= n; i++) {
+        if (y > SIZE_MAX / i) return SIZE_MAX;
+        y *= i;
+    }
+    return y;
+}
+
 /* Dense real path: both operands real, neither broadcast, and arrays are
    always C-contiguous, so element i of each operand is data[i]. The mode is
    picked once instead of per element, which leaves loops the compiler can

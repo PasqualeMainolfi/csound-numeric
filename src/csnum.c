@@ -1,4 +1,5 @@
 #include "csnbinary.h"
+#include "csnframe.h"
 #include "csnstrings.h"
 #include "csntypesystem.h"
 #include "csnum.h"
@@ -170,10 +171,11 @@ int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, cons
         || dst->ndim == 0 || dst->ndim > CSN_MAX_DIMS || axis >= src->ndim) return NOTOK;
 
     bool is_reduction = dst->ndim + 1U == src->ndim;
-    if (!is_reduction && dst->ndim != src->ndim) return NOTOK;
+    bool is_expansion = dst->ndim == src->ndim + 1U;
+    if (!is_reduction && !is_expansion && dst->ndim != src->ndim) return NOTOK;
     for (uint32_t d = 0; d < src->ndim; ++d) {
         if (d == axis) continue;
-        uint32_t j = is_reduction && d > axis ? d - 1U : d;
+        uint32_t j = d < axis ? d : is_reduction ? d - 1U : is_expansion ? d + 1U : d;
         if (src->shape[d] != dst->shape[j]) return NOTOK;
     }
 
@@ -183,7 +185,7 @@ int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, cons
     for (uint32_t d = 0; d < src->ndim; ++d) {
         if (d == axis) continue;
         uint32_t r = it->ndim++;
-        uint32_t j = is_reduction && d > axis ? d - 1U : d;
+        uint32_t j = d < axis ? d : is_reduction ? d - 1U : is_expansion ? d + 1U : d;
         it->shape[r] = src->shape[d];
         it->inner_strides[r] = src->strides[d];
         it->outer_strides[r] = dst->strides[j];
@@ -191,7 +193,7 @@ int32_t AXIS_ITER_SLICE_INIT(CSN_AXIS_SLICE_ITER *it, const CSN_ARRAY *src, cons
         it->slice_count *= src->shape[d];
     }
     it->src_axis_stride = src->strides[axis];
-    it->dst_axis_stride = is_reduction ? 0 : dst->strides[axis];
+    it->dst_axis_stride = is_reduction ? 0 : dst->strides[is_expansion ? axis + 1U : axis];
     it->axis_size = src->shape[axis];
     if (src->size == 0 || dst->size == 0 || it->axis_size == 0) it->slice_count = 0;
 
@@ -2635,6 +2637,19 @@ static OENTRY localops[] = {
     { "csnzsosfilter.k",         S(CSN_SOSFILTER_Z),            0, ":CsnArr;:CsnArr;",         ":CsnArr;:CsnArr;:CsnArr;P",          (SUBR) csnsig_zsosfilter_arr_k_init,     (SUBR) csnsig_zsosfilter_arr_k,         (SUBR) csnsig_zsosfilter_arr_deinit,     NULL, 0 },
     { "csnzsosfilter.k.ax",      S(CSN_SOSFILTER_Z),            0, ":CsnArr;:CsnArr;",         ":CsnArr;:CsnArr;:CsnArr;ki",         (SUBR) csnsig_zsosfilter_arr_k_init,     (SUBR) csnsig_zsosfilter_arr_k,         (SUBR) csnsig_zsosfilter_arr_deinit,     NULL, 0 },
 
+    { "csnframe",                S(CSN_FRAME),                  0, ":CsnArr;",                 ":CsnArr;iij",                        (SUBR) csnframe_framing,                 NULL,                                   NULL,                                    NULL, 0 },
+    { "csnframe.k",              S(CSN_FRAME),                  0, ":CsnArr;",                 ":CsnArr;iiki",                       (SUBR) csnframe_framing,                 (SUBR) csnframe_framing_k,              NULL,                                    NULL, 0 },
+    { "csnframe.s",              S(CSN_FRAME),                  0, ":CsnStr;",                 ":CsnStr;iij",                        (SUBR) csnframe_framing,                 NULL,                                   NULL,                                    NULL, 0 },
+    { "csnframe.s.k",            S(CSN_FRAME),                  0, ":CsnStr;",                 ":CsnStr;iiki",                       (SUBR) csnframe_framing,                 (SUBR) csnframe_framing_k,              NULL,                                    NULL, 0 },
+    { "csnzcr",                  S(CSN_TFEATURE),               0, ":CsnArr;",                 ":CsnArr;j",                          (SUBR) csnframe_zcr,                     NULL,                                   NULL,                                    NULL, 0 },
+    { "csnzcr.k",                S(CSN_TFEATURE),               0, ":CsnArr;",                 ":CsnArr;ki",                         (SUBR) csnframe_zcr,                     (SUBR) csnframe_zcr_k,                  NULL,                                    NULL, 0 },
+    { "csnamdf",                 S(CSN_TFEATURE),               0, ":CsnArr;",                 ":CsnArr;ij",                         (SUBR) csnframe_amdf,                    NULL,                                   NULL,                                    NULL, 0 },
+    { "csnamdf.k",               S(CSN_TFEATURE),               0, ":CsnArr;",                 ":CsnArr;iki",                        (SUBR) csnframe_amdf,                    (SUBR) csnframe_amdf_k,                 NULL,                                    NULL, 0 },
+    { "csnzcr.sc",               S(CSN_TFEATURE_SCALAR),        0, "i",                        ":CsnArr;",                           (SUBR) csnframe_zcr_scalar,              NULL,                                   NULL,                                    NULL, 0 },
+    { "csnzcr.sc.k",             S(CSN_TFEATURE_SCALAR),        0, "k",                        ":CsnArr;k",                          (SUBR) csnframe_zcr_scalar,              (SUBR) csnframe_zcr_scalar_k,           NULL,                                    NULL, 0 },
+
+    { "csnperm",                 S(CSN_PERM),                   0, ":CsnArr;",                 ":CsnArr;j",                          (SUBR) csnframe_perm,                    NULL,                                   (SUBR) csnframe_perm_deinit,             NULL, 0 },
+    { "csnperm.k",               S(CSN_PERM),                   0, ":CsnArr;",                 ":CsnArr;ik",                         (SUBR) csnframe_perm,                    (SUBR) csnframe_perm_k,                 (SUBR) csnframe_perm_deinit,             NULL, 0 },
     // ---
 };
 

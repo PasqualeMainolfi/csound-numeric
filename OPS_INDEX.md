@@ -86,6 +86,7 @@ including Fortran-order files. A zero trigger does not touch the disk.
 - **csnresize** - reshapes to any size, zero-filling what it grows (i, k — real, complex, string)
 - **csnconcat** - joins two arrays, flat or along an axis (i, k — real, complex, string)
 - **csnstack** - inserts a new axis and stacks two or more equal-shaped arrays (i, k — real, complex, string)
+- **csnframe** - cuts an axis into overlapping frames of a length every hop, one more dimension (i, k — real, complex, string)
 - **csninsert** - inserts elements or a block at a position (i, k — real, complex, string)
 - **csnremove** - removes elements or a block at a position (i, k — real, complex, string)
 - **csnpush** - appends one element at the end (i, k — real, complex, string)
@@ -280,6 +281,7 @@ result with **csnlikeset** before using it as a set again. See
 [the set-array contract](doc/set-arrays.md).
 
 - **csnshuffle** - randomly permutes the flat element order in place (i, k — real, string)
+- **csnperm** - every permutation of a 1-D array, or the first few, one per row (i, k — real only)
 - **csnsort** - sorts, over everything or along an axis (i, k — real only)
 - **csnargsort** - the coordinates that would sort the array (i, k — real only)
 - **csnunique** - the distinct values, in order (i, k — real only)
@@ -398,6 +400,15 @@ neighbours rather than collapsing. `nfft` is a power of two, as everywhere else.
 - **csnmfcc** - mel-frequency cepstral coefficients of a signal (i, k — real input; real output)
 - **csnmfbank** - triangular mel filterbank matrix (i — real output)
 - **csnmlogfbank** - the same matrix in logarithmic scale (i — real output)
+
+## Audio features
+
+Measures taken along an axis, one value or one curve per frame of
+[csnframe](doc/csnframe.md). The k-rate forms take a trigger and then the axis,
+which they require.
+
+- **csnzcr** - zero crossing rate, of a 1-D signal or along an axis, as librosa's (i, k — real only)
+- **csnamdf** - average magnitude difference function D(tau) up to a lag, along an axis (i, k — real only)
 
 ## Convolution and correlation
 
